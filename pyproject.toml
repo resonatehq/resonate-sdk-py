@@ -29,3 +29,34 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/resonate_sdk_py"]
+
+[tool.ruff]
+line-length = 88
+fix = true
+
+[tool.ruff.lint]
+logger-objects = ["pyrgo.logging.logger"]
+ignore = [
+    "ANN101",
+    "D203",
+    "D212",
+    "COM812",
+    "COM819",
+    "D206",
+    "E501",
+    "ISC001",
+    "Q",
+    "W191",
+    "UP007",
+    "ANN102",
+    "D"
+]
+select = ["ALL"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["D104"]
+"tests/*.py" = ["INP001", "S101", "D"]
