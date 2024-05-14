@@ -1,26 +1,41 @@
 from __future__ import annotations
 
-import pytest
-from resonate_sdk_py import Context
+from dataclasses import dataclass
+
+from resonate_sdk_py import Context, InputParams, OutputParams
 
 
-def greet(ctx: Context, name: str) -> str:  # noqa: ARG001
-    return f"Hi {name}"
+@dataclass(frozen=True)
+class GreetParams(InputParams):
+    name: str
 
 
-def count(ctx: Context, up_to: int) -> int:  # noqa: ARG001
-    return up_to
+@dataclass(frozen=True)
+class GreetOut(OutputParams):
+    text: str
+
+
+def greet(ctx: Context, params: GreetParams) -> GreetOut:  # noqa: ARG001
+    return GreetOut(text=f"Hi {params.name}")
+
+
+@dataclass(frozen=True)
+class CountParams(InputParams):
+    up_to: int
+
+
+@dataclass(frozen=True)
+class CountOut(OutputParams):
+    counted: list[int]
+
+
+def count(ctx: Context, params: CountParams) -> CountOut:  # noqa: ARG001
+    return CountOut(counted=list(range(1, params.up_to + 1)))
 
 
 def test_run_function_from_context() -> None:
     ctx = Context()
-    x = ctx.run(greet, name="tomas")
-    y = ctx.run(count, up_to=10)
-    assert x == "Hi tomas"
-    assert y == 10  # noqa: PLR2004
-
-
-def test_bad_params_run_function_from_context() -> None:
-    ctx = Context()
-    with pytest.raises(TypeError):
-        ctx.run(greet, age=30)  # type: ignore[call-arg]
+    x = ctx.run(greet, params=GreetParams(name="tomas"))
+    y = ctx.run(count, params=CountParams(up_to=10))
+    assert x == GreetOut(text="Hi tomas")
+    assert y == CountOut(counted=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10])

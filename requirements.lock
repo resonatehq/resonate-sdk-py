@@ -8,3 +8,9 @@
 #   with-sources: false
 
 -e file:.
+mashumaro==3.13
+    # via resonate-sdk-py
+orjson==3.10.3
+    # via mashumaro
+typing-extensions==4.11.0
+    # via mashumaro
