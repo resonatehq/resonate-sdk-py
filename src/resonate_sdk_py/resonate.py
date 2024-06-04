@@ -113,33 +113,29 @@ class Scheduler:
                     # see what you get: did you get a generator, then schedule it, did you get a value, then resolve the promise
                     prom = Promise()
 
-                    try:
-                        v = retv.func(*retv.args)
-
-                        if inspect.isgenerator(v):
-                            self.runnable.append(Runnable(v, Next(init=True), prom))
-                            self.runnable.append(Awaiting(coro, Next(value=prom), resv))
-                        else:
-                            prom.resolve(v)
-                            self.runnable.append(Runnable(coro, Next(value=prom), resv))
-                    except Exception as e:
-                        prom.reject(e)
+                    if inspect.isgeneratorfunction(retv.func):
+                        self.runnable.append(Runnable(retv.func(*retv.args, **retv.kwargs), Next(init=True), prom))
+                        self.runnable.append(Awaiting(coro, Next(value=prom), resv))
+                    else:
+                        try:
+                            prom.resolve(retry(retv.func, *retv.args, **retv.kwargs))
+                        except Exception as e:
+                            prom.reject(e)
                         self.runnable.append(Runnable(coro, Next(value=prom), resv))
                 elif isinstance(retv, Call):
                     prom = Promise()
 
-                    try:
-                        v = retv.func(*retv.args)
-
-                        if inspect.isgenerator(v):
-                            self.runnable.append(Runnable(v, Next(init=True), prom))
-                            self.awaiting.append(Awaiting(coro, prom, resv))
-                        else:
+                    if inspect.isgeneratorfunction(retv.func):
+                        self.runnable.append(Runnable(retv.func(*retv.args, **retv.kwargs), Next(init=True), prom))
+                        self.runnable.append(Awaiting(coro, prom, resv))
+                    else:
+                        try:
+                            v = retry(retv.func, *retv.args, **retv.kwargs)
                             prom.resolve(v)
                             self.runnable.append(Runnable(coro, Next(value=v), resv))
-                    except Exception as e:
-                        prom.reject(e)
-                        self.runnable.append(Runnable(coro, Next(value=e), resv))
+                        except Exception as e:
+                            prom.reject(e)
+                            self.runnable.append(Runnable(coro, Next(throw=e), resv))
                 else:
                     assert False, "Coroutine must return Promise, Invocation, or Call."
 
@@ -167,6 +163,13 @@ class Resonate:
         self.scheduler.add(func, *args, **kwargs)
         return self.scheduler.run()
 
+def retry(func: Callable, *args: Any, **kwargs: Any):
+    for i in range(3):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if i == 2:
+                raise e
 
 def advance(coro: Coro, resv: Next) -> Tuple[bool, Yielded]:
     try:
