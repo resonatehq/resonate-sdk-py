@@ -72,7 +72,6 @@ def test_race_condition(
             ),
         ]
     )
-    conn.commit()
 
     source_balance: int = conn.execute(
         "SELECT balance FROM accounts WHERE account_id = 1"

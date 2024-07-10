@@ -51,6 +51,10 @@ class Scheduler:
             scheduler=self,
         )
         self._batch_size = batch_size
+        self._deps: dict[str, Any] = {}
+
+    def set_dependency(self, key: str, obj: Any) -> None:  # noqa: ANN401
+        self._deps[key] = obj
 
     def signal(self) -> None:
         with self._lock:
@@ -64,7 +68,7 @@ class Scheduler:
         **kwargs: P.kwargs,
     ) -> Promise[T]:
         p = Promise[T]()
-        ctx = Context()
+        ctx = Context(deps=self._deps)
         self._stg_q.put(item=CoroAndPromise(coro(ctx, *args, **kwargs), p))
         self.signal()
 

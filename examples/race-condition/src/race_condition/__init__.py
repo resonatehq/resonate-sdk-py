@@ -43,23 +43,23 @@ def update_balance(
 
 
 def transaction(
-    ctx: Context, conn: Connection, source: int, target: int, amount: int
+    ctx: Context, source: int, target: int, amount: int
 ) -> Generator[Yieldable, Any, None]:
-    ctx.set_dependency(key="conn", obj=conn)
+    conn: Connection = ctx.get_dependency(key="conn")
+    with conn:
+        source_balance: int = yield ctx.call(current_balance, account_id=source)
 
-    source_balance: int = yield ctx.call(current_balance, account_id=source)
+        if source_balance - amount < 0:
+            raise NotEnoughFundsError(account_id=source)
 
-    if source_balance - amount < 0:
-        raise NotEnoughFundsError(account_id=source)
+        yield ctx.call(
+            update_balance,
+            account_id=source,
+            amount=amount * -1,
+        )
 
-    yield ctx.call(
-        update_balance,
-        account_id=source,
-        amount=amount * -1,
-    )
-
-    yield ctx.call(
-        update_balance,
-        account_id=target,
-        amount=amount,
-    )
+        yield ctx.call(
+            update_balance,
+            account_id=target,
+            amount=amount,
+        )

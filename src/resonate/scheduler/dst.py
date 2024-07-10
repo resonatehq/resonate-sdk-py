@@ -44,13 +44,17 @@ class DSTScheduler:
         self._callbacks_to_run: list[Callable[..., None]] = []
         self.seed = seed
         self._r = random.Random(self.seed)  # noqa: RUF100, S311
+        self._deps: dict[str, Any] = {}
+
+    def set_dependency(self, key: str, obj: Any) -> None:  # noqa: ANN401
+        self._deps[key] = obj
 
     def _add(
         self,
         coro: partial[Generator[Yieldable, Any, T]],
     ) -> Promise[T]:
         p = Promise[T]()
-        ctx = Context(dst=True)
+        ctx = Context(dst=True, deps=self._deps)
         self._pending_to_run.append(
             Runnable(
                 coro_and_promise=CoroAndPromise(coro(ctx), p),

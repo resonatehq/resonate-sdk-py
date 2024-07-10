@@ -28,7 +28,6 @@ def setup_and_teardown() -> Generator[sqlite3.Connection, None, None]:
         (2, 0)
         """
     )
-    conn.commit()
     yield conn
 
 
@@ -43,21 +42,18 @@ def test_race_condition(
         [
             partial(
                 race_condition.transaction,
-                conn=conn,
                 source=1,
                 target=2,
                 amount=100,
             ),
             partial(
                 race_condition.transaction,
-                conn=conn,
                 source=1,
                 target=2,
                 amount=70,
             ),
         ]
     )
-    conn.commit()
 
     source_balance: int = conn.execute(
         "SELECT balance FROM accounts WHERE account_id = 1"
