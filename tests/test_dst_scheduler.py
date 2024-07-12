@@ -53,10 +53,10 @@ def test_mock_function() -> None:
     s = DSTScheduler(seed=1)
     executions = [partial(only_call, n=3), partial(only_invocation, n=3)]
     promises = s.run(executions)
-    assert (p.result() == 3 for p in promises)  # noqa: PLR2004
+    assert all(p.result() == 3 for p in promises)  # noqa: PLR2004
     s = DSTScheduler(seed=1, mocks={number: mocked_number})
     promises = s.run(executions)
-    assert (p.result() == 23 for p in promises)  # noqa: PLR2004
+    assert all(p.result() == 23 for p in promises)  # noqa: PLR2004
 
 
 @pytest.mark.dst()
