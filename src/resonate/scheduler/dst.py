@@ -80,6 +80,7 @@ class DSTScheduler:
             promises.append(p)
 
         while True:
+            # TODO: Should we crash? (self.random)
             next_step: Steps = self.random.choice(["callbacks", "runnables"])
             if next_step == "callbacks" and self._callbacks_to_run:
                 cb = get_random_element(self._callbacks_to_run, r=self.random)

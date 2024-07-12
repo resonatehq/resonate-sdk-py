@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import os
 import random
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import pytest
 import resonate
+from resonate.contants import ENV_VARIABLE_PIN_SEED
 from resonate.scheduler.dst import DSTScheduler
+from resonate.testing import dst
 from typing_extensions import TypeVar
 
 if TYPE_CHECKING:
@@ -46,6 +49,17 @@ def _promise_result(promises: list[Promise[T]]) -> list[T]:
 
 def mocked_number() -> int:
     return 23
+
+
+@pytest.mark.dst()
+def test_pin_seed() -> None:
+    s = dst(seeds=[1])[0]
+    assert s.seed == 1
+
+    os.environ[ENV_VARIABLE_PIN_SEED] = "32"
+    s = dst(seeds=[1])[0]
+
+    assert s.seed == int(os.environ.pop(ENV_VARIABLE_PIN_SEED))
 
 
 @pytest.mark.dst()
