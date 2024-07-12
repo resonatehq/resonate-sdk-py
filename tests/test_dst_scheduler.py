@@ -19,29 +19,44 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-def _number(ctx: Context, n: int) -> int:  # noqa: ARG001
+def number(ctx: Context, n: int) -> int:  # noqa: ARG001
     return n
 
 
 def only_call(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
-    x: int = yield ctx.call(_number, n=n)
+    x: int = yield ctx.call(number, n=n)
     return x
 
 
-def only_invocation(ctx: Context) -> Generator[Yieldable, Any, int]:
-    xp: Promise[int] = yield ctx.invoke(_number, n=3)
+def only_invocation(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    xp: Promise[int] = yield ctx.invoke(number, n=n)
     x: int = yield xp
     return x
 
 
 def failing_asserting(ctx: Context) -> Generator[Yieldable, Any, int]:
-    x: int = yield ctx.call(only_invocation)
+    x: int = yield ctx.call(only_invocation, n=3)
     ctx.assert_statement(x < 0, f"{x} should be negative")
     return x
 
 
 def _promise_result(promises: list[Promise[T]]) -> list[T]:
     return [x.result() for x in promises]
+
+
+def mocked_number() -> int:
+    return 23
+
+
+@pytest.mark.dst()
+def test_mock_function() -> None:
+    s = DSTScheduler(seed=1)
+    executions = [partial(only_call, n=3), partial(only_invocation, n=3)]
+    promises = s.run(executions)
+    assert (p.result() == 3 for p in promises)  # noqa: PLR2004
+    s = DSTScheduler(seed=1, mocks={number: mocked_number})
+    promises = s.run(executions)
+    assert (p.result() == 23 for p in promises)  # noqa: PLR2004
 
 
 @pytest.mark.dst()

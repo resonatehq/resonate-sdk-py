@@ -3,10 +3,10 @@ from __future__ import annotations
 import random
 from collections.abc import Generator
 from inspect import isgeneratorfunction
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
-from result import Ok, Result
-from typing_extensions import ParamSpec, TypeVar, assert_never
+from result import Err, Ok, Result
+from typing_extensions import Concatenate, ParamSpec, TypeAlias, TypeVar, assert_never
 
 from resonate.context import Call, Context, Invoke
 from resonate.dependency_injection import Dependencies
@@ -27,7 +27,7 @@ from .shared import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Coroutine, Generator
     from functools import partial
 
     from resonate.typing import Yieldable
@@ -35,10 +35,19 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 P = ParamSpec("P")
+Steps: TypeAlias = Literal["callbacks", "runnables"]
 
 
 class DSTScheduler:
-    def __init__(self, seed: int) -> None:
+    def __init__(
+        self,
+        seed: int,
+        mocks: dict[
+            Callable[Concatenate[Context, ...], Any | Coroutine[Any, Any, Any]],
+            Callable[[], Any],
+        ]
+        | None = None,
+    ) -> None:
         self._pending_to_run: PendingToRun = []
         self._waiting_for_prom_resolution: WaitingForPromiseResolution = {}
         self._execution_events: list[str] = []
@@ -46,6 +55,7 @@ class DSTScheduler:
         self.seed = seed
         self.random = random.Random(self.seed)  # noqa: RUF100, S311
         self.deps = Dependencies()
+        self.mocks = mocks or {}
 
     def _add(
         self,
@@ -70,7 +80,7 @@ class DSTScheduler:
             promises.append(p)
 
         while True:
-            next_step = self.random.choice(["callbacks", "runnables"])
+            next_step: Steps = self.random.choice(["callbacks", "runnables"])
             if next_step == "callbacks" and self._callbacks_to_run:
                 cb = get_random_element(self._callbacks_to_run, r=self.random)
                 cb()
@@ -145,10 +155,16 @@ class DSTScheduler:
         p = Promise[Any]()
         self._waiting_for_prom_resolution[p] = [runnable.coro_and_promise]
         if not isgeneratorfunction(call.fn):
-            v = cast(
-                Result[Any, Exception],
-                wrap_fn_into_cmd(call.ctx, call.fn, *call.args, **call.kwargs).run(),
-            )
+            mock_fn = self.mocks.get(call.fn)
+            if mock_fn is not None:
+                v = _safe_run(fn=mock_fn)
+            else:
+                v = cast(
+                    Result[Any, Exception],
+                    wrap_fn_into_cmd(
+                        call.ctx, call.fn, *call.args, **call.kwargs
+                    ).run(),
+                )
 
             self._callbacks_to_run.append(
                 lambda: callback(
@@ -173,12 +189,19 @@ class DSTScheduler:
         p = Promise[Any]()
         self._pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
         if not isgeneratorfunction(invocation.fn):
-            v = cast(
-                Result[Any, Exception],
-                wrap_fn_into_cmd(
-                    invocation.ctx, invocation.fn, *invocation.args, **invocation.kwargs
-                ).run(),
-            )
+            mock_fn = self.mocks.get(invocation.fn)
+            if mock_fn is not None:
+                v = _safe_run(mock_fn)
+            else:
+                v = cast(
+                    Result[Any, Exception],
+                    wrap_fn_into_cmd(
+                        invocation.ctx,
+                        invocation.fn,
+                        *invocation.args,
+                        **invocation.kwargs,
+                    ).run(),
+                )
             self._callbacks_to_run.append(
                 lambda: callback(
                     p=p,
@@ -200,3 +223,12 @@ class DSTScheduler:
 
 def get_random_element(array: list[T], r: random.Random) -> T:
     return array.pop(r.randrange(len(array)))
+
+
+def _safe_run(fn: Callable[[], T]) -> Result[T, Exception]:
+    result: Result[T, Exception]
+    try:
+        result = Ok(fn())
+    except Exception as e:  # noqa: BLE001
+        result = Err(e)
+    return result
