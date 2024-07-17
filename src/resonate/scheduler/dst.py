@@ -65,7 +65,7 @@ class DSTScheduler:
         ctx = Context(dst=True, deps=self.deps)
         self._pending_to_run.append(
             Runnable(
-                coro_and_promise=CoroAndPromise(coro(ctx), p),
+                coro_and_promise=CoroAndPromise(coro(ctx), p, ctx),
                 next_value=None,
             )
         )
@@ -155,6 +155,7 @@ class DSTScheduler:
         logger.debug("Processing call")
         p = Promise[Any]()
         self._waiting_for_prom_resolution[p] = [runnable.coro_and_promise]
+        child_ctx = runnable.coro_and_promise.ctx.new_child()
         if not isgeneratorfunction(call.fn):
             mock_fn = self.mocks.get(call.fn)
             if mock_fn is not None:
@@ -163,7 +164,7 @@ class DSTScheduler:
                 v = cast(
                     Result[Any, Exception],
                     wrap_fn_into_cmd(
-                        call.ctx, call.fn, *call.args, **call.kwargs
+                        child_ctx, call.fn, *call.args, **call.kwargs
                     ).run(),
                 )
 
@@ -176,9 +177,9 @@ class DSTScheduler:
                 )
             )
         else:
-            coro = call.fn(call.ctx, *call.args, **call.kwargs)
+            coro = call.fn(child_ctx, *call.args, **call.kwargs)
             self._pending_to_run.append(
-                Runnable(CoroAndPromise(coro, p), next_value=None)
+                Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
 
     def _handle_invocation(
@@ -189,6 +190,7 @@ class DSTScheduler:
         logger.debug("Processing invocation")
         p = Promise[Any]()
         self._pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
+        child_ctx = runnable.coro_and_promise.ctx.new_child()
         if not isgeneratorfunction(invocation.fn):
             mock_fn = self.mocks.get(invocation.fn)
             if mock_fn is not None:
@@ -197,7 +199,7 @@ class DSTScheduler:
                 v = cast(
                     Result[Any, Exception],
                     wrap_fn_into_cmd(
-                        invocation.ctx,
+                        child_ctx,
                         invocation.fn,
                         *invocation.args,
                         **invocation.kwargs,
@@ -213,9 +215,9 @@ class DSTScheduler:
             )
 
         else:
-            coro = invocation.fn(invocation.ctx, *invocation.args, **invocation.kwargs)
+            coro = invocation.fn(child_ctx, *invocation.args, **invocation.kwargs)
             self._pending_to_run.append(
-                Runnable(CoroAndPromise(coro, p), next_value=None)
+                Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
 
     def get_events(self) -> list[str]:
