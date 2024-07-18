@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from collections import deque
 from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
@@ -35,6 +36,19 @@ Steps: TypeAlias = Literal["callbacks", "runnables"]
 Mode: TypeAlias = Literal["concurrent", "sequential"]
 
 
+class _TopLevelInvoke:
+    def __init__(
+        self,
+        fn: Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> None:
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+
+
 class DSTFailureError(Exception):
     def __init__(self) -> None:
         super().__init__()
@@ -57,7 +71,7 @@ class DSTScheduler:
         self._max_failures: int = max_failures
         self.current_failures: int = 0
         self.tick: int = -1
-        self._top_level_invocations: list[Invoke] = []
+        self._top_level_invocations: deque[_TopLevelInvoke] = deque()
         self._mode: Mode = mode
 
         self._pending_to_run: PendingToRun = []
@@ -77,7 +91,7 @@ class DSTScheduler:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
-        self._top_level_invocations.append(Invoke(coro, *args, **kwargs))
+        self._top_level_invocations.appendleft(_TopLevelInvoke(coro, *args, **kwargs))
 
     def _reset(self) -> None:
         self._pending_to_run.clear()
@@ -94,12 +108,10 @@ class DSTScheduler:
                 self._reset()
 
     def _initialize_runnables(self) -> list[Promise[Any]]:
-        promises: list[Promise[Any]] = []
-        for invocation in self._top_level_invocations:
-            if not isgeneratorfunction(invocation.fn):
-                msg = "Invoking a not generator function."
-                raise RuntimeError(msg)
-
+        promises: list[Promise[Any]] = [
+            ... for _ in range(len(self._top_level_invocations))
+        ]
+        for idx, invocation in enumerate(self._top_level_invocations):
             p = Promise[Any]()
             ctx = Context(dst=True, deps=self.deps)
             self._pending_to_run.append(
@@ -112,8 +124,21 @@ class DSTScheduler:
                     next_value=None,
                 )
             )
-            promises.append(p)
+            promises[-idx - 1] = p
         return promises
+
+    def _next_step(self) -> Steps:
+        next_step: Steps
+        if self._mode == "sequential":
+            next_step = "callbacks" if self._callbacks_to_run else "runnables"
+        elif not self._callbacks_to_run:
+            next_step = "runnables"
+        elif not self._pending_to_run:
+            next_step = "callbacks"
+        else:
+            next_step = self.random.choice(["callbacks", "runnables"])
+
+        return next_step
 
     def _run(self) -> list[Promise[Any]]:
         promises = self._initialize_runnables()
@@ -129,11 +154,7 @@ class DSTScheduler:
             ):
                 raise DSTFailureError
 
-            next_step: Steps
-            if self._mode == "sequential":
-                next_step = "callbacks" if self._callbacks_to_run else "runnables"
-            else:
-                next_step = self.random.choice(["callbacks", "runnables"])
+            next_step = self._next_step()
             if next_step == "callbacks" and self._callbacks_to_run:
                 cb = get_random_element(
                     self._callbacks_to_run, r=self.random, mode=self._mode

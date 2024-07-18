@@ -152,20 +152,20 @@ def test_dst_framework(scheduler: DSTScheduler) -> None:
 
 @pytest.mark.dst()
 def test_failure() -> None:
-    scheduler = DSTScheduler(seed=1, max_failures=2, failure_chance=100)
+    scheduler = DSTScheduler(seed=1, max_failures=3, failure_chance=100)
     scheduler.add(only_call, n=1)
     p = scheduler.run()
     assert p[0].done()
     assert p[0].result() == 1
     assert scheduler.tick == 5  # noqa: PLR2004
-    assert scheduler.current_failures == 2  # noqa: PLR2004
+    assert scheduler.current_failures == 3  # noqa: PLR2004
 
     scheduler = DSTScheduler(seed=1, max_failures=2, failure_chance=0)
     scheduler.add(only_call, n=1)
     p = scheduler.run()
     assert p[0].done()
     assert p[0].result() == 1
-    assert scheduler.tick == 5  # noqa: PLR2004
+    assert scheduler.tick == 2  # noqa: PLR2004
     assert scheduler.current_failures == 0
 
 
@@ -180,16 +180,16 @@ def test_sequential() -> None:
     promises = seq_scheduler.run()
     assert [p.result() for p in promises] == [1, 2, 3, 4, 5]
     assert seq_scheduler.get_events() == [
-        "Call number with params args=() kwargs={'n': 5} handled",
-        "Promise resolved with value Ok(5)",
-        "Call number with params args=() kwargs={'n': 4} handled",
-        "Promise resolved with value Ok(4)",
-        "Call number with params args=() kwargs={'n': 3} handled",
-        "Promise resolved with value Ok(3)",
-        "Call number with params args=() kwargs={'n': 2} handled",
-        "Promise resolved with value Ok(2)",
         "Call number with params args=() kwargs={'n': 1} handled",
         "Promise resolved with value Ok(1)",
+        "Call number with params args=() kwargs={'n': 2} handled",
+        "Promise resolved with value Ok(2)",
+        "Call number with params args=() kwargs={'n': 3} handled",
+        "Promise resolved with value Ok(3)",
+        "Call number with params args=() kwargs={'n': 4} handled",
+        "Promise resolved with value Ok(4)",
+        "Call number with params args=() kwargs={'n': 5} handled",
+        "Promise resolved with value Ok(5)",
     ]
 
     con_scheduler = DSTScheduler(seed=1, mode="concurrent")
@@ -201,14 +201,14 @@ def test_sequential() -> None:
     promises = con_scheduler.run()
     assert [p.result() for p in promises] == [1, 2, 3, 4, 5]
     assert con_scheduler.get_events() == [
-        "Call number with params args=() kwargs={'n': 4} handled",
         "Call number with params args=() kwargs={'n': 5} handled",
-        "Call number with params args=() kwargs={'n': 2} handled",
-        "Call number with params args=() kwargs={'n': 1} handled",
-        "Promise resolved with value Ok(4)",
         "Call number with params args=() kwargs={'n': 3} handled",
-        "Promise resolved with value Ok(2)",
+        "Call number with params args=() kwargs={'n': 1} handled",
+        "Call number with params args=() kwargs={'n': 2} handled",
         "Promise resolved with value Ok(1)",
-        "Promise resolved with value Ok(3)",
+        "Call number with params args=() kwargs={'n': 4} handled",
         "Promise resolved with value Ok(5)",
+        "Promise resolved with value Ok(3)",
+        "Promise resolved with value Ok(2)",
+        "Promise resolved with value Ok(4)",
     ]
