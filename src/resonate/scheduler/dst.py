@@ -48,6 +48,9 @@ class _TopLevelInvoke:
         self.args = args
         self.kwargs = kwargs
 
+    def to_invocation(self) -> Invoke:
+        return Invoke(self.fn, *self.args, **self.kwargs)
+
 
 class DSTFailureError(Exception):
     def __init__(self) -> None:
@@ -111,13 +114,18 @@ class DSTScheduler:
         promises: list[Promise[Any]] = [
             ... for _ in range(len(self._top_level_invocations))
         ]
-        for idx, invocation in enumerate(self._top_level_invocations):
-            p = Promise[Any]()
+        for idx, top_level_invocation in enumerate(self._top_level_invocations):
+            p = Promise[Any](top_level_invocation.to_invocation())
+            # Promise Created
             ctx = Context(dst=True, deps=self.deps)
             self._pending_to_run.append(
                 Runnable(
                     coro_and_promise=CoroAndPromise(
-                        invocation.fn(ctx, *invocation.args, **invocation.kwargs),
+                        top_level_invocation.fn(
+                            ctx,
+                            *top_level_invocation.args,
+                            **top_level_invocation.kwargs,
+                        ),
                         p,
                         ctx,
                     ),
@@ -133,8 +141,12 @@ class DSTScheduler:
             next_step = "callbacks" if self._callbacks_to_run else "runnables"
         elif not self._callbacks_to_run:
             next_step = "runnables"
+            assert self._pending_to_run, "There should something in callbacks"
+
         elif not self._pending_to_run:
             next_step = "callbacks"
+            assert self._callbacks_to_run, "There should something in callbacks"
+
         else:
             next_step = self.random.choice(["callbacks", "runnables"])
 
@@ -148,6 +160,9 @@ class DSTScheduler:
 
         while True:
             self.tick += 1
+            if not self._callbacks_to_run and not self._pending_to_run:
+                break
+
             if (
                 self.current_failures < self._max_failures
                 and self.random.uniform(0, 100) < self._failure_chance
@@ -155,20 +170,18 @@ class DSTScheduler:
                 raise DSTFailureError
 
             next_step = self._next_step()
-            if next_step == "callbacks" and self._callbacks_to_run:
+            if next_step == "callbacks":
                 cb = get_random_element(
                     self._callbacks_to_run, r=self.random, mode=self._mode
                 )
                 cb()
 
-            if next_step == "runnables" and self._pending_to_run:
+            if next_step == "runnables":
                 runnable = get_random_element(
                     self._pending_to_run, r=self.random, mode=self._mode
                 )
                 self._process_each_runnable(runnable=runnable)
 
-            if not self._callbacks_to_run and not self._pending_to_run:
-                break
         assert all(p.done() for p in promises), "All promises should be resolved."
         return promises
 
@@ -176,6 +189,7 @@ class DSTScheduler:
         self,
         runnable: Runnable[Any],
     ) -> None:
+        # if first iteration then Execution started.
         yieldable_or_final_value = iterate_coro(runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
@@ -230,7 +244,7 @@ class DSTScheduler:
         runnable: Runnable[T],
     ) -> None:
         logger.debug("Processing call")
-        p = Promise[Any]()
+        p = Promise[Any](Invoke(call.fn, *call.args, **call.kwargs))
         self._waiting_for_prom_resolution[p] = [runnable.coro_and_promise]
         child_ctx = runnable.coro_and_promise.ctx.new_child()
         if not isgeneratorfunction(call.fn):
@@ -265,7 +279,7 @@ class DSTScheduler:
         runnable: Runnable[T],
     ) -> None:
         logger.debug("Processing invocation")
-        p = Promise[Any]()
+        p = Promise[Any](invocation)
         self._pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
         child_ctx = runnable.coro_and_promise.ctx.new_child()
         if not isgeneratorfunction(invocation.fn):

@@ -157,7 +157,7 @@ def test_failure() -> None:
     p = scheduler.run()
     assert p[0].done()
     assert p[0].result() == 1
-    assert scheduler.tick == 5  # noqa: PLR2004
+    assert scheduler.tick == 6  # noqa: PLR2004
     assert scheduler.current_failures == 3  # noqa: PLR2004
 
     scheduler = DSTScheduler(seed=1, max_failures=2, failure_chance=0)
@@ -165,7 +165,7 @@ def test_failure() -> None:
     p = scheduler.run()
     assert p[0].done()
     assert p[0].result() == 1
-    assert scheduler.tick == 2  # noqa: PLR2004
+    assert scheduler.tick == 3  # noqa: PLR2004
     assert scheduler.current_failures == 0
 
 
