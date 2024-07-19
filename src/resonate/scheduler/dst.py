@@ -244,7 +244,7 @@ class DSTScheduler:
         runnable: Runnable[T],
     ) -> None:
         logger.debug("Processing call")
-        p = Promise[Any](Invoke(call.fn, *call.args, **call.kwargs))
+        p = Promise[Any](call.to_invoke())
         self._waiting_for_prom_resolution[p] = [runnable.coro_and_promise]
         child_ctx = runnable.coro_and_promise.ctx.new_child()
         if not isgeneratorfunction(call.fn):
