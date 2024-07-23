@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import random
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -228,7 +230,7 @@ def test_sequential() -> None:
         PromiseResolved(promise_id=1, tick=15),
     ]
 
-    con_scheduler = DSTScheduler(seed=1, mode="concurrent", log_file=".dom/%s.txt")
+    con_scheduler = DSTScheduler(seed=1, mode="concurrent")
     con_scheduler.add(only_call, n=1)
     con_scheduler.add(only_call, n=2)
     con_scheduler.add(only_call, n=3)
@@ -278,3 +280,22 @@ def test_sequential() -> None:
         PromiseResolved(promise_id=4, tick=13),
         PromiseResolved(promise_id=2, tick=15),
     ]
+
+
+def test_dump_events() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        log_file_path = Path(temp_dir) / "cool_log_%s.txt"
+        s = DSTScheduler(seed=1, log_file=log_file_path.as_posix())
+        formatted_file_path = Path(log_file_path.as_posix() % (s.seed))
+        assert not formatted_file_path.exists()
+        s.add(only_call, n=1)
+        s.add(only_call, n=2)
+        s.add(only_call, n=3)
+        s.add(only_call, n=4)
+        s.add(only_call, n=5)
+        s.run()
+
+        assert formatted_file_path.exists()
+        assert formatted_file_path.read_text() == "".join(
+            f"{e}\n" for e in s.get_events()
+        )
