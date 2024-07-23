@@ -84,8 +84,10 @@ def wrap_fn_into_cmd(
 class Promise(Generic[T]):
     def __init__(
         self,
+        promise_id: int,
         invocation: Invoke,
     ) -> None:
+        self.promise_id = promise_id
         self.f = Future[T]()
         self.invocation = invocation
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 import random
+import shutil
 from collections import deque
 from inspect import isgeneratorfunction
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 from result import Err, Ok, Result
@@ -11,6 +14,13 @@ from typing_extensions import Concatenate, ParamSpec, TypeAlias, TypeVar, assert
 from resonate.context import Call, Context, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.logging import logger
+from resonate.scheduler.events import (
+    AwaitedForPromise,
+    ExecutionStarted,
+    PromiseCreated,
+    PromiseResolved,
+    SchedulerEvents,
+)
 from resonate.typing import CoroAndPromise, Runnable, Yieldable
 
 from .itertools import (
@@ -66,6 +76,7 @@ class DSTScheduler:
             Callable[[], Any],
         ]
         | None = None,
+        log_file: str | None = None,
         max_failures: int = 2,
         failure_chance: float = 0,
         mode: Mode = "concurrent",
@@ -73,19 +84,22 @@ class DSTScheduler:
         self._failure_chance = failure_chance
         self._max_failures: int = max_failures
         self.current_failures: int = 0
-        self.tick: int = -1
+        self.tick: int = 0
         self._top_level_invocations: deque[_TopLevelInvoke] = deque()
         self._mode: Mode = mode
 
         self._pending_to_run: PendingToRun = []
         self._waiting_for_prom_resolution: WaitingForPromiseResolution = {}
-        self._execution_events: list[str] = []
         self._callbacks_to_run: list[Callable[..., None]] = []
 
         self.seed = seed
         self.random = random.Random(self.seed)  # noqa: RUF100, S311
         self.deps = Dependencies()
         self.mocks = mocks or {}
+
+        self._events: list[SchedulerEvents] = []
+        self._promise_created: int = 0
+        self._log_file = log_file
 
     def add(
         self,
@@ -99,8 +113,26 @@ class DSTScheduler:
     def _reset(self) -> None:
         self._pending_to_run.clear()
         self._waiting_for_prom_resolution.clear()
-        self._execution_events.clear()
+        self._events.clear()
         self._callbacks_to_run.clear()
+
+    def _write_logs(self) -> None:
+        if self._log_file is None:
+            return
+        logs_folder = Path().cwd() / self._log_file
+        if not logs_folder.exists() and not logs_folder.is_file():
+            logs_folder.mkdir(exist_ok=False)
+
+        for content in os.listdir(logs_folder):
+            content_path = logs_folder / content
+            if content_path.is_file():
+                content_path.unlink()
+            else:
+                shutil.rmtree(content_path)
+
+        all_logs: str = "".join(f"{event}\n" for event in self._events)
+        with (logs_folder / f"{self.seed}.txt").open(mode="w") as file:
+            file.write(all_logs)
 
     def run(self) -> list[Promise[Any]]:
         while True:
@@ -111,12 +143,24 @@ class DSTScheduler:
                 self._reset()
 
     def _initialize_runnables(self) -> list[Promise[Any]]:
-        promises: list[Promise[Any]] = [
-            ... for _ in range(len(self._top_level_invocations))
+        init_promises: list[Promise[Any] | None] = [
+            None for _ in range(len(self._top_level_invocations))
         ]
         for idx, top_level_invocation in enumerate(self._top_level_invocations):
-            p = Promise[Any](top_level_invocation.to_invocation())
-            # Promise Created
+            p = Promise[Any](
+                promise_id=self._increate_promise_created(),
+                invocation=top_level_invocation.to_invocation(),
+            )
+
+            self._events.append(
+                PromiseCreated(
+                    promise_id=p.promise_id,
+                    tick=self.tick,
+                    fn_name=top_level_invocation.fn.__name__,
+                    args=top_level_invocation.args,
+                    kwargs=top_level_invocation.kwargs,
+                )
+            )
             ctx = Context(dst=True, deps=self.deps)
             self._pending_to_run.append(
                 Runnable(
@@ -132,7 +176,13 @@ class DSTScheduler:
                     next_value=None,
                 )
             )
-            promises[-idx - 1] = p
+            init_promises[-idx - 1] = p
+
+        promises: list[Promise[Any]] = []
+        for p in init_promises:
+            assert p is not None, "There should only be promises here"
+            promises.append(p)
+
         return promises
 
     def _next_step(self) -> Steps:
@@ -159,9 +209,9 @@ class DSTScheduler:
         ), "No promise should be resolved by now."
 
         while True:
-            self.tick += 1
             if not self._callbacks_to_run and not self._pending_to_run:
                 break
+            self.tick += 1
 
             if (
                 self.current_failures < self._max_failures
@@ -183,43 +233,48 @@ class DSTScheduler:
                 self._process_each_runnable(runnable=runnable)
 
         assert all(p.done() for p in promises), "All promises should be resolved."
+        self._write_logs()
         return promises
 
     def _process_each_runnable(
         self,
         runnable: Runnable[Any],
     ) -> None:
-        # if first iteration then Execution started.
+        if runnable.next_value is None:
+            self._events.append(
+                ExecutionStarted(
+                    promise_id=runnable.coro_and_promise.prom.promise_id,
+                    tick=self.tick,
+                    fn_name=runnable.coro_and_promise.prom.invocation.fn.__name__,
+                    args=runnable.coro_and_promise.prom.invocation.args,
+                    kwargs=runnable.coro_and_promise.prom.invocation.kwargs,
+                )
+            )
         yieldable_or_final_value = iterate_coro(runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
             value = yieldable_or_final_value.v
             logger.debug("Processing final value `%s`", value)
             runnable.coro_and_promise.prom.set_result(value)
+            self._events.append(
+                PromiseResolved(runnable.coro_and_promise.prom.promise_id, self.tick)
+            )
             unblock_depands_coros(
                 p=runnable.coro_and_promise.prom,
                 waiting=self._waiting_for_prom_resolution,
                 runnables=self._pending_to_run,
             )
 
-            self._execution_events.append(f"Promise resolved with value {value}")
-
         elif isinstance(yieldable_or_final_value, Call):
             self._handle_call(
                 call=yieldable_or_final_value,
                 runnable=runnable,
-            )
-            self._execution_events.append(
-                f"Call {yieldable_or_final_value.fn.__name__} with params args={yieldable_or_final_value.args} kwargs={yieldable_or_final_value.kwargs} handled"  # noqa: E501
             )
 
         elif isinstance(yieldable_or_final_value, Invoke):
             self._handle_invocation(
                 invocation=yieldable_or_final_value,
                 runnable=runnable,
-            )
-            self._execution_events.append(
-                f"Invocation {yieldable_or_final_value.fn.__name__} with params args={yieldable_or_final_value.args} kwargs={yieldable_or_final_value.kwargs} handled"  # noqa: E501
             )
 
         elif isinstance(yieldable_or_final_value, Promise):
@@ -244,7 +299,10 @@ class DSTScheduler:
         runnable: Runnable[T],
     ) -> None:
         logger.debug("Processing call")
-        p = Promise[Any](call.to_invoke())
+        p = Promise[Any](
+            promise_id=self._increate_promise_created(), invocation=call.to_invoke()
+        )
+
         self._waiting_for_prom_resolution[p] = [runnable.coro_and_promise]
         child_ctx = runnable.coro_and_promise.ctx.new_child()
         if not isgeneratorfunction(call.fn):
@@ -267,11 +325,18 @@ class DSTScheduler:
                     v=v,
                 )
             )
+            self._events.append(
+                AwaitedForPromise(promise_id=p.promise_id, tick=self.tick)
+            )
         else:
             coro = call.fn(child_ctx, *call.args, **call.kwargs)
             self._pending_to_run.append(
                 Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
+
+    def _increate_promise_created(self) -> int:
+        self._promise_created += 1
+        return self._promise_created
 
     def _handle_invocation(
         self,
@@ -279,7 +344,9 @@ class DSTScheduler:
         runnable: Runnable[T],
     ) -> None:
         logger.debug("Processing invocation")
-        p = Promise[Any](invocation)
+        p = Promise[Any](
+            promise_id=self._increate_promise_created(), invocation=invocation
+        )
         self._pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
         child_ctx = runnable.coro_and_promise.ctx.new_child()
         if not isgeneratorfunction(invocation.fn):
@@ -311,8 +378,8 @@ class DSTScheduler:
                 Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
 
-    def get_events(self) -> list[str]:
-        return self._execution_events
+    def get_events(self) -> list[SchedulerEvents]:
+        return self._events
 
 
 def get_random_element(array: list[T], r: random.Random, mode: Mode) -> T:

@@ -3,30 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Union
+from typing import Any, Union
 
-from typing_extensions import TypeAlias
+from typing_extensions import ParamSpec, TypeAlias
 
-if TYPE_CHECKING:
-    from collections.abc import Hashable
+P = ParamSpec("P")
 
 
 @dataclass(frozen=True)
 class PromiseCreated:
     promise_id: int
-    function_name: str
-    args: tuple[Hashable]
-    kwargs: dict[str, Hashable]
     tick: int
+    fn_name: str
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
 
 
 @dataclass(frozen=True)
 class ExecutionStarted:
     promise_id: int
-    function_name: str
-    args: tuple[Hashable]
-    kwargs: dict[str, Hashable]
     tick: int
+    fn_name: str
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
 
 
 @dataclass(frozen=True)
