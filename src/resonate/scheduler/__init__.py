@@ -7,7 +7,6 @@ from queue import Queue
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING, Any, Callable
 
-from result import Ok
 from typing_extensions import Concatenate, ParamSpec, TypeVar, assert_never
 
 from resonate import utils
@@ -15,6 +14,7 @@ from resonate.context import Call, Context, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.logging import logger
 from resonate.processor import SQE, Processor
+from resonate.result import Ok
 from resonate.typing import CoroAndPromise, Runnable
 
 from .itertools import (

@@ -5,13 +5,13 @@ from collections import deque
 from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
-from result import Err, Ok, Result
 from typing_extensions import Concatenate, ParamSpec, TypeAlias, TypeVar, assert_never
 
 from resonate.contants import CWD
 from resonate.context import Call, Context, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.logging import logger
+from resonate.result import Err, Ok, Result
 from resonate.scheduler.events import (
     AwaitedForPromise,
     ExecutionStarted,
@@ -47,7 +47,7 @@ Mode: TypeAlias = Literal["concurrent", "sequential"]
 class _TopLevelInvoke:
     def __init__(
         self,
-        fn: Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]],
+        fn: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -101,7 +101,7 @@ class DSTScheduler:
 
     def add(
         self,
-        coro: Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]],
+        coro: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,

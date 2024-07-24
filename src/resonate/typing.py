@@ -11,7 +11,7 @@ from resonate.scheduler.shared import Promise
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from result import Result
+    from resonate.result import Result
 
 T = TypeVar("T")
 Yieldable: TypeAlias = Union[Call, Invoke, Promise[Any]]

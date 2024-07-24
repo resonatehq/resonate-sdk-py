@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic
 
-from result import Err, Ok, Result
 from typing_extensions import ParamSpec, TypeVar, assert_never
 
 from resonate.logging import logger
+from resonate.result import Err, Ok, Result
 from resonate.typing import PendingToRun, Runnable, WaitingForPromiseResolution
 
 if TYPE_CHECKING:
