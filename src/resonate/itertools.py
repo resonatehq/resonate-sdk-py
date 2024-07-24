@@ -10,9 +10,7 @@ from resonate.result import Err, Ok, Result
 from resonate.typing import PendingToRun, Runnable, WaitingForPromiseResolution
 
 if TYPE_CHECKING:
-    from resonate.scheduler.shared import (
-        Promise,
-    )
+    from resonate.promise import Promise
     from resonate.typing import Yieldable
 
 T = TypeVar("T")

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, Union
 from typing_extensions import TypeAlias
 
 from resonate.context import Call, Context, Invoke
-from resonate.scheduler.shared import Promise
+from resonate.promise import Promise
 
 if TYPE_CHECKING:
     from collections.abc import Generator

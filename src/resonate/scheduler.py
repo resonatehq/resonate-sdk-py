@@ -12,12 +12,7 @@ from typing_extensions import Concatenate, ParamSpec, TypeVar, assert_never
 from resonate import utils
 from resonate.context import Call, Context, Invoke
 from resonate.dependency_injection import Dependencies
-from resonate.logging import logger
-from resonate.processor import SQE, Processor
-from resonate.result import Ok
-from resonate.typing import CoroAndPromise, Runnable
-
-from .itertools import (
+from resonate.itertools import (
     FinalValue,
     PendingToRun,
     WaitingForPromiseResolution,
@@ -25,10 +20,11 @@ from .itertools import (
     iterate_coro,
     unblock_depands_coros,
 )
-from .shared import (
-    Promise,
-    wrap_fn_into_cmd,
-)
+from resonate.logging import logger
+from resonate.processor import SQE, Processor
+from resonate.promise import Promise
+from resonate.result import Ok
+from resonate.typing import CoroAndPromise, Runnable
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -184,7 +180,9 @@ class Scheduler:
         if not isgeneratorfunction(call.fn):
             self._processor.enqueue(
                 SQE(
-                    cmd=wrap_fn_into_cmd(child_ctx, call.fn, *call.args, **call.kwargs),
+                    cmd=utils.wrap_fn_into_cmd(
+                        child_ctx, call.fn, *call.args, **call.kwargs
+                    ),
                     callback=partial(
                         callback,
                         p,
@@ -213,7 +211,7 @@ class Scheduler:
         if not isgeneratorfunction(invocation.fn):
             self._processor.enqueue(
                 SQE(
-                    cmd=wrap_fn_into_cmd(
+                    cmd=utils.wrap_fn_into_cmd(
                         child_ctx,
                         invocation.fn,
                         *invocation.args,

@@ -7,21 +7,18 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 from typing_extensions import Concatenate, ParamSpec, TypeAlias, TypeVar, assert_never
 
+from resonate import utils
 from resonate.contants import CWD
 from resonate.context import Call, Context, Invoke
 from resonate.dependency_injection import Dependencies
-from resonate.logging import logger
-from resonate.result import Err, Ok, Result
-from resonate.scheduler.events import (
+from resonate.events import (
     AwaitedForPromise,
     ExecutionStarted,
     PromiseCreated,
     PromiseResolved,
     SchedulerEvents,
 )
-from resonate.typing import CoroAndPromise, Runnable, Yieldable
-
-from .itertools import (
+from resonate.itertools import (
     FinalValue,
     PendingToRun,
     WaitingForPromiseResolution,
@@ -29,10 +26,10 @@ from .itertools import (
     iterate_coro,
     unblock_depands_coros,
 )
-from .shared import (
-    Promise,
-    wrap_fn_into_cmd,
-)
+from resonate.logging import logger
+from resonate.promise import Promise
+from resonate.result import Err, Ok, Result
+from resonate.typing import CoroAndPromise, Runnable, Yieldable
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Generator
@@ -73,11 +70,11 @@ class DSTScheduler:
             Callable[Concatenate[Context, ...], Any | Coroutine[Any, Any, Any]],
             Callable[[], Any],
         ]
-        | None = None,
-        log_file: str | None = None,
-        max_failures: int = 2,
-        failure_chance: float = 0,
-        mode: Mode = "concurrent",
+        | None,
+        log_file: str | None,
+        max_failures: int,
+        failure_chance: float,
+        mode: Mode,
     ) -> None:
         self._failure_chance = failure_chance
         self._max_failures: int = max_failures
@@ -302,7 +299,7 @@ class DSTScheduler:
             else:
                 v = cast(
                     Result[Any, Exception],
-                    wrap_fn_into_cmd(
+                    utils.wrap_fn_into_cmd(
                         child_ctx, call.fn, *call.args, **call.kwargs
                     ).run(),
                 )
@@ -346,7 +343,7 @@ class DSTScheduler:
             else:
                 v = cast(
                     Result[Any, Exception],
-                    wrap_fn_into_cmd(
+                    utils.wrap_fn_into_cmd(
                         child_ctx,
                         invocation.fn,
                         *invocation.args,
