@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from typing_extensions import Concatenate, ParamSpec, TypeVar, assert_never
 
 from resonate import utils
-from resonate.context import Call, Context, Invoke
+from resonate.context import Call, Context, FnOrCoroutine, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.itertools import (
     FinalValue,
@@ -69,7 +69,7 @@ class Scheduler:
     ) -> Promise[T]:
         p = Promise[T](
             promise_id=self._increate_promise_created(),
-            invocation=Invoke(coro, *args, **kwargs),
+            invocation=Invoke(FnOrCoroutine(coro, *args, **kwargs)),
         )
         ctx = Context(deps=self.deps)
         self._stg_q.put(item=CoroAndPromise(coro(ctx, *args, **kwargs), p, ctx))
@@ -177,11 +177,17 @@ class Scheduler:
         p = Promise[Any](self._increate_promise_created(), call.to_invoke())
         waiting_for_promise[p] = [runnable.coro_and_promise]
         child_ctx = runnable.coro_and_promise.ctx.new_child()
-        if not isgeneratorfunction(call.fn):
+        assert isinstance(
+            call.exec_unit, FnOrCoroutine
+        ), "execution unit must be fn or coroutine at this point."
+        if not isgeneratorfunction(call.exec_unit.fn):
             self._processor.enqueue(
                 SQE(
                     cmd=utils.wrap_fn_into_cmd(
-                        child_ctx, call.fn, *call.args, **call.kwargs
+                        child_ctx,
+                        call.exec_unit.fn,
+                        *call.exec_unit.args,
+                        **call.exec_unit.kwargs,
                     ),
                     callback=partial(
                         callback,
@@ -192,7 +198,9 @@ class Scheduler:
                 )
             )
         else:
-            coro = call.fn(child_ctx, *call.args, **call.kwargs)
+            coro = call.exec_unit.fn(
+                child_ctx, *call.exec_unit.args, **call.exec_unit.kwargs
+            )
             pending_to_run.append(
                 Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
@@ -208,14 +216,17 @@ class Scheduler:
         p = Promise[Any](self._increate_promise_created(), invocation)
         pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
         child_ctx = runnable.coro_and_promise.ctx.new_child()
-        if not isgeneratorfunction(invocation.fn):
+        assert isinstance(
+            invocation.exec_unit, FnOrCoroutine
+        ), "execution unit must be fn or coroutine at this point."
+        if not isgeneratorfunction(invocation.exec_unit.fn):
             self._processor.enqueue(
                 SQE(
                     cmd=utils.wrap_fn_into_cmd(
                         child_ctx,
-                        invocation.fn,
-                        *invocation.args,
-                        **invocation.kwargs,
+                        invocation.exec_unit.fn,
+                        *invocation.exec_unit.args,
+                        **invocation.exec_unit.kwargs,
                     ),
                     callback=partial(
                         callback,
@@ -226,7 +237,9 @@ class Scheduler:
                 )
             )
         else:
-            coro = invocation.fn(child_ctx, *invocation.args, **invocation.kwargs)
+            coro = invocation.exec_unit.fn(
+                child_ctx, *invocation.exec_unit.args, **invocation.exec_unit.kwargs
+            )
             pending_to_run.append(
                 Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )

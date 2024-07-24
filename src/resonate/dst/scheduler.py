@@ -9,7 +9,7 @@ from typing_extensions import Concatenate, ParamSpec, TypeAlias, TypeVar, assert
 
 from resonate import utils
 from resonate.contants import CWD
-from resonate.context import Call, Context, Invoke
+from resonate.context import Call, Context, FnOrCoroutine, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.events import (
     AwaitedForPromise,
@@ -54,7 +54,7 @@ class _TopLevelInvoke:
         self.kwargs = kwargs
 
     def to_invocation(self) -> Invoke:
-        return Invoke(self.fn, *self.args, **self.kwargs)
+        return Invoke(FnOrCoroutine(self.fn, *self.args, **self.kwargs))
 
 
 class DSTFailureError(Exception):
@@ -63,6 +63,13 @@ class DSTFailureError(Exception):
 
 
 class DSTScheduler:
+    """
+    The DSTScheduler class manages coroutines in a deterministic way, allowing for
+    controlled execution with reproducibility. It can handle errors gracefully by
+    resetting its state and retrying up to a specified number of times.
+    The scheduler maintains a log of events, which can be dumped to a file for analysis.
+    """
+
     def __init__(  # noqa: PLR0913
         self,
         seed: int,
@@ -227,14 +234,17 @@ class DSTScheduler:
         self,
         runnable: Runnable[Any],
     ) -> None:
+        assert isinstance(
+            runnable.coro_and_promise.prom.invocation.exec_unit, FnOrCoroutine
+        ), "execution unit must be fn or coroutine at this point."
         if runnable.next_value is None:
             self._events.append(
                 ExecutionStarted(
                     promise_id=runnable.coro_and_promise.prom.promise_id,
                     tick=self.tick,
-                    fn_name=runnable.coro_and_promise.prom.invocation.fn.__name__,
-                    args=runnable.coro_and_promise.prom.invocation.args,
-                    kwargs=runnable.coro_and_promise.prom.invocation.kwargs,
+                    fn_name=runnable.coro_and_promise.prom.invocation.exec_unit.fn.__name__,
+                    args=runnable.coro_and_promise.prom.invocation.exec_unit.args,
+                    kwargs=runnable.coro_and_promise.prom.invocation.exec_unit.kwargs,
                 )
             )
         yieldable_or_final_value = iterate_coro(runnable)
@@ -292,15 +302,21 @@ class DSTScheduler:
 
         self._waiting_for_prom_resolution[p] = [runnable.coro_and_promise]
         child_ctx = runnable.coro_and_promise.ctx.new_child()
-        if not isgeneratorfunction(call.fn):
-            mock_fn = self.mocks.get(call.fn)
+        assert isinstance(
+            call.exec_unit, FnOrCoroutine
+        ), "execution unit must be fn or coroutine at this point."
+        if not isgeneratorfunction(call.exec_unit.fn):
+            mock_fn = self.mocks.get(call.exec_unit.fn)
             if mock_fn is not None:
                 v = _safe_run(fn=mock_fn)
             else:
                 v = cast(
                     Result[Any, Exception],
                     utils.wrap_fn_into_cmd(
-                        child_ctx, call.fn, *call.args, **call.kwargs
+                        child_ctx,
+                        call.exec_unit.fn,
+                        *call.exec_unit.args,
+                        **call.exec_unit.kwargs,
                     ).run(),
                 )
 
@@ -316,7 +332,9 @@ class DSTScheduler:
                 AwaitedForPromise(promise_id=p.promise_id, tick=self.tick)
             )
         else:
-            coro = call.fn(child_ctx, *call.args, **call.kwargs)
+            coro = call.exec_unit.fn(
+                child_ctx, *call.exec_unit.args, **call.exec_unit.kwargs
+            )
             self._pending_to_run.append(
                 Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
@@ -336,8 +354,13 @@ class DSTScheduler:
         )
         self._pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
         child_ctx = runnable.coro_and_promise.ctx.new_child()
-        if not isgeneratorfunction(invocation.fn):
-            mock_fn = self.mocks.get(invocation.fn)
+
+        assert isinstance(
+            invocation.exec_unit, FnOrCoroutine
+        ), "execution unit must be fn or coroutine at this point."
+
+        if not isgeneratorfunction(invocation.exec_unit.fn):
+            mock_fn = self.mocks.get(invocation.exec_unit.fn)
             if mock_fn is not None:
                 v = _safe_run(mock_fn)
             else:
@@ -345,9 +368,9 @@ class DSTScheduler:
                     Result[Any, Exception],
                     utils.wrap_fn_into_cmd(
                         child_ctx,
-                        invocation.fn,
-                        *invocation.args,
-                        **invocation.kwargs,
+                        invocation.exec_unit.fn,
+                        *invocation.exec_unit.args,
+                        **invocation.exec_unit.kwargs,
                     ).run(),
                 )
             self._callbacks_to_run.append(
@@ -360,7 +383,11 @@ class DSTScheduler:
             )
 
         else:
-            coro = invocation.fn(child_ctx, *invocation.args, **invocation.kwargs)
+            coro = invocation.exec_unit.fn(
+                child_ctx,
+                *invocation.exec_unit.args,
+                **invocation.exec_unit.kwargs,
+            )
             self._pending_to_run.append(
                 Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
