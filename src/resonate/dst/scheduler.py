@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import random
 from collections import deque
+from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
-from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, cast
 
 from typing_extensions import Concatenate, ParamSpec, TypeAlias, TypeVar, assert_never
 
@@ -64,6 +65,35 @@ class DSTFailureError(Exception):
         super().__init__()
 
 
+class MaxCapacityReachedError(Exception):
+    def __init__(self) -> None:
+        super().__init__("Max capacity has been reached")
+
+
+@dataclass
+class _ListWithLenght(Generic[T]):
+    max_length: int
+    elements: list[T] = field(init=False, default_factory=list)
+
+    def append_and_say_if_capacity_reached(self, e: T, /) -> bool:
+        self.elements.append(e)
+
+        assert (
+            len(self.elements) <= self.max_length
+        ), "Number of elements never can be greater than max length"
+
+        return len(self.elements) == self.max_length
+
+    def length(self) -> int:
+        return len(self.elements)
+
+    def pop_all(self) -> list[T]:
+        all_elements: list[T] = []
+        while self.elements:
+            all_elements.append(self.elements.pop())
+        return all_elements
+
+
 class DSTScheduler:
     """
     The DSTScheduler class manages coroutines in a deterministic way, allowing for
@@ -106,7 +136,9 @@ class DSTScheduler:
         self._log_file = log_file
 
         self._handlers: dict[type[Command], Callable[[list[Any]], list[Any]]] = {}
-        self._handler_queues: dict[type[Command], deque[Command]] = {}
+        self._handler_queues: dict[
+            type[Command], _ListWithLenght[tuple[Promise[Any], Command]]
+        ] = {}
 
     def register_command(
         self,
@@ -115,7 +147,9 @@ class DSTScheduler:
         max_batch: int,
     ) -> None:
         self._handlers[cmd] = handler
-        self._handler_queues[cmd] = deque[Command](maxlen=max_batch)
+        self._handler_queues[cmd] = _ListWithLenght[tuple[Promise[Any], Command]](
+            max_length=max_batch,
+        )
 
     def get_handler(self, cmd: type[Command]) -> Callable[[list[Any]], list[Any]]:
         return self._handlers[cmd]
@@ -212,6 +246,39 @@ class DSTScheduler:
 
         return next_step
 
+    def _cmds_waiting_to_be_executed(
+        self,
+    ) -> dict[type[Command], _ListWithLenght[tuple[Promise[Any], Command]]]:
+        return {k: v for k, v in self._handler_queues.items() if v.length() > 0}
+
+    def _execute_commands(
+        self,
+        cmd: type[Command],
+    ) -> None:
+        promises: list[Promise[Any]] = []
+        cmds: list[Command] = []
+        for p, c in self._handler_queues[cmd].pop_all():
+            promises.append(p)
+            cmds.append(c)
+        n_cmds = len(cmds)
+        cmd_handler = self._handlers[cmd]
+        try:
+            results = cmd_handler(cmds)
+        except Exception as e:  # noqa: BLE001
+            for p in promises:
+                callback(p, self.awaitables, self.runnables, Err(e))
+
+        assert (
+            len(results) == n_cmds
+        ), "Numbers of commands and number of results must be the same"
+        for idx, _ in enumerate(range(n_cmds)):
+            callback(
+                promises[idx],
+                self.awaitables,
+                self.runnables,
+                Ok(results[idx]),
+            )
+
     def _run(self) -> list[Promise[Any]]:
         promises = self._initialize_runnables()
         assert all(
@@ -220,7 +287,13 @@ class DSTScheduler:
 
         while True:
             if not self._callbacks_to_run and not self.runnables:
-                break
+                cmds_to_be_executed = self._cmds_waiting_to_be_executed()
+                if len(cmds_to_be_executed) == 0:
+                    break
+
+                for cmd in cmds_to_be_executed:
+                    self._execute_commands(cmd)
+
             self.tick += 1
 
             if (
@@ -319,9 +392,10 @@ class DSTScheduler:
         # We cannot advance the coroutine so we block it until the promise
         # gets resolved.
         self.awaitables[p] = [runnable.coro_and_promise]
-        child_ctx = runnable.coro_and_promise.ctx.new_child()
 
         if isinstance(call.exec_unit, FnOrCoroutine):
+            child_ctx = runnable.coro_and_promise.ctx.new_child()
+
             if not isgeneratorfunction(call.exec_unit.fn):
                 mock_fn = self.mocks.get(call.exec_unit.fn)
                 if mock_fn is not None:
@@ -356,8 +430,11 @@ class DSTScheduler:
                     Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
                 )
         elif isinstance(call.exec_unit, Command):
-            msg = "execution unit must be fn or coroutine at this point."
-            raise TypeError(msg)
+            cmd = type(call.exec_unit)
+            self._handler_queues[cmd].append_and_say_if_capacity_reached(
+                (p, call.exec_unit)
+            )
+            self._execute_commands(cmd)
         else:
             assert_never(call.exec_unit)
 
@@ -377,9 +454,10 @@ class DSTScheduler:
         # We can advance the promise by passing the Promise,
         # even if it's not already resolved.
         self.runnables.append(Runnable(runnable.coro_and_promise, Ok(p)))
-        child_ctx = runnable.coro_and_promise.ctx.new_child()
 
         if isinstance(invocation.exec_unit, FnOrCoroutine):
+            child_ctx = runnable.coro_and_promise.ctx.new_child()
+
             if not isgeneratorfunction(invocation.exec_unit.fn):
                 mock_fn = self.mocks.get(invocation.exec_unit.fn)
                 if mock_fn is not None:
@@ -413,8 +491,13 @@ class DSTScheduler:
                     Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
                 )
         elif isinstance(invocation.exec_unit, Command):
-            msg = "execution unit must be fn or coroutine at this point."
-            raise TypeError(msg)
+            cmd = type(invocation.exec_unit)
+            capacity_reached = self._handler_queues[
+                cmd
+            ].append_and_say_if_capacity_reached((p, invocation.exec_unit))
+            if capacity_reached:
+                self._execute_commands(cmd)
+
         else:
             assert_never(invocation.exec_unit)
 

@@ -65,17 +65,48 @@ class GreetCommand(Command):
     name: str
 
 
-def batch_function(cmds: list[GreetCommand]) -> list[str]:
-    return [f"Hi {cmd.name}" for cmd in cmds]
+def batch_greeting(cmds: list[GreetCommand]) -> list[str]:
+    return [f"Hello {cmd.name}" for cmd in cmds]
 
 
-def greet(ctx: Context, name: str) -> Generator[Yieldable, Any, str]:
+def greet_with_batching(ctx: Context, name: str) -> Generator[Yieldable, Any, str]:
     p: Promise[str] = yield ctx.invoke(GreetCommand(name=name))
-    greeting: str = yield p
-    return greeting
+    g: str = yield p
+    return g
 
 
-@pytest.mark.skip()
+def greet_with_batching_but_with_call(
+    ctx: Context, name: str
+) -> Generator[Yieldable, Any, str]:
+    g: str = yield ctx.call(GreetCommand(name=name))
+    return g
+
+def test_batching_using_call() -> None:
+    s = DSTScheduler(
+        seed=1,
+        mocks=None,
+        log_file=None,
+        max_failures=0,
+        failure_chance=0,
+        mode="concurrent",
+    )
+    s.register_command(cmd=GreetCommand, handler=batch_greeting, max_batch=2)
+
+    s.add(greet_with_batching, name="Ging")
+    s.add(greet_with_batching, name="Razor")
+    s.add(greet_with_batching_but_with_call, name="Eta")
+    s.add(greet_with_batching, name="Elena")
+    s.add(greet_with_batching, name="Dwun")
+    greetings_promises = s.run()
+    assert all(p.success() for p in greetings_promises)
+    assert [p.result() for p in greetings_promises] == [
+        "Hello Ging",
+        "Hello Razor",
+        "Hello Eta",
+        "Hello Elena",
+        "Hello Dwun",
+    ]
+
 def test_batching() -> None:
     s = DSTScheduler(
         seed=1,
@@ -85,14 +116,16 @@ def test_batching() -> None:
         failure_chance=0,
         mode="concurrent",
     )
-    s.register_command(cmd=GreetCommand, handler=batch_function, max_batch=4)
-    assert s.get_handler(GreetCommand) == batch_function
-    s.add(greet, name="Ging")
-    s.add(greet, name="Razor")
-    s.add(greet, name="Eta")
-    s.add(greet, name="Elena")
-    s.add(greet, name="Dwun")
+
+    s.register_command(cmd=GreetCommand, handler=batch_greeting, max_batch=2)
+    assert s.get_handler(GreetCommand) == batch_greeting
+    s.add(greet_with_batching, name="Ging")
+    s.add(greet_with_batching, name="Razor")
+    s.add(greet_with_batching, name="Eta")
+    s.add(greet_with_batching, name="Elena")
+    s.add(greet_with_batching, name="Dwun")
     greetings_promises = s.run()
+    assert all(p.success() for p in greetings_promises)
     assert [p.result() for p in greetings_promises] == [
         "Hello Ging",
         "Hello Razor",
@@ -100,6 +133,7 @@ def test_batching() -> None:
         "Hello Elena",
         "Hello Dwun",
     ]
+
 
 
 @pytest.mark.dst()
