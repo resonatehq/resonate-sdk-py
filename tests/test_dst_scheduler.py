@@ -5,6 +5,9 @@ import random
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -24,6 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate.context import Context
+    from resonate.promise import Promise
     from resonate.promise import Promise
     from resonate.typing import Yieldable
 
@@ -157,10 +161,26 @@ def test_mock_function() -> None:
         max_failures=0,
         log_file=None,
     )
+    s = DSTScheduler(
+        seed=1,
+        mocks=None,
+        mode="concurrent",
+        failure_chance=0,
+        max_failures=0,
+        log_file=None,
+    )
     s.add(only_call, n=3)
     s.add(only_invocation, n=3)
     promises = s.run()
     assert all(p.result() == 3 for p in promises)  # noqa: PLR2004
+    s = DSTScheduler(
+        seed=1,
+        mocks={number: mocked_number},
+        mode="concurrent",
+        failure_chance=0,
+        max_failures=0,
+        log_file=None,
+    )
     s = DSTScheduler(
         seed=1,
         mocks={number: mocked_number},
@@ -177,6 +197,14 @@ def test_mock_function() -> None:
 def test_dst_scheduler() -> None:
     for _ in range(100):
         seed = random.randint(0, 1000000)  # noqa: S311
+        s = DSTScheduler(
+            seed=seed,
+            mocks=None,
+            max_failures=0,
+            failure_chance=0,
+            mode="concurrent",
+            log_file=None,
+        )
         s = DSTScheduler(
             seed=seed,
             mocks=None,
@@ -213,6 +241,14 @@ def test_dst_determinitic() -> None:
         failure_chance=0,
         mode="concurrent",
     )
+    s = DSTScheduler(
+        seed=seed,
+        mocks=None,
+        log_file=None,
+        max_failures=0,
+        failure_chance=0,
+        mode="concurrent",
+    )
     s.add(only_call, n=1)
     s.add(only_call, n=2)
     s.add(only_call, n=3)
@@ -222,6 +258,14 @@ def test_dst_determinitic() -> None:
     assert sum(p.result() for p in promises) == 15  # noqa: PLR2004
     expected_events = s.get_events()
 
+    same_seed_s = DSTScheduler(
+        seed=seed,
+        mocks=None,
+        log_file=None,
+        max_failures=0,
+        failure_chance=0,
+        mode="concurrent",
+    )
     same_seed_s = DSTScheduler(
         seed=seed,
         mocks=None,
@@ -247,6 +291,14 @@ def test_dst_determinitic() -> None:
         failure_chance=0,
         mode="concurrent",
     )
+    different_seed_s = DSTScheduler(
+        seed=seed + 10,
+        mocks=None,
+        log_file=None,
+        max_failures=0,
+        failure_chance=0,
+        mode="concurrent",
+    )
     different_seed_s.add(only_call, n=1)
     different_seed_s.add(only_call, n=2)
     different_seed_s.add(only_call, n=3)
@@ -259,6 +311,14 @@ def test_dst_determinitic() -> None:
 
 @pytest.mark.dst()
 def test_failing_asserting() -> None:
+    s = DSTScheduler(
+        seed=1,
+        mocks=None,
+        log_file=None,
+        max_failures=0,
+        failure_chance=0,
+        mode="concurrent",
+    )
     s = DSTScheduler(
         seed=1,
         mocks=None,
@@ -295,6 +355,14 @@ def test_failure() -> None:
         mode="concurrent",
         log_file=None,
     )
+    scheduler = DSTScheduler(
+        seed=1,
+        max_failures=3,
+        failure_chance=100,
+        mocks=None,
+        mode="concurrent",
+        log_file=None,
+    )
     scheduler.add(only_call, n=1)
     p = scheduler.run()
     assert p[0].done()
@@ -302,6 +370,14 @@ def test_failure() -> None:
     assert scheduler.tick == 6  # noqa: PLR2004
     assert scheduler.current_failures == 3  # noqa: PLR2004
 
+    scheduler = DSTScheduler(
+        seed=1,
+        max_failures=2,
+        failure_chance=0,
+        mocks=None,
+        mode="concurrent",
+        log_file=None,
+    )
     scheduler = DSTScheduler(
         seed=1,
         max_failures=2,
@@ -320,6 +396,14 @@ def test_failure() -> None:
 
 @pytest.mark.dst()
 def test_sequential() -> None:
+    seq_scheduler = DSTScheduler(
+        seed=1,
+        mode="sequential",
+        failure_chance=0,
+        max_failures=0,
+        mocks=None,
+        log_file=None,
+    )
     seq_scheduler = DSTScheduler(
         seed=1,
         mode="sequential",
@@ -381,6 +465,14 @@ def test_sequential() -> None:
         max_failures=2,
         log_file=None,
     )
+    con_scheduler = DSTScheduler(
+        seed=1,
+        mode="concurrent",
+        mocks=None,
+        failure_chance=0,
+        max_failures=2,
+        log_file=None,
+    )
     con_scheduler.add(only_call, n=1)
     con_scheduler.add(only_call, n=2)
     con_scheduler.add(only_call, n=3)
@@ -425,6 +517,32 @@ def test_sequential() -> None:
         PromiseResolved(promise_id=4, tick=13),
         PromiseResolved(promise_id=2, tick=15),
     ]
+
+
+def test_dump_events() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        log_file_path = Path(temp_dir) / "cool_log_%s.txt"
+        s = DSTScheduler(
+            seed=1,
+            log_file=log_file_path.as_posix(),
+            mocks=None,
+            max_failures=1,
+            failure_chance=0,
+            mode="concurrent",
+        )
+        formatted_file_path = Path(log_file_path.as_posix() % (s.seed))
+        assert not formatted_file_path.exists()
+        s.add(only_call, n=1)
+        s.add(only_call, n=2)
+        s.add(only_call, n=3)
+        s.add(only_call, n=4)
+        s.add(only_call, n=5)
+        s.run()
+
+        assert formatted_file_path.exists()
+        assert formatted_file_path.read_text() == "".join(
+            f"{e}\n" for e in s.get_events()
+        )
 
 
 def test_dump_events() -> None:
