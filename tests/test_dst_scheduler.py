@@ -13,7 +13,6 @@ from resonate.contants import ENV_VARIABLE_PIN_SEED
 from resonate.context import Command
 from resonate.dst.scheduler import DSTScheduler
 from resonate.events import (
-    AwaitedForPromise,
     ExecutionStarted,
     PromiseCreated,
     PromiseResolved,
@@ -81,6 +80,7 @@ def greet_with_batching_but_with_call(
     g: str = yield ctx.call(GreetCommand(name=name))
     return g
 
+
 def test_batching_using_call() -> None:
     s = DSTScheduler(
         seed=1,
@@ -106,6 +106,7 @@ def test_batching_using_call() -> None:
         "Hello Elena",
         "Hello Dwun",
     ]
+
 
 def test_batching() -> None:
     s = DSTScheduler(
@@ -133,7 +134,6 @@ def test_batching() -> None:
         "Hello Elena",
         "Hello Dwun",
     ]
-
 
 
 @pytest.mark.dst()
@@ -354,27 +354,22 @@ def test_sequential() -> None:
         ExecutionStarted(
             promise_id=5, tick=1, fn_name="only_call", args=(), kwargs={"n": 1}
         ),
-        AwaitedForPromise(promise_id=6, tick=1),
         PromiseResolved(promise_id=5, tick=3),
         ExecutionStarted(
             promise_id=4, tick=4, fn_name="only_call", args=(), kwargs={"n": 2}
         ),
-        AwaitedForPromise(promise_id=7, tick=4),
         PromiseResolved(promise_id=4, tick=6),
         ExecutionStarted(
             promise_id=3, tick=7, fn_name="only_call", args=(), kwargs={"n": 3}
         ),
-        AwaitedForPromise(promise_id=8, tick=7),
         PromiseResolved(promise_id=3, tick=9),
         ExecutionStarted(
             promise_id=2, tick=10, fn_name="only_call", args=(), kwargs={"n": 4}
         ),
-        AwaitedForPromise(promise_id=9, tick=10),
         PromiseResolved(promise_id=2, tick=12),
         ExecutionStarted(
             promise_id=1, tick=13, fn_name="only_call", args=(), kwargs={"n": 5}
         ),
-        AwaitedForPromise(promise_id=10, tick=13),
         PromiseResolved(promise_id=1, tick=15),
     ]
 
@@ -412,24 +407,19 @@ def test_sequential() -> None:
         ExecutionStarted(
             promise_id=1, tick=1, fn_name="only_call", args=(), kwargs={"n": 5}
         ),
-        AwaitedForPromise(promise_id=6, tick=1),
         ExecutionStarted(
             promise_id=3, tick=2, fn_name="only_call", args=(), kwargs={"n": 3}
         ),
-        AwaitedForPromise(promise_id=7, tick=2),
         ExecutionStarted(
             promise_id=5, tick=3, fn_name="only_call", args=(), kwargs={"n": 1}
         ),
-        AwaitedForPromise(promise_id=8, tick=3),
         ExecutionStarted(
             promise_id=4, tick=4, fn_name="only_call", args=(), kwargs={"n": 2}
         ),
-        AwaitedForPromise(promise_id=9, tick=4),
         PromiseResolved(promise_id=5, tick=8),
         ExecutionStarted(
             promise_id=2, tick=9, fn_name="only_call", args=(), kwargs={"n": 4}
         ),
-        AwaitedForPromise(promise_id=10, tick=9),
         PromiseResolved(promise_id=1, tick=11),
         PromiseResolved(promise_id=3, tick=12),
         PromiseResolved(promise_id=4, tick=13),

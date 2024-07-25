@@ -13,7 +13,6 @@ from resonate.contants import CWD
 from resonate.context import Call, Command, Context, FnOrCoroutine, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.events import (
-    AwaitedForPromise,
     ExecutionStarted,
     PromiseCreated,
     PromiseResolved,
@@ -75,14 +74,8 @@ class _ListWithLenght(Generic[T]):
     max_length: int
     elements: list[T] = field(init=False, default_factory=list)
 
-    def append_and_say_if_capacity_reached(self, e: T, /) -> bool:
+    def append(self, e: T, /) -> None:
         self.elements.append(e)
-
-        assert (
-            len(self.elements) <= self.max_length
-        ), "Number of elements never can be greater than max length"
-
-        return len(self.elements) == self.max_length
 
     def length(self) -> int:
         return len(self.elements)
@@ -257,11 +250,13 @@ class DSTScheduler:
     ) -> None:
         promises: list[Promise[Any]] = []
         cmds: list[Command] = []
-        for p, c in self._handler_queues[cmd].pop_all():
+        cmd_buffer = self._handler_queues[cmd]
+        for p, c in cmd_buffer.pop_all():
             promises.append(p)
             cmds.append(c)
         n_cmds = len(cmds)
         cmd_handler = self._handlers[cmd]
+
         try:
             results = cmd_handler(cmds)
         except Exception as e:  # noqa: BLE001
@@ -356,16 +351,20 @@ class DSTScheduler:
             )
 
         elif isinstance(yieldable_or_final_value, Call):
-            self._handle_call(
-                call=yieldable_or_final_value,
+            p = self._handle_invocation(
+                invocation=yieldable_or_final_value.to_invoke(),
                 runnable=runnable,
             )
+            self.awaitables[p] = [runnable.coro_and_promise]
 
         elif isinstance(yieldable_or_final_value, Invoke):
-            self._handle_invocation(
+            p = self._handle_invocation(
                 invocation=yieldable_or_final_value,
                 runnable=runnable,
             )
+            # We can advance the promise by passing the Promise,
+            # even if it's not already resolved.
+            self.runnables.append(Runnable(runnable.coro_and_promise, Ok(p)))
 
         elif isinstance(yieldable_or_final_value, Promise):
             self.awaitables.setdefault(yieldable_or_final_value, []).append(
@@ -380,64 +379,6 @@ class DSTScheduler:
         else:
             assert_never(yieldable_or_final_value)
 
-    def _handle_call(
-        self,
-        call: Call,
-        runnable: Runnable[T],
-    ) -> None:
-        logger.debug("Processing call")
-        p = Promise[Any](
-            promise_id=self._increate_promise_created(), invocation=call.to_invoke()
-        )
-        # We cannot advance the coroutine so we block it until the promise
-        # gets resolved.
-        self.awaitables[p] = [runnable.coro_and_promise]
-
-        if isinstance(call.exec_unit, FnOrCoroutine):
-            child_ctx = runnable.coro_and_promise.ctx.new_child()
-
-            if not isgeneratorfunction(call.exec_unit.fn):
-                mock_fn = self.mocks.get(call.exec_unit.fn)
-                if mock_fn is not None:
-                    v = _safe_run(fn=mock_fn)
-                else:
-                    v = cast(
-                        Result[Any, Exception],
-                        utils.wrap_fn_into_cmd(
-                            child_ctx,
-                            call.exec_unit.fn,
-                            *call.exec_unit.args,
-                            **call.exec_unit.kwargs,
-                        ).run(),
-                    )
-
-                self._callbacks_to_run.append(
-                    lambda: callback(
-                        p=p,
-                        awaitables=self.awaitables,
-                        runnables=self.runnables,
-                        v=v,
-                    )
-                )
-                self._events.append(
-                    AwaitedForPromise(promise_id=p.promise_id, tick=self.tick)
-                )
-            else:
-                coro = call.exec_unit.fn(
-                    child_ctx, *call.exec_unit.args, **call.exec_unit.kwargs
-                )
-                self.runnables.append(
-                    Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
-                )
-        elif isinstance(call.exec_unit, Command):
-            cmd = type(call.exec_unit)
-            self._handler_queues[cmd].append_and_say_if_capacity_reached(
-                (p, call.exec_unit)
-            )
-            self._execute_commands(cmd)
-        else:
-            assert_never(call.exec_unit)
-
     def _increate_promise_created(self) -> int:
         self._promise_created += 1
         return self._promise_created
@@ -446,14 +387,11 @@ class DSTScheduler:
         self,
         invocation: Invoke,
         runnable: Runnable[T],
-    ) -> None:
+    ) -> Promise[Any]:
         logger.debug("Processing invocation")
         p = Promise[Any](
             promise_id=self._increate_promise_created(), invocation=invocation
         )
-        # We can advance the promise by passing the Promise,
-        # even if it's not already resolved.
-        self.runnables.append(Runnable(runnable.coro_and_promise, Ok(p)))
 
         if isinstance(invocation.exec_unit, FnOrCoroutine):
             child_ctx = runnable.coro_and_promise.ctx.new_child()
@@ -491,15 +429,13 @@ class DSTScheduler:
                     Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
                 )
         elif isinstance(invocation.exec_unit, Command):
-            cmd = type(invocation.exec_unit)
-            capacity_reached = self._handler_queues[
-                cmd
-            ].append_and_say_if_capacity_reached((p, invocation.exec_unit))
-            if capacity_reached:
-                self._execute_commands(cmd)
+            self._handler_queues[type(invocation.exec_unit)].append(
+                (p, invocation.exec_unit)
+            )
 
         else:
             assert_never(invocation.exec_unit)
+        return p
 
     def get_events(self) -> list[SchedulerEvents]:
         return self._events
