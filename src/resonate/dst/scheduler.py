@@ -9,7 +9,7 @@ from typing_extensions import Concatenate, ParamSpec, TypeAlias, TypeVar, assert
 
 from resonate import utils
 from resonate.contants import CWD
-from resonate.context import Call, Context, FnOrCoroutine, Invoke
+from resonate.context import Call, Command, Context, FnOrCoroutine, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.events import (
     AwaitedForPromise,
@@ -36,7 +36,9 @@ if TYPE_CHECKING:
 
 
 T = TypeVar("T")
+Cmd = TypeVar("Cmd", bound=Command)
 P = ParamSpec("P")
+
 Steps: TypeAlias = Literal["callbacks", "runnables"]
 Mode: TypeAlias = Literal["concurrent", "sequential"]
 
@@ -102,6 +104,21 @@ class DSTScheduler:
         self._events: list[SchedulerEvents] = []
         self._promise_created: int = 0
         self._log_file = log_file
+
+        self._handlers: dict[type[Command], Callable[[list[Any]], list[Any]]] = {}
+        self._handler_queues: dict[type[Command], deque[Command]] = {}
+
+    def register_command(
+        self,
+        cmd: type[Cmd],
+        handler: Callable[[list[Cmd]], list[Any]],
+        max_batch: int,
+    ) -> None:
+        self._handlers[cmd] = handler
+        self._handler_queues[cmd] = deque[Command](maxlen=max_batch)
+
+    def get_handler(self, cmd: type[Command]) -> Callable[[list[Any]], list[Any]]:
+        return self._handlers[cmd]
 
     def add(
         self,
@@ -234,10 +251,14 @@ class DSTScheduler:
         self,
         runnable: Runnable[Any],
     ) -> None:
-        assert isinstance(
-            runnable.coro_and_promise.prom.invocation.exec_unit, FnOrCoroutine
-        ), "execution unit must be fn or coroutine at this point."
-        if runnable.next_value is None:
+        yieldable_or_final_value = iterate_coro(runnable)
+
+        if (
+            isinstance(
+                runnable.coro_and_promise.prom.invocation.exec_unit, FnOrCoroutine
+            )
+            and runnable.next_value is None
+        ):
             self._events.append(
                 ExecutionStarted(
                     promise_id=runnable.coro_and_promise.prom.promise_id,
@@ -247,7 +268,6 @@ class DSTScheduler:
                     kwargs=runnable.coro_and_promise.prom.invocation.exec_unit.kwargs,
                 )
             )
-        yieldable_or_final_value = iterate_coro(runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
             value = yieldable_or_final_value.v
@@ -286,7 +306,6 @@ class DSTScheduler:
                     waiting=self._waiting_for_prom_resolution,
                     runnables=self._pending_to_run,
                 )
-
         else:
             assert_never(yieldable_or_final_value)
 
@@ -299,45 +318,50 @@ class DSTScheduler:
         p = Promise[Any](
             promise_id=self._increate_promise_created(), invocation=call.to_invoke()
         )
-
+        # We cannot advance the coroutine so we block it until the promise
+        # gets resolved.
         self._waiting_for_prom_resolution[p] = [runnable.coro_and_promise]
         child_ctx = runnable.coro_and_promise.ctx.new_child()
-        assert isinstance(
-            call.exec_unit, FnOrCoroutine
-        ), "execution unit must be fn or coroutine at this point."
-        if not isgeneratorfunction(call.exec_unit.fn):
-            mock_fn = self.mocks.get(call.exec_unit.fn)
-            if mock_fn is not None:
-                v = _safe_run(fn=mock_fn)
-            else:
-                v = cast(
-                    Result[Any, Exception],
-                    utils.wrap_fn_into_cmd(
-                        child_ctx,
-                        call.exec_unit.fn,
-                        *call.exec_unit.args,
-                        **call.exec_unit.kwargs,
-                    ).run(),
-                )
 
-            self._callbacks_to_run.append(
-                lambda: callback(
-                    p=p,
-                    waiting_for_promise=self._waiting_for_prom_resolution,
-                    pending_to_run=self._pending_to_run,
-                    v=v,
+        if isinstance(call.exec_unit, FnOrCoroutine):
+            if not isgeneratorfunction(call.exec_unit.fn):
+                mock_fn = self.mocks.get(call.exec_unit.fn)
+                if mock_fn is not None:
+                    v = _safe_run(fn=mock_fn)
+                else:
+                    v = cast(
+                        Result[Any, Exception],
+                        utils.wrap_fn_into_cmd(
+                            child_ctx,
+                            call.exec_unit.fn,
+                            *call.exec_unit.args,
+                            **call.exec_unit.kwargs,
+                        ).run(),
+                    )
+
+                self._callbacks_to_run.append(
+                    lambda: callback(
+                        p=p,
+                        waiting_for_promise=self._waiting_for_prom_resolution,
+                        pending_to_run=self._pending_to_run,
+                        v=v,
+                    )
                 )
-            )
-            self._events.append(
-                AwaitedForPromise(promise_id=p.promise_id, tick=self.tick)
-            )
+                self._events.append(
+                    AwaitedForPromise(promise_id=p.promise_id, tick=self.tick)
+                )
+            else:
+                coro = call.exec_unit.fn(
+                    child_ctx, *call.exec_unit.args, **call.exec_unit.kwargs
+                )
+                self._pending_to_run.append(
+                    Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
+                )
+        elif isinstance(call.exec_unit, Command):
+            msg = "execution unit must be fn or coroutine at this point."
+            raise TypeError(msg)
         else:
-            coro = call.exec_unit.fn(
-                child_ctx, *call.exec_unit.args, **call.exec_unit.kwargs
-            )
-            self._pending_to_run.append(
-                Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
-            )
+            assert_never(call.exec_unit)
 
     def _increate_promise_created(self) -> int:
         self._promise_created += 1
@@ -352,45 +376,49 @@ class DSTScheduler:
         p = Promise[Any](
             promise_id=self._increate_promise_created(), invocation=invocation
         )
+        # We can advance the promise by passing the Promise,
+        # even if it's not already resolved.
         self._pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
         child_ctx = runnable.coro_and_promise.ctx.new_child()
 
-        assert isinstance(
-            invocation.exec_unit, FnOrCoroutine
-        ), "execution unit must be fn or coroutine at this point."
+        if isinstance(invocation.exec_unit, FnOrCoroutine):
+            if not isgeneratorfunction(invocation.exec_unit.fn):
+                mock_fn = self.mocks.get(invocation.exec_unit.fn)
+                if mock_fn is not None:
+                    v = _safe_run(mock_fn)
+                else:
+                    v = cast(
+                        Result[Any, Exception],
+                        utils.wrap_fn_into_cmd(
+                            child_ctx,
+                            invocation.exec_unit.fn,
+                            *invocation.exec_unit.args,
+                            **invocation.exec_unit.kwargs,
+                        ).run(),
+                    )
+                self._callbacks_to_run.append(
+                    lambda: callback(
+                        p=p,
+                        waiting_for_promise=self._waiting_for_prom_resolution,
+                        pending_to_run=self._pending_to_run,
+                        v=v,
+                    )
+                )
 
-        if not isgeneratorfunction(invocation.exec_unit.fn):
-            mock_fn = self.mocks.get(invocation.exec_unit.fn)
-            if mock_fn is not None:
-                v = _safe_run(mock_fn)
             else:
-                v = cast(
-                    Result[Any, Exception],
-                    utils.wrap_fn_into_cmd(
-                        child_ctx,
-                        invocation.exec_unit.fn,
-                        *invocation.exec_unit.args,
-                        **invocation.exec_unit.kwargs,
-                    ).run(),
+                coro = invocation.exec_unit.fn(
+                    child_ctx,
+                    *invocation.exec_unit.args,
+                    **invocation.exec_unit.kwargs,
                 )
-            self._callbacks_to_run.append(
-                lambda: callback(
-                    p=p,
-                    waiting_for_promise=self._waiting_for_prom_resolution,
-                    pending_to_run=self._pending_to_run,
-                    v=v,
+                self._pending_to_run.append(
+                    Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
                 )
-            )
-
+        elif isinstance(invocation.exec_unit, Command):
+            msg = "execution unit must be fn or coroutine at this point."
+            raise TypeError(msg)
         else:
-            coro = invocation.exec_unit.fn(
-                child_ctx,
-                *invocation.exec_unit.args,
-                **invocation.exec_unit.kwargs,
-            )
-            self._pending_to_run.append(
-                Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
-            )
+            assert_never(invocation.exec_unit)
 
     def get_events(self) -> list[SchedulerEvents]:
         return self._events
@@ -409,3 +437,10 @@ def _safe_run(fn: Callable[[], T]) -> Result[T, Exception]:
     except Exception as e:  # noqa: BLE001
         result = Err(e)
     return result
+
+
+def _pop_all(x: list[T] | deque[T]) -> list[T]:
+    all_elements: list[T] = []
+    while x:
+        all_elements.append(x.pop())
+    return all_elements

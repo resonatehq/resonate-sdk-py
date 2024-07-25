@@ -3,12 +3,14 @@ from __future__ import annotations
 import os
 import random
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 import resonate
 from resonate.contants import ENV_VARIABLE_PIN_SEED
+from resonate.context import Command
 from resonate.dst.scheduler import DSTScheduler
 from resonate.events import (
     AwaitedForPromise,
@@ -56,6 +58,48 @@ def _promise_result(promises: list[Promise[T]]) -> list[T]:
 
 def mocked_number() -> int:
     return 23
+
+
+@dataclass(frozen=True)
+class GreetCommand(Command):
+    name: str
+
+
+def batch_function(cmds: list[GreetCommand]) -> list[str]:
+    return [f"Hi {cmd.name}" for cmd in cmds]
+
+
+def greet(ctx: Context, name: str) -> Generator[Yieldable, Any, str]:
+    p: Promise[str] = yield ctx.invoke(GreetCommand(name=name))
+    greeting: str = yield p
+    return greeting
+
+
+@pytest.mark.skip()
+def test_batching() -> None:
+    s = DSTScheduler(
+        seed=1,
+        mocks=None,
+        log_file=None,
+        max_failures=0,
+        failure_chance=0,
+        mode="concurrent",
+    )
+    s.register_command(cmd=GreetCommand, handler=batch_function, max_batch=4)
+    assert s.get_handler(GreetCommand) == batch_function
+    s.add(greet, name="Ging")
+    s.add(greet, name="Razor")
+    s.add(greet, name="Eta")
+    s.add(greet, name="Elena")
+    s.add(greet, name="Dwun")
+    greetings_promises = s.run()
+    assert [p.result() for p in greetings_promises] == [
+        "Hello Ging",
+        "Hello Razor",
+        "Hello Eta",
+        "Hello Elena",
+        "Hello Dwun",
+    ]
 
 
 @pytest.mark.dst()
