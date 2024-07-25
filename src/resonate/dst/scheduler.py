@@ -251,11 +251,19 @@ class DSTScheduler:
         promises: list[Promise[Any]] = []
         cmds: list[Command] = []
         cmd_buffer = self._handler_queues[cmd]
-        for p, c in cmd_buffer.pop_all():
-            promises.append(p)
-            cmds.append(c)
-        n_cmds = len(cmds)
-        cmd_handler = self._handlers[cmd]
+        for subbuffer in _split_array_by_max_length(
+            cmd_buffer.pop_all(), cmd_buffer.max_length
+        ):
+            assert (
+                len(subbuffer) <= cmd_buffer.max_length
+            ), "Subbuffer length is greater that max batch size"
+
+            for p, c in subbuffer:
+                promises.append(p)
+                cmds.append(c)
+
+            n_cmds = len(cmds)
+            cmd_handler = self._handlers[cmd]
 
         try:
             results = cmd_handler(cmds)
@@ -461,3 +469,7 @@ def _pop_all(x: list[T] | deque[T]) -> list[T]:
     while x:
         all_elements.append(x.pop())
     return all_elements
+
+
+def _split_array_by_max_length(arr: list[T], max_length: int) -> Generator[list[T]]:
+    return (arr[i : i + max_length] for i in range(0, len(arr), max_length))
