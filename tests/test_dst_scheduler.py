@@ -5,9 +5,6 @@ import random
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-import tempfile
-from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -27,7 +24,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate.context import Context
-    from resonate.promise import Promise
     from resonate.promise import Promise
     from resonate.typing import Yieldable
 
@@ -517,32 +513,6 @@ def test_sequential() -> None:
         PromiseResolved(promise_id=4, tick=13),
         PromiseResolved(promise_id=2, tick=15),
     ]
-
-
-def test_dump_events() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        log_file_path = Path(temp_dir) / "cool_log_%s.txt"
-        s = DSTScheduler(
-            seed=1,
-            log_file=log_file_path.as_posix(),
-            mocks=None,
-            max_failures=1,
-            failure_chance=0,
-            mode="concurrent",
-        )
-        formatted_file_path = Path(log_file_path.as_posix() % (s.seed))
-        assert not formatted_file_path.exists()
-        s.add(only_call, n=1)
-        s.add(only_call, n=2)
-        s.add(only_call, n=3)
-        s.add(only_call, n=4)
-        s.add(only_call, n=5)
-        s.run()
-
-        assert formatted_file_path.exists()
-        assert formatted_file_path.read_text() == "".join(
-            f"{e}\n" for e in s.get_events()
-        )
 
 
 def test_dump_events() -> None:
