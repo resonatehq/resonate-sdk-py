@@ -19,9 +19,9 @@ from resonate.events import (
     SchedulerEvents,
 )
 from resonate.itertools import (
+    Awaitables,
     FinalValue,
-    PendingToRun,
-    WaitingForPromiseResolution,
+    Runnables,
     callback,
     iterate_coro,
     unblock_depands_coros,
@@ -92,8 +92,8 @@ class DSTScheduler:
         self._top_level_invocations: deque[_TopLevelInvoke] = deque()
         self._mode: Mode = mode
 
-        self._pending_to_run: PendingToRun = []
-        self._waiting_for_prom_resolution: WaitingForPromiseResolution = {}
+        self.runnables: Runnables = []
+        self.awaitables: Awaitables = {}
         self._callbacks_to_run: list[Callable[..., None]] = []
 
         self.seed = seed
@@ -130,8 +130,8 @@ class DSTScheduler:
         self._top_level_invocations.appendleft(_TopLevelInvoke(coro, *args, **kwargs))
 
     def _reset(self) -> None:
-        self._pending_to_run.clear()
-        self._waiting_for_prom_resolution.clear()
+        self.runnables.clear()
+        self.awaitables.clear()
         self._events.clear()
         self._callbacks_to_run.clear()
 
@@ -172,7 +172,7 @@ class DSTScheduler:
                 )
             )
             ctx = Context(dst=True, deps=self.deps)
-            self._pending_to_run.append(
+            self.runnables.append(
                 Runnable(
                     coro_and_promise=CoroAndPromise(
                         top_level_invocation.fn(
@@ -201,9 +201,9 @@ class DSTScheduler:
             next_step = "callbacks" if self._callbacks_to_run else "runnables"
         elif not self._callbacks_to_run:
             next_step = "runnables"
-            assert self._pending_to_run, "There should something in callbacks"
+            assert self.runnables, "There should something in callbacks"
 
-        elif not self._pending_to_run:
+        elif not self.runnables:
             next_step = "callbacks"
             assert self._callbacks_to_run, "There should something in callbacks"
 
@@ -219,7 +219,7 @@ class DSTScheduler:
         ), "No promise should be resolved by now."
 
         while True:
-            if not self._callbacks_to_run and not self._pending_to_run:
+            if not self._callbacks_to_run and not self.runnables:
                 break
             self.tick += 1
 
@@ -238,7 +238,7 @@ class DSTScheduler:
 
             if next_step == "runnables":
                 runnable = get_random_element(
-                    self._pending_to_run, r=self.random, mode=self._mode
+                    self.runnables, r=self.random, mode=self._mode
                 )
                 self._process_each_runnable(runnable=runnable)
 
@@ -278,8 +278,8 @@ class DSTScheduler:
             )
             unblock_depands_coros(
                 p=runnable.coro_and_promise.prom,
-                waiting=self._waiting_for_prom_resolution,
-                runnables=self._pending_to_run,
+                awaitables=self.awaitables,
+                runnables=self.runnables,
             )
 
         elif isinstance(yieldable_or_final_value, Call):
@@ -295,16 +295,14 @@ class DSTScheduler:
             )
 
         elif isinstance(yieldable_or_final_value, Promise):
-            self._waiting_for_prom_resolution.setdefault(
-                yieldable_or_final_value, []
-            ).append(
+            self.awaitables.setdefault(yieldable_or_final_value, []).append(
                 runnable.coro_and_promise,
             )
             if yieldable_or_final_value.done():
                 unblock_depands_coros(
                     p=yieldable_or_final_value,
-                    waiting=self._waiting_for_prom_resolution,
-                    runnables=self._pending_to_run,
+                    awaitables=self.awaitables,
+                    runnables=self.runnables,
                 )
         else:
             assert_never(yieldable_or_final_value)
@@ -320,7 +318,7 @@ class DSTScheduler:
         )
         # We cannot advance the coroutine so we block it until the promise
         # gets resolved.
-        self._waiting_for_prom_resolution[p] = [runnable.coro_and_promise]
+        self.awaitables[p] = [runnable.coro_and_promise]
         child_ctx = runnable.coro_and_promise.ctx.new_child()
 
         if isinstance(call.exec_unit, FnOrCoroutine):
@@ -342,8 +340,8 @@ class DSTScheduler:
                 self._callbacks_to_run.append(
                     lambda: callback(
                         p=p,
-                        waiting_for_promise=self._waiting_for_prom_resolution,
-                        pending_to_run=self._pending_to_run,
+                        awaitables=self.awaitables,
+                        runnables=self.runnables,
                         v=v,
                     )
                 )
@@ -354,7 +352,7 @@ class DSTScheduler:
                 coro = call.exec_unit.fn(
                     child_ctx, *call.exec_unit.args, **call.exec_unit.kwargs
                 )
-                self._pending_to_run.append(
+                self.runnables.append(
                     Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
                 )
         elif isinstance(call.exec_unit, Command):
@@ -378,7 +376,7 @@ class DSTScheduler:
         )
         # We can advance the promise by passing the Promise,
         # even if it's not already resolved.
-        self._pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
+        self.runnables.append(Runnable(runnable.coro_and_promise, Ok(p)))
         child_ctx = runnable.coro_and_promise.ctx.new_child()
 
         if isinstance(invocation.exec_unit, FnOrCoroutine):
@@ -399,8 +397,8 @@ class DSTScheduler:
                 self._callbacks_to_run.append(
                     lambda: callback(
                         p=p,
-                        waiting_for_promise=self._waiting_for_prom_resolution,
-                        pending_to_run=self._pending_to_run,
+                        awaitables=self.awaitables,
+                        runnables=self.runnables,
                         v=v,
                     )
                 )
@@ -411,7 +409,7 @@ class DSTScheduler:
                     *invocation.exec_unit.args,
                     **invocation.exec_unit.kwargs,
                 )
-                self._pending_to_run.append(
+                self.runnables.append(
                     Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
                 )
         elif isinstance(invocation.exec_unit, Command):

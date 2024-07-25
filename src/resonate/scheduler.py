@@ -13,9 +13,9 @@ from resonate import utils
 from resonate.context import Call, Context, FnOrCoroutine, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.itertools import (
+    Awaitables,
     FinalValue,
-    PendingToRun,
-    WaitingForPromiseResolution,
+    Runnables,
     callback,
     iterate_coro,
     unblock_depands_coros,
@@ -93,11 +93,11 @@ class Scheduler:
             self._w_thread = t
 
     def _run(self) -> None:
-        pending_to_run: PendingToRun = []
-        waiting_for_prom_resolution: WaitingForPromiseResolution = {}
+        runnables: Runnables = []
+        awaitables: Awaitables = {}
 
         while True:
-            n_pending_to_run = len(pending_to_run)
+            n_pending_to_run = len(runnables)
             if n_pending_to_run == 0:
                 self._w_continue.wait()
                 with self._lock:
@@ -108,21 +108,21 @@ class Scheduler:
             new_r = self._runnables_from_stg_q()
 
             if new_r is not None:
-                pending_to_run.extend(new_r)
+                runnables.extend(new_r)
 
             for _ in range(n_pending_to_run):
-                runnable = pending_to_run.pop()
+                runnable = runnables.pop()
                 self._process_each_runnable(
                     runnable=runnable,
-                    waiting_for_promise=waiting_for_prom_resolution,
-                    pending_to_run=pending_to_run,
+                    awaitables=awaitables,
+                    runnables=runnables,
                 )
 
     def _process_each_runnable(
         self,
         runnable: Runnable[Any],
-        pending_to_run: PendingToRun,
-        waiting_for_promise: WaitingForPromiseResolution,
+        runnables: Runnables,
+        awaitables: Awaitables,
     ) -> None:
         yieldable_or_final_value = iterate_coro(runnable)
 
@@ -132,35 +132,35 @@ class Scheduler:
             runnable.coro_and_promise.prom.set_result(value)
             unblock_depands_coros(
                 p=runnable.coro_and_promise.prom,
-                waiting=waiting_for_promise,
-                runnables=pending_to_run,
+                awaitables=awaitables,
+                runnables=runnables,
             )
 
         elif isinstance(yieldable_or_final_value, Call):
             self._handle_call(
                 call=yieldable_or_final_value,
                 runnable=runnable,
-                pending_to_run=pending_to_run,
-                waiting_for_promise=waiting_for_promise,
+                runnables=runnables,
+                awaitables=awaitables,
             )
 
         elif isinstance(yieldable_or_final_value, Invoke):
             self._handle_invocation(
                 invocation=yieldable_or_final_value,
                 runnable=runnable,
-                pending_to_run=pending_to_run,
-                waiting_for_promise=waiting_for_promise,
+                runnables=runnables,
+                awaitables=awaitables,
             )
 
         elif isinstance(yieldable_or_final_value, Promise):
-            waiting_for_promise.setdefault(yieldable_or_final_value, []).append(
+            awaitables.setdefault(yieldable_or_final_value, []).append(
                 runnable.coro_and_promise,
             )
             if yieldable_or_final_value.done():
                 unblock_depands_coros(
                     p=yieldable_or_final_value,
-                    waiting=waiting_for_promise,
-                    runnables=pending_to_run,
+                    awaitables=awaitables,
+                    runnables=runnables,
                 )
 
         else:
@@ -170,12 +170,12 @@ class Scheduler:
         self,
         call: Call,
         runnable: Runnable[T],
-        waiting_for_promise: WaitingForPromiseResolution,
-        pending_to_run: PendingToRun,
+        awaitables: Awaitables,
+        runnables: Runnables,
     ) -> None:
         logger.debug("Processing call")
         p = Promise[Any](self._increate_promise_created(), call.to_invoke())
-        waiting_for_promise[p] = [runnable.coro_and_promise]
+        awaitables[p] = [runnable.coro_and_promise]
         child_ctx = runnable.coro_and_promise.ctx.new_child()
         assert isinstance(
             call.exec_unit, FnOrCoroutine
@@ -192,8 +192,8 @@ class Scheduler:
                     callback=partial(
                         callback,
                         p,
-                        waiting_for_promise,
-                        pending_to_run,
+                        awaitables,
+                        runnables,
                     ),
                 )
             )
@@ -201,7 +201,7 @@ class Scheduler:
             coro = call.exec_unit.fn(
                 child_ctx, *call.exec_unit.args, **call.exec_unit.kwargs
             )
-            pending_to_run.append(
+            runnables.append(
                 Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
 
@@ -209,12 +209,12 @@ class Scheduler:
         self,
         invocation: Invoke,
         runnable: Runnable[T],
-        pending_to_run: PendingToRun,
-        waiting_for_promise: WaitingForPromiseResolution,
+        runnables: Runnables,
+        awaitables: Awaitables,
     ) -> None:
         logger.debug("Processing invocation")
         p = Promise[Any](self._increate_promise_created(), invocation)
-        pending_to_run.append(Runnable(runnable.coro_and_promise, Ok(p)))
+        runnables.append(Runnable(runnable.coro_and_promise, Ok(p)))
         child_ctx = runnable.coro_and_promise.ctx.new_child()
         assert isinstance(
             invocation.exec_unit, FnOrCoroutine
@@ -231,8 +231,8 @@ class Scheduler:
                     callback=partial(
                         callback,
                         p,
-                        waiting_for_promise,
-                        pending_to_run,
+                        awaitables,
+                        runnables,
                     ),
                 )
             )
@@ -240,12 +240,12 @@ class Scheduler:
             coro = invocation.exec_unit.fn(
                 child_ctx, *invocation.exec_unit.args, **invocation.exec_unit.kwargs
             )
-            pending_to_run.append(
+            runnables.append(
                 Runnable(CoroAndPromise(coro, p, child_ctx), next_value=None)
             )
 
-    def _runnables_from_stg_q(self) -> PendingToRun | None:
-        new_runnables: PendingToRun = []
+    def _runnables_from_stg_q(self) -> Runnables | None:
+        new_runnables: Runnables = []
         stg_qes = utils.dequeue_batch(q=self._stg_q, batch_size=self._batch_size)
         if stg_qes is None:
             return None

@@ -30,5 +30,5 @@ class Runnable(Generic[T]):
     next_value: Result[Any, Exception] | None
 
 
-WaitingForPromiseResolution: TypeAlias = dict[Promise[Any], list[CoroAndPromise[Any]]]
-PendingToRun: TypeAlias = list[Runnable[Any]]
+Awaitables: TypeAlias = dict[Promise[Any], list[CoroAndPromise[Any]]]
+Runnables: TypeAlias = list[Runnable[Any]]
