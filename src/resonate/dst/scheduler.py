@@ -13,6 +13,7 @@ from resonate.contants import CWD
 from resonate.context import Call, Command, Context, FnOrCoroutine, Invoke
 from resonate.dependency_injection import Dependencies
 from resonate.events import (
+    AwaitedForPromise,
     ExecutionStarted,
     PromiseCreated,
     PromiseResolved,
@@ -188,8 +189,11 @@ class DSTScheduler:
             None for _ in range(len(self._top_level_invocations))
         ]
         for idx, top_level_invocation in enumerate(self._top_level_invocations):
+            ctx = Context(
+                dst=True, deps=self.deps, ctx_id=str(self._increate_promise_created())
+            )
             p = Promise[Any](
-                promise_id=self._increate_promise_created(),
+                promise_id=ctx.ctx_id,
                 invocation=top_level_invocation.to_invocation(),
             )
 
@@ -202,7 +206,7 @@ class DSTScheduler:
                     kwargs=top_level_invocation.kwargs,
                 )
             )
-            ctx = Context(dst=True, deps=self.deps)
+
             self.runnables.append(
                 Runnable(
                     coro_and_promise=CoroAndPromise(
@@ -370,6 +374,9 @@ class DSTScheduler:
                 runnable=runnable,
             )
             self.awaitables[p] = [runnable.coro_and_promise]
+            self._events.append(
+                AwaitedForPromise(promise_id=p.promise_id, tick=self.tick)
+            )
 
         elif isinstance(yieldable_or_final_value, Invoke):
             p = self._handle_invocation(
@@ -401,13 +408,10 @@ class DSTScheduler:
         runnable: Runnable[T],
     ) -> Promise[Any]:
         logger.debug("Processing invocation")
-        p = Promise[Any](
-            promise_id=self._increate_promise_created(), invocation=invocation
-        )
+        child_ctx = runnable.coro_and_promise.ctx.new_child()
+        p = Promise[Any](promise_id=child_ctx.ctx_id, invocation=invocation)
 
         if isinstance(invocation.exec_unit, FnOrCoroutine):
-            child_ctx = runnable.coro_and_promise.ctx.new_child()
-
             if not isgeneratorfunction(invocation.exec_unit.fn):
                 mock_fn = self.mocks.get(invocation.exec_unit.fn)
                 if mock_fn is not None:

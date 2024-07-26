@@ -13,6 +13,7 @@ from resonate.contants import ENV_VARIABLE_PIN_SEED
 from resonate.context import Command
 from resonate.dst.scheduler import DSTScheduler
 from resonate.events import (
+    AwaitedForPromise,
     ExecutionStarted,
     PromiseCreated,
     PromiseResolved,
@@ -458,40 +459,45 @@ def test_sequential() -> None:
     assert [p.result() for p in promises] == [1, 2, 3, 4, 5]
     assert seq_scheduler.get_events() == [
         PromiseCreated(
-            promise_id=1, tick=0, fn_name="only_call", args=(), kwargs={"n": 5}
+            promise_id="1", tick=0, fn_name="only_call", args=(), kwargs={"n": 5}
         ),
         PromiseCreated(
-            promise_id=2, tick=0, fn_name="only_call", args=(), kwargs={"n": 4}
+            promise_id="2", tick=0, fn_name="only_call", args=(), kwargs={"n": 4}
         ),
         PromiseCreated(
-            promise_id=3, tick=0, fn_name="only_call", args=(), kwargs={"n": 3}
+            promise_id="3", tick=0, fn_name="only_call", args=(), kwargs={"n": 3}
         ),
         PromiseCreated(
-            promise_id=4, tick=0, fn_name="only_call", args=(), kwargs={"n": 2}
+            promise_id="4", tick=0, fn_name="only_call", args=(), kwargs={"n": 2}
         ),
         PromiseCreated(
-            promise_id=5, tick=0, fn_name="only_call", args=(), kwargs={"n": 1}
+            promise_id="5", tick=0, fn_name="only_call", args=(), kwargs={"n": 1}
         ),
         ExecutionStarted(
-            promise_id=5, tick=1, fn_name="only_call", args=(), kwargs={"n": 1}
+            promise_id="5", tick=1, fn_name="only_call", args=(), kwargs={"n": 1}
         ),
-        PromiseResolved(promise_id=5, tick=3),
+        AwaitedForPromise(promise_id="5.1", tick=1),
+        PromiseResolved(promise_id="5", tick=3),
         ExecutionStarted(
-            promise_id=4, tick=4, fn_name="only_call", args=(), kwargs={"n": 2}
+            promise_id="4", tick=4, fn_name="only_call", args=(), kwargs={"n": 2}
         ),
-        PromiseResolved(promise_id=4, tick=6),
+        AwaitedForPromise(promise_id="4.1", tick=4),
+        PromiseResolved(promise_id="4", tick=6),
         ExecutionStarted(
-            promise_id=3, tick=7, fn_name="only_call", args=(), kwargs={"n": 3}
+            promise_id="3", tick=7, fn_name="only_call", args=(), kwargs={"n": 3}
         ),
-        PromiseResolved(promise_id=3, tick=9),
+        AwaitedForPromise(promise_id="3.1", tick=7),
+        PromiseResolved(promise_id="3", tick=9),
         ExecutionStarted(
-            promise_id=2, tick=10, fn_name="only_call", args=(), kwargs={"n": 4}
+            promise_id="2", tick=10, fn_name="only_call", args=(), kwargs={"n": 4}
         ),
-        PromiseResolved(promise_id=2, tick=12),
+        AwaitedForPromise(promise_id="2.1", tick=10),
+        PromiseResolved(promise_id="2", tick=12),
         ExecutionStarted(
-            promise_id=1, tick=13, fn_name="only_call", args=(), kwargs={"n": 5}
+            promise_id="1", tick=13, fn_name="only_call", args=(), kwargs={"n": 5}
         ),
-        PromiseResolved(promise_id=1, tick=15),
+        AwaitedForPromise(promise_id="1.1", tick=13),
+        PromiseResolved(promise_id="1", tick=15),
     ]
 
     con_scheduler = DSTScheduler(
@@ -519,40 +525,45 @@ def test_sequential() -> None:
     assert [p.result() for p in promises] == [1, 2, 3, 4, 5]
     assert con_scheduler.get_events() == [
         PromiseCreated(
-            promise_id=1, tick=0, fn_name="only_call", args=(), kwargs={"n": 5}
+            promise_id="1", tick=0, fn_name="only_call", args=(), kwargs={"n": 5}
         ),
         PromiseCreated(
-            promise_id=2, tick=0, fn_name="only_call", args=(), kwargs={"n": 4}
+            promise_id="2", tick=0, fn_name="only_call", args=(), kwargs={"n": 4}
         ),
         PromiseCreated(
-            promise_id=3, tick=0, fn_name="only_call", args=(), kwargs={"n": 3}
+            promise_id="3", tick=0, fn_name="only_call", args=(), kwargs={"n": 3}
         ),
         PromiseCreated(
-            promise_id=4, tick=0, fn_name="only_call", args=(), kwargs={"n": 2}
+            promise_id="4", tick=0, fn_name="only_call", args=(), kwargs={"n": 2}
         ),
         PromiseCreated(
-            promise_id=5, tick=0, fn_name="only_call", args=(), kwargs={"n": 1}
+            promise_id="5", tick=0, fn_name="only_call", args=(), kwargs={"n": 1}
         ),
         ExecutionStarted(
-            promise_id=1, tick=1, fn_name="only_call", args=(), kwargs={"n": 5}
+            promise_id="1", tick=1, fn_name="only_call", args=(), kwargs={"n": 5}
         ),
+        AwaitedForPromise(promise_id="1.1", tick=1),
         ExecutionStarted(
-            promise_id=3, tick=2, fn_name="only_call", args=(), kwargs={"n": 3}
+            promise_id="3", tick=2, fn_name="only_call", args=(), kwargs={"n": 3}
         ),
+        AwaitedForPromise(promise_id="3.1", tick=2),
         ExecutionStarted(
-            promise_id=5, tick=3, fn_name="only_call", args=(), kwargs={"n": 1}
+            promise_id="5", tick=3, fn_name="only_call", args=(), kwargs={"n": 1}
         ),
+        AwaitedForPromise(promise_id="5.1", tick=3),
         ExecutionStarted(
-            promise_id=4, tick=4, fn_name="only_call", args=(), kwargs={"n": 2}
+            promise_id="4", tick=4, fn_name="only_call", args=(), kwargs={"n": 2}
         ),
-        PromiseResolved(promise_id=5, tick=8),
+        AwaitedForPromise(promise_id="4.1", tick=4),
+        PromiseResolved(promise_id="5", tick=8),
         ExecutionStarted(
-            promise_id=2, tick=9, fn_name="only_call", args=(), kwargs={"n": 4}
+            promise_id="2", tick=9, fn_name="only_call", args=(), kwargs={"n": 4}
         ),
-        PromiseResolved(promise_id=1, tick=11),
-        PromiseResolved(promise_id=3, tick=12),
-        PromiseResolved(promise_id=4, tick=13),
-        PromiseResolved(promise_id=2, tick=15),
+        AwaitedForPromise(promise_id="2.1", tick=9),
+        PromiseResolved(promise_id="1", tick=11),
+        PromiseResolved(promise_id="3", tick=12),
+        PromiseResolved(promise_id="4", tick=13),
+        PromiseResolved(promise_id="2", tick=15),
     ]
 
 
