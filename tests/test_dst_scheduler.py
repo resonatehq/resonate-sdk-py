@@ -48,6 +48,11 @@ def coro_that_fails_invoke(ctx: Context) -> Generator[Yieldable, Any, None]:
     return (yield (yield ctx.invoke(failing_function)))
 
 
+def raise_inmediately(ctx: Context) -> Generator[Yieldable, Any, int]:  # noqa: ARG001
+    msg = "First thing we do is fail."
+    raise RuntimeError(msg)
+
+
 def only_call(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
     x: int = yield ctx.call(number, n=n)
     return x
@@ -93,6 +98,22 @@ def greet_with_batching_but_with_call(
 ) -> Generator[Yieldable, Any, str]:
     g: str = yield ctx.call(GreetCommand(name=name))
     return g
+
+
+def test_raise_inmediately() -> None:
+    s = DSTScheduler(
+        seed=1,
+        mocks=None,
+        log_file=None,
+        max_failures=0,
+        failure_chance=0,
+        mode="concurrent",
+    )
+    s.add(raise_inmediately)
+    p = s.run()[0]
+    assert p.failure()
+    with pytest.raises(RuntimeError):
+        p.result()
 
 
 def test_failing_call() -> None:

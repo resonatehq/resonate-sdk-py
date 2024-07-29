@@ -207,20 +207,25 @@ class DSTScheduler:
                 )
             )
 
-            self.runnables.append(
-                Runnable(
-                    coro_and_promise=CoroAndPromise(
-                        top_level_invocation.fn(
-                            ctx,
-                            *top_level_invocation.args,
-                            **top_level_invocation.kwargs,
-                        ),
-                        p,
-                        ctx,
-                    ),
-                    next_value=None,
+            try:
+                coro = top_level_invocation.fn(
+                    ctx,
+                    *top_level_invocation.args,
+                    **top_level_invocation.kwargs,
                 )
-            )
+            except Exception as e:  # noqa: BLE001
+                p.set_result(Err(e))
+            else:
+                self.runnables.append(
+                    Runnable(
+                        coro_and_promise=CoroAndPromise(
+                            coro,
+                            p,
+                            ctx,
+                        ),
+                        next_value=None,
+                    )
+                )
             init_promises[-idx - 1] = p
 
         promises: list[Promise[Any]] = []
@@ -257,13 +262,12 @@ class DSTScheduler:
         cmd: type[Command],
     ) -> None:
         cmd_buffer = self._handler_queues[cmd]
-        cmd_handler = self._handlers[cmd]
         for subbuffer in _split_array_by_max_length(
             cmd_buffer.pop_all(), cmd_buffer.max_length
         ):
             n_cmds: int = 0
             promises: list[Promise[Any]] = []
-            cmds: list[Command] = []
+            cmds_to_run: list[Command] = []
 
             assert (
                 len(subbuffer) <= cmd_buffer.max_length
@@ -271,11 +275,11 @@ class DSTScheduler:
 
             for p, c in subbuffer:
                 promises.append(p)
-                cmds.append(c)
+                cmds_to_run.append(c)
                 n_cmds += 1
 
             try:
-                results = cmd_handler(cmds)
+                results = self._handlers[cmd](cmds_to_run)
                 if results is None:
                     for p in promises:
                         callback(p, self.awaitables, self.runnables, Ok(None))
@@ -284,12 +288,12 @@ class DSTScheduler:
                     assert (
                         len(results) == n_cmds
                     ), "Numbers of commands and number of results must be the same"
-                    for idx, _ in enumerate(range(n_cmds)):
+                    for i in range(n_cmds):
                         callback(
-                            promises[idx],
+                            promises[i],
                             self.awaitables,
                             self.runnables,
-                            Ok(results[idx]),
+                            Ok(results[i]),
                         )
 
             except Exception as e:  # noqa: BLE001
@@ -298,9 +302,6 @@ class DSTScheduler:
 
     def _run(self) -> list[Promise[Any]]:
         promises = self._initialize_runnables()
-        assert all(
-            not p.done() for p in promises
-        ), "No promise should be resolved by now."
 
         while True:
             if not self._callbacks_to_run and not self.runnables:
