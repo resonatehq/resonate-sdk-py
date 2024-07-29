@@ -108,6 +108,7 @@ class DSTScheduler:
         max_failures: int,
         failure_chance: float,
         mode: Mode,
+        probe: Callable[[Dependencies], Any] | None,
     ) -> None:
         self._failure_chance = failure_chance
         self._max_failures: int = max_failures
@@ -135,6 +136,9 @@ class DSTScheduler:
         self._handler_queues: dict[
             type[Command], _ListWithLenght[tuple[Promise[Any], Command]]
         ] = {}
+
+        self._probe = probe
+        self._probe_results: list[Any] = []
 
     def register_command(
         self,
@@ -313,6 +317,8 @@ class DSTScheduler:
                 for cmd in cmds_to_be_executed:
                     self._execute_commands(cmd)
 
+            if self._probe is not None:
+                self._probe_results.append(self._probe(self.deps))
             self.tick += 1
 
             if (
