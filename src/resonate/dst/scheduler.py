@@ -215,7 +215,8 @@ class DSTScheduler:
                 )
             except Exception as e:  # noqa: BLE001
                 p.set_result(Err(e))
-            else:
+
+            if not p.done():
                 self.runnables.append(
                     Runnable(
                         coro_and_promise=CoroAndPromise(
