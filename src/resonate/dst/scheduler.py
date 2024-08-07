@@ -94,47 +94,6 @@ class _CmdBuffer(Generic[T]):
         self.elements.clear()
 
 
-class MultiRandom:
-    def __init__(self, seed: int, checkpoints: list[tuple[int, int]] | None) -> None:
-        self.checkpoints_and_seed: list[tuple[int, int | None]] = []
-        if checkpoints is not None:
-            self.checkpoints_and_seed.extend(checkpoints)
-
-        self.seed: int
-        self._current_checkpoint: int = -1
-        self._generated_numbers: int = 0
-        self.checkpoints_and_seed.append((seed, None))
-        self.random: random.Random
-        self._current_random_limit: int | None = 0
-        self._configure_next_checkpoint()
-
-    def _configure_next_checkpoint(self) -> None:
-        self._current_checkpoint += 1
-        seed = self.checkpoints_and_seed[self._current_checkpoint][0]
-        self.random = random.Random(seed)
-        self.seed = seed
-        checkpoint_limit = self.checkpoints_and_seed[self._current_checkpoint][-1]
-        if checkpoint_limit is None:
-            self._current_random_limit = None
-        else:
-            if self._current_random_limit is None:
-                self._current_random_limit = 0
-            self._current_random_limit += checkpoint_limit
-
-    def _add_count_generated_number(self) -> None:
-        self._generated_numbers += 1
-
-    def take_rand_number(self, a: int, b: int) -> int:
-        if (
-            self._current_random_limit is not None
-            and self._generated_numbers > self._current_random_limit
-        ):
-            self._configure_next_checkpoint()
-        self._add_count_generated_number()
-
-        return self.random.randint(a, b)
-
-
 class DSTScheduler:
     """
     The DSTScheduler class manages coroutines in a deterministic way, allowing for
@@ -158,7 +117,6 @@ class DSTScheduler:
         probe: Callable[[Dependencies, int], Any] | None,
         assert_eventually: Callable[[Dependencies, int], None] | None,
         assert_always: Callable[[Dependencies, int, int], None] | None,
-        checkpoints: list[tuple[int, int]] | None,
     ) -> None:
         self._assert_eventually = assert_eventually
         self._assert_always = assert_always
@@ -173,7 +131,8 @@ class DSTScheduler:
         self._top_level_invocations: deque[_TopLevelInvoke] = deque()
         self._mode: Mode = mode
 
-        self._multirandom = MultiRandom(seed=seed, checkpoints=checkpoints)  # noqa: RUF100, S311
+        self.seed = seed
+        self.random = random.Random(seed)  # noqa: RUF100, S311
 
         self.deps = Dependencies()
         self.mocks = mocks or {}
@@ -191,14 +150,6 @@ class DSTScheduler:
 
         self._probe = probe
         self._probe_results: list[Any] = []
-
-    @property
-    def seed(self) -> int:
-        return self._multirandom.seed
-
-    @property
-    def random(self) -> random.Random:
-        return self._multirandom.random
 
     def register_command(
         self,
@@ -421,7 +372,7 @@ class DSTScheduler:
             if next_step == "functions":
                 function_wrapper, p = _get_random_element(
                     self._runnable_functions,
-                    self._multirandom,
+                    self.random,
                     self._mode,
                 )
                 self._run_function_and_move_awaitables_to_runnables(function_wrapper, p)
@@ -429,7 +380,7 @@ class DSTScheduler:
             elif next_step == "coroutines":
                 runnable = _get_random_element(
                     self._runnable_coroutines,
-                    self._multirandom,
+                    self.random,
                     self._mode,
                 )
                 self._process_each_runnable(runnable=runnable)
@@ -481,7 +432,9 @@ class DSTScheduler:
                 value,
             )
             self._events.append(
-                PromiseResolved(runnable.coro_and_promise.prom.promise_id, self.tick)
+                PromiseResolved(
+                    promise_id=runnable.coro_and_promise.prom.promise_id, tick=self.tick
+                )
             )
         elif isinstance(yieldable_or_final_value, Call):
             p = self._handle_invocation(
@@ -564,10 +517,10 @@ class DSTScheduler:
         return self._events
 
 
-def _get_random_element(array: list[T], r: MultiRandom, mode: Mode) -> T:
+def _get_random_element(array: list[T], r: random.Random, mode: Mode) -> T:
     pop_idx = -1
     if mode == "concurrent":
-        pop_idx = r.take_rand_number(0, len(array) - 1)
+        pop_idx = r.randint(0, len(array) - 1)
     return array.pop(pop_idx)
 
 
