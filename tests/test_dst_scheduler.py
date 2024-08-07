@@ -170,12 +170,12 @@ def test_batching() -> None:
 @pytest.mark.dst()
 def test_pin_seed() -> None:
     s = dst(seeds=[1])[0]
-    assert s.random.seed == 1
+    assert s.seed == 1
 
     os.environ[ENV_VARIABLE_PIN_SEED] = "32"
     s = dst(seeds=[1])[0]
 
-    assert s.random.seed == int(os.environ.pop(ENV_VARIABLE_PIN_SEED))
+    assert s.seed == int(os.environ.pop(ENV_VARIABLE_PIN_SEED))
 
 
 @pytest.mark.dst()
@@ -468,7 +468,7 @@ def test_dump_events() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         log_file_path = Path(temp_dir) / "cool_log_%s.txt"
         s = dst(seeds=[1], log_file=log_file_path.as_posix())[0]
-        formatted_file_path = Path(log_file_path.as_posix() % (s.random.seed))
+        formatted_file_path = Path(log_file_path.as_posix() % (s.seed))
         assert not formatted_file_path.exists()
         s.add(only_call, n=1)
         s.add(only_call, n=2)
@@ -511,7 +511,7 @@ def test_multi_random() -> None:
         multi_random_2.take_rand_number(0, 100) for _ in numbers_to_generate
     ]
 
-    checkpoints_limit = sum(limit for _, limit in checkpoints)
+    checkpoints_limit = sum(limit for _, limit in checkpoints if limit is not None)
     assert (
         numbers_random_1[: checkpoints_limit + 1]
         == numbers_random_2[: checkpoints_limit + 1]

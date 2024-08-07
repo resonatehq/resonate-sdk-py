@@ -40,7 +40,7 @@ from resonate.typing import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine, Generator, Sequence
+    from collections.abc import Coroutine, Generator
 
 
 T = TypeVar("T")
@@ -96,58 +96,43 @@ class _CmdBuffer(Generic[T]):
 
 class MultiRandom:
     def __init__(self, seed: int, checkpoints: list[tuple[int, int]] | None) -> None:
-        self._final_seed = seed
+        self.checkpoints_and_seed: list[tuple[int, int | None]] = []
+        if checkpoints is not None:
+            self.checkpoints_and_seed.extend(checkpoints)
+
         self.seed: int
+        self._current_checkpoint: int = -1
+        self._generated_numbers: int = 0
+        self.checkpoints_and_seed.append((seed, None))
+        self.random: random.Random
+        self._current_random_limit: int | None = 0
+        self._configure_next_checkpoint()
 
-        self._checkpoint_to_choose: int = 0
-        self._numbers_generated: int = 0
+    def _configure_next_checkpoint(self) -> None:
+        self._current_checkpoint += 1
+        seed = self.checkpoints_and_seed[self._current_checkpoint][0]
+        self.random = random.Random(seed)
+        self.seed = seed
+        checkpoint_limit = self.checkpoints_and_seed[self._current_checkpoint][-1]
+        if checkpoint_limit is None:
+            self._current_random_limit = None
+        else:
+            if self._current_random_limit is None:
+                self._current_random_limit = 0
+            self._current_random_limit += checkpoint_limit
 
-        self._checkpoints = checkpoints
-        self._limit_next_checkpoint: int | None = None
-        self._configure_randome_with_next_checkpoint()
-
-    def _configure_random_with_final_seed(self) -> None:
-        self._random = random.Random(self._final_seed)  # noqa: S311, RUF100
-        self._limit_next_checkpoint = None
-        self.seed = self._final_seed
-
-    def _configure_randome_with_next_checkpoint(self) -> None:
-        if self._checkpoints is None:
-            return self._configure_random_with_final_seed()
-
-        num_checkpoints = len(self._checkpoints)
-        if self._checkpoint_to_choose >= num_checkpoints:
-            return self._configure_random_with_final_seed()
-
-        next_checkpoint = self._checkpoints[self._checkpoint_to_choose]
-        self._checkpoint_to_choose += 1
-        self._random = random.Random(next_checkpoint[0])  # noqa: S311, RUF100
-        self.seed = next_checkpoint[0]
-        if self._limit_next_checkpoint is None:
-            self._limit_next_checkpoint = 0
-        self._limit_next_checkpoint += next_checkpoint[1]
-        return None
-
-    def choice(self, steps: Sequence[T]) -> T:
-        return self._random.choice(steps)
-
-    def uniform(self, a: float, b: float) -> float:
-        return self._random.uniform(a, b)
-
-    def randint(self, a: int, b: int) -> int:
-        return self._random.randint(a, b)
+    def _add_count_generated_number(self) -> None:
+        self._generated_numbers += 1
 
     def take_rand_number(self, a: int, b: int) -> int:
         if (
-            self._limit_next_checkpoint is not None
-            and self._numbers_generated > self._limit_next_checkpoint
+            self._current_random_limit is not None
+            and self._generated_numbers > self._current_random_limit
         ):
-            self._configure_randome_with_next_checkpoint()
+            self._configure_next_checkpoint()
+        self._add_count_generated_number()
 
-        rand_num = self.randint(a, b)
-        self._numbers_generated += 1
-
-        return rand_num
+        return self.random.randint(a, b)
 
 
 class DSTScheduler:
@@ -188,7 +173,8 @@ class DSTScheduler:
         self._top_level_invocations: deque[_TopLevelInvoke] = deque()
         self._mode: Mode = mode
 
-        self.random = MultiRandom(seed=seed, checkpoints=checkpoints)  # noqa: RUF100, S311
+        self._multirandom = MultiRandom(seed=seed, checkpoints=checkpoints)  # noqa: RUF100, S311
+
         self.deps = Dependencies()
         self.mocks = mocks or {}
 
@@ -205,6 +191,14 @@ class DSTScheduler:
 
         self._probe = probe
         self._probe_results: list[Any] = []
+
+    @property
+    def seed(self) -> int:
+        return self._multirandom.seed
+
+    @property
+    def random(self) -> random.Random:
+        return self._multirandom.random
 
     def register_command(
         self,
@@ -238,7 +232,7 @@ class DSTScheduler:
         self._runnable_functions.clear()
 
     def dump(self, file: str) -> None:
-        log_file = CWD / (file % (self.random.seed))
+        log_file = CWD / (file % (self.seed))
 
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -411,7 +405,7 @@ class DSTScheduler:
             if self._assert_always is not None:
                 self._assert_always(
                     self.deps,
-                    self.random.seed,
+                    self.seed,
                     self.tick,
                 )
 
@@ -427,7 +421,7 @@ class DSTScheduler:
             if next_step == "functions":
                 function_wrapper, p = _get_random_element(
                     self._runnable_functions,
-                    self.random,
+                    self._multirandom,
                     self._mode,
                 )
                 self._run_function_and_move_awaitables_to_runnables(function_wrapper, p)
@@ -435,7 +429,7 @@ class DSTScheduler:
             elif next_step == "coroutines":
                 runnable = _get_random_element(
                     self._runnable_coroutines,
-                    self.random,
+                    self._multirandom,
                     self._mode,
                 )
                 self._process_each_runnable(runnable=runnable)
@@ -443,7 +437,7 @@ class DSTScheduler:
                 assert_never(next_step)
 
         if self._assert_eventually is not None:
-            self._assert_eventually(self.deps, self.random.seed)
+            self._assert_eventually(self.deps, self.seed)
 
         assert all(p.done() for p in promises), "All promises should be resolved."
         if self._log_file is not None:
