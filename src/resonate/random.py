@@ -13,13 +13,13 @@ P = ParamSpec("P")
 
 
 class Random:
-    def __init__(self, seed: int, prefix: list[float] | None = None) -> None:
+    def __init__(self, seed: int, prefix: list[float | int] | None = None) -> None:
         self.seed = seed
-        self._prefix: list[float] = []
+        self._prefix: list[float | int] = []
         if prefix is not None:
             self._prefix.extend(prefix)
         self._count = 0
-        self._random = random.Random(seed)
+        self._random = random.Random(seed)  # noqa: RUF100, S311
 
     def _take_number(
         self, fn: Callable[P, float], *args: P.args, **kwargs: P.kwargs
@@ -43,6 +43,19 @@ class Random:
 
     def random(self) -> float:
         return self._take_number(self._random.random)
+
+    def gauss(self, mu: float, sigma: float) -> float:
+        return self._take_number(self._random.gauss, mu=mu, sigma=sigma)
+
+    def randrange(self, start: int, stop: int | None = None, step: int = 1) -> int:
+        return int(
+            self._take_number(self._random.randrange, start=start, stop=stop, step=step)
+        )
+
+    def triangular(
+        self, low: float = 0, high: float = 1, mode: float | None = None
+    ) -> float:
+        return self._take_number(self._random.triangular, low=low, high=high, mode=mode)
 
     def export(self) -> list[float]:
         return self._prefix
