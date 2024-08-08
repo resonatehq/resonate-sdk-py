@@ -289,11 +289,12 @@ class DSTScheduler:
 
     def _complete_promise(self, p: Promise[T], value: Result[T, Exception]) -> None:
         p.set_result(value)
-        self._events.append(
-            PromiseCompleted(promise_id=p.promise_id, tick=self.tick, value=value)
-        )
+
         self._events.append(
             ExecutionTerminated(promise_id=p.promise_id, tick=self.tick)
+        )
+        self._events.append(
+            PromiseCompleted(promise_id=p.promise_id, tick=self.tick, value=value)
         )
 
     def _execute_commands(

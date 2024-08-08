@@ -330,51 +330,51 @@ def test_sequential() -> None:
             promise_id="1.1", tick=1, fn_name="number", args=(), kwargs={"n": 1}
         ),
         ExecutionAwaited(promise_id="1.1", tick=1),
-        PromiseCompleted(promise_id="1.1", tick=2, value=Ok(1)),
         ExecutionTerminated(promise_id="1.1", tick=2),
+        PromiseCompleted(promise_id="1.1", tick=2, value=Ok(1)),
         ExecutionResumed(promise_id="1", tick=2),
-        PromiseCompleted(promise_id="1", tick=3, value=Ok(1)),
         ExecutionTerminated(promise_id="1", tick=3),
+        PromiseCompleted(promise_id="1", tick=3, value=Ok(1)),
         PromiseCreated(promise_id="2.1", tick=4),
         ExecutionInvoked(
             promise_id="2.1", tick=4, fn_name="number", args=(), kwargs={"n": 2}
         ),
         ExecutionAwaited(promise_id="2.1", tick=4),
-        PromiseCompleted(promise_id="2.1", tick=5, value=Ok(2)),
         ExecutionTerminated(promise_id="2.1", tick=5),
+        PromiseCompleted(promise_id="2.1", tick=5, value=Ok(2)),
         ExecutionResumed(promise_id="2", tick=5),
-        PromiseCompleted(promise_id="2", tick=6, value=Ok(2)),
         ExecutionTerminated(promise_id="2", tick=6),
+        PromiseCompleted(promise_id="2", tick=6, value=Ok(2)),
         PromiseCreated(promise_id="3.1", tick=7),
         ExecutionInvoked(
             promise_id="3.1", tick=7, fn_name="number", args=(), kwargs={"n": 3}
         ),
         ExecutionAwaited(promise_id="3.1", tick=7),
-        PromiseCompleted(promise_id="3.1", tick=8, value=Ok(3)),
         ExecutionTerminated(promise_id="3.1", tick=8),
+        PromiseCompleted(promise_id="3.1", tick=8, value=Ok(3)),
         ExecutionResumed(promise_id="3", tick=8),
-        PromiseCompleted(promise_id="3", tick=9, value=Ok(3)),
         ExecutionTerminated(promise_id="3", tick=9),
+        PromiseCompleted(promise_id="3", tick=9, value=Ok(3)),
         PromiseCreated(promise_id="4.1", tick=10),
         ExecutionInvoked(
             promise_id="4.1", tick=10, fn_name="number", args=(), kwargs={"n": 4}
         ),
         ExecutionAwaited(promise_id="4.1", tick=10),
-        PromiseCompleted(promise_id="4.1", tick=11, value=Ok(4)),
         ExecutionTerminated(promise_id="4.1", tick=11),
+        PromiseCompleted(promise_id="4.1", tick=11, value=Ok(4)),
         ExecutionResumed(promise_id="4", tick=11),
-        PromiseCompleted(promise_id="4", tick=12, value=Ok(4)),
         ExecutionTerminated(promise_id="4", tick=12),
+        PromiseCompleted(promise_id="4", tick=12, value=Ok(4)),
         PromiseCreated(promise_id="5.1", tick=13),
         ExecutionInvoked(
             promise_id="5.1", tick=13, fn_name="number", args=(), kwargs={"n": 5}
         ),
         ExecutionAwaited(promise_id="5.1", tick=13),
-        PromiseCompleted(promise_id="5.1", tick=14, value=Ok(5)),
         ExecutionTerminated(promise_id="5.1", tick=14),
+        PromiseCompleted(promise_id="5.1", tick=14, value=Ok(5)),
         ExecutionResumed(promise_id="5", tick=14),
-        PromiseCompleted(promise_id="5", tick=15, value=Ok(5)),
         ExecutionTerminated(promise_id="5", tick=15),
+        PromiseCompleted(promise_id="5", tick=15, value=Ok(5)),
     ]
 
     con_scheduler = dst(seeds=[1], max_failures=2)[0]
@@ -426,41 +426,41 @@ def test_sequential() -> None:
             promise_id="4.1", tick=3, fn_name="number", args=(), kwargs={"n": 4}
         ),
         ExecutionAwaited(promise_id="4.1", tick=3),
-        PromiseCompleted(promise_id="1.1", tick=4, value=Ok(1)),
         ExecutionTerminated(promise_id="1.1", tick=4),
+        PromiseCompleted(promise_id="1.1", tick=4, value=Ok(1)),
         ExecutionResumed(promise_id="1", tick=4),
-        PromiseCompleted(promise_id="4.1", tick=5, value=Ok(4)),
         ExecutionTerminated(promise_id="4.1", tick=5),
+        PromiseCompleted(promise_id="4.1", tick=5, value=Ok(4)),
         ExecutionResumed(promise_id="4", tick=5),
-        PromiseCompleted(promise_id="5.1", tick=6, value=Ok(5)),
         ExecutionTerminated(promise_id="5.1", tick=6),
+        PromiseCompleted(promise_id="5.1", tick=6, value=Ok(5)),
         ExecutionResumed(promise_id="5", tick=6),
         PromiseCreated(promise_id="3.1", tick=7),
         ExecutionInvoked(
             promise_id="3.1", tick=7, fn_name="number", args=(), kwargs={"n": 3}
         ),
         ExecutionAwaited(promise_id="3.1", tick=7),
-        PromiseCompleted(promise_id="3.1", tick=8, value=Ok(3)),
         ExecutionTerminated(promise_id="3.1", tick=8),
+        PromiseCompleted(promise_id="3.1", tick=8, value=Ok(3)),
         ExecutionResumed(promise_id="3", tick=8),
-        PromiseCompleted(promise_id="5", tick=9, value=Ok(5)),
         ExecutionTerminated(promise_id="5", tick=9),
-        PromiseCompleted(promise_id="1", tick=10, value=Ok(1)),
+        PromiseCompleted(promise_id="5", tick=9, value=Ok(5)),
         ExecutionTerminated(promise_id="1", tick=10),
-        PromiseCompleted(promise_id="4", tick=11, value=Ok(4)),
+        PromiseCompleted(promise_id="1", tick=10, value=Ok(1)),
         ExecutionTerminated(promise_id="4", tick=11),
-        PromiseCompleted(promise_id="3", tick=12, value=Ok(3)),
+        PromiseCompleted(promise_id="4", tick=11, value=Ok(4)),
         ExecutionTerminated(promise_id="3", tick=12),
+        PromiseCompleted(promise_id="3", tick=12, value=Ok(3)),
         PromiseCreated(promise_id="2.1", tick=13),
         ExecutionInvoked(
             promise_id="2.1", tick=13, fn_name="number", args=(), kwargs={"n": 2}
         ),
         ExecutionAwaited(promise_id="2.1", tick=13),
-        PromiseCompleted(promise_id="2.1", tick=14, value=Ok(2)),
         ExecutionTerminated(promise_id="2.1", tick=14),
+        PromiseCompleted(promise_id="2.1", tick=14, value=Ok(2)),
         ExecutionResumed(promise_id="2", tick=14),
-        PromiseCompleted(promise_id="2", tick=15, value=Ok(2)),
         ExecutionTerminated(promise_id="2", tick=15),
+        PromiseCompleted(promise_id="2", tick=15, value=Ok(2)),
     ]
 
     assert len(con_scheduler.get_events()) == len(seq_scheduler.get_events())
