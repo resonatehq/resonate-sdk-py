@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from resonate.typing import Yieldable
 
 
-def foo(ctx: Context, name: str, sleep_time: float) -> str:
+def foo(ctx: Context, name: str, sleep_time: float) -> str:  # noqa: ARG001
     time.sleep(sleep_time)
     return name
 
@@ -51,7 +51,7 @@ def test_scheduler() -> None:
 def test_multithreading_capabilities() -> None:
     s = scheduler.Scheduler(max_workers=3)
     time_per_process: int = 5
-    start = time.process_time()
+    start = time.time()
     p1: Promise[str] = s.run("1", baz, name="A", sleep_time=time_per_process)
     p2: Promise[str] = s.run("2", baz, name="B", sleep_time=time_per_process)
     p3: Promise[str] = s.run("3", baz, name="C", sleep_time=time_per_process)
@@ -59,7 +59,7 @@ def test_multithreading_capabilities() -> None:
     assert p1.result() == "A"
     assert p2.result() == "B"
     assert p3.result() == "C"
-    total_time = time.process_time() - start
+    total_time = time.time() - start
     assert total_time == pytest.approx(
         time_per_process, rel=1e-1
     ), f"I should have taken about {time_per_process} seconds to process all coroutines"
