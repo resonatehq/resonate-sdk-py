@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import contextlib
 import queue
-from asyncio import iscoroutinefunction
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
+from inspect import iscoroutinefunction, isfunction
+from typing import TYPE_CHECKING, TypeVar
 
-from typing_extensions import Concatenate, ParamSpec
+from typing_extensions import ParamSpec
 
-from resonate.context import Context
-from resonate.typing import AsyncCmd, FnCmd
+from resonate.typing import AsyncFnCmd, DurableAsyncFn, DurableFn, FnCmd
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
-
+    from resonate.context import Context
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -20,29 +18,26 @@ P = ParamSpec("P")
 
 def wrap_fn_into_cmd(
     ctx: Context,
-    fn: Callable[Concatenate[Context, P], T | Coroutine[Any, Any, T]],
+    fn: DurableFn[P, T] | DurableAsyncFn[P, T],
     *args: P.args,
     **kwargs: P.kwargs,
-) -> FnCmd[T] | AsyncCmd[T]:
-    cmd: AsyncCmd[T] | FnCmd[T]
-    if iscoroutinefunction(func=fn):
-        cmd = AsyncCmd(ctx, fn, *args, **kwargs)
+) -> FnCmd[T] | AsyncFnCmd[T]:
+    cmd: FnCmd[T] | AsyncFnCmd[T]
+    if isfunction(fn):
+        cmd = FnCmd(ctx, fn, *args, **kwargs)
     else:
-        cmd = FnCmd(
-            ctx, cast(Callable[Concatenate[Context, P], T], fn), *args, **kwargs
-        )
+        assert iscoroutinefunction(fn)
+        cmd = AsyncFnCmd(ctx, fn, *args, **kwargs)
     return cmd
 
 
-def dequeue_batch(q: queue.Queue[T], batch_size: int) -> list[T] | None:
+def dequeue_batch(q: queue.Queue[T], batch_size: int) -> list[T]:
     elements: list[T] = []
     with contextlib.suppress(queue.Empty):
         for _ in range(batch_size):
             e = q.get_nowait()
             elements.append(e)
             q.task_done()
-    if len(elements) == 0:
-        return None
     return elements
 
 

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, Union
+from typing import TYPE_CHECKING, Any, TypeVar, Union
 
-from typing_extensions import Concatenate, ParamSpec, TypeAlias
+from typing_extensions import ParamSpec, TypeAlias
 
 from resonate.dependency_injection import Dependencies
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
+    from resonate.typing import DurableCoro, DurableFn
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -25,12 +25,12 @@ class Command:
 class FnOrCoroutine:
     def __init__(
         self,
-        fn: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
+        exec_unit: DurableCoro[P, Any] | DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
-        self.fn = fn
+        self.exec_unit = exec_unit
         self.args = args
         self.kwargs = kwargs
 
@@ -39,14 +39,30 @@ ExecutionUnit: TypeAlias = Union[Command, FnOrCoroutine]
 
 
 def _wrap_into_execution_unit(
-    fn: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
+    exec_unit: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
     /,
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> ExecutionUnit:
-    if isinstance(fn, Command):
-        return fn
-    return FnOrCoroutine(fn, *args, **kwargs)
+    if isinstance(exec_unit, Command):
+        return exec_unit
+    return FnOrCoroutine(exec_unit, *args, **kwargs)
+
+
+class TopLevelInvoke:
+    def __init__(
+        self,
+        exec_unit: DurableCoro[P, Any] | DurableFn[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> None:
+        self.exec_unit = exec_unit
+        self.args = args
+        self.kwargs = kwargs
+
+    def to_invocation(self) -> Invoke:
+        return Invoke(FnOrCoroutine(self.exec_unit, *self.args, **self.kwargs))
 
 
 class Call:
@@ -73,39 +89,38 @@ class Context:
     parent_ctx: Context | None = None
     deps: Dependencies = field(default_factory=_new_deps)
     _num_children: int = field(init=False, default=0)
-    dst: bool = False
 
     def new_child(self) -> Context:
         self._num_children += 1
         return Context(
             seed=self.seed,
             parent_ctx=self,
-            dst=self.dst,
             deps=self.deps,
             ctx_id=f"{self.ctx_id}.{self._num_children}",
         )
 
     def assert_statement(self, stmt: bool, msg: str) -> None:  # noqa: FBT001
-        if not self.dst:
+        if self.seed is None:
             return
         assert stmt, msg
 
+    def get_dependency(self, key: str) -> Any:  # noqa: ANN401
+        return self.deps.get(key)
+
     def invoke(
         self,
-        fn: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
+        exec_unit: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Invoke:
-        exec_unit = _wrap_into_execution_unit(fn, *args, **kwargs)
-        return Invoke(exec_unit)
+        return Invoke(_wrap_into_execution_unit(exec_unit, *args, **kwargs))
 
     def call(
         self,
-        fn: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
+        exec_unit: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Call:
-        exec_unit = _wrap_into_execution_unit(fn, *args, **kwargs)
-        return Call(exec_unit)
+        return Call(_wrap_into_execution_unit(exec_unit, *args, **kwargs))

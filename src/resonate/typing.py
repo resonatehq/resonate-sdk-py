@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import Coroutine, Generator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar, Union
 
 from typing_extensions import Concatenate, ParamSpec, TypeAlias
 
-from resonate.context import Call, Context, Invoke
+from resonate.batching import CmdBuffer
+from resonate.context import Call, Command, Context, Invoke
 from resonate.promise import Promise
 from resonate.result import Err, Ok
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine, Generator
-
     from resonate.result import Result
 
 T = TypeVar("T")
@@ -37,7 +37,7 @@ class FnCmd(ICommand[T]):
     def __init__(
         self,
         ctx: Context,
-        fn: Callable[Concatenate[Context, P], T],
+        fn: DurableFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -53,14 +53,15 @@ class FnCmd(ICommand[T]):
             result = Ok(self.fn(self.ctx, *self.args, **self.kwargs))
         except Exception as e:  # noqa: BLE001
             result = Err(e)
+
         return result
 
 
-class AsyncCmd(IAsyncCommand[T]):
+class AsyncFnCmd(IAsyncCommand[T]):
     def __init__(
         self,
         ctx: Context,
-        fn: Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
+        fn: DurableAsyncFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -92,8 +93,21 @@ class Runnable(Generic[T]):
     next_value: Result[Any, Exception] | None
 
 
+DurableCoro: TypeAlias = Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]]
+DurableFn: TypeAlias = Callable[Concatenate[Context, P], T]
+DurableAsyncFn: TypeAlias = Callable[Concatenate[Context, P], Coroutine[Any, Any, T]]
+MockFn: TypeAlias = Callable[[], T]
+
 Awaitables: TypeAlias = dict[Promise[Any], list[CoroAndPromise[Any]]]
 RunnableCoroutines: TypeAlias = list[Runnable[Any]]
 RunnableFunctions: TypeAlias = list[
-    tuple[Union[FnCmd[Any], AsyncCmd[Any]], Promise[Any]]
+    tuple[Union[FnCmd[Any], AsyncFnCmd[Any]], Promise[Any]]
+]
+
+
+CommandHandlers: TypeAlias = dict[
+    type[Command], Callable[[list[Any]], Union[list[Any], None]]
+]
+CommandHandlerQueues: TypeAlias = dict[
+    type[Command], CmdBuffer[tuple[Promise[Any], Command]]
 ]
