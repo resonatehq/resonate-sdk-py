@@ -1,81 +1,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypeVar, Union
+from typing import TYPE_CHECKING, Any, TypeVar
 
-from typing_extensions import ParamSpec, TypeAlias
+from typing_extensions import ParamSpec
 
+from resonate.actions import Call, Invoke
+from resonate.dataclasses import Command, FnOrCoroutine
 from resonate.dependency_injection import Dependencies
 
 if TYPE_CHECKING:
-    from resonate.typing import DurableCoro, DurableFn
+    from resonate.typing import ExecutionUnit, Invokable
 
 P = ParamSpec("P")
 T = TypeVar("T")
 
 
-class Command:
-    def __call__(self, ctx: Context) -> None:
-        # This is not meant to be call. We are making the type system happy.
-        _ = ctx
-        msg = "You should never be here!"
-        raise AssertionError(msg)
-
-
-class FnOrCoroutine:
-    def __init__(
-        self,
-        exec_unit: DurableCoro[P, Any] | DurableFn[P, Any],
-        /,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> None:
-        self.exec_unit = exec_unit
-        self.args = args
-        self.kwargs = kwargs
-
-
-ExecutionUnit: TypeAlias = Union[Command, FnOrCoroutine]
-
-
 def _wrap_into_execution_unit(
-    exec_unit: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+    invokable: Invokable[P],
     /,
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> ExecutionUnit:
-    if isinstance(exec_unit, Command):
-        return exec_unit
-    return FnOrCoroutine(exec_unit, *args, **kwargs)
-
-
-class TopLevelInvoke:
-    def __init__(
-        self,
-        exec_unit: DurableCoro[P, Any] | DurableFn[P, Any],
-        /,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> None:
-        self.exec_unit = exec_unit
-        self.args = args
-        self.kwargs = kwargs
-
-    def to_invocation(self) -> Invoke:
-        return Invoke(FnOrCoroutine(self.exec_unit, *self.args, **self.kwargs))
-
-
-class Call:
-    def __init__(self, exec_unit: ExecutionUnit) -> None:
-        self.exec_unit = exec_unit
-
-    def to_invoke(self) -> Invoke:
-        return Invoke(self.exec_unit)
-
-
-class Invoke:
-    def __init__(self, exec_unit: ExecutionUnit) -> None:
-        self.exec_unit = exec_unit
+    if isinstance(invokable, Command):
+        return invokable
+    return FnOrCoroutine(invokable, *args, **kwargs)
 
 
 def _new_deps() -> Dependencies:
@@ -109,18 +58,18 @@ class Context:
 
     def invoke(
         self,
-        exec_unit: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        invokable: Invokable[P],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Invoke:
-        return Invoke(_wrap_into_execution_unit(exec_unit, *args, **kwargs))
+        return Invoke(_wrap_into_execution_unit(invokable, *args, **kwargs))
 
     def call(
         self,
-        exec_unit: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        invokable: Invokable[P],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Call:
-        return Call(_wrap_into_execution_unit(exec_unit, *args, **kwargs))
+        return Call(_wrap_into_execution_unit(invokable, *args, **kwargs))

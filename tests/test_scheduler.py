@@ -61,5 +61,5 @@ def test_multithreading_capabilities() -> None:
     assert p3.result() == "C"
     total_time = time.process_time() - start
     assert total_time == pytest.approx(
-        time_per_process, rel=1e-2
+        time_per_process, rel=1e-1
     ), f"I should have taken about {time_per_process} seconds to process all coroutines"

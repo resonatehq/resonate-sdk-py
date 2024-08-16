@@ -1,22 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 from collections import deque
-from inspect import isgenerator, isgeneratorfunction
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from inspect import iscoroutinefunction, isfunction, isgenerator, isgeneratorfunction
+from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Union
 
 from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
-from resonate import utils
+from resonate.actions import Call, Invoke, TopLevelInvoke
 from resonate.batching import CmdBuffer
 from resonate.contants import CWD
 from resonate.context import (
-    Call,
-    Command,
     Context,
-    FnOrCoroutine,
-    Invoke,
-    TopLevelInvoke,
 )
+from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.dependency_injection import Dependencies
 from resonate.events import (
     ExecutionAwaited,
@@ -32,26 +29,22 @@ from resonate.itertools import (
 )
 from resonate.promise import Promise
 from resonate.result import Err, Ok, Result
-from resonate.typing import (
-    AsyncFnCmd,
-    Awaitables,
-    CommandHandlerQueues,
-    CommandHandlers,
-    CoroAndPromise,
-    DurableAsyncFn,
-    DurableCoro,
-    DurableFn,
-    FnCmd,
-    MockFn,
-    Runnable,
-    RunnableCoroutines,
-    RunnableFunctions,
-)
 
 if TYPE_CHECKING:
     from resonate import random
     from resonate.events import (
         SchedulerEvents,
+    )
+    from resonate.typing import (
+        Awaitables,
+        CommandHandlerQueues,
+        CommandHandlers,
+        DurableAsyncFn,
+        DurableCoro,
+        DurableFn,
+        DurableSyncFn,
+        MockFn,
+        RunnableCoroutines,
     )
 
 
@@ -61,6 +54,73 @@ P = ParamSpec("P")
 
 Step: TypeAlias = Literal["functions", "coroutines"]
 Mode: TypeAlias = Literal["concurrent", "sequential"]
+
+
+class _FnWrapper(Generic[T]):
+    def __init__(
+        self,
+        ctx: Context,
+        fn: DurableSyncFn[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> None:
+        self.fn = fn
+        self.ctx = ctx
+        self.args = args
+        self.kwargs = kwargs
+
+    def run(self) -> Result[T, Exception]:
+        result: Result[T, Exception]
+        try:
+            result = Ok(self.fn(self.ctx, *self.args, **self.kwargs))
+        except Exception as e:  # noqa: BLE001
+            result = Err(e)
+
+        return result
+
+
+class _AsyncFnWrapper(Generic[T]):
+    def __init__(
+        self,
+        ctx: Context,
+        fn: DurableAsyncFn[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> None:
+        self.fn = fn
+        self.ctx = ctx
+        self.args = args
+        self.kwargs = kwargs
+
+    async def run(self) -> Result[T, Exception]:
+        result: Result[T, Exception]
+        try:
+            result = Ok(asyncio.run(self.fn(self.ctx, *self.args, **self.kwargs)))
+        except Exception as e:  # noqa: BLE001
+            result = Err(e)
+        return result
+
+
+RunnableFunctions: TypeAlias = list[
+    tuple[Union[_FnWrapper[Any], _AsyncFnWrapper[Any]], Promise[Any]]
+]
+
+
+def _wrap_fn(
+    ctx: Context,
+    fn: DurableFn[P, T],
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> _FnWrapper[T] | _AsyncFnWrapper[T]:
+    cmd: _FnWrapper[T] | _AsyncFnWrapper[T]
+    if isfunction(fn):
+        cmd = _FnWrapper(ctx, fn, *args, **kwargs)
+    else:
+        assert iscoroutinefunction(fn)
+        cmd = _AsyncFnWrapper(ctx, fn, *args, **kwargs)
+    return cmd
 
 
 class DSTFailureError(Exception):
@@ -84,7 +144,11 @@ class DSTScheduler:
     def __init__(  # noqa: PLR0913
         self,
         random: random.Random,
-        mocks: dict[DurableFn[..., Any] | DurableAsyncFn[..., Any], MockFn[Any]] | None,
+        mocks: dict[
+            DurableCoro[..., Any] | DurableFn[..., Any],
+            MockFn[Any],
+        ]
+        | None,
         log_file: str | None,
         max_failures: int,
         failure_chance: float,
@@ -103,7 +167,7 @@ class DSTScheduler:
         self._max_failures: int = max_failures
         self.current_failures: int = 0
         self.tick: int = 0
-        self._top_level_invocations: deque[TopLevelInvoke] = deque()
+        self._top_level_invokations: deque[TopLevelInvoke] = deque()
         self._mode: Mode = mode
 
         self.random = random
@@ -134,12 +198,12 @@ class DSTScheduler:
 
     def add(
         self,
-        coro: DurableFn[P, Any] | DurableAsyncFn[P, Any] | DurableCoro[P, Any],
+        coro: DurableFn[P, Any] | DurableCoro[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
-        self._top_level_invocations.appendleft(TopLevelInvoke(coro, *args, **kwargs))
+        self._top_level_invokations.appendleft(TopLevelInvoke(coro, *args, **kwargs))
 
     def _reset(self) -> None:
         self._runnable_coroutines.clear()
@@ -165,43 +229,43 @@ class DSTScheduler:
                 self._reset()
 
     def _create_promise(
-        self, ctx: Context, invocation: Invoke | TopLevelInvoke
+        self, ctx: Context, invokation: Invoke | TopLevelInvoke
     ) -> Promise[Any]:
-        if isinstance(invocation, TopLevelInvoke):
-            invocation = invocation.to_invocation()
+        if isinstance(invokation, TopLevelInvoke):
+            invokation = invokation.to_invoke()
 
-        p = Promise[Any](ctx.ctx_id, invocation=invocation)
+        p = Promise[Any](ctx.ctx_id, invokation)
         self._events.append(PromiseCreated(promise_id=p.promise_id, tick=self.tick))
         return p
 
     def _initialize_runnables(self) -> list[Promise[Any]]:
         init_promises: list[Promise[Any] | None] = [
-            None for _ in range(len(self._top_level_invocations))
+            None for _ in range(len(self._top_level_invokations))
         ]
-        num_top_level_invocations = len(self._top_level_invocations)
-        for idx, top_level_invocation in enumerate(self._top_level_invocations):
+        num_top_level_invokations = len(self._top_level_invokations)
+        for idx, top_level_invokation in enumerate(self._top_level_invokations):
             ctx = Context(
-                ctx_id=str(num_top_level_invocations - idx),
+                ctx_id=str(num_top_level_invokations - idx),
                 parent_ctx=None,
                 deps=self.deps,
                 seed=self.seed,
             )
-            p = self._create_promise(ctx, top_level_invocation)
+            p = self._create_promise(ctx, top_level_invokation)
 
             try:
                 self._events.append(
                     ExecutionInvoked(
                         promise_id=p.promise_id,
                         tick=self.tick,
-                        fn_name=top_level_invocation.exec_unit.__name__,
-                        args=top_level_invocation.args,
-                        kwargs=top_level_invocation.kwargs,
+                        fn_name=top_level_invokation.exec_unit.__name__,
+                        args=top_level_invokation.args,
+                        kwargs=top_level_invokation.kwargs,
                     )
                 )
-                coro = top_level_invocation.exec_unit(
+                coro = top_level_invokation.exec_unit(
                     ctx,
-                    *top_level_invocation.args,
-                    **top_level_invocation.kwargs,
+                    *top_level_invokation.args,
+                    **top_level_invokation.kwargs,
                 )
             except Exception as e:  # noqa: BLE001
                 self._complete_promise(p, Err(e))
@@ -302,7 +366,7 @@ class DSTScheduler:
         cmd_buffer.clear()
 
     def _run_function_and_move_awaitables_to_runnables(
-        self, fn_wraper: FnCmd[Any] | AsyncFnCmd[Any], promise: Promise[Any]
+        self, fn_wraper: _FnWrapper[Any] | _AsyncFnWrapper[Any], promise: Promise[Any]
     ) -> None:
         v = (
             _safe_run(self.mocks[fn_wraper.fn])
@@ -387,7 +451,9 @@ class DSTScheduler:
         self,
         runnable: Runnable[Any],
     ) -> None:
-        yieldable_or_final_value = iterate_coro(runnable)
+        yieldable_or_final_value: Call | Invoke | Promise[Any] | FinalValue[Any] = (
+            iterate_coro(runnable)
+        )
 
         if isinstance(yieldable_or_final_value, FinalValue):
             value = yieldable_or_final_value.v
@@ -396,7 +462,7 @@ class DSTScheduler:
 
         elif isinstance(yieldable_or_final_value, Call):
             p = self._invoke_execution(
-                invocation=yieldable_or_final_value.to_invoke(),
+                invokation=yieldable_or_final_value.to_invoke(),
                 runnable=runnable,
             )
             if not p.done():
@@ -410,7 +476,7 @@ class DSTScheduler:
                 )
         elif isinstance(yieldable_or_final_value, Invoke):
             p = self._invoke_execution(
-                invocation=yieldable_or_final_value,
+                invokation=yieldable_or_final_value,
                 runnable=runnable,
             )
             self._add_coro_to_runnables(runnable.coro_and_promise, Ok(p))
@@ -443,52 +509,52 @@ class DSTScheduler:
 
     def _invoke_execution(
         self,
-        invocation: Invoke,
+        invokation: Invoke,
         runnable: Runnable[T],
     ) -> Promise[Any]:
         child_ctx = runnable.coro_and_promise.ctx.new_child()
-        p = self._create_promise(ctx=child_ctx, invocation=invocation)
+        p = self._create_promise(ctx=child_ctx, invokation=invokation)
 
-        if isinstance(invocation.exec_unit, FnOrCoroutine):
+        if isinstance(invokation.exec_unit, FnOrCoroutine):
             self._events.append(
                 ExecutionInvoked(
                     promise_id=p.promise_id,
                     tick=self.tick,
-                    fn_name=invocation.exec_unit.exec_unit.__name__,
-                    args=invocation.exec_unit.args,
-                    kwargs=invocation.exec_unit.kwargs,
+                    fn_name=invokation.exec_unit.exec_unit.__name__,
+                    args=invokation.exec_unit.args,
+                    kwargs=invokation.exec_unit.kwargs,
                 )
             )
-            if not isgeneratorfunction(invocation.exec_unit.exec_unit):
+            if not isgeneratorfunction(invokation.exec_unit.exec_unit):
                 self._runnable_functions.append(
                     (
-                        utils.wrap_fn_into_cmd(
+                        _wrap_fn(
                             child_ctx,
-                            invocation.exec_unit.exec_unit,
-                            *invocation.exec_unit.args,
-                            **invocation.exec_unit.kwargs,
+                            invokation.exec_unit.exec_unit,
+                            *invokation.exec_unit.args,
+                            **invokation.exec_unit.kwargs,
                         ),
                         p,
                     )
                 )
 
             else:
-                coro = invocation.exec_unit.exec_unit(
+                coro = invokation.exec_unit.exec_unit(
                     child_ctx,
-                    *invocation.exec_unit.args,
-                    **invocation.exec_unit.kwargs,
+                    *invokation.exec_unit.args,
+                    **invokation.exec_unit.kwargs,
                 )
                 self._add_coro_to_runnables(
                     CoroAndPromise(coro, p, child_ctx), value_to_yield=None
                 )
 
-        elif isinstance(invocation.exec_unit, Command):
-            self._handler_queues[type(invocation.exec_unit)].append(
-                (p, invocation.exec_unit)
+        elif isinstance(invokation.exec_unit, Command):
+            self._handler_queues[type(invokation.exec_unit)].append(
+                (p, invokation.exec_unit)
             )
 
         else:
-            assert_never(invocation.exec_unit)
+            assert_never(invokation.exec_unit)
         return p
 
     def get_events(self) -> list[SchedulerEvents]:

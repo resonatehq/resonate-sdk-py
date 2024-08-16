@@ -11,14 +11,14 @@ from resonate.dst.scheduler import DSTScheduler, Mode
 
 if TYPE_CHECKING:
     from resonate.dependency_injection import Dependencies
-    from resonate.typing import DurableAsyncFn, DurableFn, MockFn
+    from resonate.typing import DurableCoro, DurableFn, MockFn
 
 P = ParamSpec("P")
 
 
 def dst(  # noqa: PLR0913
     seeds: list[range | int],
-    mocks: dict[DurableFn[P, Any] | DurableAsyncFn[P, Any], MockFn[Any]] | None = None,
+    mocks: dict[DurableCoro[P, Any] | DurableFn[P, Any], MockFn[Any]] | None = None,
     log_file: str | None = None,
     mode: Mode = "concurrent",
     failure_chance: float = 0,
