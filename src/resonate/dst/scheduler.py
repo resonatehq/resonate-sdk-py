@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Union
 
 from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
-from resonate.actions import Call, Invoke
+from resonate.actions import Call, Invoke, Sleep
 from resonate.batching import CmdBuffer
 from resonate.contants import CWD
 from resonate.context import (
@@ -448,9 +448,7 @@ class DSTScheduler:
         self,
         runnable: Runnable[Any],
     ) -> None:
-        yieldable_or_final_value: Call | Invoke | Promise[Any] | FinalValue[Any] = (
-            iterate_coro(runnable)
-        )
+        yieldable_or_final_value = iterate_coro(runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
             value = yieldable_or_final_value.v
@@ -489,6 +487,8 @@ class DSTScheduler:
                     value_to_yield=yieldable_or_final_value.safe_result(),
                 )
                 self._unblock_dependant_coros(yieldable_or_final_value)
+        elif isinstance(yieldable_or_final_value, Sleep):
+            raise NotImplementedError
         else:
             assert_never(yieldable_or_final_value)
 
