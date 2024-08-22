@@ -120,6 +120,29 @@ class RemotePromiseStore(IPromiseStore):
     def __init__(self, url: str) -> None:
         self.client = httpx.Client(base_url=url)
 
+    def _decode_response(self, data: dict[str, Any]) -> _DurablePromiseRecord:
+        return _DurablePromiseRecord(
+            state=data["state"],
+            promise_id=data["id"],
+            timeout=data["timeout"],
+            param=data["param"],
+            value=data["value"],
+            created_on=data["createdOn"],
+            completed_on=data.get("completedOn"),
+            idempotency_key_for_complete=data.get("idempotencyKeyForComplete"),
+            idempotency_key_for_create=data.get("idempotencyKeyForCreate"),
+            tags=None,
+        )
+
+    def _initialize_headers(
+        self, *, strict: bool, ikey: IdempotencyKey
+    ) -> dict[str, str]:
+        request_headers: dict[str, str] = {"Strict": str(strict)}
+        if ikey is not None:
+            request_headers["Idempotency-Key"] = ikey
+
+        return request_headers
+
     def create(  # noqa: PLR0913
         self,
         *,
@@ -131,9 +154,7 @@ class RemotePromiseStore(IPromiseStore):
         timeout: int,
         tags: Tags,
     ) -> _DurablePromiseRecord:
-        request_headers: dict[str, str] = {"Strict": str(strict)}
-        if ikey is not None:
-            request_headers["Idempotency-Key"] = ikey
+        request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
         response = self.client.post(
             url="/promises",
@@ -150,19 +171,7 @@ class RemotePromiseStore(IPromiseStore):
         )
         response.raise_for_status()
 
-        response_data: dict[str, Any] = response.json()
-        return _DurablePromiseRecord(
-            state=response_data["state"],
-            promise_id=response_data["id"],
-            timeout=response_data["timeout"],
-            param=response_data["param"],
-            value=response_data["value"],
-            created_on=response_data["createdOn"],
-            completed_on=None,
-            idempotency_key_for_complete=None,
-            idempotency_key_for_create=response_data.get("idempotencyKeyForCreate"),
-            tags=None,
-        )
+        return self._decode_response(response.json())
 
     def cancel(
         self,
@@ -173,7 +182,17 @@ class RemotePromiseStore(IPromiseStore):
         headers: Headers,
         data: Data,
     ) -> _DurablePromiseRecord:
-        raise NotImplementedError
+        request_headers = self._initialize_headers(strict=strict, ikey=ikey)
+        response = self.client.patch(
+            url=f"/promises/{promise_id}",
+            headers=request_headers,
+            json={
+                "state": "REJECTED_CANCELED",
+                "value": {"headers": headers, "data": data},
+            },
+        )
+        response.raise_for_status()
+        return self._decode_response(response.json())
 
     def resolve(
         self,
@@ -184,7 +203,15 @@ class RemotePromiseStore(IPromiseStore):
         headers: Headers,
         data: Data,
     ) -> _DurablePromiseRecord:
-        raise NotImplementedError
+        request_headers = self._initialize_headers(strict=strict, ikey=ikey)
+
+        response = self.client.patch(
+            f"/promises/{promise_id}",
+            headers=request_headers,
+            json={"state": "RESOLVED", "value": {"headers": headers, "data": data}},
+        )
+        response.raise_for_status()
+        return self._decode_response(response.json())
 
     def reject(
         self,
@@ -195,7 +222,15 @@ class RemotePromiseStore(IPromiseStore):
         headers: Headers,
         data: Data,
     ) -> _DurablePromiseRecord:
-        raise NotImplementedError
+        request_headers = self._initialize_headers(strict=strict, ikey=ikey)
+
+        response = self.client.patch(
+            f"/promises/{promise_id}",
+            headers=request_headers,
+            json={"state": "REJECTED", "value": {"headers": headers, "data": data}},
+        )
+        response.raise_for_status()
+        return self._decode_response(response.json())
 
     def get(self, *, promise_id: str) -> _DurablePromiseRecord:
         raise NotImplementedError
