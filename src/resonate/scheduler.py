@@ -129,7 +129,6 @@ class _Metronome:
         self._continue_event = continue_event
 
         self._sleeping: list[tuple[int, int, Promise[None]]] = []
-        heapq.heapify(self._sleeping)
 
         self._worker_continue = Event()
 

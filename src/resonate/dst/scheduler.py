@@ -123,14 +123,9 @@ def _wrap_fn(
     return cmd
 
 
-class DSTFailureError(Exception):
+class _DSTFailureError(Exception):
     def __init__(self) -> None:
         super().__init__()
-
-
-class MaxCapacityReachedError(Exception):
-    def __init__(self) -> None:
-        super().__init__("Max capacity has been reached")
 
 
 class DSTScheduler:
@@ -226,7 +221,7 @@ class DSTScheduler:
         while True:
             try:
                 return self._run()
-            except DSTFailureError:  # noqa: PERF203
+            except _DSTFailureError:  # noqa: PERF203
                 self.current_failures += 1
                 self._reset()
 
@@ -402,7 +397,7 @@ class DSTScheduler:
                 self.current_failures < self._max_failures
                 and self.random.uniform(0, 100) < self._failure_chance
             ):
-                raise DSTFailureError
+                raise _DSTFailureError
 
             next_step = self._next_step()
             if next_step == "functions":
