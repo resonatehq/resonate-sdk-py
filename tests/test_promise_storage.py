@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import sys
 
-import httpx
 import pytest
-from resonate.storage import RemotePromiseStore
+from resonate.errors import ResonateError
+from resonate.storage import LocalPromiseStore
 
 
 def test_case_0_transition_from_init_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     promise_record = store.create(
         promise_id="id0",
         ikey=None,
@@ -26,7 +26,7 @@ def test_case_0_transition_from_init_to_pending_via_create() -> None:
 
 
 def test_case_1_transition_from_init_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     promise_record = store.create(
         promise_id="id1",
         ikey=None,
@@ -43,7 +43,7 @@ def test_case_1_transition_from_init_to_pending_via_create() -> None:
 
 
 def test_case_2_transition_from_init_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     promise_record = store.create(
         promise_id="id2",
         ikey="ikc",
@@ -60,7 +60,7 @@ def test_case_2_transition_from_init_to_pending_via_create() -> None:
 
 
 def test_case_3_transition_from_init_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     promise_record = store.create(
         promise_id="id3",
         ikey="ikc",
@@ -77,95 +77,95 @@ def test_case_3_transition_from_init_to_pending_via_create() -> None:
 
 
 def test_case_4_transition_from_init_to_init_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.resolve(promise_id="id4", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_5_transition_from_init_to_init_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id5", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_6_transition_from_init_to_init_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id6", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_7_transition_from_init_to_init_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id7", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_8_transition_from_init_to_init_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.reject(promise_id="id8", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_9_transition_from_init_to_init_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.reject(promise_id="id9", ikey=None, strict=False, headers=None, data=None)
 
 
 def test_case_10_transition_from_init_to_init_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id10", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_11_transition_from_init_to_init_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id11", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_12_transition_from_init_to_init_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.cancel(promise_id="id12", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_13_transition_from_init_to_init_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id13", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_14_transition_from_init_to_init_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id14", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_15_transition_from_init_to_init_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
-    with pytest.raises(httpx.HTTPStatusError):
+    store = LocalPromiseStore()
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id15", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_16_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id16",
         ikey=None,
@@ -175,7 +175,7 @@ def test_case_16_transition_from_pending_to_pending_via_create() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id16",
             ikey=None,
@@ -188,7 +188,7 @@ def test_case_16_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_17_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id17",
         ikey=None,
@@ -198,7 +198,7 @@ def test_case_17_transition_from_pending_to_pending_via_create() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id17",
             ikey=None,
@@ -211,7 +211,7 @@ def test_case_17_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_18_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id18",
         ikey=None,
@@ -221,7 +221,7 @@ def test_case_18_transition_from_pending_to_pending_via_create() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id18",
             ikey="ikc",
@@ -234,7 +234,7 @@ def test_case_18_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_19_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id19",
         ikey=None,
@@ -244,7 +244,7 @@ def test_case_19_transition_from_pending_to_pending_via_create() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id19",
             ikey="ikc",
@@ -257,7 +257,7 @@ def test_case_19_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_20_transition_from_pending_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id20",
         ikey=None,
@@ -277,7 +277,7 @@ def test_case_20_transition_from_pending_to_resolved_via_resolve() -> None:
 
 
 def test_case_21_transition_from_pending_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id21",
         ikey=None,
@@ -297,7 +297,7 @@ def test_case_21_transition_from_pending_to_resolved_via_resolve() -> None:
 
 
 def test_case_22_transition_from_pending_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id22",
         ikey=None,
@@ -317,7 +317,7 @@ def test_case_22_transition_from_pending_to_resolved_via_resolve() -> None:
 
 
 def test_case_23_transition_from_pending_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id23",
         ikey=None,
@@ -337,7 +337,7 @@ def test_case_23_transition_from_pending_to_resolved_via_resolve() -> None:
 
 
 def test_case_24_transition_from_pending_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id24",
         ikey=None,
@@ -357,7 +357,7 @@ def test_case_24_transition_from_pending_to_rejected_via_reject() -> None:
 
 
 def test_case_25_transition_from_pending_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id25",
         ikey=None,
@@ -377,7 +377,7 @@ def test_case_25_transition_from_pending_to_rejected_via_reject() -> None:
 
 
 def test_case_26_transition_from_pending_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id26",
         ikey=None,
@@ -397,7 +397,7 @@ def test_case_26_transition_from_pending_to_rejected_via_reject() -> None:
 
 
 def test_case_27_transition_from_pending_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id27",
         ikey=None,
@@ -417,7 +417,7 @@ def test_case_27_transition_from_pending_to_rejected_via_reject() -> None:
 
 
 def test_case_28_transition_from_pending_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id28",
         ikey=None,
@@ -437,7 +437,7 @@ def test_case_28_transition_from_pending_to_canceled_via_cancel() -> None:
 
 
 def test_case_29_transition_from_pending_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id29",
         ikey=None,
@@ -457,7 +457,7 @@ def test_case_29_transition_from_pending_to_canceled_via_cancel() -> None:
 
 
 def test_case_30_transition_from_pending_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id30",
         ikey=None,
@@ -477,7 +477,7 @@ def test_case_30_transition_from_pending_to_canceled_via_cancel() -> None:
 
 
 def test_case_31_transition_from_pending_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id31",
         ikey=None,
@@ -497,7 +497,7 @@ def test_case_31_transition_from_pending_to_canceled_via_cancel() -> None:
 
 
 def test_case_32_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id32",
         ikey="ikc",
@@ -507,7 +507,7 @@ def test_case_32_transition_from_pending_to_pending_via_create() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id32",
             ikey=None,
@@ -520,7 +520,7 @@ def test_case_32_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_33_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id33",
         ikey="ikc",
@@ -530,7 +530,7 @@ def test_case_33_transition_from_pending_to_pending_via_create() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id33",
             ikey=None,
@@ -543,7 +543,7 @@ def test_case_33_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_34_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id34",
         ikey="ikc",
@@ -569,7 +569,7 @@ def test_case_34_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_35_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id35",
         ikey="ikc",
@@ -595,7 +595,7 @@ def test_case_35_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_36_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id36",
         ikey="ikc",
@@ -605,7 +605,7 @@ def test_case_36_transition_from_pending_to_pending_via_create() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id36",
             ikey="ikc*",
@@ -618,7 +618,7 @@ def test_case_36_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_37_transition_from_pending_to_pending_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id37",
         ikey="ikc",
@@ -628,7 +628,7 @@ def test_case_37_transition_from_pending_to_pending_via_create() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id37",
             ikey="ikc*",
@@ -641,7 +641,7 @@ def test_case_37_transition_from_pending_to_pending_via_create() -> None:
 
 
 def test_case_38_transition_from_pending_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id38",
         ikey="ikc",
@@ -661,7 +661,7 @@ def test_case_38_transition_from_pending_to_resolved_via_resolve() -> None:
 
 
 def test_case_39_transition_from_pending_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id39",
         ikey="ikc",
@@ -681,7 +681,7 @@ def test_case_39_transition_from_pending_to_resolved_via_resolve() -> None:
 
 
 def test_case_40_transition_from_pending_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id40",
         ikey="ikc",
@@ -701,7 +701,7 @@ def test_case_40_transition_from_pending_to_resolved_via_resolve() -> None:
 
 
 def test_case_41_transition_from_pending_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id41",
         ikey="ikc",
@@ -721,7 +721,7 @@ def test_case_41_transition_from_pending_to_resolved_via_resolve() -> None:
 
 
 def test_case_42_transition_from_pending_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id42",
         ikey="ikc",
@@ -741,7 +741,7 @@ def test_case_42_transition_from_pending_to_rejected_via_reject() -> None:
 
 
 def test_case_43_transition_from_pending_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id43",
         ikey="ikc",
@@ -761,7 +761,7 @@ def test_case_43_transition_from_pending_to_rejected_via_reject() -> None:
 
 
 def test_case_44_transition_from_pending_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id44",
         ikey="ikc",
@@ -781,7 +781,7 @@ def test_case_44_transition_from_pending_to_rejected_via_reject() -> None:
 
 
 def test_case_45_transition_from_pending_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id45",
         ikey="ikc",
@@ -801,7 +801,7 @@ def test_case_45_transition_from_pending_to_rejected_via_reject() -> None:
 
 
 def test_case_46_transition_from_pending_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id46",
         ikey="ikc",
@@ -821,7 +821,7 @@ def test_case_46_transition_from_pending_to_canceled_via_cancel() -> None:
 
 
 def test_case_47_transition_from_pending_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id47",
         ikey="ikc",
@@ -841,7 +841,7 @@ def test_case_47_transition_from_pending_to_canceled_via_cancel() -> None:
 
 
 def test_case_48_transition_from_pending_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id48",
         ikey="ikc",
@@ -861,7 +861,7 @@ def test_case_48_transition_from_pending_to_canceled_via_cancel() -> None:
 
 
 def test_case_49_transition_from_pending_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id49",
         ikey="ikc",
@@ -881,7 +881,7 @@ def test_case_49_transition_from_pending_to_canceled_via_cancel() -> None:
 
 
 def test_case_50_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id50",
         ikey=None,
@@ -892,7 +892,7 @@ def test_case_50_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id50", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id50",
             ikey=None,
@@ -905,7 +905,7 @@ def test_case_50_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_51_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id51",
         ikey=None,
@@ -916,7 +916,7 @@ def test_case_51_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id51", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id51",
             ikey=None,
@@ -929,7 +929,7 @@ def test_case_51_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_52_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id52",
         ikey=None,
@@ -940,7 +940,7 @@ def test_case_52_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id52", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id52",
             ikey="ikc",
@@ -953,7 +953,7 @@ def test_case_52_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_53_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id53",
         ikey=None,
@@ -964,7 +964,7 @@ def test_case_53_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id53", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id53",
             ikey="ikc",
@@ -977,7 +977,7 @@ def test_case_53_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_54_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id54",
         ikey=None,
@@ -988,14 +988,14 @@ def test_case_54_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id54", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id54", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_55_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id55",
         ikey=None,
@@ -1006,14 +1006,14 @@ def test_case_55_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id55", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id55", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_56_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id56",
         ikey=None,
@@ -1024,14 +1024,14 @@ def test_case_56_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id56", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id56", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_57_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id57",
         ikey=None,
@@ -1042,14 +1042,14 @@ def test_case_57_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id57", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id57", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_58_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id58",
         ikey=None,
@@ -1060,12 +1060,12 @@ def test_case_58_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id58", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(promise_id="id58", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_59_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id59",
         ikey=None,
@@ -1076,14 +1076,14 @@ def test_case_59_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id59", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id59", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_60_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id60",
         ikey=None,
@@ -1094,14 +1094,14 @@ def test_case_60_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id60", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id60", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_61_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id61",
         ikey=None,
@@ -1112,14 +1112,14 @@ def test_case_61_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id61", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id61", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_62_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id62",
         ikey=None,
@@ -1130,12 +1130,12 @@ def test_case_62_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id62", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(promise_id="id62", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_63_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id63",
         ikey=None,
@@ -1146,14 +1146,14 @@ def test_case_63_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id63", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id63", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_64_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id64",
         ikey=None,
@@ -1164,14 +1164,14 @@ def test_case_64_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id64", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id64", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_65_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id65",
         ikey=None,
@@ -1182,14 +1182,14 @@ def test_case_65_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id65", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id65", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_66_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id66",
         ikey=None,
@@ -1200,7 +1200,7 @@ def test_case_66_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id66", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id66",
             ikey=None,
@@ -1213,7 +1213,7 @@ def test_case_66_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_67_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id67",
         ikey=None,
@@ -1224,7 +1224,7 @@ def test_case_67_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id67", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id67",
             ikey=None,
@@ -1237,7 +1237,7 @@ def test_case_67_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_68_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id68",
         ikey=None,
@@ -1248,7 +1248,7 @@ def test_case_68_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id68", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id68",
             ikey="ikc",
@@ -1261,7 +1261,7 @@ def test_case_68_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_69_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id69",
         ikey=None,
@@ -1272,7 +1272,7 @@ def test_case_69_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id69", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id69",
             ikey="ikc",
@@ -1285,7 +1285,7 @@ def test_case_69_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_70_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id70",
         ikey=None,
@@ -1296,14 +1296,14 @@ def test_case_70_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id70", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id70", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_71_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id71",
         ikey=None,
@@ -1314,14 +1314,14 @@ def test_case_71_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id71", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id71", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_72_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id72",
         ikey=None,
@@ -1342,7 +1342,7 @@ def test_case_72_transition_from_resolved_to_resolved_via_resolve() -> None:
 
 
 def test_case_73_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id73",
         ikey=None,
@@ -1363,7 +1363,7 @@ def test_case_73_transition_from_resolved_to_resolved_via_resolve() -> None:
 
 
 def test_case_74_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id74",
         ikey=None,
@@ -1374,14 +1374,14 @@ def test_case_74_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id74", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id74", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_75_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id75",
         ikey=None,
@@ -1392,14 +1392,14 @@ def test_case_75_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id75", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id75", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_76_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id76",
         ikey=None,
@@ -1410,12 +1410,12 @@ def test_case_76_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id76", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(promise_id="id76", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_77_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id77",
         ikey=None,
@@ -1426,14 +1426,14 @@ def test_case_77_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id77", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id77", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_78_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id78",
         ikey=None,
@@ -1444,14 +1444,14 @@ def test_case_78_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id78", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id78", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_79_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id79",
         ikey=None,
@@ -1472,7 +1472,7 @@ def test_case_79_transition_from_resolved_to_resolved_via_reject() -> None:
 
 
 def test_case_80_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id80",
         ikey=None,
@@ -1483,14 +1483,14 @@ def test_case_80_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id80", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id80", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_81_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id81",
         ikey=None,
@@ -1501,14 +1501,14 @@ def test_case_81_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id81", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id81", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_82_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id82",
         ikey=None,
@@ -1519,12 +1519,12 @@ def test_case_82_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id82", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(promise_id="id82", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_83_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id83",
         ikey=None,
@@ -1535,14 +1535,14 @@ def test_case_83_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id83", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id83", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_84_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id84",
         ikey=None,
@@ -1553,14 +1553,14 @@ def test_case_84_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id84", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id84", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_85_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id85",
         ikey=None,
@@ -1581,7 +1581,7 @@ def test_case_85_transition_from_resolved_to_resolved_via_cancel() -> None:
 
 
 def test_case_86_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id86",
         ikey=None,
@@ -1592,14 +1592,14 @@ def test_case_86_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id86", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id86", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_87_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id87",
         ikey=None,
@@ -1610,14 +1610,14 @@ def test_case_87_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id87", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id87", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_88_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id88",
         ikey="ikc",
@@ -1628,7 +1628,7 @@ def test_case_88_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id88", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id88",
             ikey=None,
@@ -1641,7 +1641,7 @@ def test_case_88_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_89_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id89",
         ikey="ikc",
@@ -1652,7 +1652,7 @@ def test_case_89_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id89", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id89",
             ikey=None,
@@ -1665,7 +1665,7 @@ def test_case_89_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_90_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id90",
         ikey="ikc",
@@ -1676,7 +1676,7 @@ def test_case_90_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id90", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id90",
             ikey="ikc",
@@ -1689,7 +1689,7 @@ def test_case_90_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_91_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id91",
         ikey="ikc",
@@ -1716,7 +1716,7 @@ def test_case_91_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_92_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id92",
         ikey="ikc",
@@ -1727,7 +1727,7 @@ def test_case_92_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id92", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id92",
             ikey="ikc*",
@@ -1740,7 +1740,7 @@ def test_case_92_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_93_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id93",
         ikey="ikc",
@@ -1751,7 +1751,7 @@ def test_case_93_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id93", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id93",
             ikey="ikc*",
@@ -1764,7 +1764,7 @@ def test_case_93_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_94_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id94",
         ikey="ikc",
@@ -1775,14 +1775,14 @@ def test_case_94_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id94", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id94", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_95_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id95",
         ikey="ikc",
@@ -1793,14 +1793,14 @@ def test_case_95_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id95", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id95", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_96_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id96",
         ikey="ikc",
@@ -1811,14 +1811,14 @@ def test_case_96_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id96", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id96", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_97_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id97",
         ikey="ikc",
@@ -1829,14 +1829,14 @@ def test_case_97_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id97", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id97", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_98_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id98",
         ikey="ikc",
@@ -1847,12 +1847,12 @@ def test_case_98_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id98", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(promise_id="id98", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_99_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id99",
         ikey="ikc",
@@ -1863,14 +1863,14 @@ def test_case_99_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id99", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id99", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_100_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id100",
         ikey="ikc",
@@ -1881,14 +1881,14 @@ def test_case_100_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id100", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id100", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_101_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id101",
         ikey="ikc",
@@ -1899,14 +1899,14 @@ def test_case_101_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id101", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id101", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_102_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id102",
         ikey="ikc",
@@ -1917,14 +1917,14 @@ def test_case_102_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id102", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id102", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_103_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id103",
         ikey="ikc",
@@ -1935,14 +1935,14 @@ def test_case_103_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id103", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id103", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_104_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id104",
         ikey="ikc",
@@ -1953,14 +1953,14 @@ def test_case_104_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id104", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id104", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_105_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id105",
         ikey="ikc",
@@ -1971,14 +1971,14 @@ def test_case_105_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id105", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id105", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_106_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id106",
         ikey="ikc",
@@ -1989,7 +1989,7 @@ def test_case_106_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id106", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id106",
             ikey=None,
@@ -2002,7 +2002,7 @@ def test_case_106_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_107_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id107",
         ikey="ikc",
@@ -2013,7 +2013,7 @@ def test_case_107_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id107", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id107",
             ikey=None,
@@ -2026,7 +2026,7 @@ def test_case_107_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_108_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id108",
         ikey="ikc",
@@ -2037,7 +2037,7 @@ def test_case_108_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id108", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id108",
             ikey="ikc",
@@ -2050,7 +2050,7 @@ def test_case_108_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_109_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id109",
         ikey="ikc",
@@ -2077,7 +2077,7 @@ def test_case_109_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_110_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id110",
         ikey="ikc",
@@ -2088,7 +2088,7 @@ def test_case_110_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id110", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id110",
             ikey="ikc*",
@@ -2101,7 +2101,7 @@ def test_case_110_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_111_transition_from_resolved_to_resolved_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id111",
         ikey="ikc",
@@ -2112,7 +2112,7 @@ def test_case_111_transition_from_resolved_to_resolved_via_create() -> None:
         tags=None,
     )
     store.resolve(promise_id="id111", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id111",
             ikey="ikc*",
@@ -2125,7 +2125,7 @@ def test_case_111_transition_from_resolved_to_resolved_via_create() -> None:
 
 
 def test_case_112_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id112",
         ikey="ikc",
@@ -2136,14 +2136,14 @@ def test_case_112_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id112", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id112", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_113_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id113",
         ikey="ikc",
@@ -2154,14 +2154,14 @@ def test_case_113_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id113", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id113", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_114_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id114",
         ikey="ikc",
@@ -2182,7 +2182,7 @@ def test_case_114_transition_from_resolved_to_resolved_via_resolve() -> None:
 
 
 def test_case_115_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id115",
         ikey="ikc",
@@ -2203,7 +2203,7 @@ def test_case_115_transition_from_resolved_to_resolved_via_resolve() -> None:
 
 
 def test_case_116_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id116",
         ikey="ikc",
@@ -2214,14 +2214,14 @@ def test_case_116_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id116", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id116", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_117_transition_from_resolved_to_resolved_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id117",
         ikey="ikc",
@@ -2232,14 +2232,14 @@ def test_case_117_transition_from_resolved_to_resolved_via_resolve() -> None:
         tags=None,
     )
     store.resolve(promise_id="id117", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id117", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_118_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id118",
         ikey="ikc",
@@ -2250,14 +2250,14 @@ def test_case_118_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id118", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id118", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_119_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id119",
         ikey="ikc",
@@ -2268,14 +2268,14 @@ def test_case_119_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id119", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id119", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_120_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id120",
         ikey="ikc",
@@ -2286,14 +2286,14 @@ def test_case_120_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id120", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id120", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_121_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id121",
         ikey="ikc",
@@ -2314,7 +2314,7 @@ def test_case_121_transition_from_resolved_to_resolved_via_reject() -> None:
 
 
 def test_case_122_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id122",
         ikey="ikc",
@@ -2325,14 +2325,14 @@ def test_case_122_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id122", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id122", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_123_transition_from_resolved_to_resolved_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id123",
         ikey="ikc",
@@ -2343,14 +2343,14 @@ def test_case_123_transition_from_resolved_to_resolved_via_reject() -> None:
         tags=None,
     )
     store.resolve(promise_id="id123", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id123", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_124_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id124",
         ikey="ikc",
@@ -2361,14 +2361,14 @@ def test_case_124_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id124", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id124", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_125_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id125",
         ikey="ikc",
@@ -2379,14 +2379,14 @@ def test_case_125_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id125", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id125", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_126_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id126",
         ikey="ikc",
@@ -2397,14 +2397,14 @@ def test_case_126_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id126", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id126", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_127_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id127",
         ikey="ikc",
@@ -2425,7 +2425,7 @@ def test_case_127_transition_from_resolved_to_resolved_via_cancel() -> None:
 
 
 def test_case_128_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id128",
         ikey="ikc",
@@ -2436,14 +2436,14 @@ def test_case_128_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id128", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id128", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_129_transition_from_resolved_to_resolved_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id129",
         ikey="ikc",
@@ -2454,14 +2454,14 @@ def test_case_129_transition_from_resolved_to_resolved_via_cancel() -> None:
         tags=None,
     )
     store.resolve(promise_id="id129", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id129", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_130_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id130",
         ikey=None,
@@ -2472,7 +2472,7 @@ def test_case_130_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id130", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id130",
             ikey=None,
@@ -2485,7 +2485,7 @@ def test_case_130_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_131_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id131",
         ikey=None,
@@ -2496,7 +2496,7 @@ def test_case_131_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id131", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id131",
             ikey=None,
@@ -2509,7 +2509,7 @@ def test_case_131_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_132_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id132",
         ikey=None,
@@ -2520,7 +2520,7 @@ def test_case_132_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id132", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id132",
             ikey="ikc",
@@ -2533,7 +2533,7 @@ def test_case_132_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_133_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id133",
         ikey=None,
@@ -2544,7 +2544,7 @@ def test_case_133_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id133", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id133",
             ikey="ikc",
@@ -2557,7 +2557,7 @@ def test_case_133_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_134_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id134",
         ikey=None,
@@ -2568,14 +2568,14 @@ def test_case_134_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id134", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id134", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_135_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id135",
         ikey=None,
@@ -2586,14 +2586,14 @@ def test_case_135_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id135", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id135", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_136_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id136",
         ikey=None,
@@ -2604,14 +2604,14 @@ def test_case_136_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id136", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id136", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_137_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id137",
         ikey=None,
@@ -2622,14 +2622,14 @@ def test_case_137_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id137", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id137", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_138_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id138",
         ikey=None,
@@ -2640,14 +2640,14 @@ def test_case_138_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id138", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id138", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_139_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id139",
         ikey=None,
@@ -2658,14 +2658,14 @@ def test_case_139_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id139", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id139", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_140_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id140",
         ikey=None,
@@ -2676,14 +2676,14 @@ def test_case_140_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id140", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id140", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_141_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id141",
         ikey=None,
@@ -2694,14 +2694,14 @@ def test_case_141_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id141", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id141", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_142_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id142",
         ikey=None,
@@ -2712,14 +2712,14 @@ def test_case_142_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id142", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id142", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_143_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id143",
         ikey=None,
@@ -2730,14 +2730,14 @@ def test_case_143_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id143", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id143", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_144_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id144",
         ikey=None,
@@ -2748,14 +2748,14 @@ def test_case_144_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id144", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id144", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_145_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id145",
         ikey=None,
@@ -2766,14 +2766,14 @@ def test_case_145_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id145", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id145", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_146_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id146",
         ikey=None,
@@ -2784,7 +2784,7 @@ def test_case_146_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id146", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id146",
             ikey=None,
@@ -2797,7 +2797,7 @@ def test_case_146_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_147_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id147",
         ikey=None,
@@ -2808,7 +2808,7 @@ def test_case_147_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id147", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id147",
             ikey=None,
@@ -2821,7 +2821,7 @@ def test_case_147_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_148_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id148",
         ikey=None,
@@ -2832,7 +2832,7 @@ def test_case_148_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id148", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id148",
             ikey="ikc",
@@ -2845,7 +2845,7 @@ def test_case_148_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_149_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id149",
         ikey=None,
@@ -2856,7 +2856,7 @@ def test_case_149_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id149", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id149",
             ikey="ikc",
@@ -2869,7 +2869,7 @@ def test_case_149_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_150_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id150",
         ikey=None,
@@ -2880,14 +2880,14 @@ def test_case_150_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id150", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id150", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_151_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id151",
         ikey=None,
@@ -2898,14 +2898,14 @@ def test_case_151_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id151", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id151", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_152_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id152",
         ikey=None,
@@ -2916,14 +2916,14 @@ def test_case_152_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id152", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id152", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_153_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id153",
         ikey=None,
@@ -2944,7 +2944,7 @@ def test_case_153_transition_from_rejected_to_rejected_via_resolve() -> None:
 
 
 def test_case_154_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id154",
         ikey=None,
@@ -2955,14 +2955,14 @@ def test_case_154_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id154", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id154", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_155_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id155",
         ikey=None,
@@ -2973,14 +2973,14 @@ def test_case_155_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id155", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id155", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_156_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id156",
         ikey=None,
@@ -2991,14 +2991,14 @@ def test_case_156_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id156", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id156", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_157_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id157",
         ikey=None,
@@ -3009,14 +3009,14 @@ def test_case_157_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id157", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id157", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_158_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id158",
         ikey=None,
@@ -3037,7 +3037,7 @@ def test_case_158_transition_from_rejected_to_rejected_via_reject() -> None:
 
 
 def test_case_159_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id159",
         ikey=None,
@@ -3058,7 +3058,7 @@ def test_case_159_transition_from_rejected_to_rejected_via_reject() -> None:
 
 
 def test_case_160_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id160",
         ikey=None,
@@ -3069,14 +3069,14 @@ def test_case_160_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id160", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id160", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_161_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id161",
         ikey=None,
@@ -3087,14 +3087,14 @@ def test_case_161_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id161", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id161", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_162_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id162",
         ikey=None,
@@ -3105,14 +3105,14 @@ def test_case_162_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id162", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id162", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_163_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id163",
         ikey=None,
@@ -3123,14 +3123,14 @@ def test_case_163_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id163", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id163", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_164_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id164",
         ikey=None,
@@ -3141,14 +3141,14 @@ def test_case_164_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id164", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id164", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_165_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id165",
         ikey=None,
@@ -3169,7 +3169,7 @@ def test_case_165_transition_from_rejected_to_rejected_via_cancel() -> None:
 
 
 def test_case_166_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id166",
         ikey=None,
@@ -3180,14 +3180,14 @@ def test_case_166_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id166", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id166", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_167_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id167",
         ikey=None,
@@ -3198,14 +3198,14 @@ def test_case_167_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id167", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id167", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_168_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id168",
         ikey="ikc",
@@ -3216,7 +3216,7 @@ def test_case_168_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id168", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id168",
             ikey=None,
@@ -3229,7 +3229,7 @@ def test_case_168_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_169_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id169",
         ikey="ikc",
@@ -3240,7 +3240,7 @@ def test_case_169_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id169", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id169",
             ikey=None,
@@ -3253,7 +3253,7 @@ def test_case_169_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_170_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id170",
         ikey="ikc",
@@ -3264,7 +3264,7 @@ def test_case_170_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id170", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id170",
             ikey="ikc",
@@ -3277,7 +3277,7 @@ def test_case_170_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_171_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id171",
         ikey="ikc",
@@ -3304,7 +3304,7 @@ def test_case_171_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_172_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id172",
         ikey="ikc",
@@ -3315,7 +3315,7 @@ def test_case_172_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id172", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id172",
             ikey="ikc*",
@@ -3328,7 +3328,7 @@ def test_case_172_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_173_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id173",
         ikey="ikc",
@@ -3339,7 +3339,7 @@ def test_case_173_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id173", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id173",
             ikey="ikc*",
@@ -3352,7 +3352,7 @@ def test_case_173_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_174_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id174",
         ikey="ikc",
@@ -3363,14 +3363,14 @@ def test_case_174_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id174", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id174", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_175_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id175",
         ikey="ikc",
@@ -3381,14 +3381,14 @@ def test_case_175_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id175", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id175", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_176_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id176",
         ikey="ikc",
@@ -3399,14 +3399,14 @@ def test_case_176_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id176", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id176", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_177_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id177",
         ikey="ikc",
@@ -3417,14 +3417,14 @@ def test_case_177_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id177", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id177", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_178_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id178",
         ikey="ikc",
@@ -3435,14 +3435,14 @@ def test_case_178_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id178", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id178", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_179_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id179",
         ikey="ikc",
@@ -3453,14 +3453,14 @@ def test_case_179_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id179", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id179", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_180_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id180",
         ikey="ikc",
@@ -3471,14 +3471,14 @@ def test_case_180_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id180", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id180", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_181_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id181",
         ikey="ikc",
@@ -3489,14 +3489,14 @@ def test_case_181_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id181", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id181", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_182_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id182",
         ikey="ikc",
@@ -3507,14 +3507,14 @@ def test_case_182_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id182", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id182", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_183_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id183",
         ikey="ikc",
@@ -3525,14 +3525,14 @@ def test_case_183_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id183", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id183", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_184_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id184",
         ikey="ikc",
@@ -3543,14 +3543,14 @@ def test_case_184_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id184", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id184", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_185_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id185",
         ikey="ikc",
@@ -3561,14 +3561,14 @@ def test_case_185_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id185", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id185", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_186_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id186",
         ikey="ikc",
@@ -3579,7 +3579,7 @@ def test_case_186_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id186", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id186",
             ikey=None,
@@ -3592,7 +3592,7 @@ def test_case_186_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_187_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id187",
         ikey="ikc",
@@ -3603,7 +3603,7 @@ def test_case_187_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id187", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id187",
             ikey=None,
@@ -3616,7 +3616,7 @@ def test_case_187_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_188_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id188",
         ikey="ikc",
@@ -3627,7 +3627,7 @@ def test_case_188_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id188", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id188",
             ikey="ikc",
@@ -3640,7 +3640,7 @@ def test_case_188_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_189_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id189",
         ikey="ikc",
@@ -3667,7 +3667,7 @@ def test_case_189_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_190_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id190",
         ikey="ikc",
@@ -3678,7 +3678,7 @@ def test_case_190_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id190", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id190",
             ikey="ikc*",
@@ -3691,7 +3691,7 @@ def test_case_190_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_191_transition_from_rejected_to_rejected_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id191",
         ikey="ikc",
@@ -3702,7 +3702,7 @@ def test_case_191_transition_from_rejected_to_rejected_via_create() -> None:
         tags=None,
     )
     store.reject(promise_id="id191", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id191",
             ikey="ikc*",
@@ -3715,7 +3715,7 @@ def test_case_191_transition_from_rejected_to_rejected_via_create() -> None:
 
 
 def test_case_192_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id192",
         ikey="ikc",
@@ -3726,14 +3726,14 @@ def test_case_192_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id192", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id192", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_193_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id193",
         ikey="ikc",
@@ -3744,14 +3744,14 @@ def test_case_193_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id193", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id193", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_194_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id194",
         ikey="ikc",
@@ -3762,14 +3762,14 @@ def test_case_194_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id194", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id194", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_195_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id195",
         ikey="ikc",
@@ -3790,7 +3790,7 @@ def test_case_195_transition_from_rejected_to_rejected_via_resolve() -> None:
 
 
 def test_case_196_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id196",
         ikey="ikc",
@@ -3801,14 +3801,14 @@ def test_case_196_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id196", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id196", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_197_transition_from_rejected_to_rejected_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id197",
         ikey="ikc",
@@ -3819,14 +3819,14 @@ def test_case_197_transition_from_rejected_to_rejected_via_resolve() -> None:
         tags=None,
     )
     store.reject(promise_id="id197", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id197", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_198_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id198",
         ikey="ikc",
@@ -3837,14 +3837,14 @@ def test_case_198_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id198", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id198", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_199_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id199",
         ikey="ikc",
@@ -3855,14 +3855,14 @@ def test_case_199_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id199", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id199", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_200_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id200",
         ikey="ikc",
@@ -3883,7 +3883,7 @@ def test_case_200_transition_from_rejected_to_rejected_via_reject() -> None:
 
 
 def test_case_201_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id201",
         ikey="ikc",
@@ -3904,7 +3904,7 @@ def test_case_201_transition_from_rejected_to_rejected_via_reject() -> None:
 
 
 def test_case_202_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id202",
         ikey="ikc",
@@ -3915,14 +3915,14 @@ def test_case_202_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id202", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id202", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_203_transition_from_rejected_to_rejected_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id203",
         ikey="ikc",
@@ -3933,14 +3933,14 @@ def test_case_203_transition_from_rejected_to_rejected_via_reject() -> None:
         tags=None,
     )
     store.reject(promise_id="id203", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id203", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_204_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id204",
         ikey="ikc",
@@ -3951,14 +3951,14 @@ def test_case_204_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id204", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id204", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_205_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id205",
         ikey="ikc",
@@ -3969,14 +3969,14 @@ def test_case_205_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id205", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id205", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_206_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id206",
         ikey="ikc",
@@ -3987,14 +3987,14 @@ def test_case_206_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id206", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id206", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_207_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id207",
         ikey="ikc",
@@ -4015,7 +4015,7 @@ def test_case_207_transition_from_rejected_to_rejected_via_cancel() -> None:
 
 
 def test_case_208_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id208",
         ikey="ikc",
@@ -4026,14 +4026,14 @@ def test_case_208_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id208", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id208", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_209_transition_from_rejected_to_rejected_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id209",
         ikey="ikc",
@@ -4044,14 +4044,14 @@ def test_case_209_transition_from_rejected_to_rejected_via_cancel() -> None:
         tags=None,
     )
     store.reject(promise_id="id209", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id209", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_210_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id210",
         ikey=None,
@@ -4062,7 +4062,7 @@ def test_case_210_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id210", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id210",
             ikey=None,
@@ -4075,7 +4075,7 @@ def test_case_210_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_211_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id211",
         ikey=None,
@@ -4086,7 +4086,7 @@ def test_case_211_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id211", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id211",
             ikey=None,
@@ -4099,7 +4099,7 @@ def test_case_211_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_212_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id212",
         ikey=None,
@@ -4110,7 +4110,7 @@ def test_case_212_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id212", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id212",
             ikey="ikc",
@@ -4123,7 +4123,7 @@ def test_case_212_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_213_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id213",
         ikey=None,
@@ -4134,7 +4134,7 @@ def test_case_213_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id213", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id213",
             ikey="ikc",
@@ -4147,7 +4147,7 @@ def test_case_213_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_214_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id214",
         ikey=None,
@@ -4158,14 +4158,14 @@ def test_case_214_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id214", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id214", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_215_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id215",
         ikey=None,
@@ -4176,14 +4176,14 @@ def test_case_215_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id215", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id215", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_216_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id216",
         ikey=None,
@@ -4194,14 +4194,14 @@ def test_case_216_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id216", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id216", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_217_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id217",
         ikey=None,
@@ -4212,14 +4212,14 @@ def test_case_217_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id217", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id217", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_218_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id218",
         ikey=None,
@@ -4230,14 +4230,14 @@ def test_case_218_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id218", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id218", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_219_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id219",
         ikey=None,
@@ -4248,14 +4248,14 @@ def test_case_219_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id219", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id219", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_220_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id220",
         ikey=None,
@@ -4266,14 +4266,14 @@ def test_case_220_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id220", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id220", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_221_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id221",
         ikey=None,
@@ -4284,14 +4284,14 @@ def test_case_221_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id221", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id221", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_222_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id222",
         ikey=None,
@@ -4302,14 +4302,14 @@ def test_case_222_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id222", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id222", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_223_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id223",
         ikey=None,
@@ -4320,14 +4320,14 @@ def test_case_223_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id223", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id223", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_224_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id224",
         ikey=None,
@@ -4338,14 +4338,14 @@ def test_case_224_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id224", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id224", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_225_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id225",
         ikey=None,
@@ -4356,14 +4356,14 @@ def test_case_225_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id225", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id225", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_226_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id226",
         ikey=None,
@@ -4374,7 +4374,7 @@ def test_case_226_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id226", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id226",
             ikey=None,
@@ -4387,7 +4387,7 @@ def test_case_226_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_227_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id227",
         ikey=None,
@@ -4398,7 +4398,7 @@ def test_case_227_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id227", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id227",
             ikey=None,
@@ -4411,7 +4411,7 @@ def test_case_227_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_228_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id228",
         ikey=None,
@@ -4422,7 +4422,7 @@ def test_case_228_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id228", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id228",
             ikey="ikc",
@@ -4435,7 +4435,7 @@ def test_case_228_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_229_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id229",
         ikey=None,
@@ -4446,7 +4446,7 @@ def test_case_229_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id229", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id229",
             ikey="ikc",
@@ -4459,7 +4459,7 @@ def test_case_229_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_230_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id230",
         ikey=None,
@@ -4470,14 +4470,14 @@ def test_case_230_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id230", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id230", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_231_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id231",
         ikey=None,
@@ -4488,14 +4488,14 @@ def test_case_231_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id231", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id231", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_232_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id232",
         ikey=None,
@@ -4506,14 +4506,14 @@ def test_case_232_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id232", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id232", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_233_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id233",
         ikey=None,
@@ -4534,7 +4534,7 @@ def test_case_233_transition_from_canceled_to_canceled_via_resolve() -> None:
 
 
 def test_case_234_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id234",
         ikey=None,
@@ -4545,14 +4545,14 @@ def test_case_234_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id234", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id234", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_235_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id235",
         ikey=None,
@@ -4563,14 +4563,14 @@ def test_case_235_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id235", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id235", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_236_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id236",
         ikey=None,
@@ -4581,14 +4581,14 @@ def test_case_236_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id236", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id236", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_237_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id237",
         ikey=None,
@@ -4599,14 +4599,14 @@ def test_case_237_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id237", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id237", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_238_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id238",
         ikey=None,
@@ -4617,14 +4617,14 @@ def test_case_238_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id238", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id238", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_239_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id239",
         ikey=None,
@@ -4645,7 +4645,7 @@ def test_case_239_transition_from_canceled_to_canceled_via_reject() -> None:
 
 
 def test_case_240_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id240",
         ikey=None,
@@ -4656,14 +4656,14 @@ def test_case_240_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id240", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id240", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_241_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id241",
         ikey=None,
@@ -4674,14 +4674,14 @@ def test_case_241_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id241", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id241", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_242_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id242",
         ikey=None,
@@ -4692,14 +4692,14 @@ def test_case_242_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id242", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id242", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_243_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id243",
         ikey=None,
@@ -4710,14 +4710,14 @@ def test_case_243_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id243", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id243", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_244_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id244",
         ikey=None,
@@ -4738,7 +4738,7 @@ def test_case_244_transition_from_canceled_to_canceled_via_cancel() -> None:
 
 
 def test_case_245_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id245",
         ikey=None,
@@ -4759,7 +4759,7 @@ def test_case_245_transition_from_canceled_to_canceled_via_cancel() -> None:
 
 
 def test_case_246_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id246",
         ikey=None,
@@ -4770,14 +4770,14 @@ def test_case_246_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id246", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id246", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_247_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id247",
         ikey=None,
@@ -4788,14 +4788,14 @@ def test_case_247_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id247", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id247", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_248_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id248",
         ikey="ikc",
@@ -4806,7 +4806,7 @@ def test_case_248_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id248", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id248",
             ikey=None,
@@ -4819,7 +4819,7 @@ def test_case_248_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_249_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id249",
         ikey="ikc",
@@ -4830,7 +4830,7 @@ def test_case_249_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id249", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id249",
             ikey=None,
@@ -4843,7 +4843,7 @@ def test_case_249_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_250_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id250",
         ikey="ikc",
@@ -4854,7 +4854,7 @@ def test_case_250_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id250", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id250",
             ikey="ikc",
@@ -4867,7 +4867,7 @@ def test_case_250_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_251_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id251",
         ikey="ikc",
@@ -4894,7 +4894,7 @@ def test_case_251_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_252_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id252",
         ikey="ikc",
@@ -4905,7 +4905,7 @@ def test_case_252_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id252", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id252",
             ikey="ikc*",
@@ -4918,7 +4918,7 @@ def test_case_252_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_253_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id253",
         ikey="ikc",
@@ -4929,7 +4929,7 @@ def test_case_253_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id253", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id253",
             ikey="ikc*",
@@ -4942,7 +4942,7 @@ def test_case_253_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_254_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id254",
         ikey="ikc",
@@ -4953,14 +4953,14 @@ def test_case_254_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id254", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id254", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_255_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id255",
         ikey="ikc",
@@ -4971,14 +4971,14 @@ def test_case_255_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id255", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id255", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_256_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id256",
         ikey="ikc",
@@ -4989,14 +4989,14 @@ def test_case_256_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id256", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id256", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_257_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id257",
         ikey="ikc",
@@ -5007,14 +5007,14 @@ def test_case_257_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id257", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id257", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_258_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id258",
         ikey="ikc",
@@ -5025,14 +5025,14 @@ def test_case_258_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id258", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id258", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_259_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id259",
         ikey="ikc",
@@ -5043,14 +5043,14 @@ def test_case_259_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id259", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id259", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_260_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id260",
         ikey="ikc",
@@ -5061,14 +5061,14 @@ def test_case_260_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id260", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id260", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_261_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id261",
         ikey="ikc",
@@ -5079,14 +5079,14 @@ def test_case_261_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id261", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id261", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_262_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id262",
         ikey="ikc",
@@ -5097,14 +5097,14 @@ def test_case_262_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id262", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id262", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_263_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id263",
         ikey="ikc",
@@ -5115,14 +5115,14 @@ def test_case_263_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id263", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id263", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_264_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id264",
         ikey="ikc",
@@ -5133,14 +5133,14 @@ def test_case_264_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id264", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id264", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_265_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id265",
         ikey="ikc",
@@ -5151,14 +5151,14 @@ def test_case_265_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id265", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id265", ikey="iku", strict=False, headers=None, data=None
         )
 
 
 def test_case_266_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id266",
         ikey="ikc",
@@ -5169,7 +5169,7 @@ def test_case_266_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id266", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id266",
             ikey=None,
@@ -5182,7 +5182,7 @@ def test_case_266_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_267_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id267",
         ikey="ikc",
@@ -5193,7 +5193,7 @@ def test_case_267_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id267", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id267",
             ikey=None,
@@ -5206,7 +5206,7 @@ def test_case_267_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_268_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id268",
         ikey="ikc",
@@ -5217,7 +5217,7 @@ def test_case_268_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id268", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id268",
             ikey="ikc",
@@ -5230,7 +5230,7 @@ def test_case_268_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_269_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id269",
         ikey="ikc",
@@ -5257,7 +5257,7 @@ def test_case_269_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_270_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id270",
         ikey="ikc",
@@ -5268,7 +5268,7 @@ def test_case_270_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id270", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id270",
             ikey="ikc*",
@@ -5281,7 +5281,7 @@ def test_case_270_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_271_transition_from_canceled_to_canceled_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id271",
         ikey="ikc",
@@ -5292,7 +5292,7 @@ def test_case_271_transition_from_canceled_to_canceled_via_create() -> None:
         tags=None,
     )
     store.cancel(promise_id="id271", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id271",
             ikey="ikc*",
@@ -5305,7 +5305,7 @@ def test_case_271_transition_from_canceled_to_canceled_via_create() -> None:
 
 
 def test_case_272_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id272",
         ikey="ikc",
@@ -5316,14 +5316,14 @@ def test_case_272_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id272", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id272", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_273_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id273",
         ikey="ikc",
@@ -5334,14 +5334,14 @@ def test_case_273_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id273", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id273", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_274_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id274",
         ikey="ikc",
@@ -5352,14 +5352,14 @@ def test_case_274_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id274", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id274", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_275_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id275",
         ikey="ikc",
@@ -5380,7 +5380,7 @@ def test_case_275_transition_from_canceled_to_canceled_via_resolve() -> None:
 
 
 def test_case_276_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id276",
         ikey="ikc",
@@ -5391,14 +5391,14 @@ def test_case_276_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id276", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id276", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_277_transition_from_canceled_to_canceled_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id277",
         ikey="ikc",
@@ -5409,14 +5409,14 @@ def test_case_277_transition_from_canceled_to_canceled_via_resolve() -> None:
         tags=None,
     )
     store.cancel(promise_id="id277", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id277", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_278_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id278",
         ikey="ikc",
@@ -5427,14 +5427,14 @@ def test_case_278_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id278", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id278", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_279_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id279",
         ikey="ikc",
@@ -5445,14 +5445,14 @@ def test_case_279_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id279", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id279", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_280_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id280",
         ikey="ikc",
@@ -5463,14 +5463,14 @@ def test_case_280_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id280", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id280", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_281_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id281",
         ikey="ikc",
@@ -5491,7 +5491,7 @@ def test_case_281_transition_from_canceled_to_canceled_via_reject() -> None:
 
 
 def test_case_282_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id282",
         ikey="ikc",
@@ -5502,14 +5502,14 @@ def test_case_282_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id282", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id282", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_283_transition_from_canceled_to_canceled_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id283",
         ikey="ikc",
@@ -5520,14 +5520,14 @@ def test_case_283_transition_from_canceled_to_canceled_via_reject() -> None:
         tags=None,
     )
     store.cancel(promise_id="id283", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id283", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_284_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id284",
         ikey="ikc",
@@ -5538,14 +5538,14 @@ def test_case_284_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id284", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id284", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_285_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id285",
         ikey="ikc",
@@ -5556,14 +5556,14 @@ def test_case_285_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id285", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id285", ikey=None, strict=False, headers=None, data=None
         )
 
 
 def test_case_286_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id286",
         ikey="ikc",
@@ -5584,7 +5584,7 @@ def test_case_286_transition_from_canceled_to_canceled_via_cancel() -> None:
 
 
 def test_case_287_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id287",
         ikey="ikc",
@@ -5605,7 +5605,7 @@ def test_case_287_transition_from_canceled_to_canceled_via_cancel() -> None:
 
 
 def test_case_288_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id288",
         ikey="ikc",
@@ -5616,14 +5616,14 @@ def test_case_288_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id288", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id288", ikey="iku*", strict=True, headers=None, data=None
         )
 
 
 def test_case_289_transition_from_canceled_to_canceled_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id289",
         ikey="ikc",
@@ -5634,14 +5634,14 @@ def test_case_289_transition_from_canceled_to_canceled_via_cancel() -> None:
         tags=None,
     )
     store.cancel(promise_id="id289", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id289", ikey="iku*", strict=False, headers=None, data=None
         )
 
 
 def test_case_290_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id290",
         ikey=None,
@@ -5651,7 +5651,7 @@ def test_case_290_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id290",
             ikey=None,
@@ -5664,7 +5664,7 @@ def test_case_290_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_291_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id291",
         ikey=None,
@@ -5674,7 +5674,7 @@ def test_case_291_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id291",
             ikey=None,
@@ -5687,7 +5687,7 @@ def test_case_291_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_292_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id292",
         ikey=None,
@@ -5697,7 +5697,7 @@ def test_case_292_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id292",
             ikey="ikc",
@@ -5710,7 +5710,7 @@ def test_case_292_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_293_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id293",
         ikey=None,
@@ -5720,7 +5720,7 @@ def test_case_293_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id293",
             ikey="ikc",
@@ -5733,7 +5733,7 @@ def test_case_293_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_294_transition_from_timedout_to_timedout_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id294",
         ikey=None,
@@ -5743,14 +5743,14 @@ def test_case_294_transition_from_timedout_to_timedout_via_resolve() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id294", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_295_transition_from_timedout_to_timedout_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id295",
         ikey=None,
@@ -5770,7 +5770,7 @@ def test_case_295_transition_from_timedout_to_timedout_via_resolve() -> None:
 
 
 def test_case_296_transition_from_timedout_to_timedout_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id296",
         ikey=None,
@@ -5780,14 +5780,14 @@ def test_case_296_transition_from_timedout_to_timedout_via_resolve() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id296", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_297_transition_from_timedout_to_timedout_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id297",
         ikey=None,
@@ -5807,7 +5807,7 @@ def test_case_297_transition_from_timedout_to_timedout_via_resolve() -> None:
 
 
 def test_case_298_transition_from_timedout_to_timedout_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id298",
         ikey=None,
@@ -5817,14 +5817,14 @@ def test_case_298_transition_from_timedout_to_timedout_via_reject() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id298", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_299_transition_from_timedout_to_timedout_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id299",
         ikey=None,
@@ -5844,7 +5844,7 @@ def test_case_299_transition_from_timedout_to_timedout_via_reject() -> None:
 
 
 def test_case_300_transition_from_timedout_to_timedout_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id300",
         ikey=None,
@@ -5854,14 +5854,14 @@ def test_case_300_transition_from_timedout_to_timedout_via_reject() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id300", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_301_transition_from_timedout_to_timedout_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id301",
         ikey=None,
@@ -5881,7 +5881,7 @@ def test_case_301_transition_from_timedout_to_timedout_via_reject() -> None:
 
 
 def test_case_302_transition_from_timedout_to_timedout_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id302",
         ikey=None,
@@ -5891,14 +5891,14 @@ def test_case_302_transition_from_timedout_to_timedout_via_cancel() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id302", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_303_transition_from_timedout_to_timedout_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id303",
         ikey=None,
@@ -5918,7 +5918,7 @@ def test_case_303_transition_from_timedout_to_timedout_via_cancel() -> None:
 
 
 def test_case_304_transition_from_timedout_to_timedout_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id304",
         ikey=None,
@@ -5928,14 +5928,14 @@ def test_case_304_transition_from_timedout_to_timedout_via_cancel() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id304", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_305_transition_from_timedout_to_timedout_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id305",
         ikey=None,
@@ -5955,7 +5955,7 @@ def test_case_305_transition_from_timedout_to_timedout_via_cancel() -> None:
 
 
 def test_case_306_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id306",
         ikey="ikc",
@@ -5965,7 +5965,7 @@ def test_case_306_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id306",
             ikey=None,
@@ -5978,7 +5978,7 @@ def test_case_306_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_307_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id307",
         ikey="ikc",
@@ -5988,7 +5988,7 @@ def test_case_307_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id307",
             ikey=None,
@@ -6001,7 +6001,7 @@ def test_case_307_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_308_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id308",
         ikey="ikc",
@@ -6011,7 +6011,7 @@ def test_case_308_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id308",
             ikey="ikc",
@@ -6024,7 +6024,7 @@ def test_case_308_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_309_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id309",
         ikey="ikc",
@@ -6050,7 +6050,7 @@ def test_case_309_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_310_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id310",
         ikey="ikc",
@@ -6060,7 +6060,7 @@ def test_case_310_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id310",
             ikey="ikc*",
@@ -6073,7 +6073,7 @@ def test_case_310_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_311_transition_from_timedout_to_timedout_via_create() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id311",
         ikey="ikc",
@@ -6083,7 +6083,7 @@ def test_case_311_transition_from_timedout_to_timedout_via_create() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.create(
             promise_id="id311",
             ikey="ikc*",
@@ -6096,7 +6096,7 @@ def test_case_311_transition_from_timedout_to_timedout_via_create() -> None:
 
 
 def test_case_312_transition_from_timedout_to_timedout_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id312",
         ikey="ikc",
@@ -6106,14 +6106,14 @@ def test_case_312_transition_from_timedout_to_timedout_via_resolve() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id312", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_313_transition_from_timedout_to_timedout_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id313",
         ikey="ikc",
@@ -6133,7 +6133,7 @@ def test_case_313_transition_from_timedout_to_timedout_via_resolve() -> None:
 
 
 def test_case_314_transition_from_timedout_to_timedout_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id314",
         ikey="ikc",
@@ -6143,14 +6143,14 @@ def test_case_314_transition_from_timedout_to_timedout_via_resolve() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.resolve(
             promise_id="id314", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_315_transition_from_timedout_to_timedout_via_resolve() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id315",
         ikey="ikc",
@@ -6170,7 +6170,7 @@ def test_case_315_transition_from_timedout_to_timedout_via_resolve() -> None:
 
 
 def test_case_316_transition_from_timedout_to_timedout_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id316",
         ikey="ikc",
@@ -6180,14 +6180,14 @@ def test_case_316_transition_from_timedout_to_timedout_via_reject() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id316", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_317_transition_from_timedout_to_timedout_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id317",
         ikey="ikc",
@@ -6207,7 +6207,7 @@ def test_case_317_transition_from_timedout_to_timedout_via_reject() -> None:
 
 
 def test_case_318_transition_from_timedout_to_timedout_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id318",
         ikey="ikc",
@@ -6217,14 +6217,14 @@ def test_case_318_transition_from_timedout_to_timedout_via_reject() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.reject(
             promise_id="id318", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_319_transition_from_timedout_to_timedout_via_reject() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id319",
         ikey="ikc",
@@ -6244,7 +6244,7 @@ def test_case_319_transition_from_timedout_to_timedout_via_reject() -> None:
 
 
 def test_case_320_transition_from_timedout_to_timedout_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id320",
         ikey="ikc",
@@ -6254,14 +6254,14 @@ def test_case_320_transition_from_timedout_to_timedout_via_cancel() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id320", ikey=None, strict=True, headers=None, data=None
         )
 
 
 def test_case_321_transition_from_timedout_to_timedout_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id321",
         ikey="ikc",
@@ -6281,7 +6281,7 @@ def test_case_321_transition_from_timedout_to_timedout_via_cancel() -> None:
 
 
 def test_case_322_transition_from_timedout_to_timedout_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id322",
         ikey="ikc",
@@ -6291,14 +6291,14 @@ def test_case_322_transition_from_timedout_to_timedout_via_cancel() -> None:
         timeout=0,
         tags=None,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ResonateError):
         store.cancel(
             promise_id="id322", ikey="iku", strict=True, headers=None, data=None
         )
 
 
 def test_case_323_transition_from_timedout_to_timedout_via_cancel() -> None:
-    store = RemotePromiseStore(url="http://127.0.0.1:8001")
+    store = LocalPromiseStore()
     store.create(
         promise_id="id323",
         ikey="ikc",
