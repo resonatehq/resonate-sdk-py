@@ -141,22 +141,35 @@ def _timeout(promise_record: DurablePromiseRecord) -> DurablePromiseRecord:
     return promise_record
 
 
-class LocalPromiseStore(IPromiseStore):
-    def __init__(self) -> None:
-        self._storage: dict[str, DurablePromiseRecord] = {}
-
-    def _rmw(
+class IStorage(ABC):
+    @abstractmethod
+    def rmw(
         self,
-        *,
+        promise_id: str,
+        fn: Callable[[DurablePromiseRecord | None], DurablePromiseRecord],
+    ) -> DurablePromiseRecord: ...
+
+
+class MemoryStorage(IStorage):
+    def __init__(self) -> None:
+        self._items: dict[str, DurablePromiseRecord] = {}
+
+    def rmw(
+        self,
         promise_id: str,
         fn: Callable[[DurablePromiseRecord | None], DurablePromiseRecord],
     ) -> DurablePromiseRecord:
-        promise_record = self._storage.get(promise_id)
+        promise_record = self._items.get(promise_id)
         if promise_record is not None:
             promise_record = _timeout(promise_record)
         item = fn(promise_record)
-        self._storage[promise_id] = item
+        self._items[promise_id] = item
         return item
+
+
+class LocalPromiseStore(IPromiseStore):
+    def __init__(self, storage: IStorage) -> None:
+        self._storage = storage
 
     def create(  # noqa: PLR0913
         self,
@@ -199,7 +212,7 @@ class LocalPromiseStore(IPromiseStore):
                 raise ResonateError(msg, "STORE_FORBIDDEN")
             return promise_record
 
-        return self._rmw(promise_id=promise_id, fn=_create)
+        return self._storage.rmw(promise_id=promise_id, fn=_create)
 
     def reject(
         self,
@@ -240,7 +253,7 @@ class LocalPromiseStore(IPromiseStore):
                 raise ResonateError(msg, "STORE_FORBIDDEN")
             return promise_record
 
-        return self._rmw(promise_id=promise_id, fn=_reject)
+        return self._storage.rmw(promise_id=promise_id, fn=_reject)
 
     def cancel(
         self,
@@ -281,7 +294,7 @@ class LocalPromiseStore(IPromiseStore):
                 raise ResonateError(msg, "STORE_FORBIDDEN")
             return promise_record
 
-        return self._rmw(promise_id=promise_id, fn=_cancel)
+        return self._storage.rmw(promise_id=promise_id, fn=_cancel)
 
     def resolve(
         self,
@@ -322,7 +335,7 @@ class LocalPromiseStore(IPromiseStore):
                 raise ResonateError(msg, "STORE_FORBIDDEN")
             return promise_record
 
-        return self._rmw(promise_id=promise_id, fn=_resolve)
+        return self._storage.rmw(promise_id=promise_id, fn=_resolve)
 
     def get(self, *, promise_id: str) -> DurablePromiseRecord:
         raise NotImplementedError
