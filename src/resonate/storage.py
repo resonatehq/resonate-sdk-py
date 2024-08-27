@@ -1,66 +1,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Callable, Literal, Union
+from typing import TYPE_CHECKING, Callable, Literal
 
 import httpx
-from typing_extensions import TypeAlias
 
 from resonate.errors import ResonateError
+from resonate.record import DurablePromiseRecord, Param, Value
 from resonate.time import now
 
-Headers: TypeAlias = Union[dict[str, str], None]
-Tags: TypeAlias = Union[dict[str, str], None]
-IdempotencyKey: TypeAlias = Union[str, None]
-Data: TypeAlias = Union[str, None]
-State: TypeAlias = Literal[
-    "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
-]
-
-
-@dataclass(frozen=True)
-class _Param:
-    headers: Headers
-    data: Data
-
-
-@dataclass(frozen=True)
-class _Value:
-    headers: Headers
-    data: Data
-
-
-@dataclass(frozen=True)
-class DurablePromiseRecord:
-    state: State
-    promise_id: str
-    timeout: int
-    param: _Param
-    value: _Value
-    created_on: int
-    completed_on: int | None
-    idempotency_key_for_create: IdempotencyKey
-    idempotency_key_for_complete: IdempotencyKey
-    tags: Tags
-
-    def is_completed(self) -> bool:
-        return not self.is_pending()
-
-    def is_timeout(self) -> bool:
-        return self.state == "REJECTED_TIMEDOUT"
-
-    def is_canceled(self) -> bool:
-        return self.state == "REJECTED_CANCELED"
-
-    def is_rejected(self) -> bool:
-        return self.state == "REJECTED"
-
-    def is_resolved(self) -> bool:
-        return self.state == "RESOLVED"
-
-    def is_pending(self) -> bool:
-        return self.state == "PENDING"
+if TYPE_CHECKING:
+    from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
 
 
 class IPromiseStore(ABC):
@@ -131,7 +81,7 @@ def _timeout(promise_record: DurablePromiseRecord) -> DurablePromiseRecord:
             promise_id=promise_record.promise_id,
             timeout=promise_record.timeout,
             param=promise_record.param,
-            value=_Value(headers=None, data=None),
+            value=Value(headers=None, data=None),
             created_on=promise_record.created_on,
             completed_on=promise_record.timeout,
             idempotency_key_for_create=promise_record.idempotency_key_for_create,
@@ -190,8 +140,8 @@ class LocalPromiseStore(IPromiseStore):
                     state="PENDING",
                     promise_id=promise_id,
                     timeout=timeout,
-                    param=_Param(headers=headers, data=data),
-                    value=_Value(headers=None, data=None),
+                    param=Param(headers=headers, data=data),
+                    value=Value(headers=None, data=None),
                     created_on=now(),
                     completed_on=None,
                     idempotency_key_for_complete=None,
@@ -235,7 +185,7 @@ class LocalPromiseStore(IPromiseStore):
                     promise_id=promise_record.promise_id,
                     timeout=promise_record.timeout,
                     param=promise_record.param,
-                    value=_Value(headers=headers, data=data),
+                    value=Value(headers=headers, data=data),
                     created_on=promise_record.created_on,
                     completed_on=now(),
                     idempotency_key_for_create=promise_record.idempotency_key_for_create,
@@ -276,7 +226,7 @@ class LocalPromiseStore(IPromiseStore):
                     promise_id=promise_record.promise_id,
                     timeout=promise_record.timeout,
                     param=promise_record.param,
-                    value=_Value(headers=headers, data=data),
+                    value=Value(headers=headers, data=data),
                     created_on=promise_record.created_on,
                     completed_on=now(),
                     idempotency_key_for_create=promise_record.idempotency_key_for_create,
@@ -317,7 +267,7 @@ class LocalPromiseStore(IPromiseStore):
                     promise_id=promise_record.promise_id,
                     timeout=promise_record.timeout,
                     param=promise_record.param,
-                    value=_Value(headers=headers, data=data),
+                    value=Value(headers=headers, data=data),
                     created_on=promise_record.created_on,
                     completed_on=now(),
                     idempotency_key_for_create=promise_record.idempotency_key_for_create,
@@ -357,20 +307,6 @@ class RemotePromiseStore(IPromiseStore):
     def __init__(self, url: str) -> None:
         self.client = httpx.Client(base_url=url)
 
-    def _decode_response(self, data: dict[str, Any]) -> DurablePromiseRecord:
-        return DurablePromiseRecord(
-            state=data["state"],
-            promise_id=data["id"],
-            timeout=data["timeout"],
-            param=data["param"],
-            value=data["value"],
-            created_on=data["createdOn"],
-            completed_on=data.get("completedOn"),
-            idempotency_key_for_complete=data.get("idempotencyKeyForComplete"),
-            idempotency_key_for_create=data.get("idempotencyKeyForCreate"),
-            tags=None,
-        )
-
     def _initialize_headers(
         self, *, strict: bool, ikey: IdempotencyKey
     ) -> dict[str, str]:
@@ -408,7 +344,7 @@ class RemotePromiseStore(IPromiseStore):
         )
         response.raise_for_status()
 
-        return self._decode_response(response.json())
+        return DurablePromiseRecord.from_json(response.json())
 
     def cancel(
         self,
@@ -429,7 +365,7 @@ class RemotePromiseStore(IPromiseStore):
             },
         )
         response.raise_for_status()
-        return self._decode_response(response.json())
+        return DurablePromiseRecord.from_json(response.json())
 
     def resolve(
         self,
@@ -448,7 +384,7 @@ class RemotePromiseStore(IPromiseStore):
             json={"state": "RESOLVED", "value": {"headers": headers, "data": data}},
         )
         response.raise_for_status()
-        return self._decode_response(response.json())
+        return DurablePromiseRecord.from_json(response.json())
 
     def reject(
         self,
@@ -467,7 +403,7 @@ class RemotePromiseStore(IPromiseStore):
             json={"state": "REJECTED", "value": {"headers": headers, "data": data}},
         )
         response.raise_for_status()
-        return self._decode_response(response.json())
+        return DurablePromiseRecord.from_json(response.json())
 
     def get(self, *, promise_id: str) -> DurablePromiseRecord:
         raise NotImplementedError
