@@ -6,7 +6,6 @@ import sys
 from functools import cache
 
 import pytest
-
 from resonate.storage import (
     IPromiseStore,
     LocalPromiseStore,

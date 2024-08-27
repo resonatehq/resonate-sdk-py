@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Callable, Literal
 
-import httpx
+import requests
 
 from resonate.errors import ResonateError
 from resonate.record import DurablePromiseRecord, Param, Value
@@ -304,8 +304,9 @@ class LocalPromiseStore(IPromiseStore):
 
 
 class RemotePromiseStore(IPromiseStore):
-    def __init__(self, url: str) -> None:
-        self.client = httpx.Client(base_url=url)
+    def __init__(self, url: str, request_timeout: int = 10) -> None:
+        self.url = url
+        self._request_timeout = request_timeout
 
     def _initialize_headers(
         self, *, strict: bool, ikey: IdempotencyKey
@@ -329,8 +330,8 @@ class RemotePromiseStore(IPromiseStore):
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        response = self.client.post(
-            url="/promises",
+        response = requests.post(
+            url=f"{self.url}/promises",
             headers=request_headers,
             json={
                 "id": promise_id,
@@ -341,7 +342,9 @@ class RemotePromiseStore(IPromiseStore):
                 "timeout": timeout,
                 "tags": tags,
             },
+            timeout=self._request_timeout,
         )
+
         response.raise_for_status()
 
         return DurablePromiseRecord.from_json(response.json())
@@ -356,13 +359,14 @@ class RemotePromiseStore(IPromiseStore):
         data: Data,
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
-        response = self.client.patch(
-            url=f"/promises/{promise_id}",
+        response = requests.patch(
+            url=f"{self.url}/promises/{promise_id}",
             headers=request_headers,
             json={
                 "state": "REJECTED_CANCELED",
                 "value": {"headers": headers, "data": data},
             },
+            timeout=self._request_timeout,
         )
         response.raise_for_status()
         return DurablePromiseRecord.from_json(response.json())
@@ -378,10 +382,11 @@ class RemotePromiseStore(IPromiseStore):
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        response = self.client.patch(
-            f"/promises/{promise_id}",
+        response = requests.patch(
+            f"{self.url}/promises/{promise_id}",
             headers=request_headers,
             json={"state": "RESOLVED", "value": {"headers": headers, "data": data}},
+            timeout=self._request_timeout,
         )
         response.raise_for_status()
         return DurablePromiseRecord.from_json(response.json())
@@ -397,10 +402,11 @@ class RemotePromiseStore(IPromiseStore):
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        response = self.client.patch(
-            f"/promises/{promise_id}",
+        response = requests.patch(
+            f"{self.url}/promises/{promise_id}",
             headers=request_headers,
             json={"state": "REJECTED", "value": {"headers": headers, "data": data}},
+            timeout=self._request_timeout,
         )
         response.raise_for_status()
         return DurablePromiseRecord.from_json(response.json())

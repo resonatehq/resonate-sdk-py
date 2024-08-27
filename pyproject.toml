@@ -7,7 +7,7 @@ authors = [
 ]
 dependencies = [
     "typing-extensions>=4.12.2",
-    "httpx>=0.27.0",
+    "requests>=2.32.3",
 ]
 readme = "README.md"
 requires-python = ">= 3.9"

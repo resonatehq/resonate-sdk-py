@@ -10,27 +10,18 @@
 #   universal: false
 
 -e file:.
-anyio==4.4.0
-    # via httpx
 attrs==24.2.0
     # via hypothesis
 certifi==2024.7.4
-    # via httpcore
-    # via httpx
+    # via requests
+charset-normalizer==3.3.2
+    # via requests
 exceptiongroup==1.2.2
-    # via anyio
     # via hypothesis
     # via pytest
-h11==0.14.0
-    # via httpcore
-httpcore==1.0.5
-    # via httpx
-httpx==0.27.2
-    # via resonate-sdk
 hypothesis==6.111.2
 idna==3.8
-    # via anyio
-    # via httpx
+    # via requests
 iniconfig==2.0.0
     # via pytest
 mypy==1.11.2
@@ -41,16 +32,16 @@ packaging==24.1
 pluggy==1.5.0
     # via pytest
 pytest==8.3.2
+requests==2.32.3
+    # via resonate-sdk
 ruff==0.6.2
-sniffio==1.3.1
-    # via anyio
-    # via httpx
 sortedcontainers==2.4.0
     # via hypothesis
 tomli==2.0.1
     # via mypy
     # via pytest
 typing-extensions==4.12.2
-    # via anyio
     # via mypy
     # via resonate-sdk
+urllib3==2.2.2
+    # via requests

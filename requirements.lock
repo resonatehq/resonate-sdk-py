@@ -10,25 +10,15 @@
 #   universal: false
 
 -e file:.
-anyio==4.4.0
-    # via httpx
 certifi==2024.7.4
-    # via httpcore
-    # via httpx
-exceptiongroup==1.2.2
-    # via anyio
-h11==0.14.0
-    # via httpcore
-httpcore==1.0.5
-    # via httpx
-httpx==0.27.2
-    # via resonate-sdk
+    # via requests
+charset-normalizer==3.3.2
+    # via requests
 idna==3.8
-    # via anyio
-    # via httpx
-sniffio==1.3.1
-    # via anyio
-    # via httpx
-typing-extensions==4.12.2
-    # via anyio
+    # via requests
+requests==2.32.3
     # via resonate-sdk
+typing-extensions==4.12.2
+    # via resonate-sdk
+urllib3==2.2.2
+    # via requests
