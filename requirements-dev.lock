@@ -40,8 +40,10 @@ sortedcontainers==2.4.0
 tomli==2.0.1
     # via mypy
     # via pytest
+types-requests==2.32.0.20240712
 typing-extensions==4.12.2
     # via mypy
     # via resonate-sdk
 urllib3==2.2.2
     # via requests
+    # via types-requests
