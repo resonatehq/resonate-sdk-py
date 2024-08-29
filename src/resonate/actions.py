@@ -16,13 +16,14 @@ class Call:
         self.exec_unit = exec_unit
 
     def to_invoke(self) -> Invoke:
-        return Invoke(self.exec_unit)
+        return Invoke(self.exec_unit, is_top_lvl=False)
 
 
 @final
 class Invoke:
-    def __init__(self, exec_unit: ExecutionUnit) -> None:
+    def __init__(self, exec_unit: ExecutionUnit, *, is_top_lvl: bool = False) -> None:
         self.exec_unit = exec_unit
+        self.is_top_lvl = is_top_lvl
 
 
 @final

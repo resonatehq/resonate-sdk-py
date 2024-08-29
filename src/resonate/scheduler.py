@@ -58,7 +58,7 @@ class _SQE(Generic[T]):
 class _CQE(Generic[T]):
     def __init__(self, promise: Promise[T], fn_result: Result[T, Exception]) -> None:
         self.fn_result = fn_result
-        self.promise = promise
+        self.promise: Promise[T] = promise
 
 
 class _Processor:
@@ -73,9 +73,9 @@ class _Processor:
             max_workers = min(32, (os.cpu_count() or 1) + 4)
         assert max_workers > 0, "`max_workers` must be positive."
         self._max_workers = max_workers
-        self._sq = sq
-        self._cq = cq
-        self._continue_event = continue_event
+        self._sq: queue.Queue[_SQE[Any]] = sq
+        self._cq: queue.Queue[_CQE[Any]] = cq
+        self._continue_event: Event | None = continue_event
         self._threads = set[Thread]()
 
     def enqueue(self, sqe: _SQE[Any]) -> None:
@@ -125,9 +125,9 @@ class _Metronome:
         cq: queue.Queue[_CQE[Any]],
         continue_event: Event | None,
     ) -> None:
-        self._sq = sq
-        self._cq = cq
-        self._continue_event = continue_event
+        self._sq: queue.Queue[_SleepE[None]] = sq
+        self._cq: queue.Queue[_CQE[Any]] = cq
+        self._continue_event: Event | None = continue_event
 
         self._sleeping: list[tuple[int, int, Promise[None]]] = []
 
@@ -155,7 +155,7 @@ class _Metronome:
                 )
 
             while self._sleeping and self._sleeping[0][0] <= current_time:
-                se = heapq.heappop(self._sleeping)
+                se: tuple[int, int, Promise[None]] = heapq.heappop(self._sleeping)
                 self._cq.put_nowait(_CQE(se[-1], Ok(None)))
                 if self._continue_event:
                     self._continue_event.set()
@@ -204,6 +204,9 @@ class Scheduler:
     def _signal(self) -> None:
         self._worker_continue.set()
 
+    def _create_promise(self, promise_id: str, action: Invoke | Sleep) -> Promise[Any]:
+        return Promise[Any](promise_id=promise_id, action=action)
+
     def run(
         self,
         promise_id: str,
@@ -212,8 +215,8 @@ class Scheduler:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Promise[T]:
-        top_lvl = Invoke(FnOrCoroutine(coro, *args, **kwargs))
-        p = Promise[T](promise_id, top_lvl)
+        top_lvl = Invoke(FnOrCoroutine(coro, *args, **kwargs), is_top_lvl=True)
+        p: Promise[Any] = self._create_promise(promise_id=promise_id, action=top_lvl)
         self._stg_queue.put_nowait((top_lvl, p))
         self._signal()
         return p
@@ -225,7 +228,10 @@ class Scheduler:
             coro = fn_or_coroutine.exec_unit(
                 ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
             )
-            self._add_coro_to_runnables(CoroAndPromise(coro, promise, ctx), None)
+            self._add_coro_to_runnables(
+                CoroAndPromise(coro, promise, ctx),
+                None,
+            )
         else:
             self._processor.enqueue(
                 _SQE(
@@ -242,7 +248,7 @@ class Scheduler:
             self._worker_continue.clear()
 
             top_lvls: list[tuple[Invoke, Promise[Any]]] = utils.dequeue_batch(
-                self._stg_queue,
+                q=self._stg_queue,
                 batch_size=self._stg_queue.qsize(),
             )
             for top_lvl, p in top_lvls:
@@ -252,7 +258,7 @@ class Scheduler:
                 assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
                 self._route_fn_or_coroutine(parent_ctx, p, top_lvl.exec_unit)
 
-            cqes = utils.dequeue_batch(
+            cqes: list[_CQE[Any]] = utils.dequeue_batch(
                 q=self._completion_queue,
                 batch_size=self._completion_queue.qsize(),
             )
@@ -287,7 +293,10 @@ class Scheduler:
             return
 
         for coro_and_promise in self.awaitables.pop(p):
-            self._add_coro_to_runnables(coro_and_promise, p.safe_result())
+            self._add_coro_to_runnables(
+                coro_and_promise=coro_and_promise,
+                value_to_yield_back=p.safe_result(),
+            )
 
     def _advance_runnable_span(self, runnable: Runnable[Any]) -> None:
         assert isgenerator(
@@ -297,21 +306,18 @@ class Scheduler:
         yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
-            v = yieldable_or_final_value.v
-            runnable.coro_and_promise.prom.set_result(v)
+            runnable.coro_and_promise.prom.set_result(yieldable_or_final_value.v)
             self._unblock_coros_waiting_on_promise(runnable.coro_and_promise.prom)
 
         elif isinstance(yieldable_or_final_value, Call):
-            called = yieldable_or_final_value
-            p = self._process_invokation(called.to_invoke(), runnable)
+            p = self._process_invokation(yieldable_or_final_value.to_invoke(), runnable)
             if not p.done():
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
             else:
                 self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
 
         elif isinstance(yieldable_or_final_value, Invoke):
-            invokation = yieldable_or_final_value
-            p = self._process_invokation(invokation, runnable)
+            p = self._process_invokation(yieldable_or_final_value, runnable)
             self._add_coro_to_runnables(runnable.coro_and_promise, Ok(p))
 
         elif isinstance(yieldable_or_final_value, Promise):
@@ -323,7 +329,7 @@ class Scheduler:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(yieldable_or_final_value, Sleep):
-            p = Promise[None](
+            p = self._create_promise(
                 promise_id=runnable.coro_and_promise.ctx.new_child().ctx_id,
                 action=yieldable_or_final_value,
             )
@@ -337,9 +343,8 @@ class Scheduler:
     def _process_invokation(
         self, invokation: Invoke, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        parent_ctx = runnable.coro_and_promise.ctx
-        child_ctx = parent_ctx.new_child()
-        p = Promise[Any](child_ctx.ctx_id, invokation)
+        child_ctx = runnable.coro_and_promise.ctx.new_child()
+        p = self._create_promise(child_ctx.ctx_id, invokation)
         if isinstance(invokation.exec_unit, Command):
             raise NotImplementedError
         if isinstance(invokation.exec_unit, FnOrCoroutine):

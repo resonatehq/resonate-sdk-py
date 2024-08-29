@@ -259,7 +259,7 @@ class DSTScheduler:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
-        top_lvl = Invoke(FnOrCoroutine(coro, *args, **kwargs))
+        top_lvl = Invoke(FnOrCoroutine(coro, *args, **kwargs), is_top_lvl=True)
         self._stg_queue.append((top_lvl, promise_id))
 
     def _add_coro_to_runnables(
@@ -311,6 +311,9 @@ class DSTScheduler:
     def _create_promise(self, promise_id: str, action: Invoke | Sleep) -> Promise[Any]:
         p = Promise[Any](promise_id, action)
         self._events.append(PromiseCreated(promise_id=p.promise_id, tick=self.tick))
+        assert (
+            not p.done()
+        ), "newly created promise must be always in PENDING state, unless shortcuted."
         return p
 
     def _move_next_top_lvl_invoke_to_runnables(
@@ -331,7 +334,6 @@ class DSTScheduler:
         return array.pop(self.random.randint(0, len(array) - 1))
 
     def _reset(self) -> None:
-        self._top_lvl_idx = 0
         self._runnable_coros.clear()
         self._runnable_functions.clear()
         self._awatiables.clear()
@@ -451,8 +453,9 @@ class DSTScheduler:
         yieldable_or_final_value = iterate_coro(runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
-            v = yieldable_or_final_value.v
-            self._resolve_promise(runnable.coro_and_promise.prom, v)
+            self._resolve_promise(
+                runnable.coro_and_promise.prom, yieldable_or_final_value.v
+            )
             self._events.append(
                 ExecutionTerminated(
                     promise_id=runnable.coro_and_promise.prom.promise_id, tick=self.tick
@@ -460,8 +463,7 @@ class DSTScheduler:
             )
             self._unblock_coros_waiting_on_promise(p=runnable.coro_and_promise.prom)
         elif isinstance(yieldable_or_final_value, Call):
-            called = yieldable_or_final_value
-            p = self._process_invokation(called.to_invoke(), runnable)
+            p = self._process_invokation(yieldable_or_final_value.to_invoke(), runnable)
             if not p.done():
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
             else:
