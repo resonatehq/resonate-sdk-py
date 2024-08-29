@@ -161,7 +161,7 @@ class DSTScheduler:
         self.random = random
         self.seed = self.random.seed
 
-        self._deps = Dependencies()
+        self.deps = Dependencies()
 
         self.current_failures: int = 0
         self._max_failures = max_failures
@@ -322,7 +322,7 @@ class DSTScheduler:
         p = self._create_promise(promise_id, top_lvl)
         self._route_fn_or_coroutine(
             ctx=Context(
-                ctx_id=promise_id, seed=self.seed, parent_ctx=None, deps=self._deps
+                ctx_id=promise_id, seed=self.seed, parent_ctx=None, deps=self.deps
             ),
             promise=p,
             fn_or_coroutine=top_lvl.exec_unit,
@@ -379,10 +379,10 @@ class DSTScheduler:
     def _run(self) -> None:  # noqa: C901
         while True:
             if self._probe is not None:
-                self.probe_results.append(self._probe(self._deps, self.tick))
+                self.probe_results.append(self._probe(self.deps, self.tick))
 
             if self._assert_always is not None:
-                self._assert_always(self._deps, self.seed, self.tick)
+                self._assert_always(self.deps, self.seed, self.tick)
 
             if not self._runnable_functions and not self._runnable_coros:
                 cmds_to_be_executed = self._cmds_waiting_to_be_executed()
@@ -420,7 +420,7 @@ class DSTScheduler:
                 assert_never(next_step)
 
         if self._assert_eventually is not None:
-            self._assert_eventually(self._deps, self.seed)
+            self._assert_eventually(self.deps, self.seed)
 
     def _process_invokation(
         self, invokation: Invoke, runnable: Runnable[Any]
