@@ -111,7 +111,7 @@ def test_raise_inmediately() -> None:
     s.add("1", raise_inmediately)
     p = s.run()[0]
     assert p.failure()
-    with pytest.raises(expected_exception=RuntimeError):
+    with pytest.raises(RuntimeError):
         p.result()
 
 

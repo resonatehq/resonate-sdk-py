@@ -151,8 +151,6 @@ class DSTScheduler:
         ]
         | None,
     ) -> None:
-        self._top_lvl_idx: int = 0
-
         self._stg_queue: list[tuple[Invoke, str]] = []
         self._runnable_coros: RunnableCoroutines = []
         self._awatiables: Awaitables = {}
