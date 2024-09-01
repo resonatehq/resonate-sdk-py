@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Union
 
 from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
-from resonate.actions import Call, Invoke, Sleep
+from resonate.actions import Call, Invoke, Options, Sleep
 from resonate.batching import CmdBuffer
 from resonate.contants import CWD
 from resonate.context import (
@@ -255,11 +255,16 @@ class DSTScheduler:
         self,
         promise_id: str,
         coro: DurableCoro[P, Any] | DurableFn[P, Any],
+        opts: Options | None = None,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
-        top_lvl = Invoke(FnOrCoroutine(coro, *args, **kwargs), is_top_lvl=True)
+        top_lvl = Invoke(
+            FnOrCoroutine(coro, *args, **kwargs),
+            is_top_lvl=True,
+            opts=opts,
+        )
         self._stg_queue.append((top_lvl, promise_id))
 
     def _add_coro_to_runnables(

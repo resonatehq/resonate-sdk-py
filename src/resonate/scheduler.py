@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
-from resonate.actions import Sleep
+from resonate.actions import Options, Sleep
 from resonate.context import (
     Call,
     Context,
@@ -211,11 +211,16 @@ class Scheduler:
         self,
         promise_id: str,
         coro: DurableCoro[P, T] | DurableFn[P, T],
+        opts: Options | None = None,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Promise[T]:
-        top_lvl = Invoke(FnOrCoroutine(coro, *args, **kwargs), is_top_lvl=True)
+        top_lvl = Invoke(
+            FnOrCoroutine(coro, *args, **kwargs),
+            is_top_lvl=True,
+            opts=opts,
+        )
         p: Promise[Any] = self._create_promise(promise_id=promise_id, action=top_lvl)
         self._stg_queue.put_nowait((top_lvl, p))
         self._signal()

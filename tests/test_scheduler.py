@@ -20,7 +20,7 @@ def foo(ctx: Context, name: str, sleep_time: float) -> str:  # noqa: ARG001
 
 
 def baz(ctx: Context, name: str, sleep_time: float) -> Generator[Yieldable, Any, str]:
-    p = yield ctx.invoke(foo, name, sleep_time)
+    p = yield ctx.invoke(foo, name=name, sleep_time=sleep_time)
     return (yield p)
 
 
@@ -34,7 +34,7 @@ def bar(
 @pytest.mark.skip()
 def test_coro_return_promise() -> None:
     s = scheduler.Scheduler(processor_threads=1)
-    p: Promise[Promise[str]] = s.run("bar", bar, "A", 0.1)
+    p: Promise[Promise[str]] = s.run("bar", bar, name="A", sleep_time=0.1)
     assert p.result(timeout=2) == "A"
 
 
@@ -76,9 +76,9 @@ def test_sleep_on_coroutines() -> None:
     s = scheduler.Scheduler(processor_threads=1)
     start = time.time()
     sleep_time = 4
-    p1: Promise[str] = s.run("1", sleep_coroutine, sleep_time, "A")
-    p2: Promise[str] = s.run("2", sleep_coroutine, sleep_time, "B")
-    p3: Promise[str] = s.run("3", sleep_coroutine, sleep_time, "C")
+    p1: Promise[str] = s.run("1", sleep_coroutine, sleep_time=sleep_time, name="A")
+    p2: Promise[str] = s.run("2", sleep_coroutine, sleep_time=sleep_time, name="B")
+    p3: Promise[str] = s.run("3", sleep_coroutine, sleep_time=sleep_time, name="C")
     assert p1.result() == "A"
     assert p2.result() == "B"
     assert p3.result() == "C"
