@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from resonate import scheduler
+from resonate.options import Options
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -34,17 +35,21 @@ def bar(
 @pytest.mark.skip()
 def test_coro_return_promise() -> None:
     s = scheduler.Scheduler(processor_threads=1)
-    p: Promise[Promise[str]] = s.run("bar", bar, name="A", sleep_time=0.1)
+    p: Promise[Promise[str]] = s.run(
+        "bar", Options(durable=True), bar, name="A", sleep_time=0.1
+    )
     assert p.result(timeout=2) == "A"
 
 
 def test_scheduler() -> None:
     p = scheduler.Scheduler()
 
-    promise: Promise[str] = p.run("baz", baz, name="A", sleep_time=0.2)
+    promise: Promise[str] = p.run(
+        "baz", Options(durable=True), baz, name="A", sleep_time=0.2
+    )
     assert promise.result(timeout=4) == "A"
 
-    promise = p.run("foo", foo, name="B", sleep_time=0.2)
+    promise = p.run("foo", Options(durable=True), foo, name="B", sleep_time=0.2)
     assert promise.result(timeout=4) == "B"
 
 
@@ -52,9 +57,15 @@ def test_multithreading_capabilities() -> None:
     s = scheduler.Scheduler(processor_threads=3)
     time_per_process: int = 5
     start = time.time()
-    p1: Promise[str] = s.run("1", baz, name="A", sleep_time=time_per_process)
-    p2: Promise[str] = s.run("2", baz, name="B", sleep_time=time_per_process)
-    p3: Promise[str] = s.run("3", baz, name="C", sleep_time=time_per_process)
+    p1: Promise[str] = s.run(
+        "1", Options(durable=True), baz, name="A", sleep_time=time_per_process
+    )
+    p2: Promise[str] = s.run(
+        "2", Options(durable=True), baz, name="B", sleep_time=time_per_process
+    )
+    p3: Promise[str] = s.run(
+        "3", Options(durable=True), baz, name="C", sleep_time=time_per_process
+    )
 
     assert p1.result() == "A"
     assert p2.result() == "B"
@@ -76,9 +87,15 @@ def test_sleep_on_coroutines() -> None:
     s = scheduler.Scheduler(processor_threads=1)
     start = time.time()
     sleep_time = 4
-    p1: Promise[str] = s.run("1", sleep_coroutine, sleep_time=sleep_time, name="A")
-    p2: Promise[str] = s.run("2", sleep_coroutine, sleep_time=sleep_time, name="B")
-    p3: Promise[str] = s.run("3", sleep_coroutine, sleep_time=sleep_time, name="C")
+    p1: Promise[str] = s.run(
+        "1", Options(durable=True), sleep_coroutine, sleep_time=sleep_time, name="A"
+    )
+    p2: Promise[str] = s.run(
+        "2", Options(durable=True), sleep_coroutine, sleep_time=sleep_time, name="B"
+    )
+    p3: Promise[str] = s.run(
+        "3", Options(durable=True), sleep_coroutine, sleep_time=sleep_time, name="C"
+    )
     assert p1.result() == "A"
     assert p2.result() == "B"
     assert p3.result() == "C"

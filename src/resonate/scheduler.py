@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
-from resonate.actions import Options, Sleep
+from resonate.actions import Sleep
 from resonate.context import (
     Call,
     Context,
@@ -28,6 +28,7 @@ from resonate.time import now
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
+    from resonate.options import Options
     from resonate.result import Result
     from resonate.typing import (
         Awaitables,
@@ -210,15 +211,14 @@ class Scheduler:
     def run(
         self,
         promise_id: str,
+        opts: Options,
         coro: DurableCoro[P, T] | DurableFn[P, T],
-        opts: Options | None = None,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Promise[T]:
         top_lvl = Invoke(
             FnOrCoroutine(coro, *args, **kwargs),
-            is_top_lvl=True,
             opts=opts,
         )
         p: Promise[Any] = self._create_promise(promise_id=promise_id, action=top_lvl)

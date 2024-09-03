@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from typing_extensions import ParamSpec
 
-from resonate.actions import Call, Invoke, Options, Sleep
+from resonate.actions import Call, Invoke, Sleep
 from resonate.dataclasses import Command, FnOrCoroutine
 from resonate.dependency_injection import Dependencies
 
 if TYPE_CHECKING:
+    from resonate.options import Options
     from resonate.typing import ExecutionUnit, Invokable
 
 P = ParamSpec("P")
@@ -66,7 +67,6 @@ class Context:
     ) -> Invoke:
         return Invoke(
             _wrap_into_execution_unit(invokable, *args, **kwargs),
-            is_top_lvl=False,
             opts=opts,
         )
 

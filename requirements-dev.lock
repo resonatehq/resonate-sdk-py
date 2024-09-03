@@ -30,6 +30,7 @@ pluggy==1.5.0
 pytest==8.3.2
 requests==2.32.3
     # via resonate-sdk
+ruff==0.6.3
 tomli==2.0.1
     # via mypy
     # via pytest

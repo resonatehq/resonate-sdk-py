@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Union
 
 from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
-from resonate.actions import Call, Invoke, Options, Sleep
+from resonate.actions import Call, Invoke, Sleep
 from resonate.batching import CmdBuffer
 from resonate.contants import CWD
 from resonate.context import (
@@ -34,6 +34,8 @@ if TYPE_CHECKING:
     from resonate.events import (
         SchedulerEvents,
     )
+    from resonate.options import Options
+    from resonate.storage import IPromiseStore
     from resonate.typing import (
         Awaitables,
         CommandHandlerQueues,
@@ -150,6 +152,7 @@ class DSTScheduler:
             MockFn[Any],
         ]
         | None,
+        durable_promise_storage: IPromiseStore,
     ) -> None:
         self._stg_queue: list[tuple[Invoke, str]] = []
         self._runnable_coros: RunnableCoroutines = []
@@ -182,6 +185,8 @@ class DSTScheduler:
 
         self._handlers: CommandHandlers = {}
         self._handler_queues: CommandHandlerQueues = {}
+
+        self._durable_promise_storage = durable_promise_storage
 
     def register_command(
         self,
@@ -254,15 +259,14 @@ class DSTScheduler:
     def add(
         self,
         promise_id: str,
+        opts: Options,
         coro: DurableCoro[P, Any] | DurableFn[P, Any],
-        opts: Options | None = None,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
         top_lvl = Invoke(
             FnOrCoroutine(coro, *args, **kwargs),
-            is_top_lvl=True,
             opts=opts,
         )
         self._stg_queue.append((top_lvl, promise_id))
@@ -408,11 +412,9 @@ class DSTScheduler:
             next_step = self._next_step()
             if next_step == "functions":
                 fn_wrapper, promise = self._get_random_element(self._runnable_functions)
-                v = (
-                    _safe_run(self._mocks[fn_wrapper.fn])
-                    if self._mocks.get(fn_wrapper.fn) is not None
-                    else fn_wrapper.run()
-                )
+
+                mock_fn = self._mocks.get(fn_wrapper.fn)
+                v = _safe_run(mock_fn) if mock_fn is not None else fn_wrapper.run()
                 assert isinstance(v, (Ok, Err)), f"{v} must be a result."
                 self._resolve_promise(promise, v)
                 self._unblock_coros_waiting_on_promise(promise)

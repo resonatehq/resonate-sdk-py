@@ -118,8 +118,8 @@ class MemoryStorage(IStorage):
 
 
 class LocalPromiseStore(IPromiseStore):
-    def __init__(self, storage: IStorage) -> None:
-        self._storage = storage
+    def __init__(self, storage: IStorage | None = None) -> None:
+        self._storage = storage or MemoryStorage()
 
     def create(  # noqa: PLR0913
         self,
