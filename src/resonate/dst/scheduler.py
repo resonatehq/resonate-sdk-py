@@ -388,7 +388,7 @@ class DSTScheduler:
             PromiseCompleted(promise_id=promise.promise_id, tick=self.tick, value=value)
         )
 
-    def _run(self) -> None:  # noqa: C901
+    def _run(self) -> None:  # noqa: C901, PLR0912
         while True:
             if self._probe is not None:
                 self.probe_results.append(self._probe(self.deps, self.tick))
