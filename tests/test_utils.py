@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         ("hi", "af4c"),
         ("bye", "df36"),
         ("money-transfer-13112-1231", "f299"),
+        ("greeting-peter", "050d"),
     ],
 )
 def test_string_to_ikey(string: str, expected: UUID) -> None:

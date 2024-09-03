@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import sys
 from inspect import iscoroutinefunction, isfunction, isgenerator, isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Union
 
 from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
+from resonate import utils
 from resonate.actions import Call, Invoke, Sleep
 from resonate.batching import CmdBuffer
 from resonate.contants import CWD
@@ -414,8 +417,39 @@ class DSTScheduler:
                 fn_wrapper, promise = self._get_random_element(self._runnable_functions)
 
                 mock_fn = self._mocks.get(fn_wrapper.fn)
+
+                self._durable_promise_storage.create(
+                    promise_id=promise.promise_id,
+                    ikey=utils.string_to_ikey(promise.promise_id),
+                    strict=False,
+                    headers=None,
+                    data=json.dumps(
+                        {"args": fn_wrapper.args, "kwargs": fn_wrapper.kwargs}
+                    ),
+                    timeout=sys.maxsize,
+                    tags=None,
+                )
+
                 v = _safe_run(mock_fn) if mock_fn is not None else fn_wrapper.run()
                 assert isinstance(v, (Ok, Err)), f"{v} must be a result."
+                if isinstance(v, Ok):
+                    self._durable_promise_storage.resolve(
+                        promise_id=promise.promise_id,
+                        ikey=utils.string_to_ikey(promise.promise_id),
+                        strict=False,
+                        headers=None,
+                        data=json.dumps(v.unwrap()),
+                    )
+                elif isinstance(v, Err):
+                    self._durable_promise_storage.reject(
+                        promise_id=promise.promise_id,
+                        ikey=utils.string_to_ikey(promise.promise_id),
+                        strict=False,
+                        headers=None,
+                        data=json.dumps(str(v.err())),
+                    )
+                else:
+                    assert_never(v)
                 self._resolve_promise(promise, v)
                 self._unblock_coros_waiting_on_promise(promise)
 

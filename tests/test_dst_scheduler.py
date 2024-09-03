@@ -4,6 +4,7 @@ import os
 import random
 import tempfile
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,7 +23,12 @@ from resonate.events import (
 )
 from resonate.options import Options
 from resonate.result import Ok
-from resonate.storage import RemotePromiseStore
+from resonate.storage import (
+    IPromiseStore,
+    LocalPromiseStore,
+    MemoryStorage,
+    RemotePromiseStore,
+)
 from resonate.testing import dst
 from resonate.time import now
 from typing_extensions import TypeVar
@@ -108,8 +114,17 @@ def greet_with_batching_but_with_call(
     return g
 
 
-def test_raise_inmediately() -> None:
-    s = dst(seeds=[1])[0]
+@cache
+def _promise_storages() -> list[IPromiseStore]:
+    stores: list[IPromiseStore] = [LocalPromiseStore(MemoryStorage())]
+    if os.getenv("RESONATE_STORE_URL") is not None:
+        stores.append(RemotePromiseStore(url=os.environ["RESONATE_STORE_URL"]))
+    return stores
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_raise_inmediately(store: IPromiseStore) -> None:
+    s = dst(seeds=[1], durable_promise_storage=store)[0]
     s.add("1", Options(durable=True), raise_inmediately)
     p = s.run()[0]
     assert p.failure()
@@ -117,8 +132,9 @@ def test_raise_inmediately() -> None:
         p.result()
 
 
-def test_failing_call() -> None:
-    s = dst(seeds=[1])[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_failing_call(store: IPromiseStore) -> None:
+    s = dst(seeds=[1], durable_promise_storage=store)[0]
     s.add("1", Options(durable=True), coro_that_fails_call)
     promises = s.run()
     assert (p.failure() for p in promises)
@@ -131,8 +147,9 @@ def test_failing_call() -> None:
     assert (not p.success() for p in promises)
 
 
-def test_batching_using_call() -> None:
-    s = dst(seeds=[1])[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_batching_using_call(store: IPromiseStore) -> None:
+    s = dst(seeds=[1], durable_promise_storage=store)[0]
     s.register_command(cmd=GreetCommand, handler=batch_greeting, max_batch=2)
 
     s.add("1", Options(durable=True), greet_with_batching, name="Ging")
@@ -151,8 +168,9 @@ def test_batching_using_call() -> None:
     ]
 
 
-def test_batching() -> None:
-    s: DSTScheduler = dst(seeds=[1])[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_batching(store: IPromiseStore) -> None:
+    s: DSTScheduler = dst(seeds=[1], durable_promise_storage=store)[0]
 
     s.register_command(cmd=GreetCommand, handler=batch_greeting, max_batch=2)
     s.add("1", Options(durable=True), greet_with_batching, name="Ging")
@@ -172,8 +190,9 @@ def test_batching() -> None:
 
 
 @pytest.mark.dst()
-def test_pin_seed() -> None:
-    s = dst(seeds=[1])[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_pin_seed(store: IPromiseStore) -> None:
+    s = dst(seeds=[1], durable_promise_storage=store)[0]
     assert s.seed == 1
 
     os.environ[ENV_VARIABLE_PIN_SEED] = "32"
@@ -183,8 +202,9 @@ def test_pin_seed() -> None:
 
 
 @pytest.mark.dst()
-def test_mock_function() -> None:
-    s = dst(seeds=[1])[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_mock_function(store: IPromiseStore) -> None:
+    s = dst(seeds=[1], durable_promise_storage=store)[0]
     s.add("1", Options(durable=True), only_call, n=3)
     s.add("2", Options(durable=True), only_invocation, n=3)
     promises = s.run()
@@ -195,13 +215,11 @@ def test_mock_function() -> None:
 
 
 @pytest.mark.dst()
-def test_dst_scheduler() -> None:
+@pytest.mark.parametrize("store", _promise_storages())
+def test_dst_scheduler(store: IPromiseStore) -> None:
     for _ in range(100):
         seed = random.randint(0, 1000000)  # noqa: S311
-        s = dst(
-            seeds=[seed],
-            durable_promise_storage=RemotePromiseStore("http://localhost:8001"),
-        )[0]
+        s = dst(seeds=[seed], durable_promise_storage=store)[0]
 
         s.add("1", Options(durable=True), only_call, n=1)
         s.add("2", Options(durable=True), only_call, n=2)
@@ -221,9 +239,10 @@ def test_dst_scheduler() -> None:
 
 
 @pytest.mark.dst()
-def test_dst_determinitic() -> None:
+@pytest.mark.parametrize("store", _promise_storages())
+def test_dst_determinitic(store: IPromiseStore) -> None:
     seed = random.randint(1, 100)  # noqa: S311
-    s = dst(seeds=[seed])[0]
+    s = dst(seeds=[seed], durable_promise_storage=store)[0]
     s.add("1", Options(durable=True), only_call, n=1)
     s.add("2", Options(durable=True), only_call, n=2)
     s.add("3", Options(durable=True), only_call, n=3)
@@ -255,8 +274,9 @@ def test_dst_determinitic() -> None:
 
 
 @pytest.mark.dst()
-def test_failing_asserting() -> None:
-    s = dst(seeds=[1])[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_failing_asserting(store: IPromiseStore) -> None:
+    s = dst(seeds=[1], durable_promise_storage=store)[0]
     s.add("1", Options(durable=True), failing_asserting)
     p = s.run()
     with pytest.raises(AssertionError):
@@ -276,8 +296,14 @@ def test_dst_framework(scheduler: DSTScheduler) -> None:
 
 
 @pytest.mark.dst()
-def test_failure() -> None:
-    scheduler = dst(seeds=[1], max_failures=3, failure_chance=100)[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_failure(store: IPromiseStore) -> None:
+    scheduler = dst(
+        seeds=[1],
+        max_failures=3,
+        failure_chance=100,
+        durable_promise_storage=store,
+    )[0]
     scheduler.add("1", Options(durable=True), only_call, n=1)
     p = scheduler.run()
     assert p[0].done()
@@ -295,8 +321,9 @@ def test_failure() -> None:
 
 
 @pytest.mark.dst()
-def test_sequential() -> None:
-    seq_scheduler = dst(seeds=[1], mode="sequential")[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_sequential(store: IPromiseStore) -> None:
+    seq_scheduler = dst(seeds=[1], mode="sequential", durable_promise_storage=store)[0]
     seq_scheduler.add("1", Options(durable=True), only_call, n=1)
     seq_scheduler.add("2", Options(durable=True), only_call, n=2)
     seq_scheduler.add("3", Options(durable=True), only_call, n=3)
@@ -372,7 +399,7 @@ def test_sequential() -> None:
         ExecutionTerminated(promise_id="5", tick=15),
     ]
 
-    con_scheduler = dst(seeds=[1], max_failures=2)[0]
+    con_scheduler = dst(seeds=[1], max_failures=2, durable_promise_storage=store)[0]
     con_scheduler.add("1", Options(durable=True), only_call, n=1)
     con_scheduler.add("2", Options(durable=True), only_call, n=2)
     con_scheduler.add("3", Options(durable=True), only_call, n=3)
@@ -451,10 +478,13 @@ def test_sequential() -> None:
     assert len(con_scheduler.get_events()) == len(seq_scheduler.get_events())
 
 
-def test_dump_events() -> None:
+@pytest.mark.parametrize("store", _promise_storages())
+def test_dump_events(store: IPromiseStore) -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         log_file_path = Path(temp_dir) / "cool_log_%s.txt"
-        s = dst(seeds=[1], log_file=log_file_path.as_posix())[0]
+        s = dst(
+            seeds=[1], log_file=log_file_path.as_posix(), durable_promise_storage=store
+        )[0]
         formatted_file_path = Path(log_file_path.as_posix() % (s.seed))
         assert not formatted_file_path.exists()
         s.add("1", Options(durable=True), only_call, n=1)
@@ -474,8 +504,9 @@ def _probe_function(deps: Dependencies, tick: int) -> int:  # noqa: ARG001
     return now()
 
 
-def test_probe() -> None:
-    s = dst(seeds=[1], probe=_probe_function)[0]
+@pytest.mark.parametrize("store", _promise_storages())
+def test_probe(store: IPromiseStore) -> None:
+    s = dst(seeds=[1], probe=_probe_function, durable_promise_storage=store)[0]
     s.add("1", Options(durable=True), only_call, n=1)
     s.add("2", Options(durable=True), only_call, n=2)
     s.add("3", Options(durable=True), only_call, n=3)

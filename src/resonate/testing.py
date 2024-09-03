@@ -30,7 +30,8 @@ def dst(  # noqa: PLR0913
     durable_promise_storage: IPromiseStore | None = None,
 ) -> list[DSTScheduler]:
     schedulers: list[DSTScheduler] = []
-
+    if durable_promise_storage is None:
+        durable_promise_storage = LocalPromiseStore()
     pin_seed = os.environ.get(ENV_VARIABLE_PIN_SEED)
     if pin_seed is not None:
         seeds = [int(pin_seed)]
@@ -48,8 +49,7 @@ def dst(  # noqa: PLR0913
                     probe=probe,
                     assert_always=assert_always,
                     assert_eventually=assert_eventually,
-                    durable_promise_storage=durable_promise_storage
-                    or LocalPromiseStore(),
+                    durable_promise_storage=durable_promise_storage,
                 )
                 for i in seed
             )
@@ -65,8 +65,7 @@ def dst(  # noqa: PLR0913
                     probe=probe,
                     assert_always=assert_always,
                     assert_eventually=assert_eventually,
-                    durable_promise_storage=durable_promise_storage
-                    or LocalPromiseStore(),
+                    durable_promise_storage=durable_promise_storage,
                 )
             )
         else:

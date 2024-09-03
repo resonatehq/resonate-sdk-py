@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Callable, Literal
 
 import requests
 
 from resonate.errors import ResonateError
+from resonate.logging import logger
 from resonate.record import DurablePromiseRecord, Param, Value
 from resonate.time import now
 
@@ -337,7 +339,7 @@ class RemotePromiseStore(IPromiseStore):
                 "id": promise_id,
                 "param": {
                     "headers": headers,
-                    "data": data,
+                    "data": _encode_data(data),
                 },
                 "timeout": timeout,
                 "tags": tags,
@@ -345,7 +347,7 @@ class RemotePromiseStore(IPromiseStore):
             timeout=self._request_timeout,
         )
 
-        response.raise_for_status()
+        _ensure_success(response)
 
         return DurablePromiseRecord.from_json(response.json())
 
@@ -364,11 +366,11 @@ class RemotePromiseStore(IPromiseStore):
             headers=request_headers,
             json={
                 "state": "REJECTED_CANCELED",
-                "value": {"headers": headers, "data": data},
+                "value": {"headers": headers, "data": _encode_data(data)},
             },
             timeout=self._request_timeout,
         )
-        response.raise_for_status()
+        _ensure_success(response)
         return DurablePromiseRecord.from_json(response.json())
 
     def resolve(
@@ -385,10 +387,13 @@ class RemotePromiseStore(IPromiseStore):
         response = requests.patch(
             f"{self.url}/promises/{promise_id}",
             headers=request_headers,
-            json={"state": "RESOLVED", "value": {"headers": headers, "data": data}},
+            json={
+                "state": "RESOLVED",
+                "value": {"headers": headers, "data": _encode_data(data)},
+            },
             timeout=self._request_timeout,
         )
-        response.raise_for_status()
+        _ensure_success(response)
         return DurablePromiseRecord.from_json(response.json())
 
     def reject(
@@ -405,10 +410,13 @@ class RemotePromiseStore(IPromiseStore):
         response = requests.patch(
             f"{self.url}/promises/{promise_id}",
             headers=request_headers,
-            json={"state": "REJECTED", "value": {"headers": headers, "data": data}},
+            json={
+                "state": "REJECTED",
+                "value": {"headers": headers, "data": _encode_data(data)},
+            },
             timeout=self._request_timeout,
         )
-        response.raise_for_status()
+        _ensure_success(response)
         return DurablePromiseRecord.from_json(response.json())
 
     def get(self, *, promise_id: str) -> DurablePromiseRecord:
@@ -418,3 +426,14 @@ class RemotePromiseStore(IPromiseStore):
         self, *, promise_id: str, state: State, tags: Tags, limit: int | None = None
     ) -> list[DurablePromiseRecord]:
         raise NotImplementedError
+
+
+def _encode_data(data: str | None) -> str | None:
+    if data is None:
+        return None
+    return base64.urlsafe_b64encode(data.encode()).decode()
+
+
+def _ensure_success(resp: requests.Response) -> None:
+    logger.debug(resp.json())
+    resp.raise_for_status()
