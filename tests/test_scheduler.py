@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import os
 import time
+from functools import cache
 from typing import TYPE_CHECKING, Any
 
 import pytest
 from resonate import scheduler
 from resonate.options import Options
+from resonate.storage import (
+    IPromiseStore,
+    LocalPromiseStore,
+    MemoryStorage,
+    RemotePromiseStore,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -32,39 +40,62 @@ def bar(
     return p
 
 
+@cache
+def _promise_storages() -> list[IPromiseStore]:
+    stores: list[IPromiseStore] = [LocalPromiseStore(MemoryStorage())]
+    if os.getenv("RESONATE_STORE_URL") is not None:
+        stores.append(RemotePromiseStore(url=os.environ["RESONATE_STORE_URL"]))
+    return stores
+
+
 @pytest.mark.skip()
-def test_coro_return_promise() -> None:
-    s = scheduler.Scheduler(processor_threads=1)
+@pytest.mark.parametrize("store", _promise_storages())
+def test_coro_return_promise(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(processor_threads=1, durable_promise_storage=store)
     p: Promise[Promise[str]] = s.run(
         "bar", Options(durable=True), bar, name="A", sleep_time=0.1
     )
     assert p.result(timeout=2) == "A"
 
 
-def test_scheduler() -> None:
-    p = scheduler.Scheduler()
+@pytest.mark.parametrize("store", _promise_storages())
+def test_scheduler(store: IPromiseStore) -> None:
+    p = scheduler.Scheduler(durable_promise_storage=store)
 
     promise: Promise[str] = p.run(
-        "baz", Options(durable=True), baz, name="A", sleep_time=0.2
+        "baz-1", Options(durable=True), baz, name="A", sleep_time=0.2
     )
     assert promise.result(timeout=4) == "A"
 
-    promise = p.run("foo", Options(durable=True), foo, name="B", sleep_time=0.2)
+    promise = p.run("foo-1", Options(durable=True), foo, name="B", sleep_time=0.2)
     assert promise.result(timeout=4) == "B"
 
 
-def test_multithreading_capabilities() -> None:
-    s = scheduler.Scheduler(processor_threads=3)
+@pytest.mark.parametrize("store", _promise_storages())
+def test_multithreading_capabilities(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(processor_threads=3, durable_promise_storage=store)
     time_per_process: int = 5
     start = time.time()
     p1: Promise[str] = s.run(
-        "1", Options(durable=True), baz, name="A", sleep_time=time_per_process
+        "multi-threaded-1",
+        Options(durable=True),
+        baz,
+        name="A",
+        sleep_time=time_per_process,
     )
     p2: Promise[str] = s.run(
-        "2", Options(durable=True), baz, name="B", sleep_time=time_per_process
+        "multi-threaded-2",
+        Options(durable=True),
+        baz,
+        name="B",
+        sleep_time=time_per_process,
     )
     p3: Promise[str] = s.run(
-        "3", Options(durable=True), baz, name="C", sleep_time=time_per_process
+        "multi-threaded-3",
+        Options(durable=True),
+        baz,
+        name="C",
+        sleep_time=time_per_process,
     )
 
     assert p1.result() == "A"
@@ -83,18 +114,31 @@ def sleep_coroutine(
     return name
 
 
-def test_sleep_on_coroutines() -> None:
-    s = scheduler.Scheduler(processor_threads=1)
+@pytest.mark.parametrize("store", _promise_storages())
+def test_sleep_on_coroutines(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(processor_threads=1, durable_promise_storage=store)
     start = time.time()
     sleep_time = 4
     p1: Promise[str] = s.run(
-        "1", Options(durable=True), sleep_coroutine, sleep_time=sleep_time, name="A"
+        "sleeping-coro-1",
+        Options(durable=True),
+        sleep_coroutine,
+        sleep_time=sleep_time,
+        name="A",
     )
     p2: Promise[str] = s.run(
-        "2", Options(durable=True), sleep_coroutine, sleep_time=sleep_time, name="B"
+        "sleeping-coro-2",
+        Options(durable=True),
+        sleep_coroutine,
+        sleep_time=sleep_time,
+        name="B",
     )
     p3: Promise[str] = s.run(
-        "3", Options(durable=True), sleep_coroutine, sleep_time=sleep_time, name="C"
+        "sleeping-coro-3",
+        Options(durable=True),
+        sleep_coroutine,
+        sleep_time=sleep_time,
+        name="C",
     )
     assert p1.result() == "A"
     assert p2.result() == "B"

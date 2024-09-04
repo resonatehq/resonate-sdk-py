@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import heapq
+import json
 import os
 import queue
+import sys
 import time
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
@@ -29,7 +31,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from resonate.options import Options
+    from resonate.record import DurablePromiseRecord
     from resonate.result import Result
+    from resonate.storage import IPromiseStore
     from resonate.typing import (
         Awaitables,
         DurableCoro,
@@ -170,7 +174,11 @@ class _Metronome:
 
 
 class Scheduler:
-    def __init__(self, processor_threads: int | None = None) -> None:
+    def __init__(
+        self,
+        durable_promise_storage: IPromiseStore,
+        processor_threads: int | None = None,
+    ) -> None:
         self._stg_queue = queue.Queue[tuple[Invoke, Promise[Any]]]()
         self._completion_queue = queue.Queue[_CQE[Any]]()
         self._sleep_submission_queue = queue.Queue[_SleepE[None]]()
@@ -194,6 +202,7 @@ class Scheduler:
             self._completion_queue,
             self._worker_continue,
         )
+        self._durable_promise_storage = durable_promise_storage
 
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
@@ -205,8 +214,51 @@ class Scheduler:
     def _signal(self) -> None:
         self._worker_continue.set()
 
+    def _create_durable_promise_record(
+        self, promise_id: str, data: dict[str, Any]
+    ) -> DurablePromiseRecord:
+        return self._durable_promise_storage.create(
+            promise_id=promise_id,
+            ikey=utils.string_to_ikey(promise_id),
+            strict=False,
+            headers=None,
+            data=json.dumps(data),
+            timeout=sys.maxsize,
+            tags=None,
+        )
+
     def _create_promise(self, promise_id: str, action: Invoke | Sleep) -> Promise[Any]:
-        return Promise[Any](promise_id=promise_id, action=action)
+        p = Promise[Any](promise_id=promise_id, action=action)
+        if isinstance(action, Invoke):
+            if isinstance(action.exec_unit, Command):
+                raise NotImplementedError
+            if isinstance(action.exec_unit, FnOrCoroutine):
+                data = {
+                    "args": action.exec_unit.args,
+                    "kwargs": action.exec_unit.kwargs,
+                }
+            else:
+                assert_never(action.exec_unit)
+        elif isinstance(action, Sleep):
+            data = {"seconds": action.seconds}
+        else:
+            assert_never(action)
+        durable_promise_record = self._create_durable_promise_record(
+            promise_id=p.promise_id, data=data
+        )
+        if durable_promise_record.is_pending():
+            return p
+        v: Result[Any, Exception]
+        if durable_promise_record.is_rejected():
+            v = Err(Exception(durable_promise_record.value.data))
+        else:
+            assert durable_promise_record.is_resolved()
+            if durable_promise_record.value.data is None:
+                v = Ok(None)
+            else:
+                v = Ok(json.loads(durable_promise_record.value.data))
+        p.set_result(v)
+        return p
 
     def run(
         self,
@@ -233,11 +285,16 @@ class Scheduler:
             coro = fn_or_coroutine.exec_unit(
                 ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
             )
-            self._add_coro_to_runnables(
-                CoroAndPromise(coro, promise, ctx),
-                None,
-            )
-        else:
+            if not promise.done():
+                self._add_coro_to_runnables(
+                    CoroAndPromise(coro, promise, ctx),
+                    None,
+                )
+            else:
+                self._add_coro_to_runnables(
+                    CoroAndPromise(coro, promise, ctx), promise.safe_result()
+                )
+        elif not promise.done():
             self._processor.enqueue(
                 _SQE(
                     promise,
@@ -247,6 +304,8 @@ class Scheduler:
                     **fn_or_coroutine.kwargs,
                 )
             )
+        else:
+            self._unblock_coros_waiting_on_promise(promise)
 
     def _run(self) -> None:
         while self._worker_continue.wait():
@@ -338,10 +397,17 @@ class Scheduler:
                 promise_id=runnable.coro_and_promise.ctx.new_child().ctx_id,
                 action=yieldable_or_final_value,
             )
-            self._metronome.enqueue(
-                sleep_e=_SleepE(p, sleep_time=yieldable_or_final_value.seconds)
-            )
-            self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+            if not p.done():
+                self._metronome.enqueue(
+                    sleep_e=_SleepE(p, sleep_time=yieldable_or_final_value.seconds)
+                )
+                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+            else:
+                self._unblock_coros_waiting_on_promise(p=p)
+                self._add_coro_to_runnables(
+                    coro_and_promise=runnable.coro_and_promise,
+                    value_to_yield_back=p.safe_result(),
+                )
         else:
             assert_never(yieldable_or_final_value)
 
