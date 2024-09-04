@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         SchedulerEvents,
     )
     from resonate.options import Options
+    from resonate.record import DurablePromiseRecord
     from resonate.storage import IPromiseStore
     from resonate.typing import (
         Awaitables,
@@ -388,6 +389,12 @@ class DSTScheduler:
             PromiseCompleted(promise_id=promise.promise_id, tick=self.tick, value=value)
         )
 
+    def _maybe_fail(self) -> bool:
+        return (
+            self.current_failures < self._max_failures
+            and self.random.uniform(0, 100) < self._failure_chance
+        )
+
     def _run(self) -> None:  # noqa: C901, PLR0912
         while True:
             if self._probe is not None:
@@ -406,62 +413,86 @@ class DSTScheduler:
 
             self.tick += 1
 
-            if (
-                self.current_failures < self._max_failures
-                and self.random.uniform(0, 100) < self._failure_chance
-            ):
+            if self._maybe_fail():
                 raise _DSTFailureError
 
             next_step = self._next_step()
             if next_step == "functions":
                 fn_wrapper, promise = self._get_random_element(self._runnable_functions)
 
-                mock_fn = self._mocks.get(fn_wrapper.fn)
-
-                self._durable_promise_storage.create(
+                durable_promise_record = self._create_durable_promise_record(
                     promise_id=promise.promise_id,
-                    ikey=utils.string_to_ikey(promise.promise_id),
-                    strict=False,
-                    headers=None,
-                    data=json.dumps(
-                        {"args": fn_wrapper.args, "kwargs": fn_wrapper.kwargs}
-                    ),
-                    timeout=sys.maxsize,
-                    tags=None,
+                    data={"args": fn_wrapper.args, "kwargs": fn_wrapper.kwargs},
                 )
+                if durable_promise_record.is_pending():
+                    mock_fn = self._mocks.get(fn_wrapper.fn)
+                    v = _safe_run(mock_fn) if mock_fn is not None else fn_wrapper.run()
+                    assert isinstance(v, (Ok, Err)), f"{v} must be a result."
+                    completed_record = self._complete_durable_promise_record(
+                        promise_id=promise.promise_id,
+                        value=v,
+                    )
+                    assert (
+                        completed_record.is_completed()
+                    ), "Durable promise record must be completed by this point."
 
-                v = _safe_run(mock_fn) if mock_fn is not None else fn_wrapper.run()
-                assert isinstance(v, (Ok, Err)), f"{v} must be a result."
-                if isinstance(v, Ok):
-                    self._durable_promise_storage.resolve(
-                        promise_id=promise.promise_id,
-                        ikey=utils.string_to_ikey(promise.promise_id),
-                        strict=False,
-                        headers=None,
-                        data=json.dumps(v.unwrap()),
-                    )
-                elif isinstance(v, Err):
-                    self._durable_promise_storage.reject(
-                        promise_id=promise.promise_id,
-                        ikey=utils.string_to_ikey(promise.promise_id),
-                        strict=False,
-                        headers=None,
-                        data=json.dumps(str(v.err())),
-                    )
+                elif durable_promise_record.is_rejected():
+                    v = Err(Exception(durable_promise_record.value.data))
                 else:
-                    assert_never(v)
+                    assert durable_promise_record.is_resolved()
+                    if durable_promise_record.value.data is None:
+                        v = Ok(None)
+                    else:
+                        v = Ok(json.loads(durable_promise_record.value.data))
+
                 self._resolve_promise(promise, v)
                 self._unblock_coros_waiting_on_promise(promise)
 
             elif next_step == "coroutines":
                 self._advance_runnable_span(
-                    self._get_random_element(self._runnable_coros)
+                    runnable=self._get_random_element(
+                        array=self._runnable_coros,
+                    )
                 )
             else:
                 assert_never(next_step)
 
         if self._assert_eventually is not None:
             self._assert_eventually(self.deps, self.seed)
+
+    def _complete_durable_promise_record(
+        self, promise_id: str, value: Result[Any, Exception]
+    ) -> DurablePromiseRecord:
+        if isinstance(value, Ok):
+            return self._durable_promise_storage.resolve(
+                promise_id=promise_id,
+                ikey=utils.string_to_ikey(promise_id),
+                strict=False,
+                headers=None,
+                data=json.dumps(value.unwrap()),
+            )
+        if isinstance(value, Err):
+            return self._durable_promise_storage.reject(
+                promise_id=promise_id,
+                ikey=utils.string_to_ikey(promise_id),
+                strict=False,
+                headers=None,
+                data=json.dumps(str(value.err())),
+            )
+        assert_never(value)
+
+    def _create_durable_promise_record(
+        self, promise_id: str, data: dict[str, Any]
+    ) -> DurablePromiseRecord:
+        return self._durable_promise_storage.create(
+            promise_id=promise_id,
+            ikey=utils.string_to_ikey(promise_id),
+            strict=False,
+            headers=None,
+            data=json.dumps(data),
+            timeout=sys.maxsize,
+            tags=None,
+        )
 
     def _process_invokation(
         self, invokation: Invoke, runnable: Runnable[Any]
