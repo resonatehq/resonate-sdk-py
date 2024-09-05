@@ -246,6 +246,9 @@ class DSTScheduler:
     def get_events(self) -> list[SchedulerEvents]:
         return self._events
 
+    def _clear_events(self) -> None:
+        self._events.clear()
+
     def _cmds_waiting_to_be_executed(
         self,
     ) -> CommandHandlerQueues:
@@ -297,32 +300,31 @@ class DSTScheduler:
     ) -> None:
         if promise.done():
             self._unblock_coros_waiting_on_promise(promise)
-
-        elif isgeneratorfunction(fn_or_coroutine.exec_unit):
-            coro = fn_or_coroutine.exec_unit(
-                ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
-            )
-            self._add_coro_to_runnables(CoroAndPromise(coro, promise, ctx), None)
         else:
-            self._add_function_to_runnables(
-                _wrap_fn(
-                    ctx,
-                    fn_or_coroutine.exec_unit,
-                    *fn_or_coroutine.args,
-                    **fn_or_coroutine.kwargs,
-                ),
-                promise,
+            if isgeneratorfunction(fn_or_coroutine.exec_unit):
+                coro = fn_or_coroutine.exec_unit(
+                    ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
+                )
+                self._add_coro_to_runnables(CoroAndPromise(coro, promise, ctx), None)
+            else:
+                self._add_function_to_runnables(
+                    _wrap_fn(
+                        ctx,
+                        fn_or_coroutine.exec_unit,
+                        *fn_or_coroutine.args,
+                        **fn_or_coroutine.kwargs,
+                    ),
+                    promise,
+                )
+            self._events.append(
+                ExecutionInvoked(
+                    promise.promise_id,
+                    self.tick,
+                    fn_or_coroutine.exec_unit.__name__,
+                    fn_or_coroutine.args,
+                    fn_or_coroutine.kwargs,
+                )
             )
-
-        self._events.append(
-            ExecutionInvoked(
-                promise.promise_id,
-                self.tick,
-                fn_or_coroutine.exec_unit.__name__,
-                fn_or_coroutine.args,
-                fn_or_coroutine.kwargs,
-            )
-        )
 
     def _create_promise(self, promise_id: str, action: Invoke | Sleep) -> Promise[Any]:
         p = Promise[Any](promise_id, action)
@@ -355,7 +357,7 @@ class DSTScheduler:
                 v = Ok(None)
             else:
                 v = Ok(json.loads(durable_promise_record.value.data))
-        p.set_result(v)
+        self._resolve_promise(p, v)
         return p
 
     def _move_next_top_lvl_invoke_to_runnables(
@@ -385,6 +387,8 @@ class DSTScheduler:
         self.current_failures += 1
 
     def run(self) -> list[Promise[Any]]:
+        self.tick = 0
+        self._clear_events()
         while True:
             num_top_lvl_invocations = len(self._stg_queue)
             try:
@@ -414,6 +418,13 @@ class DSTScheduler:
         self, promise: Promise[T], value: Result[T, Exception]
     ) -> None:
         promise.set_result(value)
+        completed_record = self._complete_durable_promise_record(
+            promise_id=promise.promise_id,
+            value=value,
+        )
+        assert (
+            completed_record.is_completed()
+        ), "Durable promise record must be completed by this point."
         self._events.append(
             PromiseCompleted(promise_id=promise.promise_id, tick=self.tick, value=value)
         )
@@ -457,14 +468,6 @@ class DSTScheduler:
                     else fn_wrapper.run()
                 )
                 assert isinstance(v, (Ok, Err)), f"{v} must be a result."
-                completed_record = self._complete_durable_promise_record(
-                    promise_id=promise.promise_id,
-                    value=v,
-                )
-                assert (
-                    completed_record.is_completed()
-                ), "Durable promise record must be completed by this point."
-
                 self._resolve_promise(promise, v)
                 self._unblock_coros_waiting_on_promise(promise)
 

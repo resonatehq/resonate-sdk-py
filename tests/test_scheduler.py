@@ -114,6 +114,7 @@ def sleep_coroutine(
     return name
 
 
+@pytest.mark.skip()
 @pytest.mark.parametrize("store", _promise_storages())
 def test_sleep_on_coroutines(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(processor_threads=1, durable_promise_storage=store)

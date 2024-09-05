@@ -343,6 +343,45 @@ def test_failure(store: IPromiseStore) -> None:
 
 @pytest.mark.dst()
 @pytest.mark.parametrize("store", _promise_storages())
+def test_sequential_retry(store: IPromiseStore) -> None:
+    seq_scheduler = dst(seeds=[1], mode="sequential", durable_promise_storage=store)[0]
+    seq_scheduler.add("execution-seq-with-retry", Options(durable=True), only_call, n=1)
+    promises = seq_scheduler.run()
+    assert [p.result() for p in promises] == [1]
+    assert seq_scheduler.get_events() == [
+        PromiseCreated(promise_id="execution-seq-with-retry", tick=0),
+        ExecutionInvoked(
+            promise_id="execution-seq-with-retry",
+            tick=0,
+            fn_name="only_call",
+            args=(),
+            kwargs={"n": 1},
+        ),
+        PromiseCreated(promise_id="execution-seq-with-retry.1", tick=1),
+        ExecutionInvoked(
+            promise_id="execution-seq-with-retry.1",
+            tick=1,
+            fn_name="number",
+            args=(),
+            kwargs={"n": 1},
+        ),
+        ExecutionAwaited(promise_id="execution-seq-with-retry.1", tick=1),
+        PromiseCompleted(promise_id="execution-seq-with-retry.1", tick=2, value=Ok(1)),
+        ExecutionResumed(promise_id="execution-seq-with-retry", tick=2),
+        PromiseCompleted(promise_id="execution-seq-with-retry", tick=3, value=Ok(1)),
+        ExecutionTerminated(promise_id="execution-seq-with-retry", tick=3),
+    ]
+
+    promises = seq_scheduler.run()
+    assert [p.result() for p in promises] == [1]
+    assert seq_scheduler.get_events() == [
+        PromiseCreated(promise_id="execution-seq-with-retry", tick=0),
+        PromiseCompleted(promise_id="execution-seq-with-retry", tick=0, value=Ok(1)),
+    ]
+
+
+@pytest.mark.dst()
+@pytest.mark.parametrize("store", _promise_storages())
 def test_sequential(store: IPromiseStore) -> None:
     seq_scheduler = dst(seeds=[1], mode="sequential", durable_promise_storage=store)[0]
     seq_scheduler.add("execution-seq-1", Options(durable=True), only_call, n=1)

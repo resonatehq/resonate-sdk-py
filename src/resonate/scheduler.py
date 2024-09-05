@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import heapq
 import json
 import os
 import queue
 import sys
-import time
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
@@ -23,10 +21,8 @@ from resonate.context import (
 from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.dependency_injection import Dependencies
 from resonate.itertools import FinalValue, iterate_coro
-from resonate.logging import logger
 from resonate.promise import Promise
 from resonate.result import Err, Ok
-from resonate.time import now
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -118,70 +114,6 @@ class _Processor:
             self._threads.add(t)
 
 
-class _SleepE(Generic[T]):
-    def __init__(self, promise: Promise[T], sleep_until: int) -> None:
-        self.promise = promise
-        self.sleep_until = sleep_until
-
-
-class _Metronome:
-    def __init__(
-        self,
-        sq: queue.Queue[_SleepE[None]],
-        cq: queue.Queue[_CQE[Any]],
-        continue_event: Event | None,
-    ) -> None:
-        self._sq: queue.Queue[_SleepE[None]] = sq
-        self._cq: queue.Queue[_CQE[Any]] = cq
-        self._continue_event: Event | None = continue_event
-
-        self._sleeping: list[tuple[int, int, Promise[None]]] = []
-
-        self._worker_continue = Event()
-
-        self._worker_thread = Thread(target=self._run, daemon=True)
-        self._worker_thread.start()
-
-    def _signal(self) -> None:
-        self._worker_continue.set()
-
-    def enqueue(self, sleep_e: _SleepE[None]) -> None:
-        self._sq.put_nowait(sleep_e)
-        self._signal()
-
-    def _submit_to_completion(self, promise: Promise[None]) -> None:
-        self._cq.put_nowait(_CQE(promise, Ok(None)))
-        if self._continue_event:
-            self._continue_event.set()
-
-    def _run(self) -> None:
-        while self._worker_continue.wait():
-            self._worker_continue.clear()
-
-            current_time = now()
-            sleep_e = utils.dequeue_batch(self._sq, batch_size=self._sq.qsize())
-            for idx, e in enumerate(sleep_e):
-                if e.sleep_until <= current_time:
-                    self._submit_to_completion(e.promise)
-
-                else:
-                    heapq.heappush(self._sleeping, (e.sleep_until, idx, e.promise))
-
-            while self._sleeping and self._sleeping[0][0] <= current_time:
-                se: tuple[int, int, Promise[None]] = heapq.heappop(self._sleeping)
-                self._submit_to_completion(se[-1])
-
-            time_to_sleep = (
-                (self._sleeping[0][0] - current_time) if self._sleeping else 0
-            )
-            if time_to_sleep > 0:
-                logger.debug(f"current time: {current_time}")
-                logger.debug(f"sleeping: {self._sleeping}")
-                logger.debug(f"time to sleep {time_to_sleep}")
-                time.sleep(time_to_sleep)
-                self._signal()
-
-
 class Scheduler:
     def __init__(
         self,
@@ -190,7 +122,6 @@ class Scheduler:
     ) -> None:
         self._stg_queue = queue.Queue[tuple[Invoke, Promise[Any]]]()
         self._completion_queue = queue.Queue[_CQE[Any]]()
-        self._sleep_submission_queue = queue.Queue[_SleepE[None]]()
         self._function_submission_queue = queue.Queue[_SQE[Any]]()
 
         self._worker_continue = Event()
@@ -203,11 +134,6 @@ class Scheduler:
         self._processor = _Processor(
             processor_threads,
             self._function_submission_queue,
-            self._completion_queue,
-            self._worker_continue,
-        )
-        self._metronome = _Metronome(
-            self._sleep_submission_queue,
             self._completion_queue,
             self._worker_continue,
         )
@@ -423,20 +349,7 @@ class Scheduler:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(yieldable_or_final_value, Sleep):
-            p = self._create_promise(
-                promise_id=runnable.coro_and_promise.ctx.new_child().ctx_id,
-                action=yieldable_or_final_value,
-            )
-            if p.done():
-                self._unblock_coros_waiting_on_promise(p)
-                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
-            else:
-                self._metronome.enqueue(
-                    sleep_e=_SleepE(
-                        p, sleep_until=now() + yieldable_or_final_value.seconds
-                    )
-                )
-                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+            raise NotImplementedError
         else:
             assert_never(yieldable_or_final_value)
 

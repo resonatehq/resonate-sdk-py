@@ -53,6 +53,7 @@ ignore = [
     "ISC001",
     "S101"
 ]
+logger-objects = ["resonate.logging.logger"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
@@ -75,8 +76,6 @@ markers = [
     "dev: mark tests on development.",
     "dst: mark dst tests.",
 ]
-log_cli = true
-log_cli_level = "DEBUG"
 
 [tool.mypy]
 mypy_path = "src"
