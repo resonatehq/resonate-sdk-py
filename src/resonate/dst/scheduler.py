@@ -552,10 +552,10 @@ class DSTScheduler:
             self._unblock_coros_waiting_on_promise(p=runnable.coro_and_promise.prom)
         elif isinstance(yieldable_or_final_value, Call):
             p = self._process_invokation(yieldable_or_final_value.to_invoke(), runnable)
-            if not p.done():
-                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
-            else:
+            if p.done():
                 self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
+            else:
+                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
         elif isinstance(yieldable_or_final_value, Invoke):
             p = self._process_invokation(
                 invokation=yieldable_or_final_value, runnable=runnable
@@ -564,8 +564,8 @@ class DSTScheduler:
         elif isinstance(yieldable_or_final_value, Promise):
             p = yieldable_or_final_value
             if p.done():
-                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
                 self._unblock_coros_waiting_on_promise(p)
+                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
         elif isinstance(yieldable_or_final_value, Sleep):

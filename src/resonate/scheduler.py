@@ -304,6 +304,7 @@ class Scheduler:
     ) -> None:
         if promise.done():
             self._unblock_coros_waiting_on_promise(promise)
+
         elif isgeneratorfunction(fn_or_coroutine.exec_unit):
             coro = fn_or_coroutine.exec_unit(
                 ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
@@ -395,10 +396,10 @@ class Scheduler:
 
         elif isinstance(yieldable_or_final_value, Call):
             p = self._process_invokation(yieldable_or_final_value.to_invoke(), runnable)
-            if not p.done():
-                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
-            else:
+            if p.done():
                 self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
+            else:
+                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(yieldable_or_final_value, Invoke):
             p = self._process_invokation(yieldable_or_final_value, runnable)
@@ -407,8 +408,8 @@ class Scheduler:
         elif isinstance(yieldable_or_final_value, Promise):
             p = yieldable_or_final_value
             if p.done():
-                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
                 self._unblock_coros_waiting_on_promise(p)
+                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
@@ -417,17 +418,14 @@ class Scheduler:
                 promise_id=runnable.coro_and_promise.ctx.new_child().ctx_id,
                 action=yieldable_or_final_value,
             )
-            if not p.done():
+            if p.done():
+                self._unblock_coros_waiting_on_promise(p)
+                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
+            else:
                 self._metronome.enqueue(
                     sleep_e=_SleepE(p, sleep_time=yieldable_or_final_value.seconds)
                 )
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
-            else:
-                self._unblock_coros_waiting_on_promise(p=p)
-                self._add_coro_to_runnables(
-                    coro_and_promise=runnable.coro_and_promise,
-                    value_to_yield_back=p.safe_result(),
-                )
         else:
             assert_never(yieldable_or_final_value)
 
