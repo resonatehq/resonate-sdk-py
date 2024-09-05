@@ -148,6 +148,11 @@ class _Metronome:
         self._sq.put_nowait(sleep_e)
         self._signal()
 
+    def _submit_to_completion(self, promise: Promise[None]) -> None:
+        self._cq.put_nowait(_CQE(promise, Ok(None)))
+        if self._continue_event:
+            self._continue_event.set()
+
     def _run(self) -> None:
         while self._worker_continue.wait():
             self._worker_continue.clear()
@@ -156,17 +161,14 @@ class _Metronome:
             sleep_e = utils.dequeue_batch(self._sq, batch_size=self._sq.qsize())
             for idx, e in enumerate(sleep_e):
                 if e.sleep_until <= current_time:
-                    self._cq.put_nowait(_CQE(e.promise, Ok(None)))
-                    if self._continue_event:
-                        self._continue_event.set()
+                    self._submit_to_completion(e.promise)
+
                 else:
                     heapq.heappush(self._sleeping, (e.sleep_until, idx, e.promise))
 
             while self._sleeping and self._sleeping[0][0] <= current_time:
                 se: tuple[int, int, Promise[None]] = heapq.heappop(self._sleeping)
-                self._cq.put_nowait(_CQE(se[-1], Ok(None)))
-                if self._continue_event:
-                    self._continue_event.set()
+                self._submit_to_completion(se[-1])
 
             time_to_sleep = (
                 (self._sleeping[0][0] - current_time) if self._sleeping else 0
