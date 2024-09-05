@@ -157,6 +157,8 @@ class _Metronome:
             for idx, e in enumerate(sleep_e):
                 if e.sleep_until <= current_time:
                     self._cq.put_nowait(_CQE(e.promise, Ok(None)))
+                    if self._continue_event:
+                        self._continue_event.set()
                 else:
                     heapq.heappush(self._sleeping, (e.sleep_until, idx, e.promise))
 
