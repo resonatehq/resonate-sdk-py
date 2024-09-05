@@ -6,7 +6,6 @@ import json
 import os
 import queue
 import sys
-import time
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
@@ -169,7 +168,7 @@ class _Metronome:
                 (self._sleeping[0][0] - current_time) if self._sleeping else 0
             )
             if time_to_sleep > 0:
-                time.sleep(time_to_sleep)
+                self._worker_continue.wait(time_to_sleep)
                 self._signal()
 
 
