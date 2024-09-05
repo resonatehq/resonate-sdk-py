@@ -213,7 +213,8 @@ class Scheduler:
                 v = Ok(None)
             else:
                 v = Ok(json.loads(durable_promise_record.value.data))
-        p.set_result(v)
+
+        self._resolve_promise(p, v)
         return p
 
     def run(
@@ -280,10 +281,7 @@ class Scheduler:
                 batch_size=self._completion_queue.qsize(),
             )
             for cqe in cqes:
-                self._complete_durable_promise_record(
-                    promise_id=cqe.promise.promise_id, value=cqe.fn_result
-                )
-                cqe.promise.set_result(cqe.fn_result)
+                self._resolve_promise(cqe.promise, value=cqe.fn_result)
                 self._unblock_coros_waiting_on_promise(cqe.promise)
 
             while self.runnable_coros:
@@ -318,6 +316,18 @@ class Scheduler:
                 value_to_yield_back=p.safe_result(),
             )
 
+    def _resolve_promise(
+        self, promise: Promise[T], value: Result[T, Exception]
+    ) -> None:
+        promise.set_result(value)
+        completed_record = self._complete_durable_promise_record(
+            promise_id=promise.promise_id,
+            value=value,
+        )
+        assert (
+            completed_record.is_completed()
+        ), "Durable promise record must be completed by this point."
+
     def _advance_runnable_span(self, runnable: Runnable[Any]) -> None:
         assert isgenerator(
             runnable.coro_and_promise.coro
@@ -326,7 +336,9 @@ class Scheduler:
         yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
-            runnable.coro_and_promise.prom.set_result(yieldable_or_final_value.v)
+            self._resolve_promise(
+                runnable.coro_and_promise.prom, yieldable_or_final_value.v
+            )
             self._unblock_coros_waiting_on_promise(runnable.coro_and_promise.prom)
 
         elif isinstance(yieldable_or_final_value, Call):
