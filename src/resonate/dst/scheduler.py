@@ -295,7 +295,10 @@ class DSTScheduler:
     def _route_fn_or_coroutine(
         self, ctx: Context, promise: Promise[Any], fn_or_coroutine: FnOrCoroutine
     ) -> None:
-        if isgeneratorfunction(fn_or_coroutine.exec_unit):
+        if promise.done():
+            self._unblock_coros_waiting_on_promise(promise)
+
+        elif isgeneratorfunction(fn_or_coroutine.exec_unit):
             coro = fn_or_coroutine.exec_unit(
                 ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
             )
@@ -323,10 +326,36 @@ class DSTScheduler:
 
     def _create_promise(self, promise_id: str, action: Invoke | Sleep) -> Promise[Any]:
         p = Promise[Any](promise_id, action)
+        if isinstance(action, Invoke):
+            if isinstance(action.exec_unit, Command):
+                raise NotImplementedError
+            if isinstance(action.exec_unit, FnOrCoroutine):
+                data = {
+                    "args": action.exec_unit.args,
+                    "kwargs": action.exec_unit.kwargs,
+                }
+            else:
+                assert_never(action.exec_unit)
+        elif isinstance(action, Sleep):
+            raise NotImplementedError
+        else:
+            assert_never(action)
+        durable_promise_record = self._create_durable_promise_record(
+            promise_id=p.promise_id, data=data
+        )
         self._events.append(PromiseCreated(promise_id=p.promise_id, tick=self.tick))
-        assert (
-            not p.done()
-        ), "newly created promise must be always in PENDING state, unless shortcuted."
+        if durable_promise_record.is_pending():
+            return p
+        v: Result[Any, Exception]
+        if durable_promise_record.is_rejected():
+            v = Err(Exception(durable_promise_record.value.data))
+        else:
+            assert durable_promise_record.is_resolved()
+            if durable_promise_record.value.data is None:
+                v = Ok(None)
+            else:
+                v = Ok(json.loads(durable_promise_record.value.data))
+        p.set_result(v)
         return p
 
     def _move_next_top_lvl_invoke_to_runnables(
@@ -395,7 +424,7 @@ class DSTScheduler:
             and self.random.uniform(0, 100) < self._failure_chance
         )
 
-    def _run(self) -> None:  # noqa: C901, PLR0912
+    def _run(self) -> None:  # noqa: C901
         while True:
             if self._probe is not None:
                 self.probe_results.append(self._probe(self.deps, self.tick))
@@ -419,31 +448,18 @@ class DSTScheduler:
             next_step = self._next_step()
             if next_step == "functions":
                 fn_wrapper, promise = self._get_random_element(self._runnable_functions)
+                assert not promise.done(), "Only unresolve promises can be found here."
 
-                durable_promise_record = self._create_durable_promise_record(
+                mock_fn = self._mocks.get(fn_wrapper.fn)
+                v = _safe_run(mock_fn) if mock_fn is not None else fn_wrapper.run()
+                assert isinstance(v, (Ok, Err)), f"{v} must be a result."
+                completed_record = self._complete_durable_promise_record(
                     promise_id=promise.promise_id,
-                    data={"args": fn_wrapper.args, "kwargs": fn_wrapper.kwargs},
+                    value=v,
                 )
-                if durable_promise_record.is_pending():
-                    mock_fn = self._mocks.get(fn_wrapper.fn)
-                    v = _safe_run(mock_fn) if mock_fn is not None else fn_wrapper.run()
-                    assert isinstance(v, (Ok, Err)), f"{v} must be a result."
-                    completed_record = self._complete_durable_promise_record(
-                        promise_id=promise.promise_id,
-                        value=v,
-                    )
-                    assert (
-                        completed_record.is_completed()
-                    ), "Durable promise record must be completed by this point."
-
-                elif durable_promise_record.is_rejected():
-                    v = Err(Exception(durable_promise_record.value.data))
-                else:
-                    assert durable_promise_record.is_resolved()
-                    if durable_promise_record.value.data is None:
-                        v = Ok(None)
-                    else:
-                        v = Ok(json.loads(durable_promise_record.value.data))
+                assert (
+                    completed_record.is_completed()
+                ), "Durable promise record must be completed by this point."
 
                 self._resolve_promise(promise, v)
                 self._unblock_coros_waiting_on_promise(promise)

@@ -214,6 +214,27 @@ class Scheduler:
     def _signal(self) -> None:
         self._worker_continue.set()
 
+    def _complete_durable_promise_record(
+        self, promise_id: str, value: Result[Any, Exception]
+    ) -> DurablePromiseRecord:
+        if isinstance(value, Ok):
+            return self._durable_promise_storage.resolve(
+                promise_id=promise_id,
+                ikey=utils.string_to_ikey(promise_id),
+                strict=False,
+                headers=None,
+                data=json.dumps(value.unwrap()),
+            )
+        if isinstance(value, Err):
+            return self._durable_promise_storage.reject(
+                promise_id=promise_id,
+                ikey=utils.string_to_ikey(promise_id),
+                strict=False,
+                headers=None,
+                data=json.dumps(str(value.err())),
+            )
+        assert_never(value)
+
     def _create_durable_promise_record(
         self, promise_id: str, data: dict[str, Any]
     ) -> DurablePromiseRecord:
@@ -281,20 +302,18 @@ class Scheduler:
     def _route_fn_or_coroutine(
         self, ctx: Context, promise: Promise[Any], fn_or_coroutine: FnOrCoroutine
     ) -> None:
-        if isgeneratorfunction(fn_or_coroutine.exec_unit):
+        if promise.done():
+            self._unblock_coros_waiting_on_promise(promise)
+        elif isgeneratorfunction(fn_or_coroutine.exec_unit):
             coro = fn_or_coroutine.exec_unit(
                 ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
             )
-            if not promise.done():
-                self._add_coro_to_runnables(
-                    CoroAndPromise(coro, promise, ctx),
-                    None,
-                )
-            else:
-                self._add_coro_to_runnables(
-                    CoroAndPromise(coro, promise, ctx), promise.safe_result()
-                )
-        elif not promise.done():
+            self._add_coro_to_runnables(
+                CoroAndPromise(coro, promise, ctx),
+                None,
+            )
+
+        else:
             self._processor.enqueue(
                 _SQE(
                     promise,
@@ -304,8 +323,6 @@ class Scheduler:
                     **fn_or_coroutine.kwargs,
                 )
             )
-        else:
-            self._unblock_coros_waiting_on_promise(promise)
 
     def _run(self) -> None:
         while self._worker_continue.wait():
@@ -327,6 +344,9 @@ class Scheduler:
                 batch_size=self._completion_queue.qsize(),
             )
             for cqe in cqes:
+                self._complete_durable_promise_record(
+                    promise_id=cqe.promise.promise_id, value=cqe.fn_result
+                )
                 cqe.promise.set_result(cqe.fn_result)
                 self._unblock_coros_waiting_on_promise(cqe.promise)
 

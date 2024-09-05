@@ -143,6 +143,7 @@ def test_sleep_on_coroutines(store: IPromiseStore) -> None:
     assert p1.result() == "A"
     assert p2.result() == "B"
     assert p3.result() == "C"
+
     assert time.time() - start == pytest.approx(
         sleep_time, rel=1e-1
     ), f"I should have taken about {sleep_time} seconds to process all coroutines"
