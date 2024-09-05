@@ -6,6 +6,7 @@ import json
 import os
 import queue
 import sys
+import time
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
@@ -117,9 +118,9 @@ class _Processor:
 
 
 class _SleepE(Generic[T]):
-    def __init__(self, promise: Promise[T], sleep_time: int) -> None:
+    def __init__(self, promise: Promise[T], sleep_until: int) -> None:
         self.promise = promise
-        self.sleep_time = sleep_time
+        self.sleep_until = sleep_until
 
 
 class _Metronome:
@@ -154,9 +155,7 @@ class _Metronome:
             current_time = now()
             sleep_e = utils.dequeue_batch(self._sq, batch_size=self._sq.qsize())
             for idx, e in enumerate(sleep_e):
-                heapq.heappush(
-                    self._sleeping, (current_time + e.sleep_time, idx, e.promise)
-                )
+                heapq.heappush(self._sleeping, (e.sleep_until, idx, e.promise))
 
             while self._sleeping and self._sleeping[0][0] <= current_time:
                 se: tuple[int, int, Promise[None]] = heapq.heappop(self._sleeping)
@@ -168,7 +167,7 @@ class _Metronome:
                 (self._sleeping[0][0] - current_time) if self._sleeping else 0
             )
             if time_to_sleep > 0:
-                self._worker_continue.wait(time_to_sleep)
+                time.sleep(time_to_sleep)
                 self._signal()
 
 
@@ -422,7 +421,9 @@ class Scheduler:
                 self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
             else:
                 self._metronome.enqueue(
-                    sleep_e=_SleepE(p, sleep_time=yieldable_or_final_value.seconds)
+                    sleep_e=_SleepE(
+                        p, sleep_until=now() + yieldable_or_final_value.seconds
+                    )
                 )
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
         else:
