@@ -447,11 +447,15 @@ class DSTScheduler:
 
             next_step = self._next_step()
             if next_step == "functions":
+                ## This simulates the processor in the production scheduler.
                 fn_wrapper, promise = self._get_random_element(self._runnable_functions)
                 assert not promise.done(), "Only unresolve promises can be found here."
 
-                mock_fn = self._mocks.get(fn_wrapper.fn)
-                v = _safe_run(mock_fn) if mock_fn is not None else fn_wrapper.run()
+                v = (
+                    _safe_run(self._mocks[fn_wrapper.fn])
+                    if self._mocks.get(fn_wrapper.fn) is not None
+                    else fn_wrapper.run()
+                )
                 assert isinstance(v, (Ok, Err)), f"{v} must be a result."
                 completed_record = self._complete_durable_promise_record(
                     promise_id=promise.promise_id,
