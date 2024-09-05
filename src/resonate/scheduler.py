@@ -155,7 +155,10 @@ class _Metronome:
             current_time = now()
             sleep_e = utils.dequeue_batch(self._sq, batch_size=self._sq.qsize())
             for idx, e in enumerate(sleep_e):
-                heapq.heappush(self._sleeping, (e.sleep_until, idx, e.promise))
+                if e.sleep_until <= current_time:
+                    self._cq.put_nowait(_CQE(e.promise, Ok(None)))
+                else:
+                    heapq.heappush(self._sleeping, (e.sleep_until, idx, e.promise))
 
             while self._sleeping and self._sleeping[0][0] <= current_time:
                 se: tuple[int, int, Promise[None]] = heapq.heappop(self._sleeping)
