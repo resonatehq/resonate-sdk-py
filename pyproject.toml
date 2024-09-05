@@ -75,6 +75,8 @@ markers = [
     "dev: mark tests on development.",
     "dst: mark dst tests.",
 ]
+log_cli = true
+log_cli_level = "DEBUG"
 
 [tool.mypy]
 mypy_path = "src"

@@ -23,6 +23,7 @@ from resonate.context import (
 from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.dependency_injection import Dependencies
 from resonate.itertools import FinalValue, iterate_coro
+from resonate.logging import logger
 from resonate.promise import Promise
 from resonate.result import Err, Ok
 from resonate.time import now
@@ -174,6 +175,9 @@ class _Metronome:
                 (self._sleeping[0][0] - current_time) if self._sleeping else 0
             )
             if time_to_sleep > 0:
+                logger.debug(f"current time: {current_time}")
+                logger.debug(f"sleeping: {self._sleeping}")
+                logger.debug(f"time to sleep {time_to_sleep}")
                 time.sleep(time_to_sleep)
                 self._signal()
 
