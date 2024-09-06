@@ -140,6 +140,7 @@ class Scheduler:
             self._worker_continue,
         )
         self._durable_promise_storage = durable_promise_storage
+        self._emphemeral_promise_memo: dict[str, Promise[Any]] = {}
 
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
@@ -248,11 +249,17 @@ class Scheduler:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Promise[T]:
+        if promise_id in self._emphemeral_promise_memo:
+            return self._emphemeral_promise_memo[promise_id]
+
         top_lvl = Invoke(
             FnOrCoroutine(coro, *args, **kwargs),
             opts=opts,
         )
         p: Promise[Any] = self._create_promise(promise_id=promise_id, action=top_lvl)
+
+        self._emphemeral_promise_memo[p.promise_id] = p
+
         self._stg_queue.put_nowait((top_lvl, p))
         self._signal()
         return p
@@ -350,6 +357,7 @@ class Scheduler:
         ), "Durable promise record must be completed by this point."
         v = self._get_value_from_durable_promise(completed_record)
         promise.set_result(v)
+        self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _advance_runnable_span(self, runnable: Runnable[Any]) -> None:
         assert isgenerator(
