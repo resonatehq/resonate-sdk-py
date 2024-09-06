@@ -209,6 +209,7 @@ class Scheduler:
 
     def _create_promise(self, promise_id: str, action: Invoke | Sleep) -> Promise[Any]:
         p = Promise[Any](promise_id=promise_id, action=action)
+        self._emphemeral_promise_memo[p.promise_id] = p
         if isinstance(action, Invoke):
             if isinstance(action.exec_unit, Command):
                 raise NotImplementedError
@@ -257,9 +258,6 @@ class Scheduler:
             opts=opts,
         )
         p: Promise[Any] = self._create_promise(promise_id=promise_id, action=top_lvl)
-
-        self._emphemeral_promise_memo[p.promise_id] = p
-
         self._stg_queue.put_nowait((top_lvl, p))
         self._signal()
         return p
@@ -357,6 +355,9 @@ class Scheduler:
         ), "Durable promise record must be completed by this point."
         v = self._get_value_from_durable_promise(completed_record)
         promise.set_result(v)
+        assert (
+            promise.promise_id in self._emphemeral_promise_memo
+        ), "Ephemeral process must have been registered in the memo."
         self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _advance_runnable_span(self, runnable: Runnable[Any]) -> None:
