@@ -48,3 +48,5 @@ Data: TypeAlias = Union[str, None]
 State: TypeAlias = Literal[
     "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
 ]
+
+EphemeralPromiseMemo: TypeAlias = dict[str, tuple[Promise[Any], Context]]

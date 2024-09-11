@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         Awaitables,
         DurableCoro,
         DurableFn,
+        EphemeralPromiseMemo,
         RunnableCoroutines,
     )
 
@@ -121,7 +122,7 @@ class Scheduler:
         durable_promise_storage: IPromiseStore,
         processor_threads: int | None = None,
     ) -> None:
-        self._stg_queue = queue.Queue[tuple[Invoke, Promise[Any]]]()
+        self._stg_queue = queue.Queue[tuple[Invoke, Promise[Any], Context]]()
         self._completion_queue = queue.Queue[_CQE[Any]]()
         self._function_submission_queue = queue.Queue[_SQE[Any]]()
 
@@ -140,7 +141,7 @@ class Scheduler:
             self._worker_continue,
         )
         self._durable_promise_storage = durable_promise_storage
-        self._emphemeral_promise_memo: dict[str, Promise[Any]] = {}
+        self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
@@ -207,9 +208,16 @@ class Scheduler:
                 v = Ok(json.loads(durable_promise_record.value.data))
         return v
 
-    def _create_promise(self, promise_id: str, action: Invoke | Sleep) -> Promise[Any]:
-        p = Promise[Any](promise_id=promise_id, action=action)
-        self._emphemeral_promise_memo[p.promise_id] = p
+    def _get_ctx_from_ephemeral_memo(
+        self, promise_id: str, *, and_delete: bool
+    ) -> Context:
+        if and_delete:
+            return self._emphemeral_promise_memo.pop(promise_id)[-1]
+        return self._emphemeral_promise_memo[promise_id][-1]
+
+    def _create_promise(self, ctx: Context, action: Invoke | Sleep) -> Promise[Any]:
+        p = Promise[Any](promise_id=ctx.ctx_id, action=action)
+        self._emphemeral_promise_memo[p.promise_id] = (p, ctx)
         if isinstance(action, Invoke):
             if isinstance(action.exec_unit, Command):
                 raise NotImplementedError
@@ -251,14 +259,18 @@ class Scheduler:
         **kwargs: P.kwargs,
     ) -> Promise[T]:
         if promise_id in self._emphemeral_promise_memo:
-            return self._emphemeral_promise_memo[promise_id]
+            return self._emphemeral_promise_memo[promise_id][0]
 
         top_lvl = Invoke(
             FnOrCoroutine(coro, *args, **kwargs),
             opts=opts,
         )
-        p: Promise[Any] = self._create_promise(promise_id=promise_id, action=top_lvl)
-        self._stg_queue.put_nowait((top_lvl, p))
+        root_ctx = Context(
+            ctx_id=promise_id, seed=None, parent_ctx=None, deps=self._deps
+        )
+
+        p: Promise[Any] = self._create_promise(ctx=root_ctx, action=top_lvl)
+        self._stg_queue.put_nowait((top_lvl, p, root_ctx))
         self._signal()
         return p
 
@@ -292,16 +304,13 @@ class Scheduler:
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
-            top_lvls: list[tuple[Invoke, Promise[Any]]] = utils.dequeue_batch(
+            top_lvls = utils.dequeue_batch(
                 q=self._stg_queue,
                 batch_size=self._stg_queue.qsize(),
             )
-            for top_lvl, p in top_lvls:
-                parent_ctx = Context(
-                    ctx_id=p.promise_id, seed=None, parent_ctx=None, deps=self._deps
-                )
+            for top_lvl, p, root_ctx in top_lvls:
                 assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
-                self._route_fn_or_coroutine(parent_ctx, p, top_lvl.exec_unit)
+                self._route_fn_or_coroutine(root_ctx, p, top_lvl.exec_unit)
 
             cqes: list[_CQE[Any]] = utils.dequeue_batch(
                 q=self._completion_queue,
@@ -401,7 +410,7 @@ class Scheduler:
         self, invokation: Invoke, runnable: Runnable[Any]
     ) -> Promise[Any]:
         child_ctx = runnable.coro_and_promise.ctx.new_child()
-        p = self._create_promise(child_ctx.ctx_id, invokation)
+        p = self._create_promise(child_ctx, invokation)
         if isinstance(invokation.exec_unit, Command):
             raise NotImplementedError
         if isinstance(invokation.exec_unit, FnOrCoroutine):
