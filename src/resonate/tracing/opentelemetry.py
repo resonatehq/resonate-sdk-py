@@ -75,13 +75,26 @@ class OpenTelemetryAdapter(IAdapter):
             )
         elif isinstance(event, ExecutionTerminated):
             span = self._get_span(event.promise_id)
-            span.add_event(ExecutionTerminated.__name__, timestamp=event.tick)
+            span.add_event(
+                ExecutionTerminated.__name__,
+                timestamp=event.tick,
+                attributes={"result": str(event.value)},
+            )
         elif isinstance(event, ExecutionResumed):
             span = self._get_span(event.promise_id)
-            span.add_event(ExecutionResumed.__name__, timestamp=event.tick)
+
+            span.add_event(
+                ExecutionResumed.__name__,
+                timestamp=event.tick,
+                attributes={"value": str(event.value_to_pass)},
+            )
         elif isinstance(event, ExecutionAwaited):
             span = self._get_span(event.promise_id)
-            span.add_event(ExecutionAwaited.__name__, timestamp=event.tick)
+            span.add_event(
+                ExecutionAwaited.__name__,
+                timestamp=event.tick,
+                attributes={"waiting-for": event.awaiting_for},
+            )
         else:
             assert_never(event)
 

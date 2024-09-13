@@ -49,7 +49,7 @@ def execution(ctx: Context) -> Generator[Yieldable, Any, list[str]]:
 
 
 def main() -> None:
-    time.time_ns()
+    now = time.time_ns()
     s = Scheduler(
         durable_promise_storage=LocalPromiseStore(),
         tracing_adapter=OpenTelemetryAdapter(
@@ -59,6 +59,7 @@ def main() -> None:
     p = s.run("execution-with-concurrency-v2", Options(durable=True), execution)
     r = p.result()
     assert len(r) == 2  # noqa: PLR2004
+    print(time.time_ns() - now)  # noqa: T201
 
 
 if __name__ == "__main__":

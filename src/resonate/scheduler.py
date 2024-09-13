@@ -22,6 +22,7 @@ from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnabl
 from resonate.dependency_injection import Dependencies
 from resonate.encoders import ErrorEncoder, JsonEncoder
 from resonate.events import (
+    ExecutionAwaited,
     ExecutionInvoked,
     ExecutionResumed,
     ExecutionTerminated,
@@ -57,22 +58,26 @@ P = ParamSpec("P")
 class _SQE(Generic[T]):
     def __init__(
         self,
-        promise: Promise[T],
+        promise_and_context: tuple[Promise[T], Context],
         fn: Callable[P, T | Coroutine[Any, Any, T]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
-        self.promise = promise
+        self.promise_and_context = promise_and_context
         self.fn = fn
         self.args = args
         self.kwargs = kwargs
 
 
 class _CQE(Generic[T]):
-    def __init__(self, promise: Promise[T], fn_result: Result[T, Exception]) -> None:
+    def __init__(
+        self,
+        promise_and_context: tuple[Promise[T], Context],
+        fn_result: Result[T, Exception],
+    ) -> None:
         self.fn_result = fn_result
-        self.promise: Promise[T] = promise
+        self.promise_and_context = promise_and_context
 
 
 class _Processor:
@@ -114,7 +119,7 @@ class _Processor:
                 except Exception as e:  # noqa: BLE001
                     fn_result = Err(e)
 
-            self._cq.put_nowait(_CQE(sqe.promise, fn_result))
+            self._cq.put_nowait(_CQE(sqe.promise_and_context, fn_result))
             if self._continue_event is not None:
                 self._continue_event.set()
 
@@ -299,44 +304,39 @@ class Scheduler:
     def _route_fn_or_coroutine(
         self, ctx: Context, promise: Promise[Any], fn_or_coroutine: FnOrCoroutine
     ) -> None:
-        if promise.done():
-            self._unblock_coros_waiting_on_promise(promise)
+        assert (
+            not promise.done()
+        ), "Only unresolved executions of unresolved promises can be passed here."
+        if isgeneratorfunction(fn_or_coroutine.exec_unit):
+            coro = fn_or_coroutine.exec_unit(
+                ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
+            )
+            self._add_coro_to_runnables(
+                CoroAndPromise(coro, promise, ctx),
+                None,
+            )
+
         else:
-            if isgeneratorfunction(fn_or_coroutine.exec_unit):
-                coro = fn_or_coroutine.exec_unit(
-                    ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
-                )
-                self._add_coro_to_runnables(
-                    CoroAndPromise(coro, promise, ctx),
-                    None,
-                )
-
-            else:
-                self._processor.enqueue(
-                    _SQE(
-                        promise,
-                        fn_or_coroutine.exec_unit,
-                        ctx,
-                        *fn_or_coroutine.args,
-                        **fn_or_coroutine.kwargs,
-                    )
-                )
-
-            self._tracing_adapter.process_event(
-                ExecutionInvoked(
-                    promise.promise_id,
-                    utils.get_parent_promise_id_from_ctx(
-                        self._get_ctx_from_ephemeral_memo(
-                            promise.promise_id,
-                            and_delete=False,
-                        )
-                    ),
-                    now(),
-                    fn_or_coroutine.exec_unit.__name__,
-                    fn_or_coroutine.args,
-                    fn_or_coroutine.kwargs,
+            self._processor.enqueue(
+                _SQE(
+                    (promise, ctx),
+                    fn_or_coroutine.exec_unit,
+                    ctx,
+                    *fn_or_coroutine.args,
+                    **fn_or_coroutine.kwargs,
                 )
             )
+
+        self._tracing_adapter.process_event(
+            ExecutionInvoked(
+                promise.promise_id,
+                utils.get_parent_promise_id_from_ctx(ctx),
+                now(),
+                fn_or_coroutine.exec_unit.__name__,
+                fn_or_coroutine.args,
+                fn_or_coroutine.kwargs,
+            )
+        )
 
     def _run(self) -> None:
         while self._worker_continue.wait():
@@ -348,15 +348,27 @@ class Scheduler:
             )
             for top_lvl, p, root_ctx in top_lvls:
                 assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
-                self._route_fn_or_coroutine(root_ctx, p, top_lvl.exec_unit)
+                if p.done():
+                    self._unblock_coros_waiting_on_promise(p)
+                else:
+                    self._route_fn_or_coroutine(root_ctx, p, top_lvl.exec_unit)
 
             cqes: list[_CQE[Any]] = utils.dequeue_batch(
                 q=self._completion_queue,
                 batch_size=self._completion_queue.qsize(),
             )
             for cqe in cqes:
-                self._resolve_promise(cqe.promise, value=cqe.fn_result)
-                self._unblock_coros_waiting_on_promise(cqe.promise)
+                promise, ctx = cqe.promise_and_context
+                self._tracing_adapter.process_event(
+                    ExecutionTerminated(
+                        promise_id=promise.promise_id,
+                        parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
+                        tick=now(),
+                        value=cqe.fn_result,
+                    )
+                )
+                self._resolve_promise(promise, value=cqe.fn_result)
+                self._unblock_coros_waiting_on_promise(promise)
 
             while self.runnable_coros:
                 self._advance_runnable_span(self.runnable_coros.pop())
@@ -370,6 +382,16 @@ class Scheduler:
             not p.done()
         ), "If the promise is resolved already it makes no sense to block coroutine"
         self.awaitables.setdefault(p, []).append(coro_and_promise)
+        self._tracing_adapter.process_event(
+            ExecutionAwaited(
+                promise_id=coro_and_promise.prom.promise_id,
+                tick=now(),
+                parent_promise_id=utils.get_parent_promise_id_from_ctx(
+                    coro_and_promise.ctx
+                ),
+                awaiting_for=p.promise_id,
+            )
+        )
 
     def _add_coro_to_runnables(
         self,
@@ -388,18 +410,6 @@ class Scheduler:
             self._add_coro_to_runnables(
                 coro_and_promise=coro_and_promise,
                 value_to_yield_back=p.safe_result(),
-            )
-            self._tracing_adapter.process_event(
-                ExecutionResumed(
-                    promise_id=coro_and_promise.prom.promise_id,
-                    tick=now(),
-                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                        self._get_ctx_from_ephemeral_memo(
-                            coro_and_promise.prom.promise_id,
-                            and_delete=False,
-                        )
-                    ),
-                )
             )
 
     def _resolve_promise(
@@ -437,17 +447,28 @@ class Scheduler:
             runnable.coro_and_promise.coro
         ), "Only coroutines can be advanced"
 
+        if runnable.next_value is not None:
+            self._tracing_adapter.process_event(
+                ExecutionResumed(
+                    promise_id=runnable.coro_and_promise.prom.promise_id,
+                    tick=now(),
+                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
+                        runnable.coro_and_promise.ctx
+                    ),
+                    value_to_pass=runnable.next_value,
+                )
+            )
         yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
-            ctx = self._get_ctx_from_ephemeral_memo(
-                promise_id=runnable.coro_and_promise.prom.promise_id, and_delete=False
-            )
             self._tracing_adapter.process_event(
                 ExecutionTerminated(
                     promise_id=runnable.coro_and_promise.prom.promise_id,
                     tick=now(),
-                    parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
+                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
+                        runnable.coro_and_promise.ctx
+                    ),
+                    value=yieldable_or_final_value.v,
                 )
             )
             self._resolve_promise(
@@ -457,6 +478,10 @@ class Scheduler:
 
         elif isinstance(yieldable_or_final_value, Call):
             p = self._process_invokation(yieldable_or_final_value.to_invoke(), runnable)
+            assert (
+                p not in self.awaitables
+            ), "Since it's a call it should be a promise without dependants"
+
             if p.done():
                 self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
             else:
@@ -487,7 +512,10 @@ class Scheduler:
         if isinstance(invokation.exec_unit, Command):
             raise NotImplementedError
         if isinstance(invokation.exec_unit, FnOrCoroutine):
-            self._route_fn_or_coroutine(child_ctx, p, invokation.exec_unit)
+            if p.done():
+                self._unblock_coros_waiting_on_promise(p)
+            else:
+                self._route_fn_or_coroutine(child_ctx, p, invokation.exec_unit)
         else:
             assert_never(invokation.exec_unit)
         return p

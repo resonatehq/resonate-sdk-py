@@ -47,6 +47,7 @@ class ExecutionTerminated:
     promise_id: str
     parent_promise_id: str | None
     tick: int
+    value: Result[Any, Exception]
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class ExecutionResumed:
     promise_id: str
     parent_promise_id: str | None
     tick: int
+    value_to_pass: Result[Any, Exception]
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,7 @@ class ExecutionAwaited:
     promise_id: str
     parent_promise_id: str | None
     tick: int
+    awaiting_for: str
 
 
 SchedulerEvents: TypeAlias = Union[
