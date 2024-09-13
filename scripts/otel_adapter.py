@@ -16,11 +16,11 @@ if TYPE_CHECKING:
     from resonate.typing import Yieldable
 
 
-def _sleep_func(ctx: Context, seconds: int) -> None:
+def _sleep_func(ctx: Context, seconds: int) -> None:  # noqa: ARG001
     time.sleep(seconds)
 
 
-def suma(ctx: Context, a: int, b: int) -> int:
+def suma(ctx: Context, a: int, b: int) -> int:  # noqa: ARG001
     return a + b
 
 
@@ -58,7 +58,7 @@ def main() -> None:
     )
     p = s.run("execution-with-concurrency-v2", Options(durable=True), execution)
     r = p.result()
-    assert len(r) == 2
+    assert len(r) == 2  # noqa: PLR2004
 
 
 if __name__ == "__main__":
