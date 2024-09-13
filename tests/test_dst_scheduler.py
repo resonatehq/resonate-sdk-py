@@ -387,14 +387,14 @@ def test_sequential_retry(store: IPromiseStore) -> None:
         ExecutionResumed(
             promise_id="execution-seq-with-retry", parent_promise_id=None, tick=2
         ),
+        ExecutionTerminated(
+            promise_id="execution-seq-with-retry", parent_promise_id=None, tick=3
+        ),
         PromiseCompleted(
             promise_id="execution-seq-with-retry",
             parent_promise_id=None,
             tick=3,
             value=Ok(1),
-        ),
-        ExecutionTerminated(
-            promise_id="execution-seq-with-retry", parent_promise_id=None, tick=3
         ),
     ]
 
@@ -435,9 +435,7 @@ def test_sequential(store: IPromiseStore) -> None:
             kwargs={"n": 1},
         ),
         PromiseCreated(
-            promise_id="execution-seq-1.1",
-            parent_promise_id="execution-seq-1",
-            tick=1,
+            promise_id="execution-seq-1.1", parent_promise_id="execution-seq-1", tick=1
         ),
         ExecutionInvoked(
             promise_id="execution-seq-1.1",
@@ -457,11 +455,11 @@ def test_sequential(store: IPromiseStore) -> None:
             value=Ok(1),
         ),
         ExecutionResumed(promise_id="execution-seq-1", parent_promise_id=None, tick=2),
-        PromiseCompleted(
-            promise_id="execution-seq-1", parent_promise_id=None, tick=3, value=Ok(1)
-        ),
         ExecutionTerminated(
             promise_id="execution-seq-1", parent_promise_id=None, tick=3
+        ),
+        PromiseCompleted(
+            promise_id="execution-seq-1", parent_promise_id=None, tick=3, value=Ok(1)
         ),
         PromiseCreated(promise_id="execution-seq-2", parent_promise_id=None, tick=3),
         ExecutionInvoked(
@@ -493,11 +491,11 @@ def test_sequential(store: IPromiseStore) -> None:
             value=Ok(2),
         ),
         ExecutionResumed(promise_id="execution-seq-2", parent_promise_id=None, tick=5),
-        PromiseCompleted(
-            promise_id="execution-seq-2", parent_promise_id=None, tick=6, value=Ok(2)
-        ),
         ExecutionTerminated(
             promise_id="execution-seq-2", parent_promise_id=None, tick=6
+        ),
+        PromiseCompleted(
+            promise_id="execution-seq-2", parent_promise_id=None, tick=6, value=Ok(2)
         ),
         PromiseCreated(promise_id="execution-seq-3", parent_promise_id=None, tick=6),
         ExecutionInvoked(
@@ -529,11 +527,11 @@ def test_sequential(store: IPromiseStore) -> None:
             value=Ok(3),
         ),
         ExecutionResumed(promise_id="execution-seq-3", parent_promise_id=None, tick=8),
-        PromiseCompleted(
-            promise_id="execution-seq-3", parent_promise_id=None, tick=9, value=Ok(3)
-        ),
         ExecutionTerminated(
             promise_id="execution-seq-3", parent_promise_id=None, tick=9
+        ),
+        PromiseCompleted(
+            promise_id="execution-seq-3", parent_promise_id=None, tick=9, value=Ok(3)
         ),
         PromiseCreated(promise_id="execution-seq-4", parent_promise_id=None, tick=9),
         ExecutionInvoked(
@@ -565,11 +563,11 @@ def test_sequential(store: IPromiseStore) -> None:
             value=Ok(4),
         ),
         ExecutionResumed(promise_id="execution-seq-4", parent_promise_id=None, tick=11),
-        PromiseCompleted(
-            promise_id="execution-seq-4", parent_promise_id=None, tick=12, value=Ok(4)
-        ),
         ExecutionTerminated(
             promise_id="execution-seq-4", parent_promise_id=None, tick=12
+        ),
+        PromiseCompleted(
+            promise_id="execution-seq-4", parent_promise_id=None, tick=12, value=Ok(4)
         ),
         PromiseCreated(promise_id="execution-seq-5", parent_promise_id=None, tick=12),
         ExecutionInvoked(
@@ -601,11 +599,11 @@ def test_sequential(store: IPromiseStore) -> None:
             value=Ok(5),
         ),
         ExecutionResumed(promise_id="execution-seq-5", parent_promise_id=None, tick=14),
-        PromiseCompleted(
-            promise_id="execution-seq-5", parent_promise_id=None, tick=15, value=Ok(5)
-        ),
         ExecutionTerminated(
             promise_id="execution-seq-5", parent_promise_id=None, tick=15
+        ),
+        PromiseCompleted(
+            promise_id="execution-seq-5", parent_promise_id=None, tick=15, value=Ok(5)
         ),
     ]
 
@@ -726,17 +724,17 @@ def test_sequential(store: IPromiseStore) -> None:
             value=Ok(1),
         ),
         ExecutionResumed(promise_id="execution-con-1", parent_promise_id=None, tick=6),
-        PromiseCompleted(
-            promise_id="execution-con-1", parent_promise_id=None, tick=7, value=Ok(1)
-        ),
         ExecutionTerminated(
             promise_id="execution-con-1", parent_promise_id=None, tick=7
         ),
         PromiseCompleted(
-            promise_id="execution-con-2", parent_promise_id=None, tick=8, value=Ok(2)
+            promise_id="execution-con-1", parent_promise_id=None, tick=7, value=Ok(1)
         ),
         ExecutionTerminated(
             promise_id="execution-con-2", parent_promise_id=None, tick=8
+        ),
+        PromiseCompleted(
+            promise_id="execution-con-2", parent_promise_id=None, tick=8, value=Ok(2)
         ),
         PromiseCreated(
             promise_id="execution-con-4.1", parent_promise_id="execution-con-4", tick=9
@@ -759,11 +757,11 @@ def test_sequential(store: IPromiseStore) -> None:
             value=Ok(4),
         ),
         ExecutionResumed(promise_id="execution-con-4", parent_promise_id=None, tick=10),
-        PromiseCompleted(
-            promise_id="execution-con-5", parent_promise_id=None, tick=11, value=Ok(5)
-        ),
         ExecutionTerminated(
             promise_id="execution-con-5", parent_promise_id=None, tick=11
+        ),
+        PromiseCompleted(
+            promise_id="execution-con-5", parent_promise_id=None, tick=11, value=Ok(5)
         ),
         PromiseCreated(
             promise_id="execution-con-3.1", parent_promise_id="execution-con-3", tick=12
@@ -779,11 +777,11 @@ def test_sequential(store: IPromiseStore) -> None:
         ExecutionAwaited(
             promise_id="execution-con-3.1", parent_promise_id="execution-con-3", tick=12
         ),
-        PromiseCompleted(
-            promise_id="execution-con-4", parent_promise_id=None, tick=13, value=Ok(4)
-        ),
         ExecutionTerminated(
             promise_id="execution-con-4", parent_promise_id=None, tick=13
+        ),
+        PromiseCompleted(
+            promise_id="execution-con-4", parent_promise_id=None, tick=13, value=Ok(4)
         ),
         PromiseCompleted(
             promise_id="execution-con-3.1",
@@ -792,11 +790,11 @@ def test_sequential(store: IPromiseStore) -> None:
             value=Ok(3),
         ),
         ExecutionResumed(promise_id="execution-con-3", parent_promise_id=None, tick=14),
-        PromiseCompleted(
-            promise_id="execution-con-3", parent_promise_id=None, tick=15, value=Ok(3)
-        ),
         ExecutionTerminated(
             promise_id="execution-con-3", parent_promise_id=None, tick=15
+        ),
+        PromiseCompleted(
+            promise_id="execution-con-3", parent_promise_id=None, tick=15, value=Ok(3)
         ),
     ]
 

@@ -324,6 +324,7 @@ class DSTScheduler:
                     ),
                     promise,
                 )
+
             self._events.append(
                 ExecutionInvoked(
                     promise.promise_id,
@@ -480,7 +481,7 @@ class DSTScheduler:
                 parent_promise_id=utils.get_parent_promise_id_from_ctx(
                     self._get_ctx_from_ephemeral_memo(
                         promise.promise_id,
-                        and_delete=False,
+                        and_delete=True,
                     )
                 ),
             )
@@ -625,11 +626,8 @@ class DSTScheduler:
         yieldable_or_final_value = iterate_coro(runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
-            self._resolve_promise(
-                runnable.coro_and_promise.prom, yieldable_or_final_value.v
-            )
             ctx = self._get_ctx_from_ephemeral_memo(
-                promise_id=runnable.coro_and_promise.prom.promise_id, and_delete=True
+                promise_id=runnable.coro_and_promise.prom.promise_id, and_delete=False
             )
             self._events.append(
                 ExecutionTerminated(
@@ -637,6 +635,9 @@ class DSTScheduler:
                     tick=self.tick,
                     parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
                 )
+            )
+            self._resolve_promise(
+                runnable.coro_and_promise.prom, yieldable_or_final_value.v
             )
             self._unblock_coros_waiting_on_promise(p=runnable.coro_and_promise.prom)
         elif isinstance(yieldable_or_final_value, Call):

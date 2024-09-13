@@ -21,9 +21,18 @@ from resonate.context import (
 from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.dependency_injection import Dependencies
 from resonate.encoders import ErrorEncoder, JsonEncoder
+from resonate.events import (
+    ExecutionInvoked,
+    ExecutionResumed,
+    ExecutionTerminated,
+    PromiseCompleted,
+    PromiseCreated,
+)
 from resonate.itertools import FinalValue, iterate_coro
 from resonate.promise import Promise
 from resonate.result import Err, Ok
+from resonate.time import now
+from resonate.tracing.stdout import StdOutAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -32,6 +41,7 @@ if TYPE_CHECKING:
     from resonate.record import DurablePromiseRecord
     from resonate.result import Result
     from resonate.storage import IPromiseStore
+    from resonate.tracing import IAdapter
     from resonate.typing import (
         Awaitables,
         DurableCoro,
@@ -120,6 +130,8 @@ class Scheduler:
     def __init__(
         self,
         durable_promise_storage: IPromiseStore,
+        *,
+        tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
     ) -> None:
         self._stg_queue = queue.Queue[tuple[Invoke, Promise[Any], Context]]()
@@ -130,6 +142,9 @@ class Scheduler:
 
         self._deps = Dependencies()
         self._json_encoder = JsonEncoder()
+        self._tracing_adapter: IAdapter = (
+            tracing_adapter if tracing_adapter is not None else StdOutAdapter()
+        )
 
         self.runnable_coros: RunnableCoroutines = []
         self.awaitables: Awaitables = {}
@@ -235,6 +250,13 @@ class Scheduler:
         durable_promise_record = self._create_durable_promise_record(
             promise_id=p.promise_id, data=data
         )
+        self._tracing_adapter.process_event(
+            PromiseCreated(
+                promise_id=p.promise_id,
+                tick=now(),
+                parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
+            )
+        )
         if durable_promise_record.is_pending():
             return p
 
@@ -279,24 +301,40 @@ class Scheduler:
     ) -> None:
         if promise.done():
             self._unblock_coros_waiting_on_promise(promise)
-
-        elif isgeneratorfunction(fn_or_coroutine.exec_unit):
-            coro = fn_or_coroutine.exec_unit(
-                ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
-            )
-            self._add_coro_to_runnables(
-                CoroAndPromise(coro, promise, ctx),
-                None,
-            )
-
         else:
-            self._processor.enqueue(
-                _SQE(
-                    promise,
-                    fn_or_coroutine.exec_unit,
-                    ctx,
-                    *fn_or_coroutine.args,
-                    **fn_or_coroutine.kwargs,
+            if isgeneratorfunction(fn_or_coroutine.exec_unit):
+                coro = fn_or_coroutine.exec_unit(
+                    ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
+                )
+                self._add_coro_to_runnables(
+                    CoroAndPromise(coro, promise, ctx),
+                    None,
+                )
+
+            else:
+                self._processor.enqueue(
+                    _SQE(
+                        promise,
+                        fn_or_coroutine.exec_unit,
+                        ctx,
+                        *fn_or_coroutine.args,
+                        **fn_or_coroutine.kwargs,
+                    )
+                )
+
+            self._tracing_adapter.process_event(
+                ExecutionInvoked(
+                    promise.promise_id,
+                    utils.get_parent_promise_id_from_ctx(
+                        self._get_ctx_from_ephemeral_memo(
+                            promise.promise_id,
+                            and_delete=False,
+                        )
+                    ),
+                    now(),
+                    fn_or_coroutine.exec_unit.__name__,
+                    fn_or_coroutine.args,
+                    fn_or_coroutine.kwargs,
                 )
             )
 
@@ -351,6 +389,18 @@ class Scheduler:
                 coro_and_promise=coro_and_promise,
                 value_to_yield_back=p.safe_result(),
             )
+            self._tracing_adapter.process_event(
+                ExecutionResumed(
+                    promise_id=coro_and_promise.prom.promise_id,
+                    tick=now(),
+                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
+                        self._get_ctx_from_ephemeral_memo(
+                            coro_and_promise.prom.promise_id,
+                            and_delete=False,
+                        )
+                    ),
+                )
+            )
 
     def _resolve_promise(
         self, promise: Promise[T], value: Result[T, Exception]
@@ -367,7 +417,20 @@ class Scheduler:
         assert (
             promise.promise_id in self._emphemeral_promise_memo
         ), "Ephemeral process must have been registered in the memo."
-        self._emphemeral_promise_memo.pop(promise.promise_id)
+
+        self._tracing_adapter.process_event(
+            PromiseCompleted(
+                promise_id=promise.promise_id,
+                tick=now(),
+                value=value,
+                parent_promise_id=utils.get_parent_promise_id_from_ctx(
+                    self._get_ctx_from_ephemeral_memo(
+                        promise.promise_id,
+                        and_delete=True,
+                    )
+                ),
+            )
+        )
 
     def _advance_runnable_span(self, runnable: Runnable[Any]) -> None:
         assert isgenerator(
@@ -377,6 +440,16 @@ class Scheduler:
         yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
+            ctx = self._get_ctx_from_ephemeral_memo(
+                promise_id=runnable.coro_and_promise.prom.promise_id, and_delete=False
+            )
+            self._tracing_adapter.process_event(
+                ExecutionTerminated(
+                    promise_id=runnable.coro_and_promise.prom.promise_id,
+                    tick=now(),
+                    parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
+                )
+            )
             self._resolve_promise(
                 runnable.coro_and_promise.prom, yieldable_or_final_value.v
             )
