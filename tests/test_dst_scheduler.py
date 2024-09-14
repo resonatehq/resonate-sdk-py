@@ -484,7 +484,7 @@ def test_probe(store: IPromiseStore) -> None:
     assert s.probe_results[-1] <= now()
 
 
-def baz(ctx: Context) -> None: ...
+def baz(ctx: Context) -> None: ...  # noqa: ARG001, RUF100
 def bar(ctx: Context) -> Generator[Yieldable, Any, str]:
     yield ctx.call(baz)
     return "Done"
