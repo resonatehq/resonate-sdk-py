@@ -312,8 +312,7 @@ class Scheduler:
                 ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
             )
             self._add_coro_to_runnables(
-                CoroAndPromise(coro, promise, ctx),
-                None,
+                CoroAndPromise(coro, promise, ctx), None, signal_awaiting=False
             )
 
         else:
@@ -364,7 +363,6 @@ class Scheduler:
                         promise_id=promise.promise_id,
                         parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
                         tick=now(),
-                        value=cqe.fn_result,
                     )
                 )
                 self._resolve_promise(promise, value=cqe.fn_result)
@@ -389,7 +387,6 @@ class Scheduler:
                 parent_promise_id=utils.get_parent_promise_id_from_ctx(
                     coro_and_promise.ctx
                 ),
-                awaiting_for=p.promise_id,
             )
         )
 
@@ -397,8 +394,20 @@ class Scheduler:
         self,
         coro_and_promise: CoroAndPromise[Any],
         value_to_yield_back: Result[Any, Exception] | None,
+        *,
+        signal_awaiting: bool,
     ) -> None:
         self.runnable_coros.append(Runnable(coro_and_promise, value_to_yield_back))
+        if signal_awaiting:
+            self._tracing_adapter.process_event(
+                ExecutionAwaited(
+                    promise_id=coro_and_promise.prom.promise_id,
+                    tick=now(),
+                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
+                        coro_and_promise.ctx
+                    ),
+                )
+            )
 
     def _unblock_coros_waiting_on_promise(self, p: Promise[Any]) -> None:
         assert p.done(), "Promise must be done to unblock waiting coroutines."
@@ -410,6 +419,7 @@ class Scheduler:
             self._add_coro_to_runnables(
                 coro_and_promise=coro_and_promise,
                 value_to_yield_back=p.safe_result(),
+                signal_awaiting=False,
             )
 
     def _resolve_promise(
@@ -455,7 +465,6 @@ class Scheduler:
                     parent_promise_id=utils.get_parent_promise_id_from_ctx(
                         runnable.coro_and_promise.ctx
                     ),
-                    value_to_pass=runnable.next_value,
                 )
             )
         yieldable_or_final_value = iterate_coro(runnable=runnable)
@@ -468,7 +477,6 @@ class Scheduler:
                     parent_promise_id=utils.get_parent_promise_id_from_ctx(
                         runnable.coro_and_promise.ctx
                     ),
-                    value=yieldable_or_final_value.v,
                 )
             )
             self._resolve_promise(
@@ -483,19 +491,25 @@ class Scheduler:
             ), "Since it's a call it should be a promise without dependants"
 
             if p.done():
-                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
+                self._add_coro_to_runnables(
+                    runnable.coro_and_promise, p.safe_result(), signal_awaiting=True
+                )
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(yieldable_or_final_value, Invoke):
             p = self._process_invokation(yieldable_or_final_value, runnable)
-            self._add_coro_to_runnables(runnable.coro_and_promise, Ok(p))
+            self._add_coro_to_runnables(
+                runnable.coro_and_promise, Ok(p), signal_awaiting=True
+            )
 
         elif isinstance(yieldable_or_final_value, Promise):
             p = yieldable_or_final_value
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
-                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
+                self._add_coro_to_runnables(
+                    runnable.coro_and_promise, p.safe_result(), signal_awaiting=True
+                )
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 

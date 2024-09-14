@@ -290,8 +290,20 @@ class DSTScheduler:
         self,
         coro_and_promise: CoroAndPromise[Any],
         value_to_yield_back: Result[Any, Exception] | None,
+        *,
+        signal_awaiting: bool,
     ) -> None:
         self._runnable_coros.append(Runnable(coro_and_promise, value_to_yield_back))
+        if signal_awaiting:
+            self._events.append(
+                ExecutionAwaited(
+                    promise_id=coro_and_promise.prom.promise_id,
+                    tick=self.tick,
+                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
+                        coro_and_promise.ctx
+                    ),
+                )
+            )
 
     def _add_function_to_runnables(
         self, fn_wrapper: _FnWrapper[Any] | _AsyncFnWrapper[Any], promise: Promise[Any]
@@ -313,7 +325,9 @@ class DSTScheduler:
             coro = fn_or_coroutine.exec_unit(
                 ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
             )
-            self._add_coro_to_runnables(CoroAndPromise(coro, promise, ctx), None)
+            self._add_coro_to_runnables(
+                CoroAndPromise(coro, promise, ctx), None, signal_awaiting=False
+            )
         else:
             self._add_function_to_runnables(
                 _wrap_fn(
@@ -533,7 +547,6 @@ class DSTScheduler:
                         parent_promise_id=utils.get_parent_promise_id_from_ctx(
                             fn_wrapper.ctx
                         ),
-                        value=v,
                     )
                 )
 
@@ -625,7 +638,6 @@ class DSTScheduler:
                 parent_promise_id=utils.get_parent_promise_id_from_ctx(
                     coro_and_promise.ctx
                 ),
-                awaiting_for=p.promise_id,
             )
         )
 
@@ -642,7 +654,6 @@ class DSTScheduler:
                     parent_promise_id=utils.get_parent_promise_id_from_ctx(
                         runnable.coro_and_promise.ctx
                     ),
-                    value_to_pass=runnable.next_value,
                 )
             )
 
@@ -656,7 +667,6 @@ class DSTScheduler:
                     parent_promise_id=utils.get_parent_promise_id_from_ctx(
                         runnable.coro_and_promise.ctx
                     ),
-                    value=yieldable_or_final_value.v,
                 )
             )
             self._resolve_promise(
@@ -669,7 +679,9 @@ class DSTScheduler:
                 p not in self._awatiables
             ), "Since it's a call it should be a promise without dependants"
             if p.done():
-                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
+                self._add_coro_to_runnables(
+                    runnable.coro_and_promise, p.safe_result(), signal_awaiting=True
+                )
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
@@ -677,12 +689,16 @@ class DSTScheduler:
             p = self._process_invokation(
                 invokation=yieldable_or_final_value, runnable=runnable
             )
-            self._add_coro_to_runnables(runnable.coro_and_promise, Ok(p))
+            self._add_coro_to_runnables(
+                runnable.coro_and_promise, Ok(p), signal_awaiting=True
+            )
         elif isinstance(yieldable_or_final_value, Promise):
             p = yieldable_or_final_value
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
-                self._add_coro_to_runnables(runnable.coro_and_promise, p.safe_result())
+                self._add_coro_to_runnables(
+                    runnable.coro_and_promise, p.safe_result(), signal_awaiting=True
+                )
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
@@ -696,7 +712,9 @@ class DSTScheduler:
         if self._awatiables.get(p) is None:
             return
         for coro_and_promise in self._awatiables.pop(p):
-            self._add_coro_to_runnables(coro_and_promise, p.safe_result())
+            self._add_coro_to_runnables(
+                coro_and_promise, p.safe_result(), signal_awaiting=False
+            )
 
     def _next_step(self) -> Step:
         next_step: Step
