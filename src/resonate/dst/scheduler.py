@@ -642,6 +642,8 @@ class DSTScheduler:
             runnable.coro_and_promise.coro
         ), "Only coroutines can be advanced"
 
+        yieldable_or_final_value = iterate_coro(runnable)
+
         if was_awaited:
             self._events.append(
                 ExecutionResumed(
@@ -652,8 +654,6 @@ class DSTScheduler:
                     ),
                 )
             )
-
-        yieldable_or_final_value = iterate_coro(runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
             self._events.append(

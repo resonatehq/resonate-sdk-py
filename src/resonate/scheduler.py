@@ -457,6 +457,8 @@ class Scheduler:
             runnable.coro_and_promise.coro
         ), "Only coroutines can be advanced"
 
+        yieldable_or_final_value = iterate_coro(runnable=runnable)
+
         if was_awaited:
             self._tracing_adapter.process_event(
                 ExecutionResumed(
@@ -467,7 +469,6 @@ class Scheduler:
                     ),
                 )
             )
-        yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if isinstance(yieldable_or_final_value, FinalValue):
             self._tracing_adapter.process_event(
