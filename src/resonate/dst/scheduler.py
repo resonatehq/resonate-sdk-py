@@ -352,6 +352,9 @@ class DSTScheduler:
 
     def _create_promise(self, ctx: Context, action: Invoke | Sleep) -> Promise[Any]:
         p = Promise[Any](ctx.ctx_id, action)
+        assert (
+            p.promise_id not in self._emphemeral_promise_memo
+        ), "There should not be a new promise with same promise id."
         self._emphemeral_promise_memo[p.promise_id] = (p, ctx)
         if isinstance(action, Invoke):
             if isinstance(action.exec_unit, Command):
