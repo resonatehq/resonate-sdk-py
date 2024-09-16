@@ -252,7 +252,7 @@ class Scheduler:
             else:
                 assert_never(action.exec_unit)
         elif isinstance(action, Sleep):
-            data = {"seconds": action.seconds}
+            raise NotImplementedError
         else:
             assert_never(action)
         durable_promise_record = self._create_durable_promise_record(
@@ -409,7 +409,6 @@ class Scheduler:
 
     def _unblock_coros_waiting_on_promise(self, p: Promise[Any]) -> None:
         assert p.done(), "Promise must be done to unblock waiting coroutines."
-
         if self.awaitables.get(p) is None:
             return
 
