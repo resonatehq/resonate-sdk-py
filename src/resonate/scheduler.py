@@ -315,7 +315,9 @@ class Scheduler:
                 ctx, *fn_or_coroutine.args, **fn_or_coroutine.kwargs
             )
             self._add_coro_to_runnables(
-                CoroAndPromise(coro, promise, ctx), None, signal_awaiting=False
+                CoroAndPromise(coro, promise, ctx),
+                None,
+                was_awaited=False,
             )
 
         else:
@@ -372,7 +374,8 @@ class Scheduler:
                 self._unblock_coros_waiting_on_promise(promise)
 
             while self.runnable_coros:
-                self._advance_runnable_span(self.runnable_coros.pop())
+                runnable, was_awaited = self.runnable_coros.pop()
+                self._advance_runnable_span(runnable=runnable, was_awaited=was_awaited)
 
             assert not self.runnable_coros, "Runnables should have been all exhausted"
 
@@ -398,19 +401,11 @@ class Scheduler:
         coro_and_promise: CoroAndPromise[Any],
         value_to_yield_back: Result[Any, Exception] | None,
         *,
-        signal_awaiting: bool,
+        was_awaited: bool,
     ) -> None:
-        self.runnable_coros.append(Runnable(coro_and_promise, value_to_yield_back))
-        if signal_awaiting:
-            self._tracing_adapter.process_event(
-                ExecutionAwaited(
-                    promise_id=coro_and_promise.prom.promise_id,
-                    tick=now(),
-                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                        coro_and_promise.ctx
-                    ),
-                )
-            )
+        self.runnable_coros.append(
+            (Runnable(coro_and_promise, value_to_yield_back), was_awaited)
+        )
 
     def _unblock_coros_waiting_on_promise(self, p: Promise[Any]) -> None:
         assert p.done(), "Promise must be done to unblock waiting coroutines."
@@ -422,7 +417,7 @@ class Scheduler:
             self._add_coro_to_runnables(
                 coro_and_promise=coro_and_promise,
                 value_to_yield_back=p.safe_result(),
-                signal_awaiting=False,
+                was_awaited=True,
             )
 
     def _resolve_promise(
@@ -455,12 +450,14 @@ class Scheduler:
             )
         )
 
-    def _advance_runnable_span(self, runnable: Runnable[Any]) -> None:
+    def _advance_runnable_span(
+        self, runnable: Runnable[Any], *, was_awaited: bool
+    ) -> None:
         assert isgenerator(
             runnable.coro_and_promise.coro
         ), "Only coroutines can be advanced"
 
-        if runnable.next_value is not None:
+        if was_awaited:
             self._tracing_adapter.process_event(
                 ExecutionResumed(
                     promise_id=runnable.coro_and_promise.prom.promise_id,
@@ -495,7 +492,7 @@ class Scheduler:
 
             if p.done():
                 self._add_coro_to_runnables(
-                    runnable.coro_and_promise, p.safe_result(), signal_awaiting=True
+                    runnable.coro_and_promise, p.safe_result(), was_awaited=False
                 )
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
@@ -503,7 +500,7 @@ class Scheduler:
         elif isinstance(yieldable_or_final_value, Invoke):
             p = self._process_invokation(yieldable_or_final_value, runnable)
             self._add_coro_to_runnables(
-                runnable.coro_and_promise, Ok(p), signal_awaiting=True
+                runnable.coro_and_promise, Ok(p), was_awaited=False
             )
 
         elif isinstance(yieldable_or_final_value, Promise):
@@ -511,7 +508,7 @@ class Scheduler:
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
                 self._add_coro_to_runnables(
-                    runnable.coro_and_promise, p.safe_result(), signal_awaiting=True
+                    runnable.coro_and_promise, p.safe_result(), was_awaited=False
                 )
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)

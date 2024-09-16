@@ -529,7 +529,6 @@ def test_events_logic(store: IPromiseStore) -> None:
             args=(),
             kwargs={},
         ),
-        ExecutionAwaited(promise_id="foo-events-1", parent_promise_id=None, tick=1),
         PromiseCreated(
             promise_id="foo-events-1.1.1", parent_promise_id="foo-events-1.1", tick=2
         ),
@@ -542,14 +541,7 @@ def test_events_logic(store: IPromiseStore) -> None:
             kwargs={},
         ),
         ExecutionAwaited(
-            promise_id="foo-events-1.1",
-            parent_promise_id="foo-events-1",
-            tick=2,
-        ),
-        ExecutionResumed(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
-            tick=3,
+            promise_id="foo-events-1.1", parent_promise_id="foo-events-1", tick=2
         ),
         PromiseCreated(
             promise_id="foo-events-1.2", parent_promise_id="foo-events-1", tick=3
@@ -562,17 +554,7 @@ def test_events_logic(store: IPromiseStore) -> None:
             args=(),
             kwargs={},
         ),
-        ExecutionAwaited(promise_id="foo-events-1", parent_promise_id=None, tick=3),
-        ExecutionResumed(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
-            tick=4,
-        ),
-        ExecutionAwaited(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
-            tick=4,
-        ),
+        ExecutionAwaited(promise_id="foo-events-1", parent_promise_id=None, tick=4),
         PromiseCreated(
             promise_id="foo-events-1.2.1", parent_promise_id="foo-events-1.2", tick=5
         ),
@@ -585,14 +567,10 @@ def test_events_logic(store: IPromiseStore) -> None:
             kwargs={},
         ),
         ExecutionAwaited(
-            promise_id="foo-events-1.2",
-            parent_promise_id="foo-events-1",
-            tick=5,
+            promise_id="foo-events-1.2", parent_promise_id="foo-events-1", tick=5
         ),
         ExecutionTerminated(
-            promise_id="foo-events-1.1.1",
-            parent_promise_id="foo-events-1.1",
-            tick=6,
+            promise_id="foo-events-1.1.1", parent_promise_id="foo-events-1.1", tick=6
         ),
         PromiseCompleted(
             promise_id="foo-events-1.1.1",
@@ -601,9 +579,7 @@ def test_events_logic(store: IPromiseStore) -> None:
             value=Ok(None),
         ),
         ExecutionTerminated(
-            promise_id="foo-events-1.2.1",
-            parent_promise_id="foo-events-1.2",
-            tick=7,
+            promise_id="foo-events-1.2.1", parent_promise_id="foo-events-1.2", tick=7
         ),
         PromiseCompleted(
             promise_id="foo-events-1.2.1",
@@ -612,14 +588,10 @@ def test_events_logic(store: IPromiseStore) -> None:
             value=Ok(None),
         ),
         ExecutionResumed(
-            promise_id="foo-events-1.1",
-            parent_promise_id="foo-events-1",
-            tick=8,
+            promise_id="foo-events-1.1", parent_promise_id="foo-events-1", tick=8
         ),
         ExecutionTerminated(
-            promise_id="foo-events-1.1",
-            parent_promise_id="foo-events-1",
-            tick=8,
+            promise_id="foo-events-1.1", parent_promise_id="foo-events-1", tick=8
         ),
         PromiseCompleted(
             promise_id="foo-events-1.1",
@@ -627,25 +599,13 @@ def test_events_logic(store: IPromiseStore) -> None:
             tick=8,
             value=Ok("Done"),
         ),
+        ExecutionResumed(promise_id="foo-events-1", parent_promise_id=None, tick=9),
+        ExecutionAwaited(promise_id="foo-events-1", parent_promise_id=None, tick=9),
         ExecutionResumed(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
-            tick=9,
-        ),
-        ExecutionAwaited(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
-            tick=9,
-        ),
-        ExecutionResumed(
-            promise_id="foo-events-1.2",
-            parent_promise_id="foo-events-1",
-            tick=10,
+            promise_id="foo-events-1.2", parent_promise_id="foo-events-1", tick=10
         ),
         ExecutionTerminated(
-            promise_id="foo-events-1.2",
-            parent_promise_id="foo-events-1",
-            tick=10,
+            promise_id="foo-events-1.2", parent_promise_id="foo-events-1", tick=10
         ),
         PromiseCompleted(
             promise_id="foo-events-1.2",
@@ -653,16 +613,8 @@ def test_events_logic(store: IPromiseStore) -> None:
             tick=10,
             value=Ok("Done"),
         ),
-        ExecutionResumed(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
-            tick=11,
-        ),
-        ExecutionTerminated(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
-            tick=11,
-        ),
+        ExecutionResumed(promise_id="foo-events-1", parent_promise_id=None, tick=11),
+        ExecutionTerminated(promise_id="foo-events-1", parent_promise_id=None, tick=11),
         PromiseCompleted(
             promise_id="foo-events-1",
             parent_promise_id=None,

@@ -30,7 +30,7 @@ Invokable: TypeAlias = Union[DurableCoro[P, Any], DurableFn[P, Any], Command]
 
 
 Awaitables: TypeAlias = dict[Promise[Any], list[CoroAndPromise[Any]]]
-RunnableCoroutines: TypeAlias = list[Runnable[Any]]
+RunnableCoroutines: TypeAlias = list[tuple[Runnable[Any], bool]]
 
 
 CommandHandlers: TypeAlias = dict[
