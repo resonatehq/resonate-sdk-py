@@ -11,7 +11,6 @@ from resonate.retry_policy import Never
 
 if TYPE_CHECKING:
     from resonate.context import Context
-    from resonate.retry_policy import RetryPolicy
     from resonate.typing import DurableAsyncFn, DurableFn, DurableSyncFn
 
 T = TypeVar("T")
@@ -83,9 +82,10 @@ def wrap_fn(
 
 
 def run_with_retry_policy(
-    policy: RetryPolicy, wrapped_fn: AsyncFnWrapper[T] | FnWrapper[T]
+    wrapped_fn: AsyncFnWrapper[T] | FnWrapper[T],
 ) -> Result[T, Exception]:
     v: Result[T, Exception]
+    policy = wrapped_fn.ctx.retry_policy
     if isinstance(policy, Never):
         v = cast(Result[T, Exception], wrapped_fn.run())
         return v

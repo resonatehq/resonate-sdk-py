@@ -10,6 +10,7 @@ from resonate.dataclasses import Command, FnOrCoroutine
 from resonate.dependency_injection import Dependencies
 
 if TYPE_CHECKING:
+    from resonate.retry_policy import RetryPolicy
     from resonate.typing import ExecutionUnit, Invokable
 
 P = ParamSpec("P")
@@ -27,28 +28,26 @@ def _wrap_into_execution_unit(
     return FnOrCoroutine(invokable, *args, **kwargs)
 
 
-def _new_deps() -> Dependencies:
-    return Dependencies()
-
-
 @final
 @dataclass
 class Context:
     ctx_id: str
+    retry_policy: RetryPolicy
     seed: int | None
     parent_ctx: Context | None = None
-    deps: Dependencies = field(default_factory=_new_deps)
+    deps: Dependencies = field(default=Dependencies())
     _num_children: int = field(init=False, default=0)
 
     def parent_promise_id(self) -> str | None:
         return self.parent_ctx.ctx_id if self.parent_ctx is not None else None
 
-    def new_child(self, ctx_id: str | None) -> Context:
+    def new_child(self, ctx_id: str | None, retry_policy: RetryPolicy) -> Context:
         self._num_children += 1
         if ctx_id is None:
             ctx_id = f"{self.ctx_id}.{self._num_children}"
         return Context(
             seed=self.seed,
+            retry_policy=retry_policy,
             parent_ctx=self,
             deps=self.deps,
             ctx_id=ctx_id,

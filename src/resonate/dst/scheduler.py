@@ -358,7 +358,11 @@ class DSTScheduler:
     ) -> Promise[Any]:
         assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
         root_ctx = Context(
-            ctx_id=promise_id, seed=self.seed, parent_ctx=None, deps=self.deps
+            ctx_id=promise_id,
+            seed=self.seed,
+            parent_ctx=None,
+            deps=self.deps,
+            retry_policy=top_lvl.opts.retry_policy,
         )
         p = self._create_promise(root_ctx, top_lvl)
         assert p.durable, "Top level invocations must be durable"
@@ -481,7 +485,7 @@ class DSTScheduler:
                 v = (
                     _safe_run(self._mocks[fn_wrapper.fn])
                     if self._mocks.get(fn_wrapper.fn) is not None
-                    else run_with_retry_policy(promise.retry_policy, fn_wrapper)
+                    else run_with_retry_policy(fn_wrapper)
                 )
 
                 self._maybe_fail()
@@ -553,7 +557,7 @@ class DSTScheduler:
         self, invokation: Invoke, runnable: Runnable[Any]
     ) -> Promise[Any]:
         child_ctx = runnable.coro_and_promise.ctx.new_child(
-            ctx_id=invokation.opts.promise_id
+            ctx_id=invokation.opts.promise_id, retry_policy=invokation.opts.retry_policy
         )
         p = self._create_promise(child_ctx, invokation)
         if isinstance(invokation.exec_unit, Command):

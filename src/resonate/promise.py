@@ -23,7 +23,6 @@ class Promise(Generic[T]):
         self.action = action
         if isinstance(action, Invoke):
             self.durable = action.opts.durable
-            self.retry_policy = action.opts.retry_policy
         elif isinstance(action, Sleep):
             raise NotImplementedError
         else:
