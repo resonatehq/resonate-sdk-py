@@ -56,7 +56,7 @@ def linear(delay: float, max_retries: int) -> Linear:
 
 @final
 @dataclass(frozen=True)
-class Fixed(Retriable):
+class Constant(Retriable):
     """A retry policy where the delay between retries is constant."""
 
     delay: float
@@ -70,8 +70,8 @@ class Fixed(Retriable):
         return attempt <= self.max_retries
 
 
-def fixed(delay: float, max_retries: int) -> Fixed:
-    return Fixed(delay=delay, max_retries=max_retries)
+def constant(delay: float, max_retries: int) -> Constant:
+    return Constant(delay=delay, max_retries=max_retries)
 
 
 @final
@@ -84,4 +84,4 @@ def never() -> Never:
     return Never()
 
 
-RetryPolicy: TypeAlias = Union[Exponential, Linear, Fixed, Never]
+RetryPolicy: TypeAlias = Union[Exponential, Linear, Constant, Never]

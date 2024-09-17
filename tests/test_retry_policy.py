@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from resonate.retry_policy import exponential, fixed, linear
+from resonate.retry_policy import constant, exponential, linear
 
 
 def test_exponential() -> None:
@@ -25,8 +25,8 @@ def test_linear() -> None:
     assert not policy.should_retry(attempt=4)
 
 
-def test_fixed() -> None:
-    policy = fixed(delay=2, max_retries=3)
+def test_constant() -> None:
+    policy = constant(delay=2, max_retries=3)
     assert policy.should_retry(attempt=1)
     assert policy.calculate_delay(attempt=1) == 2  # noqa: PLR2004
     assert policy.should_retry(attempt=2)

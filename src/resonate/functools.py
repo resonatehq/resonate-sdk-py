@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from inspect import iscoroutinefunction, isfunction
 from typing import TYPE_CHECKING, Generic, TypeVar, cast, final
 
@@ -95,6 +96,7 @@ def run_with_retry_policy(
         v = cast(Result[T, Exception], wrapped_fn.run())
         if isinstance(v, Ok):
             break
+        time.sleep(policy.calculate_delay(attempt))
 
         attempt += 1
     return v
