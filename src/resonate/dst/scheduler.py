@@ -362,7 +362,6 @@ class DSTScheduler:
             seed=self.seed,
             parent_ctx=None,
             deps=self.deps,
-            retry_policy=top_lvl.opts.retry_policy,
         )
         p = self._create_promise(root_ctx, top_lvl)
         assert p.durable, "Top level invocations must be durable"
@@ -481,11 +480,14 @@ class DSTScheduler:
                 ## This simulates the processor in the production scheduler.
                 fn_wrapper, promise = self._get_random_element(self._runnable_functions)
                 assert not promise.done(), "Only unresolve promises can be found here."
+                assert isinstance(promise.action, Invoke)
 
                 v = (
                     _safe_run(self._mocks[fn_wrapper.fn])
                     if self._mocks.get(fn_wrapper.fn) is not None
-                    else run_with_retry_policy(fn_wrapper)
+                    else run_with_retry_policy(
+                        promise.action.opts.retry_policy, fn_wrapper
+                    )
                 )
 
                 self._maybe_fail()
@@ -557,7 +559,7 @@ class DSTScheduler:
         self, invokation: Invoke, runnable: Runnable[Any]
     ) -> Promise[Any]:
         child_ctx = runnable.coro_and_promise.ctx.new_child(
-            ctx_id=invokation.opts.promise_id, retry_policy=invokation.opts.retry_policy
+            ctx_id=invokation.opts.promise_id
         )
         p = self._create_promise(child_ctx, invokation)
         if isinstance(invokation.exec_unit, Command):

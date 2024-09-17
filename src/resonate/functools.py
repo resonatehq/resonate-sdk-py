@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar, cast, final
 from typing_extensions import ParamSpec
 
 from resonate.result import Err, Ok, Result
-from resonate.retry_policy import Never
+from resonate.retry_policy import Never, RetryPolicy
 
 if TYPE_CHECKING:
     from resonate.context import Context
@@ -83,10 +83,11 @@ def wrap_fn(
 
 
 def run_with_retry_policy(
+    policy: RetryPolicy,
     wrapped_fn: AsyncFnWrapper[T] | FnWrapper[T],
 ) -> Result[T, Exception]:
     v: Result[T, Exception]
-    policy = wrapped_fn.ctx.retry_policy
+
     if isinstance(policy, Never):
         v = cast(Result[T, Exception], wrapped_fn.run())
         return v
