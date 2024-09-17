@@ -25,7 +25,7 @@ from resonate.events import (
     PromiseCompleted,
     PromiseCreated,
 )
-from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
+from resonate.functools import AsyncFnWrapper, FnWrapper, run_with_retry_policy, wrap_fn
 from resonate.itertools import (
     FinalValue,
     iterate_coro,
@@ -481,9 +481,8 @@ class DSTScheduler:
                 v = (
                     _safe_run(self._mocks[fn_wrapper.fn])
                     if self._mocks.get(fn_wrapper.fn) is not None
-                    else fn_wrapper.run()
+                    else run_with_retry_policy(promise.retry_policy, fn_wrapper)
                 )
-                assert isinstance(v, (Ok, Err)), f"{v} must be a result."
 
                 self._maybe_fail()
 

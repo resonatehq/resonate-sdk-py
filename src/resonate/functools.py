@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 from inspect import iscoroutinefunction, isfunction
-from typing import TYPE_CHECKING, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Generic, TypeVar, cast, final
 
 from typing_extensions import ParamSpec
 
 from resonate.result import Err, Ok, Result
+from resonate.retry_policy import Never
 
 if TYPE_CHECKING:
     from resonate.context import Context
+    from resonate.retry_policy import RetryPolicy
     from resonate.typing import DurableAsyncFn, DurableFn, DurableSyncFn
 
 T = TypeVar("T")
@@ -78,3 +80,21 @@ def wrap_fn(
         assert iscoroutinefunction(fn)
         cmd = AsyncFnWrapper(ctx, fn, *args, **kwargs)
     return cmd
+
+
+def run_with_retry_policy(
+    policy: RetryPolicy, wrapped_fn: AsyncFnWrapper[T] | FnWrapper[T]
+) -> Result[T, Exception]:
+    v: Result[T, Exception]
+    if isinstance(policy, Never):
+        v = cast(Result[T, Exception], wrapped_fn.run())
+        return v
+
+    attempt = 1
+    while policy.should_retry(attempt=attempt):
+        v = cast(Result[T, Exception], wrapped_fn.run())
+        if isinstance(v, Ok):
+            break
+
+        attempt += 1
+    return v
