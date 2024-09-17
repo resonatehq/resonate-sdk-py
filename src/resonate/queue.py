@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import contextlib
 import queue
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, final
 
 T = TypeVar("T")
 
 
+@final
 class Queue(Generic[T]):
     def __init__(self, maxsize: int = 0) -> None:
         self._q = queue.Queue[T](maxsize=maxsize)

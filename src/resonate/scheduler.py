@@ -5,7 +5,7 @@ import os
 import sys
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from typing_extensions import ParamSpec, assert_never
 
@@ -110,6 +110,7 @@ class _Processor:
             self._threads.add(t)
 
 
+@final
 class Scheduler:
     def __init__(
         self,

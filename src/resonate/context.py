@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, final
 
 from typing_extensions import ParamSpec
 
@@ -32,6 +32,7 @@ def _new_deps() -> Dependencies:
     return Dependencies()
 
 
+@final
 @dataclass
 class Context:
     ctx_id: str

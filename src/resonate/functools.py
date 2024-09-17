@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from inspect import iscoroutinefunction, isfunction
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar, final
 
 from typing_extensions import ParamSpec
 
@@ -16,6 +16,7 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 
+@final
 class FnWrapper(Generic[T]):
     def __init__(
         self,
@@ -40,6 +41,7 @@ class FnWrapper(Generic[T]):
         return result
 
 
+@final
 class AsyncFnWrapper(Generic[T]):
     def __init__(
         self,

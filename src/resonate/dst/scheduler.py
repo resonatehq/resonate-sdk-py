@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from inspect import isgenerator, isgeneratorfunction
-from typing import TYPE_CHECKING, Any, Callable, Literal, Union
+from typing import TYPE_CHECKING, Any, Callable, Literal, Union, final
 
 from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
@@ -71,6 +71,7 @@ class _DSTFailureError(Exception):
         super().__init__()
 
 
+@final
 class DSTScheduler:
     """
     The DSTScheduler class manages coroutines in a deterministic way, allowing for
