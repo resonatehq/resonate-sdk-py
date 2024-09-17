@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar, final
 
 from typing_extensions import ParamSpec
@@ -28,13 +27,19 @@ def _wrap_into_execution_unit(
 
 
 @final
-@dataclass
 class Context:
-    ctx_id: str
-    seed: int | None
-    parent_ctx: Context | None = None
-    deps: Dependencies = field(default=Dependencies())
-    _num_children: int = field(init=False, default=0)
+    def __init__(
+        self,
+        ctx_id: str,
+        seed: int | None,
+        parent_ctx: Context | None = None,
+        deps: Dependencies | None = None,
+    ) -> None:
+        self.ctx_id = ctx_id
+        self.seed = seed
+        self.parent_ctx = parent_ctx
+        self.deps = deps if deps is not None else Dependencies()
+        self._num_children = 0
 
     def parent_promise_id(self) -> str | None:
         return self.parent_ctx.ctx_id if self.parent_ctx is not None else None
