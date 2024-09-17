@@ -25,6 +25,7 @@ from resonate.events import (
     PromiseCompleted,
     PromiseCreated,
 )
+from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
 from resonate.itertools import (
     FinalValue,
     iterate_coro,
@@ -61,7 +62,7 @@ Mode: TypeAlias = Literal["concurrent", "sequential"]
 
 
 RunnableFunctions: TypeAlias = list[
-    tuple[Union[utils.FnWrapper[Any], utils.AsyncFnWrapper[Any]], Promise[Any]]
+    tuple[Union[FnWrapper[Any], AsyncFnWrapper[Any]], Promise[Any]]
 ]
 
 
@@ -234,7 +235,7 @@ class DSTScheduler:
 
     def _add_function_to_runnables(
         self,
-        fn_wrapper: utils.FnWrapper[Any] | utils.AsyncFnWrapper[Any],
+        fn_wrapper: FnWrapper[Any] | AsyncFnWrapper[Any],
         promise: Promise[Any],
     ) -> None:
         self._runnable_functions.append(
@@ -259,7 +260,7 @@ class DSTScheduler:
             )
         else:
             self._add_function_to_runnables(
-                utils.wrap_fn(
+                wrap_fn(
                     ctx,
                     fn_or_coroutine.exec_unit,
                     *fn_or_coroutine.args,
@@ -271,7 +272,7 @@ class DSTScheduler:
         self._events.append(
             ExecutionInvoked(
                 promise.promise_id,
-                utils.get_parent_promise_id_from_ctx(ctx),
+                ctx.parent_promise_id(),
                 self.tick,
                 fn_or_coroutine.exec_unit.__name__,
                 fn_or_coroutine.args,
@@ -306,7 +307,7 @@ class DSTScheduler:
             PromiseCreated(
                 promise_id=p.promise_id,
                 tick=self.tick,
-                parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
+                parent_promise_id=ctx.parent_promise_id(),
             )
         )
         if durable_promise_record.is_pending():
@@ -421,12 +422,10 @@ class DSTScheduler:
                 promise_id=promise.promise_id,
                 tick=self.tick,
                 value=value,
-                parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                    self._get_ctx_from_ephemeral_memo(
-                        promise.promise_id,
-                        and_delete=True,
-                    )
-                ),
+                parent_promise_id=self._get_ctx_from_ephemeral_memo(
+                    promise.promise_id,
+                    and_delete=True,
+                ).parent_promise_id(),
             )
         )
 
@@ -476,9 +475,7 @@ class DSTScheduler:
                     ExecutionTerminated(
                         promise_id=promise.promise_id,
                         tick=self.tick,
-                        parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                            fn_wrapper.ctx
-                        ),
+                        parent_promise_id=fn_wrapper.ctx.parent_promise_id(),
                     )
                 )
 
@@ -566,9 +563,7 @@ class DSTScheduler:
             ExecutionAwaited(
                 promise_id=coro_and_promise.prom.promise_id,
                 tick=self.tick,
-                parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                    coro_and_promise.ctx
-                ),
+                parent_promise_id=coro_and_promise.ctx.parent_promise_id(),
             )
         )
 
@@ -586,9 +581,7 @@ class DSTScheduler:
                 ExecutionResumed(
                     promise_id=runnable.coro_and_promise.prom.promise_id,
                     tick=self.tick,
-                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                        runnable.coro_and_promise.ctx
-                    ),
+                    parent_promise_id=runnable.coro_and_promise.ctx.parent_promise_id(),
                 )
             )
 
@@ -597,9 +590,7 @@ class DSTScheduler:
                 ExecutionTerminated(
                     promise_id=runnable.coro_and_promise.prom.promise_id,
                     tick=self.tick,
-                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                        runnable.coro_and_promise.ctx
-                    ),
+                    parent_promise_id=runnable.coro_and_promise.ctx.parent_promise_id(),
                 )
             )
             self._resolve_promise(

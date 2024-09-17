@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import queue
 import sys
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
@@ -28,8 +27,10 @@ from resonate.events import (
     PromiseCompleted,
     PromiseCreated,
 )
+from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
 from resonate.itertools import FinalValue, iterate_coro
 from resonate.promise import Promise
+from resonate.queue import Queue
 from resonate.result import Err, Ok
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
@@ -56,7 +57,7 @@ class _SQE(Generic[T]):
     def __init__(
         self,
         promise_id: str,
-        fn: utils.FnWrapper[T] | utils.AsyncFnWrapper[T],
+        fn: FnWrapper[T] | AsyncFnWrapper[T],
     ) -> None:
         self.promise_id = promise_id
         self.fn = fn
@@ -76,7 +77,7 @@ class _Processor:
     def __init__(
         self,
         max_workers: int | None,
-        sq: queue.Queue[_SQE[Any]],
+        sq: Queue[_SQE[Any]],
         scheduler: Scheduler,
     ) -> None:
         if max_workers is None:
@@ -93,7 +94,7 @@ class _Processor:
 
     def _run(self) -> None:
         while True:
-            sqe = utils.dequeue(self._sq)
+            sqe = self._sq.dequeue()
             fn_result = sqe.fn.run()
             assert isinstance(fn_result, (Ok, Err))
             self._scheduler.enqueue_cqe(
@@ -117,9 +118,9 @@ class Scheduler:
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
     ) -> None:
-        self._stg_queue = queue.Queue[tuple[Invoke, Promise[Any], Context]]()
-        self._completion_queue = queue.Queue[_CQE[Any]]()
-        self._function_submission_queue = queue.Queue[_SQE[Any]]()
+        self._stg_queue = Queue[tuple[Invoke, Promise[Any], Context]]()
+        self._completion_queue = Queue[_CQE[Any]]()
+        self._function_submission_queue = Queue[_SQE[Any]]()
 
         self._worker_continue = Event()
 
@@ -239,7 +240,7 @@ class Scheduler:
             PromiseCreated(
                 promise_id=p.promise_id,
                 tick=now(),
-                parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
+                parent_promise_id=ctx.parent_promise_id(),
             )
         )
         if durable_promise_record.is_pending():
@@ -301,7 +302,7 @@ class Scheduler:
             self._processor.enqueue(
                 _SQE(
                     promise.promise_id,
-                    utils.wrap_fn(
+                    wrap_fn(
                         ctx,
                         fn_or_coroutine.exec_unit,
                         *fn_or_coroutine.args,
@@ -313,7 +314,7 @@ class Scheduler:
         self._tracing_adapter.process_event(
             ExecutionInvoked(
                 promise.promise_id,
-                utils.get_parent_promise_id_from_ctx(ctx),
+                ctx.parent_promise_id(),
                 now(),
                 fn_or_coroutine.exec_unit.__name__,
                 fn_or_coroutine.args,
@@ -325,10 +326,7 @@ class Scheduler:
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
-            top_lvls = utils.dequeue_batch(
-                q=self._stg_queue,
-                batch_size=self._stg_queue.qsize(),
-            )
+            top_lvls = self._stg_queue.dequeue_batch(self._stg_queue.qsize())
             for top_lvl, p, root_ctx in top_lvls:
                 assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
                 if p.done():
@@ -336,10 +334,7 @@ class Scheduler:
                 else:
                     self._route_fn_or_coroutine(root_ctx, p, top_lvl.exec_unit)
 
-            cqes: list[_CQE[Any]] = utils.dequeue_batch(
-                q=self._completion_queue,
-                batch_size=self._completion_queue.qsize(),
-            )
+            cqes = self._completion_queue.dequeue_batch(self._completion_queue.qsize())
             for cqe in cqes:
                 assert (
                     cqe.promise_id in self._emphemeral_promise_memo
@@ -349,7 +344,7 @@ class Scheduler:
                 self._tracing_adapter.process_event(
                     ExecutionTerminated(
                         promise_id=promise.promise_id,
-                        parent_promise_id=utils.get_parent_promise_id_from_ctx(ctx),
+                        parent_promise_id=ctx.parent_promise_id(),
                         tick=now(),
                     )
                 )
@@ -373,9 +368,7 @@ class Scheduler:
             ExecutionAwaited(
                 promise_id=coro_and_promise.prom.promise_id,
                 tick=now(),
-                parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                    coro_and_promise.ctx
-                ),
+                parent_promise_id=coro_and_promise.ctx.parent_promise_id(),
             )
         )
 
@@ -423,12 +416,10 @@ class Scheduler:
                 promise_id=promise.promise_id,
                 tick=now(),
                 value=value,
-                parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                    self._get_ctx_from_ephemeral_memo(
-                        promise.promise_id,
-                        and_delete=True,
-                    )
-                ),
+                parent_promise_id=self._get_ctx_from_ephemeral_memo(
+                    promise.promise_id,
+                    and_delete=True,
+                ).parent_promise_id(),
             )
         )
 
@@ -446,9 +437,7 @@ class Scheduler:
                 ExecutionResumed(
                     promise_id=runnable.coro_and_promise.prom.promise_id,
                     tick=now(),
-                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                        runnable.coro_and_promise.ctx
-                    ),
+                    parent_promise_id=runnable.coro_and_promise.ctx.parent_promise_id(),
                 )
             )
 
@@ -457,9 +446,7 @@ class Scheduler:
                 ExecutionTerminated(
                     promise_id=runnable.coro_and_promise.prom.promise_id,
                     tick=now(),
-                    parent_promise_id=utils.get_parent_promise_id_from_ctx(
-                        runnable.coro_and_promise.ctx
-                    ),
+                    parent_promise_id=runnable.coro_and_promise.ctx.parent_promise_id(),
                 )
             )
             self._resolve_promise(

@@ -40,6 +40,9 @@ class Context:
     deps: Dependencies = field(default_factory=_new_deps)
     _num_children: int = field(init=False, default=0)
 
+    def parent_promise_id(self) -> str | None:
+        return self.parent_ctx.ctx_id if self.parent_ctx is not None else None
+
     def new_child(self) -> Context:
         self._num_children += 1
         return Context(
