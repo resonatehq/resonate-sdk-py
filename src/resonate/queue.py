@@ -102,3 +102,6 @@ class DelayQueue(Generic[T]):
 
     def items_in_delay(self) -> int:
         return len(self._delayed)
+
+    def qsize(self) -> int:
+        return self._cq.qsize()

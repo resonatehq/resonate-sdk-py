@@ -27,7 +27,7 @@ from resonate.events import (
     PromiseCompleted,
     PromiseCreated,
 )
-from resonate.functools import AsyncFnWrapper, FnWrapper, run_with_retry_policy, wrap_fn
+from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
 from resonate.itertools import FinalValue, iterate_coro
 from resonate.promise import Promise
 from resonate.queue import Queue
@@ -39,7 +39,6 @@ if TYPE_CHECKING:
     from resonate.options import Options
     from resonate.record import DurablePromiseRecord
     from resonate.result import Result
-    from resonate.retry_policy import RetryPolicy
     from resonate.storage import IPromiseStore
     from resonate.tracing import IAdapter
     from resonate.typing import (
@@ -58,11 +57,9 @@ class _SQE(Generic[T]):
     def __init__(
         self,
         promise_id: str,
-        policy: RetryPolicy,
         fn: FnWrapper[T] | AsyncFnWrapper[T],
     ) -> None:
         self.promise_id = promise_id
-        self.policy = policy
         self.fn = fn
 
 
@@ -98,7 +95,8 @@ class _Processor:
     def _run(self) -> None:
         while True:
             sqe = self._sq.dequeue()
-            fn_result = run_with_retry_policy(sqe.policy, sqe.fn)
+            fn_result = sqe.fn.run()
+            assert isinstance(fn_result, (Ok, Err)), f"{fn_result} must be a result."
             self._scheduler.enqueue_cqe(
                 promise_id=sqe.promise_id,
                 value=fn_result,
@@ -322,7 +320,6 @@ class Scheduler:
             self._processor.enqueue(
                 _SQE(
                     promise.promise_id,
-                    promise.action.opts.retry_policy,
                     wrap_fn(
                         ctx,
                         fn_or_coroutine.exec_unit,
