@@ -31,7 +31,7 @@ from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
 from resonate.itertools import FinalValue, iterate_coro
 from resonate.options import Options
 from resonate.promise import Promise
-from resonate.queue import Queue
+from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never
 from resonate.time import now
@@ -103,7 +103,6 @@ class _Processor:
             sqe = self._sq.dequeue()
             fn_result = sqe.fn.run()
             assert isinstance(fn_result, (Ok, Err)), f"{fn_result} must be a result."
-            self._sq.task_done()
             self._scheduler.enqueue_cqe(
                 sqe=sqe,
                 value=fn_result,
@@ -129,6 +128,8 @@ class Scheduler:
         self._stg_queue = Queue[tuple[Invoke, Promise[Any], Context]]()
         self._completion_queue = Queue[_CQE[Any]]()
         self._function_submission_queue = Queue[_SQE[Any]]()
+
+        self._delay_queue = DelayQueue[_SQE[Any]]()
 
         self._worker_continue = Event()
 
@@ -370,6 +371,13 @@ class Scheduler:
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
+            delay_es = self._delay_queue.dequeue_batch(self._delay_queue.qsize())
+            for delay_e in delay_es:
+                if isinstance(delay_e, _SQE):
+                    self._processor.enqueue(delay_e)
+                else:
+                    assert_never(delay_e)
+
             top_lvls = self._stg_queue.dequeue_batch(self._stg_queue.qsize())
             for top_lvl, p, root_ctx in top_lvls:
                 assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
@@ -401,13 +409,14 @@ class Scheduler:
                     self._resolve_promise(promise, value=cqe.fn_result)
                     self._unblock_coros_waiting_on_promise(promise)
                 else:
-                    self._processor.enqueue(
+                    self._delay_queue.put_nowait(
                         _SQE(
                             promise_id=cqe.sqe.promise_id,
                             retry_attempt=next_retry_attempt,
                             policy=cqe.sqe.policy,
                             fn=cqe.sqe.fn,
-                        )
+                        ),
+                        delay=cqe.sqe.policy.calculate_delay(next_retry_attempt),
                     )
 
             while self._runnable_coros:
