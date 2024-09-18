@@ -181,5 +181,5 @@ def test_retry(store: IPromiseStore) -> None:
         assert p.result()
 
     assert (
-        time.time() - start <= policy.total_possible_delay() + 1
-    ), f"It should have taken about {policy.total_possible_delay()} + 1 secs to finish"
+        time.time() - start <= policy.total_possible_delay() + 0.1
+    ), f"It should have taken about {policy.total_possible_delay()} + 0.1 secs (for API calling) to finish"  # noqa: E501
