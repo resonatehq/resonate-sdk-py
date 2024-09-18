@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import os
 import time
 from functools import cache
@@ -7,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from resonate import scheduler
-from resonate.retry_policy import never
+from resonate.retry_policy import Linear, never
 from resonate.storage import (
     IPromiseStore,
     LocalPromiseStore,
@@ -156,3 +157,28 @@ def test_sleep_on_coroutines(store: IPromiseStore) -> None:
     assert time.time() - start == pytest.approx(
         sleep_time, rel=1e-1
     ), f"I should have taken about {sleep_time} seconds to process all coroutines"
+
+
+def _failing(ctx: Context) -> None:  # noqa: ARG001, RUF100
+    raise NotImplementedError
+
+
+def coro(ctx: Context, policy_info: dict[str, Any]) -> Generator[Yieldable, Any, None]:
+    policy = Linear(delay=policy_info["delay"], max_retries=policy_info["max_retries"])
+    yield ctx.call(_failing).with_options(retry_policy=policy)
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_retry(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(durable_promise_storage=store)
+    policy = Linear(delay=0.05, max_retries=2)
+
+    start = time.time()
+    p: Promise[None] = s.with_options(retry_policy=never()).run(
+        "retry-coro", coro, dataclasses.asdict(policy)
+    )
+    with pytest.raises(NotImplementedError):
+        assert p.result()
+    assert time.time() - start == pytest.approx(
+        policy.total_possible_delay(), rel=1e-1
+    ), "It should have taken "

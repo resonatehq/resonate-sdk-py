@@ -14,6 +14,9 @@ class Retriable(ABC):
     @abstractmethod
     def should_retry(self, attempt: int) -> bool: ...
 
+    @abstractmethod
+    def total_possible_delay(self) -> float: ...
+
 
 @final
 @dataclass(frozen=True)
@@ -29,6 +32,12 @@ class Exponential(Retriable):
 
     def should_retry(self, attempt: int) -> bool:
         return attempt <= self.max_retries
+
+    def total_possible_delay(self) -> float:
+        # Geometric series sum formula
+        return self.base_delay * (
+            (self.factor * (1 - self.factor**self.max_retries)) / (1 - self.factor)
+        )
 
 
 def exponential(base_delay: float, factor: float, max_retries: int) -> Exponential:
@@ -49,6 +58,9 @@ class Linear(Retriable):
     def should_retry(self, attempt: int) -> bool:
         return attempt <= self.max_retries
 
+    def total_possible_delay(self) -> float:
+        return self.delay * (self.max_retries * (self.max_retries + 1)) / 2
+
 
 def linear(delay: float, max_retries: int) -> Linear:
     return Linear(delay=delay, max_retries=max_retries)
@@ -68,6 +80,9 @@ class Constant(Retriable):
 
     def should_retry(self, attempt: int) -> bool:
         return attempt <= self.max_retries
+
+    def total_possible_delay(self) -> float:
+        return self.delay * self.max_retries
 
 
 def constant(delay: float, max_retries: int) -> Constant:

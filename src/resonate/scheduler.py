@@ -129,9 +129,9 @@ class Scheduler:
         self._completion_queue = Queue[_CQE[Any]]()
         self._function_submission_queue = Queue[_SQE[Any]]()
 
-        self._delay_queue = DelayQueue[_SQE[Any]]()
-
         self._worker_continue = Event()
+
+        self._delay_queue = DelayQueue[_SQE[Any]](caller_event=self._worker_continue)
 
         self._deps = Dependencies()
         self._json_encoder = JsonEncoder()

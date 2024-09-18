@@ -50,10 +50,11 @@ class Queue(Generic[T]):
 
 @final
 class DelayQueue(Generic[T]):
-    def __init__(self, maxsize: int = 0) -> None:
+    def __init__(self, caller_event: Event | None, maxsize: int = 0) -> None:
         self._sq = Queue[tuple[T, float]](maxsize=maxsize)
         self._cq = Queue[T](maxsize=maxsize)
         self._delayed: list[tuple[float, int, T]] = []
+        self._caller_event = caller_event
         self._continue_event = Event()
 
         self._worker_thread = Thread(target=self._run, daemon=True)
@@ -77,6 +78,8 @@ class DelayQueue(Generic[T]):
             while self._delayed and self._next_release_time() <= current_time:
                 _, _, item = heapq.heappop(self._delayed)
                 self._cq.put_nowait(item)  # Put the item in the consumer queue
+                if self._caller_event:
+                    self._caller_event.set()
 
             # Calculate the time to wait until the next item is ready
 
