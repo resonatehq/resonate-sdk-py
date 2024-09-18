@@ -30,7 +30,7 @@ def foo(ctx: Context, name: str, sleep_time: float) -> str:  # noqa: ARG001
 
 
 def baz(ctx: Context, name: str, sleep_time: float) -> Generator[Yieldable, Any, str]:
-    p = yield ctx.invoke(foo, name=name, sleep_time=sleep_time).with_options(
+    p = yield ctx.lfi(foo, name=name, sleep_time=sleep_time).with_options(
         retry_policy=never()
     )
     return (yield p)
@@ -39,9 +39,9 @@ def baz(ctx: Context, name: str, sleep_time: float) -> Generator[Yieldable, Any,
 def bar(
     ctx: Context, name: str, sleep_time: float
 ) -> Generator[Yieldable, Any, Promise[str]]:
-    p: Promise[str] = yield ctx.invoke(
-        foo, name=name, sleep_time=sleep_time
-    ).with_options(retry_policy=never())
+    p: Promise[str] = yield ctx.lfi(foo, name=name, sleep_time=sleep_time).with_options(
+        retry_policy=never()
+    )
     return p
 
 
@@ -165,7 +165,7 @@ def _failing(ctx: Context) -> None:  # noqa: ARG001, RUF100
 
 def coro(ctx: Context, policy_info: dict[str, Any]) -> Generator[Yieldable, Any, None]:
     policy = Linear(delay=policy_info["delay"], max_retries=policy_info["max_retries"])
-    yield ctx.call(_failing).with_options(retry_policy=policy)
+    yield ctx.lfc(_failing).with_options(retry_policy=policy)
 
 
 @pytest.mark.parametrize("store", _promise_storages())

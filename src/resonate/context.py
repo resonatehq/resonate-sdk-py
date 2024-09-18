@@ -63,16 +63,16 @@ class Context:
     def get_dependency(self, key: str) -> Any:  # noqa: ANN401
         return self.deps.get(key)
 
-    def invoke(
+    def lfi(
         self,
         invokable: Invokable[P],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Invoke:
-        return self.call(invokable, *args, **kwargs).to_invoke()
+        return self.lfc(invokable, *args, **kwargs).to_invoke()
 
-    def call(
+    def lfc(
         self,
         invokable: Invokable[P],
         /,

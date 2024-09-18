@@ -56,13 +56,11 @@ def failing_function(ctx: Context) -> None:  # noqa: ARG001
 
 
 def coro_that_fails_call(ctx: Context) -> Generator[Yieldable, Any, None]:
-    return (yield ctx.call(failing_function).with_options(retry_policy=never()))
+    return (yield ctx.lfc(failing_function).with_options(retry_policy=never()))
 
 
 def coro_that_fails_invoke(ctx: Context) -> Generator[Yieldable, Any, None]:
-    return (
-        yield (yield ctx.invoke(failing_function).with_options(retry_policy=never()))
-    )
+    return (yield (yield ctx.lfi(failing_function).with_options(retry_policy=never())))
 
 
 def raise_inmediately(ctx: Context) -> Generator[Yieldable, Any, int]:  # noqa: ARG001
@@ -71,18 +69,18 @@ def raise_inmediately(ctx: Context) -> Generator[Yieldable, Any, int]:  # noqa: 
 
 
 def only_call(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
-    x: int = yield ctx.call(number, n=n)
+    x: int = yield ctx.lfc(number, n=n)
     return x
 
 
 def only_invocation(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
-    xp: Promise[int] = yield ctx.invoke(number, n=n)
+    xp: Promise[int] = yield ctx.lfi(number, n=n)
     x: int = yield xp
     return x
 
 
 def failing_asserting(ctx: Context) -> Generator[Yieldable, Any, int]:
-    x: int = yield ctx.call(only_invocation, n=3)
+    x: int = yield ctx.lfc(only_invocation, n=3)
     ctx.assert_statement(x < 0, f"{x} should be negative")
     return x
 
@@ -105,7 +103,7 @@ def batch_greeting(cmds: list[GreetCommand]) -> list[str]:
 
 
 def greet_with_batching(ctx: Context, name: str) -> Generator[Yieldable, Any, str]:
-    p: Promise[str] = yield ctx.invoke(GreetCommand(name=name))
+    p: Promise[str] = yield ctx.lfi(GreetCommand(name=name))
     g: str = yield p
     return g
 
@@ -113,7 +111,7 @@ def greet_with_batching(ctx: Context, name: str) -> Generator[Yieldable, Any, st
 def greet_with_batching_but_with_call(
     ctx: Context, name: str
 ) -> Generator[Yieldable, Any, str]:
-    g: str = yield ctx.call(GreetCommand(name=name))
+    g: str = yield ctx.lfc(GreetCommand(name=name))
     return g
 
 
@@ -670,13 +668,13 @@ def test_probe(store: IPromiseStore) -> None:
 
 def baz(ctx: Context) -> None: ...  # noqa: ARG001, RUF100
 def bar(ctx: Context) -> Generator[Yieldable, Any, str]:
-    yield ctx.call(baz)
+    yield ctx.lfc(baz)
     return "Done"
 
 
 def foo(ctx: Context) -> Generator[Yieldable, Any, list[str]]:
-    p1: Promise[str] = yield ctx.invoke(bar)
-    p2: Promise[str] = yield ctx.invoke(bar)
+    p1: Promise[str] = yield ctx.lfi(bar)
+    p2: Promise[str] = yield ctx.lfi(bar)
 
     resp: list[str] = []
     v1: str = yield p1
