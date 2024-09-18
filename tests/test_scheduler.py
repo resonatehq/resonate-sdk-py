@@ -179,6 +179,8 @@ def test_retry(store: IPromiseStore) -> None:
     )
     with pytest.raises(NotImplementedError):
         assert p.result()
+
     assert time.time() - start == pytest.approx(
-        policy.total_possible_delay(), rel=1e-1
+        policy.total_possible_delay() + 2,  # added 2 secs for API calling time.
+        rel=1e-1,
     ), "It should have taken "
