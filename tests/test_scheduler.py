@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from resonate import scheduler
-from resonate.options import Options
+from resonate.retry_policy import never
 from resonate.storage import (
     IPromiseStore,
     LocalPromiseStore,
@@ -29,14 +29,18 @@ def foo(ctx: Context, name: str, sleep_time: float) -> str:  # noqa: ARG001
 
 
 def baz(ctx: Context, name: str, sleep_time: float) -> Generator[Yieldable, Any, str]:
-    p = yield ctx.invoke(foo, name=name, sleep_time=sleep_time)
+    p = yield ctx.invoke(foo, name=name, sleep_time=sleep_time).with_options(
+        retry_policy=never()
+    )
     return (yield p)
 
 
 def bar(
     ctx: Context, name: str, sleep_time: float
 ) -> Generator[Yieldable, Any, Promise[str]]:
-    p: Promise[str] = yield ctx.invoke(foo, name=name, sleep_time=sleep_time)
+    p: Promise[str] = yield ctx.invoke(
+        foo, name=name, sleep_time=sleep_time
+    ).with_options(retry_policy=never())
     return p
 
 
@@ -55,8 +59,8 @@ def test_coro_return_promise(store: IPromiseStore) -> None:
         processor_threads=1,
         durable_promise_storage=store,
     )
-    p: Promise[Promise[str]] = s.run(
-        "bar", Options(durable=True), bar, name="A", sleep_time=0.1
+    p: Promise[Promise[str]] = s.with_options(retry_policy=never()).run(
+        "bar", bar, name="A", sleep_time=0.1
     )
     assert p.result(timeout=2) == "A"
 
@@ -67,12 +71,10 @@ def test_scheduler(store: IPromiseStore) -> None:
         durable_promise_storage=store,
     )
 
-    promise: Promise[str] = p.run(
-        "baz-1", Options(durable=True), baz, name="A", sleep_time=0.2
-    )
+    promise: Promise[str] = p.run("baz-1", baz, name="A", sleep_time=0.2)
     assert promise.result(timeout=4) == "A"
 
-    promise = p.run("foo-1", Options(durable=True), foo, name="B", sleep_time=0.2)
+    promise = p.run("foo-1", foo, name="B", sleep_time=0.2)
     assert promise.result(timeout=4) == "B"
 
 
@@ -82,25 +84,23 @@ def test_multithreading_capabilities(store: IPromiseStore) -> None:
         processor_threads=3,
         durable_promise_storage=store,
     )
+
     time_per_process: int = 5
     start = time.time()
     p1: Promise[str] = s.run(
         "multi-threaded-1",
-        Options(durable=True),
         baz,
         name="A",
         sleep_time=time_per_process,
     )
     p2: Promise[str] = s.run(
         "multi-threaded-2",
-        Options(durable=True),
         baz,
         name="B",
         sleep_time=time_per_process,
     )
     p3: Promise[str] = s.run(
         "multi-threaded-3",
-        Options(durable=True),
         baz,
         name="C",
         sleep_time=time_per_process,
@@ -133,21 +133,18 @@ def test_sleep_on_coroutines(store: IPromiseStore) -> None:
     sleep_time = 4
     p1: Promise[str] = s.run(
         "sleeping-coro-1",
-        Options(durable=True),
         sleep_coroutine,
         sleep_time=sleep_time,
         name="A",
     )
     p2: Promise[str] = s.run(
         "sleeping-coro-2",
-        Options(durable=True),
         sleep_coroutine,
         sleep_time=sleep_time,
         name="B",
     )
     p3: Promise[str] = s.run(
         "sleeping-coro-3",
-        Options(durable=True),
         sleep_coroutine,
         sleep_time=sleep_time,
         name="C",
