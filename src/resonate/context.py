@@ -4,12 +4,27 @@ from typing import TYPE_CHECKING, Any, TypeVar, final
 
 from typing_extensions import ParamSpec
 
-from resonate.actions import Call, DeferredInvocation, Invocation, Sleep
+from resonate.actions import (
+    All,
+    Call,
+    Combinator,
+    DeferredInvocation,
+    Invocation,
+    Race,
+    Sleep,
+)
 from resonate.dataclasses import Command, FnOrCoroutine
 from resonate.dependency_injection import Dependencies
+from resonate.promise import Promise
 
 if TYPE_CHECKING:
-    from resonate.typing import DurableCoro, DurableFn, ExecutionUnit, Invokable
+    from resonate.typing import (
+        DurableCoro,
+        DurableFn,
+        ExecutionUnit,
+        Invokable,
+        Promise,
+    )
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -116,3 +131,9 @@ class Context:
 
     def sleep(self, seconds: int) -> Sleep:
         return Sleep(seconds)
+
+    def all(self, promises: list[Promise[Any]]) -> Combinator[list[Any]]:
+        return All(promises)
+
+    def race(self, promises: list[Promise[Any]]) -> Combinator[list[Any]]:
+        return Race(promises)

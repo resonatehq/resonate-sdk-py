@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 from typing_extensions import ParamSpec, Self, assert_never
 
 from resonate import utils
-from resonate.actions import Call, DeferredInvocation, Invocation, Sleep
+from resonate.actions import Call, Combinator, DeferredInvocation, Invocation, Sleep
 from resonate.context import (
     Context,
 )
@@ -126,6 +126,7 @@ class Scheduler:
         self._stg_queue = Queue[tuple[Invocation, Promise[Any], Context]]()
         self._completion_queue = Queue[_CQE[Any]]()
         self._submission_queue = Queue[_SQE[Any]]()
+        self._combinators_queue = Queue[tuple[Combinator[Any], Promise[Any]]]()
 
         self._worker_continue = Event()
 
@@ -238,7 +239,9 @@ class Scheduler:
             return self._emphemeral_promise_memo.pop(promise_id)[-1]
         return self._emphemeral_promise_memo[promise_id][-1]
 
-    def _create_promise(self, ctx: Context, action: Invocation | Sleep) -> Promise[Any]:
+    def _create_promise(
+        self, ctx: Context, action: Invocation | Sleep | Combinator
+    ) -> Promise[Any]:
         p = Promise[Any](promise_id=ctx.ctx_id, action=action)
         assert (
             p.promise_id not in self._emphemeral_promise_memo
@@ -254,6 +257,10 @@ class Scheduler:
                 }
             else:
                 assert_never(action.exec_unit)
+
+        elif isinstance(action, Combinator):
+            data = {}
+
         elif isinstance(action, Sleep):
             raise NotImplementedError
         else:
@@ -380,7 +387,7 @@ class Scheduler:
                 else:
                     assert_never(delay_e)
 
-            top_lvls = self._stg_queue.dequeue_batch(self._stg_queue.qsize())
+            top_lvls = self._stg_queue.dequeue_all()
             for top_lvl, p, root_ctx in top_lvls:
                 assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
                 if p.done():
@@ -388,7 +395,7 @@ class Scheduler:
                 else:
                     self._route_fn_or_coroutine(root_ctx, p, top_lvl.exec_unit)
 
-            cqes = self._completion_queue.dequeue_batch(self._completion_queue.qsize())
+            cqes = self._completion_queue.dequeue_all()
             for cqe in cqes:
                 next_retry_attempt = cqe.sqe.retry_attempt + 1
                 if (
@@ -432,6 +439,18 @@ class Scheduler:
 
                     self._unblock_coros_waiting_on_promise(prom)
                     self._promises_to_be_resolved.remove(p_to_b_resolved)
+
+            combinators = self._combinators_queue.dequeue_all()
+            for combinator, p in combinators:
+                assert not p.done(), (
+                    "If the promise related to a combinator is resolved"
+                    "already the combinator should not be in the combinators queue"
+                )
+                if combinator.done():
+                    self._resolve_promise(p, combinator.result())
+                    self._unblock_coros_waiting_on_promise(p)
+                else:
+                    self._combinators_queue.put_nowait((combinator, p))
 
             while self._runnable_coros:
                 runnable, was_awaited = self._runnable_coros.pop()
@@ -580,6 +599,12 @@ class Scheduler:
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
+        elif isinstance(yieldable_or_final_value, Combinator):
+            p = self._process_combinator(yieldable_or_final_value, runnable)
+            self._add_coro_to_runnables(
+                runnable.coro_and_promise, Ok(p), was_awaited=False
+            )
+
         elif isinstance(yieldable_or_final_value, Sleep):
             raise NotImplementedError
         elif isinstance(yieldable_or_final_value, DeferredInvocation):
@@ -615,4 +640,18 @@ class Scheduler:
                 self._route_fn_or_coroutine(child_ctx, p, invokation.exec_unit)
         else:
             assert_never(invokation.exec_unit)
+        return p
+
+    def _process_combinator(
+        self, combinator: Combinator, runnable: Runnable[Any]
+    ) -> Promise[Any]:
+        child_ctx = runnable.coro_and_promise.ctx.new_child(
+            ctx_id=combinator.opts.promise_id
+        )
+        p = self._create_promise(child_ctx, combinator)
+        if p.done():
+            self._unblock_coros_waiting_on_promise(p)
+        else:
+            self._combinators_queue.put_nowait((combinator, p))
+
         return p

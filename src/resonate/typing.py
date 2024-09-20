@@ -7,6 +7,7 @@ from typing_extensions import Concatenate, ParamSpec, TypeAlias
 
 from resonate.actions import Call, DeferredInvocation, Invocation, Sleep
 from resonate.batching import CmdBuffer
+from resonate.combinators import Combinator
 from resonate.context import Context
 from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.promise import Promise
@@ -18,7 +19,14 @@ P = ParamSpec("P")
 ExecutionUnit: TypeAlias = Union[Command, FnOrCoroutine]
 
 
-Yieldable: TypeAlias = Union[Call, Invocation, Promise[Any], Sleep, DeferredInvocation]
+Yieldable: TypeAlias = Union[
+    Call,
+    Combinator[Any],
+    Invocation,
+    Promise[Any],
+    Sleep,
+    DeferredInvocation,
+]
 
 DurableCoro: TypeAlias = Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]]
 DurableSyncFn: TypeAlias = Callable[Concatenate[Context, P], T]
