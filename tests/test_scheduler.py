@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from resonate import scheduler
-from resonate.retry_policy import Linear, never
+from resonate.retry_policy import Linear, calculate_total_possible_delay, never
 from resonate.storage import (
     IPromiseStore,
     LocalPromiseStore,
@@ -180,6 +180,7 @@ def test_retry(store: IPromiseStore) -> None:
     with pytest.raises(NotImplementedError):
         assert p.result()
 
+    total_possible_delay = calculate_total_possible_delay(policy)
     assert (
-        time.time() - start <= policy.total_possible_delay() + 0.1
-    ), f"It should have taken about {policy.total_possible_delay()} + 0.1 secs (for API calling) to finish"  # noqa: E501
+        time.time() - start <= total_possible_delay + 0.1
+    ), f"It should have taken about {total_possible_delay} + 0.1 secs (for API calling) to finish"  # noqa: E501

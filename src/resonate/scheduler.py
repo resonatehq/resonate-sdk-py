@@ -127,7 +127,7 @@ class Scheduler:
     ) -> None:
         self._stg_queue = Queue[tuple[Invoke, Promise[Any], Context]]()
         self._completion_queue = Queue[_CQE[Any]]()
-        self._function_submission_queue = Queue[_SQE[Any]]()
+        self._submission_queue = Queue[_SQE[Any]]()
 
         self._worker_continue = Event()
 
@@ -144,7 +144,7 @@ class Scheduler:
 
         self._processor = _Processor(
             processor_threads,
-            self._function_submission_queue,
+            self._submission_queue,
             self,
         )
         self._durable_promise_storage = durable_promise_storage
