@@ -11,13 +11,12 @@ if TYPE_CHECKING:
     from resonate.dataclasses import FnOrCoroutine
     from resonate.retry_policy import RetryPolicy
 from abc import abstractmethod
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from typing_extensions import ParamSpec, override
+from typing_extensions import override
 
-from resonate.options import Options
 from resonate.result import Err, Ok, Result
+from resonate.retry_policy import never
 
 if TYPE_CHECKING:
     from resonate.promise import Promise
@@ -94,7 +93,35 @@ class Sleep:
 
 
 class Combinator(Generic[T]):
-    opts: Options
+    opts: Options = field(default=Options())
+
+    def __init__(self) -> None:
+        self.opts = Options(retry_policy=never())
+
+    def with_options(
+        self,
+        *,
+        durable: bool = True,
+        promise_id: str | None = None,
+        retry_policy: RetryPolicy | None = None,
+    ) -> Self:
+        """
+        Set options for the combinator.
+
+        Args:
+            durable (bool): Whether the promise is durable. Defaults to True.
+            promise_id (str | None): An optional identifier for the promise.
+            retry_policy (RetryPolicy | None): An optional retry policy for the promise.
+
+        Returns:
+            Self: The combinator instance with updated options.
+        """
+        self.opts = Options(
+            durable=durable,
+            promise_id=promise_id,
+            retry_policy=retry_policy if retry_policy is not None else never(),
+        )
+        return self
 
     @abstractmethod
     def done(self) -> bool:
@@ -106,16 +133,36 @@ class Combinator(Generic[T]):
 
 
 class All(Combinator[list[Any]]):
+    """
+    A combinator that waits for all promises to complete.
+
+    Attributes:
+        promises (list[Promise[Any]]): A list of promises to be combined.
+    """
+
     def __init__(self, promises: list[Promise[Any]]) -> None:
+        super().__init__()
         self.promises = promises
-        self.opts = Options(durable=False)
 
     @override
     def done(self) -> bool:
+        """
+        Check if all promises are complete.
+
+        Returns:
+            bool: True if all promises are complete, False otherwise.
+        """
         return all(p.done() for p in self.promises)
 
     @override
     def result(self) -> Result[list[Any], Exception]:
+        """
+        Get the results of all promises.
+
+        Returns:
+            Result[list[Any], Exception]: A Result containing either a list of all promise results (Ok)
+            or an Exception if any promise failed (Err).
+        """
         res: Result[list[Any], Exception]
         try:
             res = Ok([p.result() for p in self.promises])
@@ -125,16 +172,42 @@ class All(Combinator[list[Any]]):
 
 
 class Race(Combinator[Any]):
+    """
+    A combinator that completes when any of the promises completes.
+
+    Attributes:
+        promises (list[Promise[Any]]): A list of promises to race.
+    """
+
     def __init__(self, promises: list[Promise[Any]]) -> None:
+        super().__init__()
         self.promises = promises
-        self.opts = Options(durable=False)
 
     @override
     def done(self) -> bool:
+        """
+        Check if any promise is complete.
+
+        Returns:
+            bool: True if any promise is complete, False otherwise.
+        """
+        if not self.promises:
+            return True
+
         return any(p.done() for p in self.promises)
 
     @override
     def result(self) -> Result[Any, Exception]:
+        """
+        Get the result of the first completed promise.
+
+        Returns:
+            Result[Any, Exception]: A Result containing either the value of the first completed promise (Ok)
+            or an Exception if no promise completed successfully (Err).
+        """
+        if not self.promises:
+            return Ok(None)
+
         res: Result[Any, Exception]
         try:
             res = Ok(next(p.result() for p in self.promises if p.done()))

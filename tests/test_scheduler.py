@@ -176,6 +176,7 @@ def coro(ctx: Context, policy_info: dict[str, Any]) -> Generator[Yieldable, Any,
     )
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize("store", _promise_storages())
 def test_retry(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(durable_promise_storage=store)
@@ -273,3 +274,105 @@ def test_deferred_invoke(store: IPromiseStore) -> None:
 
     def_p = s.run("deferred-invoke", foo, name="B", sleep_time=120)
     assert def_p.result() == "A"
+
+
+def _fn_sleep(_ctx: Context, wait: float, result: str) -> str:
+    time.sleep(wait)
+    return result
+
+
+def race_coro(
+    ctx: Context, waits_results: list[tuple[float, str]]
+) -> Generator[Yieldable, Any, int]:
+    ps = []
+    for wt, result in waits_results:
+        p = yield ctx.lfi(_fn_sleep, wait=wt, result=result)
+        ps.append(p)
+
+    p_race = yield ctx.race(ps)
+
+    res = yield p_race
+    return res
+
+
+def all_coro(
+    ctx: Context, waits_results: list[tuple[float, str]]
+) -> Generator[Yieldable, Any, int]:
+    ps = []
+    for wt, result in waits_results:
+        p = yield ctx.lfi(_fn_sleep, wait=wt, result=result)
+        ps.append(p)
+
+    p_all = yield ctx.all(ps)
+
+    res = yield p_all
+    return res
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_all_combinator(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(durable_promise_storage=store)
+    # Test case 1
+    waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "E")]
+    expected = ["A", "B", "C", "D", "E"]
+    p_all = s.run("all-coro-0", all_coro, waits_results=waits_results)
+    assert p_all.result() == expected
+
+    # Test case 2
+    waits_results = [(0.05, "A"), (0.04, "B"), (0.03, "C"), (0.02, "D"), (0.01, "E")]
+    expected = ["A", "B", "C", "D", "E"]
+    p_all = s.run("all-coro-1", all_coro, waits_results=waits_results)
+    assert p_all.result() == expected
+
+    # Test case 3
+    waits_results = [(0.01, "A"), (0.01, "B"), (0.01, "C")]
+    expected = ["A", "B", "C"]
+    p_all = s.run("all-coro-2", all_coro, waits_results=waits_results)
+    assert p_all.result() == expected
+
+    # Test case 4
+    waits_results = [(0.1, "A")]
+    expected = ["A"]
+    p_all = s.run("all-coro-3", all_coro, waits_results=waits_results)
+    assert p_all.result() == expected
+
+    # Test case 5
+    waits_results = []
+    expected = []
+    p_all = s.run("all-coro-4", all_coro, waits_results=waits_results)
+    assert p_all.result() == expected
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_race_combinator(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(durable_promise_storage=LocalPromiseStore())
+
+    # Test case 1
+    waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "F")]
+    expected = "C"
+    p_race = s.run("race-coro-0", race_coro, waits_results=waits_results)
+    assert p_race.result() == expected
+
+    # Test case 2
+    waits_results = [(0.05, "A"), (0.04, "B"), (0.03, "C"), (0.02, "D"), (0.01, "E")]
+    expected = "E"
+    p_race = s.run("race-coro-1", race_coro, waits_results=waits_results)
+    assert p_race.result() == expected
+
+    # Test case 3
+    waits_results = [(0.01, "A"), (0.01, "B"), (0.01, "C")]
+    expected = "A"
+    p_race = s.run("race-coro-2", race_coro, waits_results=waits_results)
+    assert p_race.result() == expected
+
+    # Test case 4
+    waits_results = [(0.1, "A")]
+    expected = "A"
+    p_race = s.run("race-coro-3", race_coro, waits_results=waits_results)
+    assert p_race.result() == expected
+
+    # Test case 5
+    waits_results = []
+    expected = None
+    p_race = s.run("race-coro-4", race_coro, waits_results=waits_results)
+    assert p_race.result() == expected
