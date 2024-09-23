@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Union, final
 from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
 from resonate import utils
-from resonate.actions import Call, DeferredInvocation, Invocation, Sleep
+from resonate.actions import Call, Combinator, DeferredInvocation, Invocation, Sleep
 from resonate.batching import CmdBuffer
 from resonate.contants import CWD
 from resonate.context import (
@@ -654,6 +654,10 @@ class DSTScheduler:
 
         elif isinstance(yieldable_or_final_value, (Sleep, DeferredInvocation)):
             raise NotImplementedError
+
+        elif isinstance(yieldable_or_final_value, Combinator):
+            raise NotImplementedError
+
         else:
             assert_never(yieldable_or_final_value)
 

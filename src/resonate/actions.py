@@ -144,7 +144,6 @@ class All(Combinator[list[Any]]):
         super().__init__()
         self.promises = promises
 
-    @override
     def done(self) -> bool:
         """
         Check if all promises are complete.
@@ -154,7 +153,6 @@ class All(Combinator[list[Any]]):
         """
         return all(p.done() for p in self.promises)
 
-    @override
     def result(self) -> Result[list[Any], Exception]:
         """
         Get the results of all promises.
@@ -183,7 +181,6 @@ class Race(Combinator[Any]):
         super().__init__()
         self.promises = promises
 
-    @override
     def done(self) -> bool:
         """
         Check if any promise is complete.
@@ -196,7 +193,6 @@ class Race(Combinator[Any]):
 
         return any(p.done() for p in self.promises)
 
-    @override
     def result(self) -> Result[Any, Exception]:
         """
         Get the result of the first completed promise.

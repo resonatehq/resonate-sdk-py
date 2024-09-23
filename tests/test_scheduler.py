@@ -283,7 +283,7 @@ def _fn_sleep(_ctx: Context, wait: float, result: str) -> str:
 
 def race_coro(
     ctx: Context, waits_results: list[tuple[float, str]]
-) -> Generator[Yieldable, Any, int]:
+) -> Generator[Yieldable, Any, str]:
     ps = []
     for wt, result in waits_results:
         p = yield ctx.lfi(_fn_sleep, wait=wt, result=result)
@@ -297,7 +297,7 @@ def race_coro(
 
 def all_coro(
     ctx: Context, waits_results: list[tuple[float, str]]
-) -> Generator[Yieldable, Any, int]:
+) -> Generator[Yieldable, Any, str]:
     ps = []
     for wt, result in waits_results:
         p = yield ctx.lfi(_fn_sleep, wait=wt, result=result)
@@ -315,7 +315,7 @@ def test_all_combinator(store: IPromiseStore) -> None:
     # Test case 1
     waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "E")]
     expected = ["A", "B", "C", "D", "E"]
-    p_all = s.run("all-coro-0", all_coro, waits_results=waits_results)
+    p_all: Promise[str] = s.run("all-coro-0", all_coro, waits_results=waits_results)
     assert p_all.result() == expected
 
     # Test case 2
@@ -350,7 +350,7 @@ def test_race_combinator(store: IPromiseStore) -> None:
     # Test case 1
     waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "F")]
     expected = "C"
-    p_race = s.run("race-coro-0", race_coro, waits_results=waits_results)
+    p_race: Promise[str] = s.run("race-coro-0", race_coro, waits_results=waits_results)
     assert p_race.result() == expected
 
     # Test case 2

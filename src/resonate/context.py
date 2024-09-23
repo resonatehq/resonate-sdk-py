@@ -132,8 +132,8 @@ class Context:
     def sleep(self, seconds: int) -> Sleep:
         return Sleep(seconds)
 
-    def all(self, promises: list[Promise[Any]]) -> Combinator[list[Any]]:
+    def all(self, promises: list[Promise[Any]]) -> All:
         return All(promises)
 
-    def race(self, promises: list[Promise[Any]]) -> Combinator[list[Any]]:
+    def race(self, promises: list[Promise[Any]]) -> Race:
         return Race(promises)

@@ -5,9 +5,8 @@ from typing import Any, Callable, Literal, TypeVar, Union
 
 from typing_extensions import Concatenate, ParamSpec, TypeAlias
 
-from resonate.actions import Call, DeferredInvocation, Invocation, Sleep
+from resonate.actions import Call, Combinator, DeferredInvocation, Invocation, Sleep
 from resonate.batching import CmdBuffer
-from resonate.combinators import Combinator
 from resonate.context import Context
 from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.promise import Promise

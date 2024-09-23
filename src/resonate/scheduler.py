@@ -240,7 +240,7 @@ class Scheduler:
         return self._emphemeral_promise_memo[promise_id][-1]
 
     def _create_promise(
-        self, ctx: Context, action: Invocation | Sleep | Combinator
+        self, ctx: Context, action: Invocation | Sleep | Combinator[Any]
     ) -> Promise[Any]:
         p = Promise[Any](promise_id=ctx.ctx_id, action=action)
         assert (
@@ -643,7 +643,7 @@ class Scheduler:
         return p
 
     def _process_combinator(
-        self, combinator: Combinator, runnable: Runnable[Any]
+        self, combinator: Combinator[Any], runnable: Runnable[Any]
     ) -> Promise[Any]:
         child_ctx = runnable.coro_and_promise.ctx.new_child(
             ctx_id=combinator.opts.promise_id

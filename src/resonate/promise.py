@@ -16,7 +16,7 @@ class Promise(Generic[T]):
     def __init__(
         self,
         promise_id: str,
-        action: Invocation | Sleep | Combinator,
+        action: Invocation | Sleep | Combinator[Any],
     ) -> None:
         self.promise_id = promise_id
         self.f = Future[T]()
