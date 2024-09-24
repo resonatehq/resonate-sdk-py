@@ -61,7 +61,7 @@ def test_coro_return_promise(store: IPromiseStore) -> None:
         durable_promise_storage=store,
     )
     p: Promise[Promise[str]] = s.with_options(retry_policy=never()).run(
-        "bar", bar, name="A", sleep_time=0.1
+        "bar", bar, name="A", sleep_time=0.01
     )
     assert p.result(timeout=2) == "A"
 
@@ -72,10 +72,10 @@ def test_scheduler(store: IPromiseStore) -> None:
         durable_promise_storage=store,
     )
 
-    promise: Promise[str] = p.run("baz-1", baz, name="A", sleep_time=0.2)
+    promise: Promise[str] = p.run("baz-1", baz, name="A", sleep_time=0.02)
     assert promise.result(timeout=4) == "A"
 
-    promise = p.run("foo-1", foo, name="B", sleep_time=0.2)
+    promise = p.run("foo-1", foo, name="B", sleep_time=0.02)
     assert promise.result(timeout=4) == "B"
 
 
@@ -86,7 +86,7 @@ def test_multithreading_capabilities(store: IPromiseStore) -> None:
         durable_promise_storage=store,
     )
 
-    time_per_process: int = 5
+    time_per_process: float = 0.5
     start = time.time()
     p1: Promise[str] = s.run(
         "multi-threaded-1",
@@ -171,7 +171,7 @@ def coro(ctx: Context, policy_info: dict[str, Any]) -> Generator[Yieldable, Any,
 @pytest.mark.parametrize("store", _promise_storages())
 def test_retry(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(durable_promise_storage=store)
-    policy = Linear(delay=0.05, max_retries=2)
+    policy = Linear(delay=0.005, max_retries=2)
 
     start = time.time()
     p: Promise[None] = s.with_options(retry_policy=never()).run(
