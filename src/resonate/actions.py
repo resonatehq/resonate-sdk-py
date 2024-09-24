@@ -151,6 +151,9 @@ class All(Combinator[list[Any]]):
         Returns:
             bool: True if all promises are complete, False otherwise.
         """
+        if len(self.promises) == 0:
+            return True
+
         return all(p.done() for p in self.promises)
 
     def result(self) -> Result[list[Any], Exception]:
@@ -158,15 +161,65 @@ class All(Combinator[list[Any]]):
         Get the results of all promises.
 
         Returns:
-            Result[list[Any], Exception]: A Result containing either a list of all promise results (Ok)
-            or an Exception if any promise failed (Err).
+            Result[list[Any], Exception]: A Result containing either a list of all
+            promise results (Ok) or an Exception if any promise failed (Err).
         """
+        if len(self.promises) == 0:
+            return Ok([])
+
         res: Result[list[Any], Exception]
         try:
             res = Ok([p.result() for p in self.promises])
         except Exception as e:  # noqa: BLE001
             res = Err(e)
         return res
+
+
+class AllSettled(Combinator[list[Any]]):
+    """
+    A combinator that waits for all promises to complete and returns a list of results or Errors.
+
+    Attributes:
+        promises (list[Promise[Any]]): A list of promises to be combined.
+    """
+
+    def __init__(self, promises: list[Promise[Any]]) -> None:
+        super().__init__()
+        self.promises = promises
+
+    def done(self) -> bool:
+        """
+        Check if all promises are settled.
+
+        Returns:
+            bool: True if all promises are settled, False otherwise.
+        """
+        if len(self.promises) == 0:
+            return True
+
+        return all(p.done() for p in self.promises)
+
+    def result(self) -> Result[list[Any], Exception]:
+        """
+        Get the results of all promises.
+
+        Returns:
+            Result[list[any]], Exception]: A Result containing
+            a list of all promise results and rejections (Ok or Err).
+        """
+        if len(self.promises) == 0:
+            return Ok([])
+
+        res = []
+        for p in self.promises:
+            print(f"procesing promise {p}")
+            try:
+                ok = p.result()
+                res.append(ok)
+            except Exception as err:  # noqa: BLE001, PERF203, Note:
+                res.append(err)
+
+        return Ok(res)
 
 
 class Race(Combinator[Any]):
@@ -178,6 +231,9 @@ class Race(Combinator[Any]):
     """
 
     def __init__(self, promises: list[Promise[Any]]) -> None:
+        assert (
+            len(promises) > 0
+        ), "Race combinator requires a non empty list of promises"
         super().__init__()
         self.promises = promises
 

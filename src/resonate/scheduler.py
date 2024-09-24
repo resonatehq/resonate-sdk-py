@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import sys
 from inspect import isgenerator, isgeneratorfunction
@@ -16,7 +15,7 @@ from resonate.context import (
 )
 from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.dependency_injection import Dependencies
-from resonate.encoders import ErrorEncoder, JsonEncoder
+from resonate.encoders import JsonEncoder
 from resonate.events import (
     ExecutionAwaited,
     ExecutionInvoked,
@@ -174,6 +173,15 @@ class Scheduler:
         self._completion_queue.put(_CQE[Any](sqe=sqe, fn_result=value))
         self._signal()
 
+    def _enqueue_combinator(
+        self, combinator: Combinator[Any], promise: Promise[Any]
+    ) -> None:
+        assert (
+            not promise.done()
+        ), "Do not enqueue done promises associated to a combinator."
+        self._combinators_queue.put_nowait((combinator, promise))
+        self._signal()
+
     def _signal(self) -> None:
         self._worker_continue.set()
 
@@ -194,7 +202,7 @@ class Scheduler:
                 ikey=utils.string_to_ikey(promise_id),
                 strict=False,
                 headers=None,
-                data=ErrorEncoder.encode(value.err()),
+                data=self._json_encoder.encode(value.err()),
             )
         assert_never(value)
 
@@ -223,13 +231,13 @@ class Scheduler:
             if durable_promise_record.value.data is None:
                 raise NotImplementedError
 
-            v = Err(ErrorEncoder.decode(durable_promise_record.value.data))
+            v = Err(self._json_encoder.decode(durable_promise_record.value.data))
         else:
             assert durable_promise_record.is_resolved()
             if durable_promise_record.value.data is None:
                 v = Ok(None)
             else:
-                v = Ok(json.loads(durable_promise_record.value.data))
+                v = Ok(self._json_encoder.decode(durable_promise_record.value.data))
         return v
 
     def _get_ctx_from_ephemeral_memo(
@@ -450,7 +458,7 @@ class Scheduler:
                     self._resolve_promise(p, combinator.result())
                     self._unblock_coros_waiting_on_promise(p)
                 else:
-                    self._combinators_queue.put_nowait((combinator, p))
+                    self._enqueue_combinator(combinator, p)
 
             while self._runnable_coros:
                 runnable, was_awaited = self._runnable_coros.pop()
@@ -605,8 +613,6 @@ class Scheduler:
                 runnable.coro_and_promise, Ok(p), was_awaited=False
             )
 
-        elif isinstance(yieldable_or_final_value, Sleep):
-            raise NotImplementedError
         elif isinstance(yieldable_or_final_value, DeferredInvocation):
             deferred_p: Promise[Any] = self.with_options(
                 retry_policy=yieldable_or_final_value.opts.retry_policy
@@ -619,6 +625,10 @@ class Scheduler:
             self._add_coro_to_runnables(
                 runnable.coro_and_promise, Ok(deferred_p), was_awaited=False
             )
+
+        elif isinstance(yieldable_or_final_value, Sleep):
+            raise NotImplementedError
+
         else:
             assert_never(yieldable_or_final_value)
 
@@ -652,6 +662,6 @@ class Scheduler:
         if p.done():
             self._unblock_coros_waiting_on_promise(p)
         else:
-            self._combinators_queue.put_nowait((combinator, p))
+            self._enqueue_combinator(combinator, p)
 
         return p

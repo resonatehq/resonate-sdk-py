@@ -176,7 +176,6 @@ def coro(ctx: Context, policy_info: dict[str, Any]) -> Generator[Yieldable, Any,
     )
 
 
-@pytest.mark.skip
 @pytest.mark.parametrize("store", _promise_storages())
 def test_retry(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(durable_promise_storage=store)
@@ -281,6 +280,13 @@ def _fn_sleep(_ctx: Context, wait: float, result: str) -> str:
     return result
 
 
+def _fn_raise_or_ret(_ctx: Context, val: Any) -> Any:  # noqa: ANN401
+    if isinstance(val, Exception):
+        raise val
+
+    return val
+
+
 def race_coro(
     ctx: Context, waits_results: list[tuple[float, str]]
 ) -> Generator[Yieldable, Any, str]:
@@ -297,7 +303,7 @@ def race_coro(
 
 def all_coro(
     ctx: Context, waits_results: list[tuple[float, str]]
-) -> Generator[Yieldable, Any, str]:
+) -> Generator[Yieldable, Any, list[str]]:
     ps = []
     for wt, result in waits_results:
         p = yield ctx.lfi(_fn_sleep, wait=wt, result=result)
@@ -309,13 +315,29 @@ def all_coro(
     return res
 
 
+def all_settled_coro(
+    ctx: Context, vals: list[Any]
+) -> Generator[Yieldable, Any, list[str]]:
+    ps = []
+    for val in vals:
+        p = yield ctx.lfi(_fn_raise_or_ret, val=val).with_options(retry_policy=never())
+        ps.append(p)
+
+    p_all_settled = yield ctx.all_settled(ps)
+
+    res = yield p_all_settled
+    return res
+
+
 @pytest.mark.parametrize("store", _promise_storages())
 def test_all_combinator(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(durable_promise_storage=store)
     # Test case 1
     waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "E")]
     expected = ["A", "B", "C", "D", "E"]
-    p_all: Promise[str] = s.run("all-coro-0", all_coro, waits_results=waits_results)
+    p_all: Promise[list[str]] = s.run(
+        "all-coro-0", all_coro, waits_results=waits_results
+    )
     assert p_all.result() == expected
 
     # Test case 2
@@ -336,16 +358,52 @@ def test_all_combinator(store: IPromiseStore) -> None:
     p_all = s.run("all-coro-3", all_coro, waits_results=waits_results)
     assert p_all.result() == expected
 
-    # Test case 5
+    # Test case - empty list
     waits_results = []
     expected = []
     p_all = s.run("all-coro-4", all_coro, waits_results=waits_results)
-    assert p_all.result() == expected
+    # failure of this test will most likely appear as a timeout
+    assert p_all.result(timeout=1) == expected
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_all_settled_combinator(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(durable_promise_storage=store)
+    # Test case 1
+    vals = ["A", "B", "C", "D", "E"]
+    expected = ["A", "B", "C", "D", "E"]
+    p_all_settled: Promise[list[Any]] = s.run(
+        "all-settled-coro-0", all_settled_coro, vals=vals
+    )
+    assert p_all_settled.result() == expected
+
+    # Test case 2
+    vals = ["A"]
+    expected = ["A"]
+    p_all_settled = s.run("all-settled-coro-1", all_settled_coro, vals=vals)
+    assert p_all_settled.result() == expected
+
+    # Test case 3
+    vals_err = ["A", ValueError()]
+    expected_err = ["A", ValueError()]
+    p_all_settled = s.run("all-settled-coro-2", all_settled_coro, vals=vals_err)
+    for val, exp in zip(p_all_settled.result(timeout=1), expected_err):
+        if isinstance(val, Exception):
+            assert isinstance(val, type(exp))
+        else:
+            assert val == exp
+
+    # Test case - empty list
+    vals = []
+    expected = []
+    p_all_settled = s.run("all-settled-coro-3", all_settled_coro, vals=vals)
+    # failure of this test will most likely appear as a timeout
+    assert p_all_settled.result(timeout=1) == expected
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_race_combinator(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(durable_promise_storage=LocalPromiseStore())
+    s = scheduler.Scheduler(durable_promise_storage=store)
 
     # Test case 1
     waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "F")]
@@ -359,8 +417,8 @@ def test_race_combinator(store: IPromiseStore) -> None:
     p_race = s.run("race-coro-1", race_coro, waits_results=waits_results)
     assert p_race.result() == expected
 
-    # Test case 3
-    waits_results = [(0.01, "A"), (0.01, "B"), (0.01, "C")]
+    # # Test case 3
+    waits_results = [(0.010, "A"), (0.02, "B"), (0.02, "C")]
     expected = "A"
     p_race = s.run("race-coro-2", race_coro, waits_results=waits_results)
     assert p_race.result() == expected
@@ -373,6 +431,6 @@ def test_race_combinator(store: IPromiseStore) -> None:
 
     # Test case 5
     waits_results = []
-    expected = None
     p_race = s.run("race-coro-4", race_coro, waits_results=waits_results)
-    assert p_race.result() == expected
+    with pytest.raises(AssertionError):
+        p_race.result()

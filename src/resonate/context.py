@@ -6,8 +6,8 @@ from typing_extensions import ParamSpec
 
 from resonate.actions import (
     All,
+    AllSettled,
     Call,
-    Combinator,
     DeferredInvocation,
     Invocation,
     Race,
@@ -137,3 +137,6 @@ class Context:
 
     def race(self, promises: list[Promise[Any]]) -> Race:
         return Race(promises)
+
+    def all_settled(self, promises: list[Promise[Any]]) -> AllSettled:
+        return AllSettled(promises)
