@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from resonate import scheduler
-from resonate.retry_policy import Linear, calculate_total_possible_delay, never
+from resonate.retry_policy import (
+    Linear,
+    calculate_total_possible_delay,
+    constant,
+    never,
+)
 from resonate.storage import (
     IPromiseStore,
     LocalPromiseStore,
@@ -159,13 +164,15 @@ def test_sleep_on_coroutines(store: IPromiseStore) -> None:
     ), f"I should have taken about {sleep_time} seconds to process all coroutines"
 
 
-def _failing(ctx: Context) -> None:  # noqa: ARG001, RUF100
-    raise NotImplementedError
+def _failing(ctx: Context, error: type[Exception]) -> None:  # noqa: ARG001, RUF100
+    raise error
 
 
 def coro(ctx: Context, policy_info: dict[str, Any]) -> Generator[Yieldable, Any, None]:
     policy = Linear(delay=policy_info["delay"], max_retries=policy_info["max_retries"])
-    yield ctx.lfc(_failing).with_options(retry_policy=policy)
+    yield ctx.lfc(_failing, error=NotImplementedError).with_options(
+        durable=False, retry_policy=policy
+    )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -184,3 +191,67 @@ def test_retry(store: IPromiseStore) -> None:
     assert (
         time.time() - start <= total_possible_delay + 0.1
     ), f"It should have taken about {total_possible_delay} + 0.1 secs (for API calling) to finish"  # noqa: E501
+
+
+def coro_that_triggers_structure_concurrency(
+    ctx: Context,
+) -> Generator[Yieldable, Any, int]:
+    yield ctx.lfi(foo, name="a", sleep_time=0.3)
+    return 1
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_structure_concurrency(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(durable_promise_storage=store)
+    start = time.time()
+    p: Promise[int] = s.with_options(retry_policy=never()).run(
+        "structure-concurrency", coro_that_triggers_structure_concurrency
+    )
+    assert p.result() == 1
+    max_expected_delay = 0.3 + 0.1
+    assert (
+        time.time() - start <= max_expected_delay
+    ), f"It should have taken about {max_expected_delay} to finish"
+
+
+def coro_that_triggers_structure_concurrency_and_fails(
+    ctx: Context,
+) -> Generator[Yieldable, Any, int]:
+    yield ctx.lfi(_failing, error=NotImplementedError).with_options(
+        retry_policy=constant(delay=0.03, max_retries=2), durable=False
+    )
+    return 1
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_structure_concurrency_with_failure(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(durable_promise_storage=store)
+    p: Promise[int] = s.with_options(retry_policy=never()).run(
+        "structure-concurrency-with-failure",
+        coro_that_triggers_structure_concurrency_and_fails,
+    )
+    with pytest.raises(NotImplementedError):
+        p.result()
+
+
+def coro_that_trigger_structure_concurrency_and_multiple_errors(
+    ctx: Context,
+) -> Generator[Yieldable, Any, int]:
+    yield ctx.lfi(_failing, error=TypeError).with_options(
+        retry_policy=never(), durable=False
+    )
+    yield ctx.lfi(_failing, error=NotImplementedError).with_options(
+        durable=False, retry_policy=never()
+    )
+    return 1
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> None:
+    s = scheduler.Scheduler(durable_promise_storage=store)
+    p: Promise[int] = s.with_options(retry_policy=never()).run(
+        "structure-concurrency-with-many-failure",
+        coro_that_trigger_structure_concurrency_and_multiple_errors,
+    )
+    with pytest.raises(TypeError):
+        p.result()
