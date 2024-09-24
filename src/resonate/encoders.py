@@ -71,22 +71,3 @@ def _import_class_from_qualified_name(qualified_name: str) -> Any:  # noqa: ANN4
     module_name, class_name = qualified_name.rsplit(".", 1)
     module = importlib.import_module(module_name)
     return getattr(module, class_name)
-
-
-# @final
-# class ErrorEncoder(IEncoder[Exception, str]):
-#     @classmethod
-#     def encode(cls, data: Exception) -> str:
-#         return json.dumps(
-#             {
-#                 "__type": _classname(data),
-#                 "msg": str(data),
-#                 "attributes": data.__dict__,
-#             }
-#         )
-
-#     @classmethod
-#     def decode(cls, data: str) -> Exception:
-#         ex_data: dict[str, Any] = json.loads(data)
-#         error_class = _import_class_from_qualified_name(ex_data["__type"])
-#         return error_class(ex_data["msg"], **ex_data["attributes"])

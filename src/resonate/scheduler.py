@@ -535,7 +535,7 @@ class Scheduler:
             )
         )
 
-    def _advance_runnable_span(  # noqa: C901, PLR0912
+    def _advance_runnable_span(  # noqa: C901, PLR0912. Note: We want to keep all the control flow in the function
         self, runnable: Runnable[Any], *, was_awaited: bool
     ) -> None:
         assert isgenerator(

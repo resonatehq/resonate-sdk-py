@@ -13,8 +13,6 @@ if TYPE_CHECKING:
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from typing_extensions import override
-
 from resonate.result import Err, Ok, Result
 from resonate.retry_policy import never
 
@@ -177,7 +175,8 @@ class All(Combinator[list[Any]]):
 
 class AllSettled(Combinator[list[Any]]):
     """
-    A combinator that waits for all promises to complete and returns a list of results or Errors.
+    A combinator that waits for all promises to complete and returns a list of results
+    or Errors.
 
     Attributes:
         promises (list[Promise[Any]]): A list of promises to be combined.
@@ -212,11 +211,10 @@ class AllSettled(Combinator[list[Any]]):
 
         res = []
         for p in self.promises:
-            print(f"procesing promise {p}")
             try:
                 ok = p.result()
                 res.append(ok)
-            except Exception as err:  # noqa: BLE001, PERF203, Note:
+            except Exception as err:  # noqa: BLE001, PERF203
                 res.append(err)
 
         return Ok(res)
@@ -254,8 +252,9 @@ class Race(Combinator[Any]):
         Get the result of the first completed promise.
 
         Returns:
-            Result[Any, Exception]: A Result containing either the value of the first completed promise (Ok)
-            or an Exception if no promise completed successfully (Err).
+            Result[Any, Exception]: A Result containing either the value of the first
+            completed promise (Ok) or an Exception if no promise completed successfully
+            (Err).
         """
         if not self.promises:
             return Ok(None)
