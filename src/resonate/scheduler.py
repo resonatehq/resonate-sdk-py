@@ -152,6 +152,9 @@ class Scheduler:
         self._durable_promise_storage = durable_promise_storage
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
+        # Note: There's a potential race condition with this attribute.
+        # since we do scheduler.run() on both application thread and scheduler thread
+        # there's a risk of overwriting options.
         self._top_level_options: Options | None = None
 
         self._worker_thread = Thread(target=self._run, daemon=True)

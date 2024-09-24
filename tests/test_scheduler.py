@@ -258,8 +258,7 @@ def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> N
 
 
 def coro_with_deferred_invoke(ctx: Context) -> Generator[Yieldable, Any, int]:
-    _ = yield ctx.lfi_deferred("deferred-invoke", foo, name="A", sleep_time=0.2)
-    time.sleep(0.1)
+    _ = yield ctx.lfi_deferred("deferred-invoke", foo, name="A", sleep_time=0.5)
     return 1
 
 
@@ -271,5 +270,5 @@ def test_deferred_invoke(store: IPromiseStore) -> None:
     assert p.result() == 1
     assert time.time() - start <= 0.1 + 0.1
 
-    def_p = s.run("deferred-invoke", foo, name="B", sleep_time=2)
+    def_p = s.run("deferred-invoke", foo, name="B", sleep_time=120)
     assert def_p.result() == "A"
