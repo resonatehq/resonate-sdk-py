@@ -403,7 +403,7 @@ def test_all_settled_combinator(store: IPromiseStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_race_combinator(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(durable_promise_storage=store, processor_threads=8)
 
     # Test case 1
     waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "F")]
