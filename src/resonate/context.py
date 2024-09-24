@@ -4,12 +4,12 @@ from typing import TYPE_CHECKING, Any, TypeVar, final
 
 from typing_extensions import ParamSpec
 
-from resonate.actions import Call, Invoke, Sleep
+from resonate.actions import Call, DeferredInvoke, Invoke, Sleep
 from resonate.dataclasses import Command, FnOrCoroutine
 from resonate.dependency_injection import Dependencies
 
 if TYPE_CHECKING:
-    from resonate.typing import ExecutionUnit, Invokable
+    from resonate.typing import DurableCoro, DurableFn, ExecutionUnit, Invokable
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -80,6 +80,18 @@ class Context:
         **kwargs: P.kwargs,
     ) -> Call:
         return Call(_wrap_into_execution_unit(invokable, *args, **kwargs))
+
+    def lfi_deferred(
+        self,
+        promise_id: str,
+        coro: DurableCoro[P, T] | DurableFn[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> DeferredInvoke:
+        return DeferredInvoke(
+            promise_id=promise_id, coro=FnOrCoroutine(coro, *args, **kwargs)
+        )
 
     def sleep(self, seconds: int) -> Sleep:
         return Sleep(seconds)

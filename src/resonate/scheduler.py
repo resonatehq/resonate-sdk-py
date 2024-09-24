@@ -10,11 +10,9 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 from typing_extensions import ParamSpec, Self, assert_never
 
 from resonate import utils
-from resonate.actions import Sleep
+from resonate.actions import Call, DeferredInvoke, Invoke, Sleep
 from resonate.context import (
-    Call,
     Context,
-    Invoke,
 )
 from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.dependency_injection import Dependencies
@@ -169,9 +167,6 @@ class Scheduler:
         return self
 
     def enqueue_cqe(self, sqe: _SQE[T], value: Result[T, Exception]) -> None:
-        assert (
-            self._top_level_options is None
-        ), "Do not set options before running this."
         self._completion_queue.put(_CQE[Any](sqe=sqe, fn_result=value))
         self._signal()
 
@@ -510,7 +505,7 @@ class Scheduler:
             )
         )
 
-    def _advance_runnable_span(  # noqa: PLR0912
+    def _advance_runnable_span(  # noqa: C901, PLR0912
         self, runnable: Runnable[Any], *, was_awaited: bool
     ) -> None:
         assert isgenerator(
@@ -582,6 +577,18 @@ class Scheduler:
 
         elif isinstance(yieldable_or_final_value, Sleep):
             raise NotImplementedError
+        elif isinstance(yieldable_or_final_value, DeferredInvoke):
+            deferred_p: Promise[Any] = self.with_options(
+                retry_policy=yieldable_or_final_value.opts.retry_policy
+            ).run(
+                yieldable_or_final_value.promise_id,
+                yieldable_or_final_value.coro.exec_unit,
+                *yieldable_or_final_value.coro.args,
+                **yieldable_or_final_value.coro.kwargs,
+            )
+            self._add_coro_to_runnables(
+                runnable.coro_and_promise, Ok(deferred_p), was_awaited=False
+            )
         else:
             assert_never(yieldable_or_final_value)
 
