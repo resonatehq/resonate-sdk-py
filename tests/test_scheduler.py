@@ -7,6 +7,7 @@ from functools import cache
 from typing import TYPE_CHECKING, Any
 
 import pytest
+
 from resonate import scheduler
 from resonate.retry_policy import (
     Linear,
@@ -58,7 +59,7 @@ def _promise_storages() -> list[IPromiseStore]:
     return stores
 
 
-@pytest.mark.skip()
+@pytest.mark.skip
 @pytest.mark.parametrize("store", _promise_storages())
 def test_coro_return_promise(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(
@@ -128,7 +129,7 @@ def sleep_coroutine(
     return name
 
 
-@pytest.mark.skip()
+@pytest.mark.skip
 @pytest.mark.parametrize("store", _promise_storages())
 def test_sleep_on_coroutines(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(
