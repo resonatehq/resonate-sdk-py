@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, final
 
 from typing_extensions import ParamSpec
 
-from resonate.actions import Call, DeferredInvoke, Invoke, Sleep
+from resonate.actions import Call, DeferredInvocation, Invocation, Sleep
 from resonate.dataclasses import Command, FnOrCoroutine
 from resonate.dependency_injection import Dependencies
 
@@ -69,8 +69,17 @@ class Context:
         /,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Invoke:
-        return self.lfc(invokable, *args, **kwargs).to_invoke()
+    ) -> Invocation:
+        """
+        Local function invocation.
+
+        Invoke and immediatelly receive a `Promise[T]` that
+        represents the future result of the execution.
+
+        The `Promise` can be yielded later in the execution to await
+        for the result.
+        """
+        return self.lfc(invokable, *args, **kwargs).to_invocation()
 
     def lfc(
         self,
@@ -79,17 +88,29 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Call:
+        """
+        Local function call.
+
+        Call and await for the result of the execution. It's syntax
+        sugar for `yield (yield ctx.lfi(...))`
+        """
         return Call(_wrap_into_execution_unit(invokable, *args, **kwargs))
 
-    def lfi_deferred(
+    def deferred(
         self,
         promise_id: str,
         coro: DurableCoro[P, T] | DurableFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> DeferredInvoke:
-        return DeferredInvoke(
+    ) -> DeferredInvocation:
+        """
+        Deferred invocation.
+
+        Invoke as a root invocation. Is equivalent to do `Scheduler.run(...)`
+        invoked execution will be retried and managed from the server.
+        """
+        return DeferredInvocation(
             promise_id=promise_id, coro=FnOrCoroutine(coro, *args, **kwargs)
         )
 

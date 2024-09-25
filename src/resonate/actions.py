@@ -33,13 +33,18 @@ class Call:
         )
         return self
 
-    def to_invoke(self) -> Invoke:
-        return Invoke(self.exec_unit, opts=self.opts)
+    def to_invocation(self) -> Invocation:
+        return Invocation(self.exec_unit, opts=self.opts)
 
 
 @final
 @dataclass
-class DeferredInvoke:
+class DeferredInvocation:
+    """
+    Dataclass that contains all required information to do a
+    deferred invocation.
+    """
+
     promise_id: str
     coro: FnOrCoroutine
     opts: Options = field(default=Options())
@@ -53,7 +58,7 @@ class DeferredInvoke:
 
 @final
 @dataclass
-class Invoke:
+class Invocation:
     exec_unit: ExecutionUnit
     opts: Options = field(default=Options())
 
