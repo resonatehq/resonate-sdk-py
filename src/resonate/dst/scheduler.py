@@ -8,7 +8,15 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Union, final
 from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
 from resonate import utils
-from resonate.actions import Call, Combinator, DeferredInvocation, Invocation, Sleep
+from resonate.actions import (
+    All,
+    AllSettled,
+    Call,
+    DeferredInvocation,
+    Invocation,
+    Race,
+    Sleep,
+)
 from resonate.batching import CmdBuffer
 from resonate.contants import CWD
 from resonate.context import (
@@ -653,7 +661,7 @@ class DSTScheduler:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(
-            yieldable_or_final_value, (Sleep, DeferredInvocation, Combinator)
+            yieldable_or_final_value, (Sleep, DeferredInvocation, All, AllSettled, Race)
         ):
             raise NotImplementedError
 
