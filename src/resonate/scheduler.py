@@ -34,7 +34,12 @@ from resonate.events import (
 from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
 from resonate.itertools import FinalValue, iterate_coro
 from resonate.options import Options
-from resonate.promise import Promise, all_promises_are_done, get_first_error_if_any
+from resonate.promise import (
+    Promise,
+    all_promises_are_done,
+    any_promise_is_done,
+    get_first_error_if_any,
+)
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never
@@ -404,7 +409,7 @@ class Scheduler:
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
-            delay_es = self._delay_queue.dequeue_batch(self._delay_queue.qsize())
+            delay_es = self._delay_queue.dequeue_all()
             for delay_e in delay_es:
                 if isinstance(delay_e, _SQE):
                     self._processor.enqueue(delay_e)
@@ -682,10 +687,10 @@ class Scheduler:
 
     def _combinator_done(self, combinator: Combinator) -> bool:
         if isinstance(combinator, (All, AllSettled)):
-            return all(p.done() for p in combinator.promises)
+            return all_promises_are_done(combinator.promises)
 
         if isinstance(combinator, Race):
-            return any(p.done() for p in combinator.promises)
+            return any_promise_is_done(combinator.promises)
 
         assert_never(combinator)
 
