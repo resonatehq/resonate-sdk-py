@@ -361,6 +361,7 @@ def test_all_combinator(store: IPromiseStore) -> None:
     # Test case 1
     waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "E")]
     expected = ["A", "B", "C", "D", "E"]
+    s.register("all-coro", all_coro)
     p_all: Promise[list[str]] = s.run(
         "all-coro-0", all_coro, waits_results=waits_results
     )
@@ -398,6 +399,7 @@ def test_all_settled_combinator(store: IPromiseStore) -> None:
     # Test case 1
     vals = ["A", "B", "C", "D", "E"]
     expected = ["A", "B", "C", "D", "E"]
+    s.register("all-settled-coro", all_settled_coro)
     p_all_settled: Promise[list[Any]] = s.run(
         "all-settled-coro-0", all_settled_coro, vals=vals
     )
@@ -434,6 +436,7 @@ def test_race_combinator(store: IPromiseStore) -> None:
     # Test case 1
     waits_results = [(0.03, "A"), (0.03, "B"), (0.01, "C"), (0.03, "D"), (0.03, "E")]
     expected = "C"
+    s.register("race-coro", race_coro)
     p_race: Promise[str] = s.run("race-coro-0", race_coro, waits_results=waits_results)
     assert p_race.result() == expected
 

@@ -4,7 +4,6 @@ from typing import Generic, TypeVar
 
 V = TypeVar("V")
 K = TypeVar("K")
-T = TypeVar("T")
 
 
 class DoubleDict(Generic[K, V]):
