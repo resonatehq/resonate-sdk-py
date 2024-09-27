@@ -23,6 +23,8 @@ certifi==2024.8.30
     # via requests
 charset-normalizer==3.3.2
     # via requests
+click==8.1.7
+    # via pydoclint
 configargparse==1.7
     # via pydoctor
 constantly==23.10.4
@@ -31,6 +33,8 @@ deprecated==1.2.14
     # via opentelemetry-api
     # via opentelemetry-exporter-otlp-proto-http
     # via opentelemetry-semantic-conventions
+docstring-parser-fork==0.0.9
+    # via pydoclint
 docutils==0.21.2
     # via pydoctor
 exceptiongroup==1.2.2
@@ -81,6 +85,7 @@ pluggy==1.5.0
 protobuf==4.25.4
     # via googleapis-common-protos
     # via opentelemetry-proto
+pydoclint==0.5.8
 pydoctor==24.3.3
 pytest==8.3.2
 requests==2.32.3
@@ -97,6 +102,7 @@ toml==0.10.2
 tomli==2.0.1
     # via incremental
     # via mypy
+    # via pydoclint
     # via pytest
 twisted==24.7.0
     # via pydoctor
