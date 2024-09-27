@@ -23,6 +23,7 @@ jobs:
 
           # Run pydoctor build
           pydoctor --config=docs/pydoctor.ini src/resonate
+        continue-on-error: true
 
       - name: Push API documentation to Github Pages
         uses: peaceiris/actions-gh-pages@v3
