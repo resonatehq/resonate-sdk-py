@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - pydoctor
   workflow_dispatch:
 
 permissions:
