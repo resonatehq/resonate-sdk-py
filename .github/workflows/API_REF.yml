@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v4
       - name: Set up Python 3.12.6
         uses: actions/setup-python@v2
         with:
@@ -36,7 +36,7 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/build/html
+          publish_dir: ./docs/build
           publish_branch: gh-pages
           force_orphan: true # Ensure this creates a fresh gh-pages branch if needed
           commit_message: "Generate API documentation"
