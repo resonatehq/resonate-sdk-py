@@ -1,6 +1,9 @@
 name: API_REF
 on:
-  - push
+  push:
+    branches:
+      - main
+      - pydoctor
 
 permissions:
   contents: write
