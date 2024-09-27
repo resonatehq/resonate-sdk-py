@@ -17,44 +17,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout repository
+      # Step 1: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install Rye (in non-interactive mode)
-      - name: Install Rye in non-interactive mode
+      # Step 2: Set up Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      # Step 3: Install dependencies using pip
+      - name: Install dependencies
         run: |
-          export RYE_HOME=$HOME/.rye
-          curl -sSf https://rye.astral.sh/get | bash -s -- --no-confirm
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pydoctor  # You can add this to your requirements.txt if preferred
 
-      # Step 3: Add Rye to the PATH
-      - name: Add Rye to PATH
-        run: echo "$HOME/.rye/shims:$HOME/.rye/bin" >> $GITHUB_PATH
-
-      # Sync dependencies (including dev dependencies like PyDoctor)
-      - name: Sync dev dependencies
-        run: rye sync --dev
-
-      # Generate the API documentation using PyDoctor
+      # Step 4: Generate the API documentation using PyDoctor
       - name: Build docs using PyDoctor
         run: |
-          rye run pydoctor --config=docs/pydoctor.ini src/resonate
+          pydoctor --config=docs/pydoctor.ini src/resonate
 
-      # Archive the generated documentation for GitHub Pages
+      # Step 5: Archive the generated documentation for GitHub Pages
       - name: Archive artifact
         shell: sh
         run: |
           echo ::group::Archive artifact
           tar \
             --dereference --hard-dereference \
-            --directory docs/build \
+            --directory docs/api \
             -cvf "$RUNNER_TEMP/artifact.tar" \
             --exclude=.git \
             --exclude=.github \
             .
           echo ::endgroup::
 
-      # Upload the artifact for later deployment
+      # Step 6: Upload the artifact for later deployment
       - name: Upload artifact
         id: upload-artifact
         uses: actions/upload-artifact@v4
@@ -72,7 +71,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      # Deploy to GitHub Pages using the uploaded artifact
+      # Step 7: Deploy to GitHub Pages using the uploaded artifact
       - id: deployment
         name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
