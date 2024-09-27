@@ -133,8 +133,8 @@ class Context:
         return Sleep(seconds)
 
     def all(self, promises: list[Promise[Any]]) -> All:
-        """Aggregates multiple promises into a single Promise that resolves when all of the
-        promises in the input list have resolved.
+        """Aggregates multiple promises into a single Promise that resolves when
+        all of the promises in the input list have resolved.
 
         Args: promises (list[Promise[Any]]): An iterable of promises to be aggregated.
 
@@ -164,8 +164,8 @@ class Context:
         Args: promises (list[Promise[Any]]): An iterable of promises to be aggregated.
 
         Returns: AllSettled: A new Promise that resolves with a list of objects,
-        each with a `status` property of either `'fulfilled'` or `'rejected'`, 
-        and a `value` or `reason` property depending on the outcome of the 
+        each with a `status` property of either `'fulfilled'` or `'rejected'`,
+        and a `value` or `reason` property depending on the outcome of the
         corresponding promise.
         """
         return AllSettled(promises)
