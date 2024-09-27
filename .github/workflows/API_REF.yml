@@ -21,9 +21,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Set up Python environment with Rye
-      - name: Set up Python with Rye
-        run: curl -sSf https://rye.astral.sh/get | bash
+      # Step 2: Install Rye (in non-interactive mode)
+      - name: Install Rye in non-interactive mode
+        run: |
+          export RYE_HOME=$HOME/.rye
+          curl -sSf https://rye.astral.sh/get | bash -s -- --no-confirm
+
+      # Step 3: Add Rye to the PATH
+      - name: Add Rye to PATH
+        run: echo "$HOME/.rye/shims:$HOME/.rye/bin" >> $GITHUB_PATH
 
       # Sync dependencies (including dev dependencies like PyDoctor)
       - name: Sync dev dependencies
