@@ -23,7 +23,7 @@ jobs:
 
       # Set up Python environment with Rye
       - name: Set up Python with Rye
-        run: curl -sSf https://rye-up.com/get | bash
+        run: curl -sSf https://rye.astral.sh/get | bash
 
       # Sync dependencies (including dev dependencies like PyDoctor)
       - name: Sync dev dependencies
