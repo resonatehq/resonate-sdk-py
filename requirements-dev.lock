@@ -82,7 +82,6 @@ protobuf==4.25.4
     # via googleapis-common-protos
     # via opentelemetry-proto
 pydoctor==24.3.3
-    # via resonate-sdk
 pytest==8.3.2
 requests==2.32.3
     # via cachecontrol

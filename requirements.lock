@@ -10,46 +10,20 @@
 #   universal: false
 
 -e file:.
-appdirs==1.4.4
-    # via pydoctor
-attrs==24.2.0
-    # via pydoctor
-    # via twisted
-automat==24.8.1
-    # via twisted
-cachecontrol==0.14.0
-    # via pydoctor
 certifi==2024.8.30
     # via requests
 charset-normalizer==3.3.2
     # via requests
-configargparse==1.7
-    # via pydoctor
-constantly==23.10.4
-    # via twisted
 deprecated==1.2.14
     # via opentelemetry-api
     # via opentelemetry-exporter-otlp-proto-http
     # via opentelemetry-semantic-conventions
-docutils==0.21.2
-    # via pydoctor
-filelock==3.16.1
-    # via cachecontrol
 googleapis-common-protos==1.65.0
     # via opentelemetry-exporter-otlp-proto-http
-hyperlink==21.0.0
-    # via twisted
 idna==3.8
-    # via hyperlink
     # via requests
 importlib-metadata==8.4.0
     # via opentelemetry-api
-incremental==24.7.2
-    # via twisted
-lunr==0.6.2
-    # via pydoctor
-msgpack==1.1.0
-    # via cachecontrol
 opentelemetry-api==1.27.0
     # via opentelemetry-exporter-otlp-proto-http
     # via opentelemetry-sdk
@@ -70,33 +44,15 @@ opentelemetry-semantic-conventions==0.48b0
 protobuf==4.25.4
     # via googleapis-common-protos
     # via opentelemetry-proto
-pydoctor==24.3.3
-    # via resonate-sdk
 requests==2.32.3
-    # via cachecontrol
     # via opentelemetry-exporter-otlp-proto-http
-    # via pydoctor
     # via resonate-sdk
-setuptools==75.1.0
-    # via incremental
-    # via zope-interface
-toml==0.10.2
-    # via pydoctor
-tomli==2.0.1
-    # via incremental
-twisted==24.7.0
-    # via pydoctor
 typing-extensions==4.12.2
-    # via automat
     # via opentelemetry-sdk
     # via resonate-sdk
-    # via twisted
 urllib3==2.2.2
-    # via pydoctor
     # via requests
 wrapt==1.16.0
     # via deprecated
 zipp==3.20.1
     # via importlib-metadata
-zope-interface==7.0.3
-    # via twisted
