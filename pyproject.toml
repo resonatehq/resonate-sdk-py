@@ -11,6 +11,7 @@ dependencies = [
     "opentelemetry-api",
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp-proto-http",
+    "pydoctor>=24.3.3",
 ]
 readme = "README.md"
 requires-python = ">= 3.9"
