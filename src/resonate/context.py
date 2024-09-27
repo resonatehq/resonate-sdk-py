@@ -133,17 +133,14 @@ class Context:
         return Sleep(seconds)
 
     def all(self, promises: list[Promise[Any]]) -> All:
-        """
-        Aggregates multiple promises into a single Promise that resolves when all of the
+        """Aggregates multiple promises into a single Promise that resolves when all of the
         promises in the input list have resolved.
-
-        Args:
-            promises (list[Promise[Any]]): An iterable of promises to be aggregated.
-
-        Returns:
-            All: A new Promise that resolves with a list of the resolved values from
-            each promise in the input list, or rejects with the reason of the first
-            promise that rejects.
+        
+        Args: promises (list[Promise[Any]]): An iterable of promises to be aggregated.
+            
+        Returns: All: A new Promise that resolves with a list of the resolved values from
+        each promise in the input list, or rejects with the reason of the first
+        promise that rejects.
         """
         return All(promises)
 
@@ -152,12 +149,10 @@ class Context:
         Aggregates multiple promises and returns a new Promise that resolves or rejects
         as soon as one of the promises in the input list resolves or rejects.
 
-        Args:
-            promises (list[Promise[Any]]): An iterable of promises to be raced.
+        Args: promises (list[Promise[Any]]): An iterable of promises to be raced.
 
-        Returns:
-            Race: A new Promise that resolves or rejects with the value/reason of the
-            first promise in the list that resolves or rejects.
+        Returns: Race: A new Promise that resolves or rejects with the value/reason of the
+        first promise in the list that resolves or rejects.
         """
         return Race(promises)
 
@@ -166,12 +161,10 @@ class Context:
         Aggregates multiple promises and returns a new Promise that resolves when all of
         the promises in the input list have either resolved or rejected.
 
-        Args:
-            promises (list[Promise[Any]]): An iterable of promises to be aggregated.
+        Args: promises (list[Promise[Any]]): An iterable of promises to be aggregated.
 
-        Returns:
-            AllSettled: A new Promise that resolves with a list of objects, each with a
-            `status` property of either `'fulfilled'` or `'rejected'`, and a `value` or
-            `reason` property depending on the outcome of the corresponding promise.
+        Returns: AllSettled: A new Promise that resolves with a list of objects, each with a
+        `status` property of either `'fulfilled'` or `'rejected'`, and a `value` or
+        `reason` property depending on the outcome of the corresponding promise.
         """
         return AllSettled(promises)
