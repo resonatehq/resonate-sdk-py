@@ -7,6 +7,7 @@ from typing_extensions import assert_never
 
 from resonate.actions import (
     LFI,
+    RFI,
     All,
     AllSettled,
     Race,
@@ -41,6 +42,8 @@ class Promise(Generic[T]):
             self.durable = action.opts.durable
         elif isinstance(action, Sleep):
             raise NotImplementedError
+        elif isinstance(action, RFI):
+            self.durable = True
         else:
             assert_never(action)
 

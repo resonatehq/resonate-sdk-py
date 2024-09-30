@@ -8,8 +8,11 @@ from typing_extensions import ParamSpec, Self
 from resonate.options import Options
 
 if TYPE_CHECKING:
+    from collections.abc import Hashable
+
     from resonate.dataclasses import FnOrCoroutine
     from resonate.retry_policy import RetryPolicy
+    from resonate.typing import Tags
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from resonate.retry_policy import never
@@ -20,6 +23,25 @@ if TYPE_CHECKING:
 
 P = ParamSpec("P")
 T = TypeVar("T")
+
+
+@final
+@dataclass
+class RFI:
+    func: str
+    args: tuple[Hashable, ...]
+    tags: Tags
+
+
+@final
+@dataclass
+class RFC:
+    func: str
+    args: tuple[Hashable, ...]
+    tags: Tags
+
+    def to_invocation(self) -> RFI:
+        return RFI(self.func, self.args, self.tags)
 
 
 @final

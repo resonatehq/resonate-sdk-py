@@ -11,6 +11,8 @@ from resonate import utils
 from resonate.actions import (
     LFC,
     LFI,
+    RFC,
+    RFI,
     All,
     AllSettled,
     DeferredInvocation,
@@ -325,7 +327,7 @@ class DSTScheduler:
                 data = action.exec_unit.json_data()
             else:
                 assert_never(action.exec_unit)
-        elif isinstance(action, (Sleep, All, AllSettled, Race)):
+        elif isinstance(action, (Sleep, All, AllSettled, Race, RFI)):
             raise NotImplementedError
         else:
             assert_never(action)
@@ -680,7 +682,8 @@ class DSTScheduler:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(
-            yieldable_or_final_value, (Sleep, DeferredInvocation, All, AllSettled, Race)
+            yieldable_or_final_value,
+            (Sleep, DeferredInvocation, All, AllSettled, Race, RFC, RFI),
         ):
             raise NotImplementedError
 

@@ -8,6 +8,8 @@ from typing_extensions import Concatenate, ParamSpec, TypeAlias
 from resonate.actions import (
     LFC,
     LFI,
+    RFC,
+    RFI,
     All,
     AllSettled,
     DeferredInvocation,
@@ -27,14 +29,9 @@ ExecutionUnit: TypeAlias = Union[Command, FnOrCoroutine]
 
 Combinator: TypeAlias = Union[All, AllSettled, Race]
 
-PromiseActions: TypeAlias = Union[Combinator, LFI, Sleep]
-Yieldable: TypeAlias = Union[
-    LFC,
-    Combinator,
-    Promise[Any],
-    PromiseActions,
-    DeferredInvocation,
-]
+PromiseActions: TypeAlias = Union[Combinator, LFI, Sleep, RFI]
+
+Yieldable: TypeAlias = Union[LFC, Promise[Any], PromiseActions, DeferredInvocation, RFC]
 
 DurableCoro: TypeAlias = Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]]
 DurableSyncFn: TypeAlias = Callable[Concatenate[Context, P], T]
