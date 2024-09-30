@@ -572,18 +572,18 @@ class DSTScheduler:
         )
 
     def _process_invocation(
-        self, invokation: LFI, runnable: Runnable[Any]
+        self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         p = self._create_promise(
             parent_promise=runnable.coro_and_promise.route_info.promise,
-            promise_id=invokation.opts.promise_id,
-            action=invokation,
+            promise_id=invocation.opts.promise_id,
+            action=invocation,
         )
-        if isinstance(invokation.exec_unit, Command):
-            self._handler_queues[type(invokation.exec_unit)].append(
-                (p, invokation.exec_unit)
+        if isinstance(invocation.exec_unit, Command):
+            self._handler_queues[type(invocation.exec_unit)].append(
+                (p, invocation.exec_unit)
             )
-        elif isinstance(invokation.exec_unit, FnOrCoroutine):
+        elif isinstance(invocation.exec_unit, FnOrCoroutine):
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
             else:
@@ -591,12 +591,12 @@ class DSTScheduler:
                     RouteInfo(
                         runnable.coro_and_promise.route_info.ctx,
                         p,
-                        invokation.exec_unit,
+                        invocation.exec_unit,
                         0,
                     )
                 )
         else:
-            assert_never(invokation.exec_unit)
+            assert_never(invocation.exec_unit)
         return p
 
     def _add_coro_to_awaitables(
@@ -664,7 +664,7 @@ class DSTScheduler:
 
         elif isinstance(yieldable_or_final_value, LFI):
             p = self._process_invocation(
-                invokation=yieldable_or_final_value, runnable=runnable
+                invocation=yieldable_or_final_value, runnable=runnable
             )
             self._add_coro_to_runnables(
                 runnable.coro_and_promise, Ok(p), was_awaited=False

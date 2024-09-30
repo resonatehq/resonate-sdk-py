@@ -662,17 +662,17 @@ class Scheduler:
             assert_never(yieldable_or_final_value)
 
     def _process_invocation(
-        self, invokation: LFI, runnable: Runnable[Any]
+        self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         p = self._create_promise(
             parent_promise=runnable.coro_and_promise.route_info.promise,
-            promise_id=invokation.opts.promise_id,
-            action=invokation,
+            promise_id=invocation.opts.promise_id,
+            action=invocation,
         )
 
-        if isinstance(invokation.exec_unit, Command):
+        if isinstance(invocation.exec_unit, Command):
             raise NotImplementedError
-        if isinstance(invokation.exec_unit, FnOrCoroutine):
+        if isinstance(invocation.exec_unit, FnOrCoroutine):
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
             else:
@@ -680,12 +680,12 @@ class Scheduler:
                     RouteInfo(
                         ctx=runnable.coro_and_promise.route_info.ctx,
                         promise=p,
-                        fn_or_coroutine=invokation.exec_unit,
+                        fn_or_coroutine=invocation.exec_unit,
                         retry_attempt=0,
                     )
                 )
         else:
-            assert_never(invokation.exec_unit)
+            assert_never(invocation.exec_unit)
         return p
 
     def _process_combinator(
