@@ -571,7 +571,7 @@ class DSTScheduler:
             tags=None,
         )
 
-    def _process_invocation(
+    def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         p = self._create_promise(
@@ -647,7 +647,7 @@ class DSTScheduler:
                 p=runnable.coro_and_promise.route_info.promise
             )
         elif isinstance(yieldable_or_final_value, LFC):
-            p = self._process_invocation(
+            p = self._process_local_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
             )
             assert (
@@ -663,7 +663,7 @@ class DSTScheduler:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(yieldable_or_final_value, LFI):
-            p = self._process_invocation(
+            p = self._process_local_invocation(
                 invocation=yieldable_or_final_value, runnable=runnable
             )
             self._add_coro_to_runnables(

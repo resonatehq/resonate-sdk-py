@@ -608,7 +608,7 @@ class Scheduler:
                 )
 
         elif isinstance(yieldable_or_final_value, LFC):
-            p = self._process_invocation(
+            p = self._process_local_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
             )
             assert (
@@ -623,7 +623,7 @@ class Scheduler:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(yieldable_or_final_value, LFI):
-            p = self._process_invocation(yieldable_or_final_value, runnable)
+            p = self._process_local_invocation(yieldable_or_final_value, runnable)
             self._add_coro_to_runnables(
                 runnable.coro_and_promise, Ok(p), was_awaited=False
             )
@@ -661,7 +661,7 @@ class Scheduler:
         else:
             assert_never(yieldable_or_final_value)
 
-    def _process_invocation(
+    def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         p = self._create_promise(
