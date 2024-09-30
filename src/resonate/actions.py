@@ -24,7 +24,7 @@ T = TypeVar("T")
 
 @final
 @dataclass
-class Call:
+class LFC:
     exec_unit: ExecutionUnit
     opts: Options = field(default=Options())
 
@@ -40,8 +40,8 @@ class Call:
         )
         return self
 
-    def to_invocation(self) -> Invocation:
-        return Invocation(self.exec_unit, opts=self.opts)
+    def to_invocation(self) -> LFI:
+        return LFI(self.exec_unit, opts=self.opts)
 
 
 @final
@@ -65,7 +65,7 @@ class DeferredInvocation:
 
 @final
 @dataclass
-class Invocation:
+class LFI:
     exec_unit: ExecutionUnit
     opts: Options = field(default=Options())
 

@@ -9,11 +9,11 @@ from typing_extensions import ParamSpec, TypeAlias, TypeVar, assert_never
 
 from resonate import utils
 from resonate.actions import (
+    LFC,
+    LFI,
     All,
     AllSettled,
-    Call,
     DeferredInvocation,
-    Invocation,
     Race,
     Sleep,
 )
@@ -112,7 +112,7 @@ class DSTScheduler:
         | None,
         durable_promise_storage: IPromiseStore,
     ) -> None:
-        self._stg_queue: list[tuple[Invocation, str]] = []
+        self._stg_queue: list[tuple[LFI, str]] = []
         self._runnable_coros: RunnableCoroutines = []
         self._awatiables: Awaitables = {}
         self._runnable_functions: RunnableFunctions = []
@@ -232,7 +232,7 @@ class DSTScheduler:
             promise_id not in self._emphemeral_promise_memo
         ), "There's already a promise with the same id"
 
-        top_lvl = Invocation(
+        top_lvl = LFI(
             FnOrCoroutine(coro, *args, **kwargs),
             opts=opts,
         )
@@ -318,7 +318,7 @@ class DSTScheduler:
             p.promise_id not in self._emphemeral_promise_memo
         ), "There should not be a new promise with same promise id."
         self._emphemeral_promise_memo[p.promise_id] = p
-        if isinstance(action, Invocation):
+        if isinstance(action, LFI):
             if isinstance(action.exec_unit, Command):
                 raise NotImplementedError
             if isinstance(action.exec_unit, FnOrCoroutine):
@@ -384,7 +384,7 @@ class DSTScheduler:
         return v
 
     def _move_next_top_lvl_invocation_to_runnables(
-        self, top_lvl: Invocation, promise_id: str
+        self, top_lvl: LFI, promise_id: str
     ) -> Promise[Any]:
         assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
         root_ctx = Context(
@@ -506,7 +506,7 @@ class DSTScheduler:
                 ## This simulates the processor in the production scheduler.
                 fn_wrapper, promise = self._get_random_element(self._runnable_functions)
                 assert not promise.done(), "Only unresolve promises can be found here."
-                assert isinstance(promise.action, Invocation)
+                assert isinstance(promise.action, LFI)
 
                 v = (
                     _safe_run(self._mocks[fn_wrapper.fn])
@@ -574,7 +574,7 @@ class DSTScheduler:
         )
 
     def _process_invocation(
-        self, invokation: Invocation, runnable: Runnable[Any]
+        self, invokation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         p = self._create_promise(
             parent_promise=runnable.coro_and_promise.route_info.promise,
@@ -648,7 +648,7 @@ class DSTScheduler:
             self._unblock_coros_waiting_on_promise(
                 p=runnable.coro_and_promise.route_info.promise
             )
-        elif isinstance(yieldable_or_final_value, Call):
+        elif isinstance(yieldable_or_final_value, LFC):
             p = self._process_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
             )
@@ -664,7 +664,7 @@ class DSTScheduler:
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
-        elif isinstance(yieldable_or_final_value, Invocation):
+        elif isinstance(yieldable_or_final_value, LFI):
             p = self._process_invocation(
                 invokation=yieldable_or_final_value, runnable=runnable
             )

@@ -10,11 +10,11 @@ from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
 from resonate.actions import (
+    LFC,
+    LFI,
     All,
     AllSettled,
-    Call,
     DeferredInvocation,
-    Invocation,
     Race,
     Sleep,
 )
@@ -141,7 +141,7 @@ class Scheduler:
         self._registered_function = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, Options] = {}
 
-        self._stg_queue = Queue[tuple[Invocation, Promise[Any], Context]]()
+        self._stg_queue = Queue[tuple[LFI, Promise[Any], Context]]()
         self._completion_queue = Queue[_CQE[Any]]()
         self._submission_queue = Queue[_SQE[Any]]()
         self._combinators_queue = Queue[tuple[Combinator, Promise[Any]]]()
@@ -264,7 +264,7 @@ class Scheduler:
             p.promise_id not in self._emphemeral_promise_memo
         ), "There should not be a new promise with same promise id."
         self._emphemeral_promise_memo[p.promise_id] = p
-        if isinstance(action, Invocation):
+        if isinstance(action, LFI):
             if isinstance(action.exec_unit, Command):
                 raise NotImplementedError
             if isinstance(action.exec_unit, FnOrCoroutine):
@@ -350,7 +350,7 @@ class Scheduler:
         attached_options = self._attached_options_to_top_lvl[function_name]
 
         assert attached_options.durable, "All top level invocation must be durable."
-        top_lvl = Invocation(
+        top_lvl = LFI(
             FnOrCoroutine(coro, *args, **kwargs),
             opts=attached_options,
         )
@@ -609,7 +609,7 @@ class Scheduler:
                     delay=runnable.coro_and_promise.route_info.next_retry_delay(),
                 )
 
-        elif isinstance(yieldable_or_final_value, Call):
+        elif isinstance(yieldable_or_final_value, LFC):
             p = self._process_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
             )
@@ -624,7 +624,7 @@ class Scheduler:
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
-        elif isinstance(yieldable_or_final_value, Invocation):
+        elif isinstance(yieldable_or_final_value, LFI):
             p = self._process_invocation(yieldable_or_final_value, runnable)
             self._add_coro_to_runnables(
                 runnable.coro_and_promise, Ok(p), was_awaited=False
@@ -664,7 +664,7 @@ class Scheduler:
             assert_never(yieldable_or_final_value)
 
     def _process_invocation(
-        self, invokation: Invocation, runnable: Runnable[Any]
+        self, invokation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         p = self._create_promise(
             parent_promise=runnable.coro_and_promise.route_info.promise,

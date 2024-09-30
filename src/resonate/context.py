@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Any, TypeVar, final
 from typing_extensions import ParamSpec
 
 from resonate.actions import (
+    LFC,
+    LFI,
     All,
     AllSettled,
-    Call,
     DeferredInvocation,
-    Invocation,
     Race,
     Sleep,
 )
@@ -65,7 +65,7 @@ class Context:
         /,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Invocation:
+    ) -> LFI:
         """
         Local function invocation.
 
@@ -83,14 +83,14 @@ class Context:
         /,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Call:
+    ) -> LFC:
         """
         Local function call.
 
-        Call and await for the result of the execution. It's syntax
+        LFC and await for the result of the execution. It's syntax
         sugar for `yield (yield ctx.lfi(...))`
         """
-        return Call(_wrap_into_execution_unit(invokable, *args, **kwargs))
+        return LFC(_wrap_into_execution_unit(invokable, *args, **kwargs))
 
     def deferred(
         self,
