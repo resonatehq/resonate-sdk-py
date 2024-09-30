@@ -717,7 +717,7 @@ class Scheduler:
     def _combinator_result(
         self, combinator: Combinator
     ) -> Result[
-        Any | list[Any | Exception], Exception
+        T | list[T | Exception], Exception
     ]:  # Note: We can't possible have single type for all the promises of a Combinator
         if isinstance(combinator, All):
             try:
