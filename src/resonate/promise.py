@@ -9,7 +9,6 @@ from resonate.actions import (
     LFI,
     All,
     AllSettled,
-    DeferredInvocation,
     Race,
     Sleep,
 )
@@ -38,7 +37,7 @@ class Promise(Generic[T]):
         self.children_promises: list[Promise[Any]] = []
 
         self.action = action
-        if isinstance(action, (DeferredInvocation, LFI, All, AllSettled, Race)):
+        if isinstance(action, (LFI, All, AllSettled, Race)):
             self.durable = action.opts.durable
         elif isinstance(action, Sleep):
             raise NotImplementedError

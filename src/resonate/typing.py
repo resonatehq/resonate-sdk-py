@@ -27,15 +27,14 @@ ExecutionUnit: TypeAlias = Union[Command, FnOrCoroutine]
 
 Combinator: TypeAlias = Union[All, AllSettled, Race]
 
+PromiseActions: TypeAlias = Union[Combinator, LFI, Sleep]
 Yieldable: TypeAlias = Union[
     LFC,
     Combinator,
-    LFI,
     Promise[Any],
-    Sleep,
+    PromiseActions,
     DeferredInvocation,
 ]
-PromiseActions: TypeAlias = Union[Combinator, LFI, Sleep, DeferredInvocation]
 
 DurableCoro: TypeAlias = Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]]
 DurableSyncFn: TypeAlias = Callable[Concatenate[Context, P], T]

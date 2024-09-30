@@ -325,8 +325,6 @@ class DSTScheduler:
                 data = action.exec_unit.json_data()
             else:
                 assert_never(action.exec_unit)
-        elif isinstance(action, DeferredInvocation):
-            data = action.coro.json_data()
         elif isinstance(action, (Sleep, All, AllSettled, Race)):
             raise NotImplementedError
         else:
@@ -561,14 +559,14 @@ class DSTScheduler:
         assert_never(value)
 
     def _create_durable_promise_record(
-        self, promise_id: str, data: dict[str, Any]
+        self, promise_id: str, data: dict[str, Any] | None
     ) -> DurablePromiseRecord:
         return self._durable_promise_storage.create(
             promise_id=promise_id,
             ikey=utils.string_to_ikey(promise_id),
             strict=False,
             headers=None,
-            data=self._json_encoder.encode(data),
+            data=self._json_encoder.encode(data) if data is not None else None,
             timeout=sys.maxsize,
             tags=None,
         )
