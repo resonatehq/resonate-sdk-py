@@ -28,6 +28,7 @@ T = TypeVar("T")
 @final
 @dataclass
 class RFI:
+    promise_id: str | None
     func: str
     args: tuple[Hashable, ...]
     tags: Tags
@@ -36,12 +37,13 @@ class RFI:
 @final
 @dataclass
 class RFC:
+    promise_id: str | None
     func: str
     args: tuple[Hashable, ...]
     tags: Tags
 
     def to_invocation(self) -> RFI:
-        return RFI(self.func, self.args, self.tags)
+        return RFI(self.promise_id, self.func, self.args, self.tags)
 
 
 @final

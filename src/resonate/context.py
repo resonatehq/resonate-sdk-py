@@ -64,14 +64,27 @@ class Context:
         return self.deps.get(key)
 
     def rfc(
-        self, func: str, args: tuple[Hashable, ...], receiver: str = "default"
+        self,
+        func: str,
+        args: tuple[Hashable, ...],
+        receiver: str = "default",
+        promise_id: str | None = None,
     ) -> RFC:
-        return RFC(func=func, args=args, tags={"resonate:invoke": receiver})
+        return RFC(
+            promise_id=promise_id,
+            func=func,
+            args=args,
+            tags={"resonate:invoke": receiver},
+        )
 
     def rfi(
-        self, func: str, args: tuple[Hashable, ...], receiver: str = "default"
+        self,
+        func: str,
+        args: tuple[Hashable, ...],
+        receiver: str = "default",
+        promise_id: str | None = None,
     ) -> RFI:
-        return self.rfc(func, args, receiver).to_invocation()
+        return self.rfc(func, args, receiver, promise_id).to_invocation()
 
     def lfi(
         self,

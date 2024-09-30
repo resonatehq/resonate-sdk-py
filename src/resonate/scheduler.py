@@ -691,7 +691,7 @@ class Scheduler:
     ) -> Promise[Any]:
         return self._create_promise(
             parent_promise=runnable.coro_and_promise.route_info.promise,
-            promise_id=None,
+            promise_id=invocation.promise_id,
             action=invocation,
         )
 
