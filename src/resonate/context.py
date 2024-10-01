@@ -68,10 +68,9 @@ class Context:
         func: str,
         args: tuple[Hashable, ...],
         receiver: str = "default",
-        promise_id: str | None = None,
     ) -> RFC:
         return RFC(
-            promise_id=promise_id,
+            promise_id=None,
             func=func,
             args=args,
             tags={"resonate:invoke": receiver},
@@ -82,9 +81,8 @@ class Context:
         func: str,
         args: tuple[Hashable, ...],
         receiver: str = "default",
-        promise_id: str | None = None,
     ) -> RFI:
-        return self.rfc(func, args, receiver, promise_id).to_invocation()
+        return self.rfc(func, args, receiver).to_invocation()
 
     def lfi(
         self,

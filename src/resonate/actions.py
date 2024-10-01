@@ -33,6 +33,11 @@ class RFI:
     args: tuple[Hashable, ...]
     tags: Tags
 
+    def with_options(self, promise_id: str) -> Self:
+        assert self.promise_id is None, "promise ID has already been set"
+        self.promise_id = promise_id
+        return self
+
 
 @final
 @dataclass
@@ -41,6 +46,11 @@ class RFC:
     func: str
     args: tuple[Hashable, ...]
     tags: Tags
+
+    def with_options(self, promise_id: str) -> Self:
+        assert self.promise_id is None, "promise ID has already been set"
+        self.promise_id = promise_id
+        return self
 
     def to_invocation(self) -> RFI:
         return RFI(self.promise_id, self.func, self.args, self.tags)
