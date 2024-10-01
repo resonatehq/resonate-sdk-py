@@ -127,8 +127,7 @@ class All:
     """
     A combinator that waits for all promises to complete.
 
-    Attributes:
-        promises (list[Promise[Any]]): A list of promises to be combined.
+    Attributes: promises (list[Promise[Any]]): A list of promises to be combined.
     """
 
     def __init__(self, promises: list[Promise[Any]]) -> None:
@@ -145,13 +144,11 @@ class All:
         """
         Set options for the combinator.
 
-        Args:
-            durable (bool): Whether the promise is durable. Defaults to True.
-            promise_id (str | None): An optional identifier for the promise.
-            retry_policy (RetryPolicy | None): An optional retry policy for the promise.
+        Args: durable (bool): Whether the promise is durable. Defaults to True.
+        promise_id (str | None): An optional identifier for the promise.
+        retry_policy (RetryPolicy | None): An optional retry policy for the promise.
 
-        Returns:
-            Self: The combinator instance with updated options.
+        Returns: Self: The combinator instance with updated options.
         """
         self.opts = Options(
             durable=durable,
@@ -167,8 +164,7 @@ class AllSettled:
     A combinator that waits for all promises to complete and returns a list of results
     or Errors.
 
-    Attributes:
-        promises (list[Promise[Any]]): A list of promises to be combined.
+    Attributes: promises (list[Promise[Any]]): A list of promises to be combined.
     """
 
     def __init__(self, promises: list[Promise[Any]]) -> None:
@@ -185,13 +181,11 @@ class AllSettled:
         """
         Set options for the combinator.
 
-        Args:
-            durable (bool): Whether the promise is durable. Defaults to True.
-            promise_id (str | None): An optional identifier for the promise.
-            retry_policy (RetryPolicy | None): An optional retry policy for the promise.
+        Args: durable (bool): Whether the promise is durable. Defaults to True.
+        promise_id (str | None): An optional identifier for the promise.
+        retry_policy (RetryPolicy | None): An optional retry policy for the promise.
 
-        Returns:
-            Self: The combinator instance with updated options.
+        Returns: Self: The combinator instance with updated options.
         """
         self.opts = Options(
             durable=durable,
@@ -206,8 +200,7 @@ class Race:
     """
     A combinator that completes when any of the promises completes.
 
-    Attributes:
-        promises (list[Promise[Any]]): A list of promises to race.
+    Attributes: promises (list[Promise[Any]]): A list of promises to race.
     """
 
     def __init__(self, promises: list[Promise[Any]]) -> None:
@@ -227,13 +220,11 @@ class Race:
         """
         Set options for the combinator.
 
-        Args:
-            durable (bool): Whether the promise is durable. Defaults to True.
-            promise_id (str | None): An optional identifier for the promise.
-            retry_policy (RetryPolicy | None): An optional retry policy for the promise.
+        Args: durable (bool): Whether the promise is durable. Defaults to True.
+        promise_id (str | None): An optional identifier for the promise.
+        retry_policy (RetryPolicy | None): An optional retry policy for the promise.
 
-        Returns:
-            Self: The combinator instance with updated options.
+        Returns: Self: The combinator instance with updated options.
         """
         self.opts = Options(
             durable=durable,
