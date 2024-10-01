@@ -10,11 +10,13 @@ from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
 from resonate.actions import (
+    LFC,
+    LFI,
+    RFC,
+    RFI,
     All,
     AllSettled,
-    Call,
     DeferredInvocation,
-    Invocation,
     Race,
     Sleep,
 )
@@ -50,7 +52,7 @@ from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
-from resonate.typing import Combinator
+from resonate.typing import Combinator, PromiseActions, Tags
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
@@ -141,7 +143,7 @@ class Scheduler:
         self._registered_function = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, Options] = {}
 
-        self._stg_queue = Queue[tuple[Invocation, Promise[Any], Context]]()
+        self._stg_queue = Queue[tuple[LFI, Promise[Any], Context]]()
         self._completion_queue = Queue[_CQE[Any]]()
         self._submission_queue = Queue[_SQE[Any]]()
         self._combinators_queue = Queue[tuple[Combinator, Promise[Any]]]()
@@ -212,16 +214,16 @@ class Scheduler:
         assert_never(value)
 
     def _create_durable_promise_record(
-        self, promise_id: str, data: dict[str, Any]
+        self, promise_id: str, data: dict[str, Any] | None, tags: Tags
     ) -> DurablePromiseRecord:
         return self._durable_promise_storage.create(
             promise_id=promise_id,
             ikey=utils.string_to_ikey(promise_id),
             strict=False,
             headers=None,
-            data=self._json_encoder.encode(data),
+            data=self._json_encoder.encode(data) if data is not None else None,
             timeout=sys.maxsize,
-            tags=None,
+            tags=tags,
         )
 
     def _get_value_from_durable_promise(
@@ -245,22 +247,28 @@ class Scheduler:
                 v = Ok(self._json_encoder.decode(durable_promise_record.value.data))
         return v
 
-    def _get_ctx_from_ephemeral_memo(
-        self, promise_id: str, *, and_delete: bool
-    ) -> Context:
-        if and_delete:
-            return self._emphemeral_promise_memo.pop(promise_id)[-1]
-        return self._emphemeral_promise_memo[promise_id][-1]
-
     def _create_promise(
-        self, ctx: Context, action: Invocation | Sleep | Combinator
+        self,
+        parent_promise: Promise[Any] | None,
+        promise_id: str | None,
+        action: PromiseActions,
     ) -> Promise[Any]:
-        p = Promise[Any](promise_id=ctx.ctx_id, action=action)
+        if parent_promise is not None:
+            p = parent_promise.child_promise(promise_id=promise_id, action=action)
+        else:
+            assert (
+                promise_id is not None
+            ), "If creating a root promise must provide a promise id."
+            p = Promise[Any](
+                promise_id=promise_id, action=action, parent_promise=parent_promise
+            )
         assert (
             p.promise_id not in self._emphemeral_promise_memo
         ), "There should not be a new promise with same promise id."
-        self._emphemeral_promise_memo[p.promise_id] = (p, ctx)
-        if isinstance(action, Invocation):
+        self._emphemeral_promise_memo[p.promise_id] = p
+
+        tags: Tags = None
+        if isinstance(action, LFI):
             if isinstance(action.exec_unit, Command):
                 raise NotImplementedError
             if isinstance(action.exec_unit, FnOrCoroutine):
@@ -269,10 +277,12 @@ class Scheduler:
                 assert_never(action.exec_unit)
 
         elif isinstance(action, (All, AllSettled, Race)):
-            data = {}
-
+            data = None
         elif isinstance(action, Sleep):
             raise NotImplementedError
+        elif isinstance(action, RFI):
+            data = {"func": action.func, "args": action.args}
+            tags = action.tags
         else:
             assert_never(action)
 
@@ -281,19 +291,19 @@ class Scheduler:
                 PromiseCreated(
                     promise_id=p.promise_id,
                     tick=now(),
-                    parent_promise_id=ctx.parent_promise_id(),
+                    parent_promise_id=p.parent_promise_id(),
                 )
             )
             return p
 
         durable_promise_record = self._create_durable_promise_record(
-            promise_id=p.promise_id, data=data
+            promise_id=p.promise_id, data=data, tags=tags
         )
         self._tracing_adapter.process_event(
             PromiseCreated(
                 promise_id=p.promise_id,
                 tick=now(),
-                parent_promise_id=ctx.parent_promise_id(),
+                parent_promise_id=p.parent_promise_id(),
             )
         )
         if durable_promise_record.is_pending():
@@ -336,7 +346,7 @@ class Scheduler:
         **kwargs: P.kwargs,
     ) -> Promise[T]:
         if promise_id in self._emphemeral_promise_memo:
-            return self._emphemeral_promise_memo[promise_id][0]
+            return self._emphemeral_promise_memo[promise_id]
 
         function_name = self._registered_function.get_from_value(coro)
         assert (
@@ -345,19 +355,21 @@ class Scheduler:
         attached_options = self._attached_options_to_top_lvl[function_name]
 
         assert attached_options.durable, "All top level invocation must be durable."
-        top_lvl = Invocation(
+        top_lvl = LFI(
             FnOrCoroutine(coro, *args, **kwargs),
             opts=attached_options,
         )
 
         root_ctx = Context(
-            ctx_id=promise_id,
             seed=None,
-            parent_ctx=None,
             deps=self._deps,
         )
 
-        p: Promise[Any] = self._create_promise(ctx=root_ctx, action=top_lvl)
+        p: Promise[Any] = self._create_promise(
+            promise_id=promise_id,
+            parent_promise=None,
+            action=top_lvl,
+        )
 
         self._stg_queue.put_nowait((top_lvl, p, root_ctx))
         self._signal()
@@ -398,7 +410,7 @@ class Scheduler:
         self._tracing_adapter.process_event(
             ExecutionInvoked(
                 route_info.promise.promise_id,
-                route_info.ctx.parent_promise_id(),
+                route_info.promise.parent_promise_id(),
                 now(),
                 route_info.fn_or_coroutine.exec_unit.__name__,
                 route_info.fn_or_coroutine.args,
@@ -435,13 +447,13 @@ class Scheduler:
                         promise_to_resolve.promise_id in self._emphemeral_promise_memo
                     ), "Promise must be recorded in ephemeral storage."
 
-                    promise, ctx = self._emphemeral_promise_memo[
+                    promise = self._emphemeral_promise_memo[
                         promise_to_resolve.promise_id
                     ]
                     self._tracing_adapter.process_event(
                         ExecutionTerminated(
                             promise_id=promise.promise_id,
-                            parent_promise_id=ctx.parent_promise_id(),
+                            parent_promise_id=promise.parent_promise_id(),
                             tick=now(),
                         )
                     )
@@ -492,9 +504,9 @@ class Scheduler:
         self._awaitables.setdefault(p, []).append(coro_and_promise)
         self._tracing_adapter.process_event(
             ExecutionAwaited(
-                promise_id=coro_and_promise.prom.promise_id,
+                promise_id=coro_and_promise.route_info.promise.promise_id,
                 tick=now(),
-                parent_promise_id=coro_and_promise.ctx.parent_promise_id(),
+                parent_promise_id=coro_and_promise.route_info.promise.parent_promise_id(),
             )
         )
 
@@ -545,14 +557,12 @@ class Scheduler:
                 promise_id=promise.promise_id,
                 tick=now(),
                 value=value,
-                parent_promise_id=self._get_ctx_from_ephemeral_memo(
-                    promise.promise_id,
-                    and_delete=True,
-                ).parent_promise_id(),
+                parent_promise_id=promise.parent_promise_id(),
             )
         )
+        self._emphemeral_promise_memo.pop(promise.promise_id)
 
-    def _advance_runnable_span(  # noqa: C901, PLR0912. Note: We want to keep all the control flow in the function
+    def _advance_runnable_span(  # noqa: C901, PLR0912, PLR0915. Note: We want to keep all the control flow in the function
         self, runnable: Runnable[Any], *, was_awaited: bool
     ) -> None:
         assert isgenerator(
@@ -564,9 +574,9 @@ class Scheduler:
         if was_awaited:
             self._tracing_adapter.process_event(
                 ExecutionResumed(
-                    promise_id=runnable.coro_and_promise.prom.promise_id,
+                    promise_id=runnable.coro_and_promise.route_info.promise.promise_id,
                     tick=now(),
-                    parent_promise_id=runnable.coro_and_promise.ctx.parent_promise_id(),
+                    parent_promise_id=runnable.coro_and_promise.route_info.promise.parent_promise_id(),
                 )
             )
 
@@ -575,22 +585,26 @@ class Scheduler:
             if not runnable.coro_and_promise.route_info.to_be_retried(final_value):
                 self._tracing_adapter.process_event(
                     ExecutionTerminated(
-                        promise_id=runnable.coro_and_promise.prom.promise_id,
+                        promise_id=runnable.coro_and_promise.route_info.promise.promise_id,
                         tick=now(),
-                        parent_promise_id=runnable.coro_and_promise.ctx.parent_promise_id(),
+                        parent_promise_id=runnable.coro_and_promise.route_info.promise.parent_promise_id(),
                     )
                 )
-                if all_promises_are_done(runnable.coro_and_promise.children_promises):
-                    self._resolve_promise(runnable.coro_and_promise.prom, final_value)
+                if all_promises_are_done(
+                    runnable.coro_and_promise.route_info.promise.children_promises
+                ):
+                    self._resolve_promise(
+                        runnable.coro_and_promise.route_info.promise, final_value
+                    )
                     self._unblock_coros_waiting_on_promise(
-                        runnable.coro_and_promise.prom
+                        runnable.coro_and_promise.route_info.promise
                     )
                 else:
                     self._promises_to_be_resolved.append(
                         (
-                            runnable.coro_and_promise.prom,
+                            runnable.coro_and_promise.route_info.promise,
                             final_value,
-                            runnable.coro_and_promise.children_promises,
+                            runnable.coro_and_promise.route_info.promise.children_promises,
                         )
                     )
                 del runnable
@@ -600,8 +614,8 @@ class Scheduler:
                     delay=runnable.coro_and_promise.route_info.next_retry_delay(),
                 )
 
-        elif isinstance(yieldable_or_final_value, Call):
-            p = self._process_invocation(
+        elif isinstance(yieldable_or_final_value, LFC):
+            p = self._process_local_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
             )
             assert (
@@ -615,8 +629,8 @@ class Scheduler:
             else:
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
-        elif isinstance(yieldable_or_final_value, Invocation):
-            p = self._process_invocation(yieldable_or_final_value, runnable)
+        elif isinstance(yieldable_or_final_value, LFI):
+            p = self._process_local_invocation(yieldable_or_final_value, runnable)
             self._add_coro_to_runnables(
                 runnable.coro_and_promise, Ok(p), was_awaited=False
             )
@@ -650,39 +664,72 @@ class Scheduler:
 
         elif isinstance(yieldable_or_final_value, Sleep):
             raise NotImplementedError
+        elif isinstance(yieldable_or_final_value, RFI):
+            p = self._process_remote_invocation(yieldable_or_final_value, runnable)
+            self._add_coro_to_runnables(
+                runnable.coro_and_promise, Ok(p), was_awaited=False
+            )
+        elif isinstance(yieldable_or_final_value, RFC):
+            p = self._process_remote_invocation(
+                yieldable_or_final_value.to_invocation(), runnable
+            )
+            assert (
+                p not in self._awaitables
+            ), "Since it's a call it should be a promise without dependants"
 
+            if p.done():
+                self._add_coro_to_runnables(
+                    runnable.coro_and_promise, p.safe_result(), was_awaited=False
+                )
+            else:
+                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
         else:
             assert_never(yieldable_or_final_value)
 
-    def _process_invocation(
-        self, invokation: Invocation, runnable: Runnable[Any]
+    def _process_remote_invocation(
+        self, invocation: RFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        child_ctx = runnable.coro_and_promise.ctx.new_child(
-            ctx_id=invokation.opts.promise_id,
+        return self._create_promise(
+            parent_promise=runnable.coro_and_promise.route_info.promise,
+            promise_id=invocation.promise_id,
+            action=invocation,
         )
-        p = self._create_promise(child_ctx, invokation)
-        runnable.coro_and_promise.children_promises.append(p)
 
-        if isinstance(invokation.exec_unit, Command):
+    def _process_local_invocation(
+        self, invocation: LFI, runnable: Runnable[Any]
+    ) -> Promise[Any]:
+        p = self._create_promise(
+            parent_promise=runnable.coro_and_promise.route_info.promise,
+            promise_id=invocation.opts.promise_id,
+            action=invocation,
+        )
+
+        if isinstance(invocation.exec_unit, Command):
             raise NotImplementedError
-        if isinstance(invokation.exec_unit, FnOrCoroutine):
+        if isinstance(invocation.exec_unit, FnOrCoroutine):
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
             else:
                 self._route_fn_or_coroutine(
-                    RouteInfo(child_ctx, p, invokation.exec_unit, retry_attempt=0)
+                    RouteInfo(
+                        ctx=runnable.coro_and_promise.route_info.ctx,
+                        promise=p,
+                        fn_or_coroutine=invocation.exec_unit,
+                        retry_attempt=0,
+                    )
                 )
         else:
-            assert_never(invokation.exec_unit)
+            assert_never(invocation.exec_unit)
         return p
 
     def _process_combinator(
         self, combinator: Combinator, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        child_ctx = runnable.coro_and_promise.ctx.new_child(
-            ctx_id=combinator.opts.promise_id
+        p = self._create_promise(
+            parent_promise=runnable.coro_and_promise.route_info.promise,
+            promise_id=combinator.opts.promise_id,
+            action=combinator,
         )
-        p = self._create_promise(child_ctx, combinator)
         if p.done():
             self._unblock_coros_waiting_on_promise(p)
         else:
@@ -702,7 +749,7 @@ class Scheduler:
     def _combinator_result(
         self, combinator: Combinator
     ) -> Result[
-        Any | list[Any | Exception], Exception
+        T | list[T | Exception], Exception
     ]:  # Note: We can't possible have single type for all the promises of a Combinator
         if isinstance(combinator, All):
             try:
