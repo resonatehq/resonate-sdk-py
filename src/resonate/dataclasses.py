@@ -88,12 +88,10 @@ class FnOrCoroutine:
         self.args = args
         self.kwargs = kwargs
 
-    def json_data(self) -> dict[str, Any]:
-        return {
-            "func": self.exec_unit.__name__,
-            "args": self.args,
-            "kwargs": self.kwargs,
-        }
+    def to_req(self, func_name: str) -> CreateDurablePromiseReq:
+        return CreateDurablePromiseReq(
+            func_name=func_name, args=self.args, kwargs=self.kwargs
+        )
 
 
 class Command:
@@ -102,3 +100,30 @@ class Command:
         _ = ctx
         msg = "You should never be here!"
         raise AssertionError(msg)
+
+
+class CreateDurablePromiseReq(Command):
+    def __init__(
+        self,
+        func_name: str | None = None,
+        args: tuple[Any, ...] | None = None,
+        kwargs: dict[str, Any] | None = None,
+        tags: dict[str, str] | None = None,
+    ) -> None:
+        self.func_name = func_name
+        self.args = args
+        self.kwargs = kwargs
+        self.tags = tags
+
+    def data(self) -> dict[str, Any] | None:
+        data: dict[str, Any] = {}
+        if self.func_name is not None:
+            data["func"] = self.func_name
+        if self.args is not None:
+            data["args"] = self.args
+        if self.kwargs is not None:
+            data["kwargs"] = self.kwargs
+
+        if len(data) > 0:
+            return data
+        return None

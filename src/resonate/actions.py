@@ -8,11 +8,8 @@ from typing_extensions import ParamSpec, Self
 from resonate.options import Options
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable
-
     from resonate.dataclasses import FnOrCoroutine
     from resonate.retry_policy import RetryPolicy
-    from resonate.typing import Tags
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from resonate.retry_policy import never
@@ -28,10 +25,8 @@ T = TypeVar("T")
 @final
 @dataclass
 class RFI:
-    promise_id: str | None
-    func: str
-    args: tuple[Hashable, ...]
-    tags: Tags
+    exec_unit: ExecutionUnit
+    promise_id: str | None = None
 
     def with_options(self, promise_id: str) -> Self:
         assert self.promise_id is None, "promise ID has already been set"
@@ -42,10 +37,8 @@ class RFI:
 @final
 @dataclass
 class RFC:
-    promise_id: str | None
-    func: str
-    args: tuple[Hashable, ...]
-    tags: Tags
+    exec_unit: ExecutionUnit
+    promise_id: str | None = None
 
     def with_options(self, promise_id: str) -> Self:
         assert self.promise_id is None, "promise ID has already been set"
@@ -53,7 +46,7 @@ class RFC:
         return self
 
     def to_invocation(self) -> RFI:
-        return RFI(self.promise_id, self.func, self.args, self.tags)
+        return RFI(self.exec_unit, self.promise_id)
 
 
 @final
@@ -114,12 +107,6 @@ class LFI:
             durable=durable, promise_id=promise_id, retry_policy=retry_policy
         )
         return self
-
-
-@final
-@dataclass(frozen=True)
-class Sleep:
-    seconds: int
 
 
 @final

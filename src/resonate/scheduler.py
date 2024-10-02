@@ -18,13 +18,13 @@ from resonate.actions import (
     AllSettled,
     DeferredInvocation,
     Race,
-    Sleep,
 )
 from resonate.collections import DoubleDict
 from resonate.context import Context
 from resonate.dataclasses import (
     Command,
     CoroAndPromise,
+    CreateDurablePromiseReq,
     FnOrCoroutine,
     RouteInfo,
     Runnable,
@@ -52,7 +52,7 @@ from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
-from resonate.typing import Combinator, PromiseActions, Tags
+from resonate.typing import Combinator, PromiseActions
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
@@ -214,8 +214,21 @@ class Scheduler:
         assert_never(value)
 
     def _create_durable_promise_record(
-        self, promise_id: str, data: dict[str, Any] | None, tags: Tags
+        self,
+        promise_id: str,
+        req: CreateDurablePromiseReq | None,
     ) -> DurablePromiseRecord:
+        if req is None:
+            return self._durable_promise_storage.create(
+                promise_id=promise_id,
+                ikey=utils.string_to_ikey(promise_id),
+                strict=False,
+                headers=None,
+                data=None,
+                timeout=sys.maxsize,
+                tags=None,
+            )
+        data = req.data()
         return self._durable_promise_storage.create(
             promise_id=promise_id,
             ikey=utils.string_to_ikey(promise_id),
@@ -223,7 +236,7 @@ class Scheduler:
             headers=None,
             data=self._json_encoder.encode(data) if data is not None else None,
             timeout=sys.maxsize,
-            tags=tags,
+            tags=req.tags,
         )
 
     def _get_value_from_durable_promise(
@@ -267,24 +280,24 @@ class Scheduler:
         ), "There should not be a new promise with same promise id."
         self._emphemeral_promise_memo[p.promise_id] = p
 
-        tags: Tags = None
-        if isinstance(action, LFI):
+        req: CreateDurablePromiseReq | None = None
+
+        if isinstance(action, RFI):
             if isinstance(action.exec_unit, Command):
-                raise NotImplementedError
-            if isinstance(action.exec_unit, FnOrCoroutine):
-                data = action.exec_unit.json_data()
+                assert isinstance(action.exec_unit, CreateDurablePromiseReq)
+                req = action.exec_unit
+            elif isinstance(action.exec_unit, FnOrCoroutine):
+                func_name = self._registered_function.get_from_value(
+                    action.exec_unit.exec_unit
+                )
+                assert (
+                    func_name is not None
+                ), "To to a rfi the function must be registered."
+                req = action.exec_unit.to_req(func_name)
+                # TODO: This shouldn't be hardcoded. But for now this is fine.  # noqa: E501, FIX002, TD002, TD003
+                req.tags = {"invoke": "local://default"}
             else:
                 assert_never(action.exec_unit)
-
-        elif isinstance(action, (All, AllSettled, Race)):
-            data = None
-        elif isinstance(action, Sleep):
-            raise NotImplementedError
-        elif isinstance(action, RFI):
-            data = {"func": action.func, "args": action.args}
-            tags = action.tags
-        else:
-            assert_never(action)
 
         if not p.durable:
             self._tracing_adapter.process_event(
@@ -297,7 +310,7 @@ class Scheduler:
             return p
 
         durable_promise_record = self._create_durable_promise_record(
-            promise_id=p.promise_id, data=data, tags=tags
+            promise_id=p.promise_id, req=req
         )
         self._tracing_adapter.process_event(
             PromiseCreated(
@@ -322,10 +335,12 @@ class Scheduler:
 
     def register(
         self,
-        name: str,
         func: DurableCoro[P, Hashable] | DurableFn[P, Hashable],
+        name: str | None = None,
         retry_policy: RetryPolicy | None = None,
     ) -> None:
+        if name is None:
+            name = func.__name__
         assert (
             self._registered_function.get(name) is None
         ), "There's already a coroutine registered with this name."
@@ -662,8 +677,6 @@ class Scheduler:
                 runnable.coro_and_promise, Ok(deferred_p), was_awaited=False
             )
 
-        elif isinstance(yieldable_or_final_value, Sleep):
-            raise NotImplementedError
         elif isinstance(yieldable_or_final_value, RFI):
             p = self._process_remote_invocation(yieldable_or_final_value, runnable)
             self._add_coro_to_runnables(

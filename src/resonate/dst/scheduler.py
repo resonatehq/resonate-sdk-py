@@ -17,7 +17,6 @@ from resonate.actions import (
     AllSettled,
     DeferredInvocation,
     Race,
-    Sleep,
 )
 from resonate.batching import CmdBuffer
 from resonate.contants import CWD
@@ -324,10 +323,10 @@ class DSTScheduler:
             if isinstance(action.exec_unit, Command):
                 raise NotImplementedError
             if isinstance(action.exec_unit, FnOrCoroutine):
-                data = action.exec_unit.json_data()
+                data = None
             else:
                 assert_never(action.exec_unit)
-        elif isinstance(action, (Sleep, All, AllSettled, Race, RFI)):
+        elif isinstance(action, (All, AllSettled, Race, RFI)):
             raise NotImplementedError
         else:
             assert_never(action)
@@ -683,7 +682,7 @@ class DSTScheduler:
 
         elif isinstance(
             yieldable_or_final_value,
-            (Sleep, DeferredInvocation, All, AllSettled, Race, RFC, RFI),
+            (DeferredInvocation, All, AllSettled, Race, RFC, RFI),
         ):
             raise NotImplementedError
 

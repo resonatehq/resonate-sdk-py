@@ -13,15 +13,12 @@ from resonate.actions import (
     AllSettled,
     DeferredInvocation,
     Race,
-    Sleep,
 )
-from resonate.dataclasses import Command, FnOrCoroutine
+from resonate.dataclasses import Command, CreateDurablePromiseReq, FnOrCoroutine
 from resonate.dependency_injection import Dependencies
 from resonate.promise import Promise
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable
-
     from resonate.typing import (
         DurableCoro,
         DurableFn,
@@ -65,24 +62,25 @@ class Context:
 
     def rfc(
         self,
-        func: str,
-        args: tuple[Hashable, ...],
-        receiver: str = "default",
+        invokable: Invokable[P],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
     ) -> RFC:
-        return RFC(
-            promise_id=None,
-            func=func,
-            args=args,
-            tags={"resonate:invoke": receiver},
-        )
+        if isinstance(invokable, Command):
+            assert isinstance(
+                invokable, CreateDurablePromiseReq
+            ), f"The only command allowed for rfc is {CreateDurablePromiseReq.__name__}"
+        return RFC(_wrap_into_execution_unit(invokable, *args, **kwargs))
 
     def rfi(
         self,
-        func: str,
-        args: tuple[Hashable, ...],
-        receiver: str = "default",
+        invokable: Invokable[P],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
     ) -> RFI:
-        return self.rfc(func, args, receiver).to_invocation()
+        return self.rfc(invokable, *args, **kwargs).to_invocation()
 
     def lfi(
         self,
@@ -115,6 +113,10 @@ class Context:
         LFC and await for the result of the execution. It's syntax
         sugar for `yield (yield ctx.lfi(...))`
         """
+        if isinstance(invokable, Command):
+            assert not isinstance(
+                invokable, CreateDurablePromiseReq
+            ), f"Command {CreateDurablePromiseReq.__name__} is reserved for lfc."
         return LFC(_wrap_into_execution_unit(invokable, *args, **kwargs))
 
     def deferred(
@@ -134,9 +136,6 @@ class Context:
         return DeferredInvocation(
             promise_id=promise_id, coro=FnOrCoroutine(coro, *args, **kwargs)
         )
-
-    def sleep(self, seconds: int) -> Sleep:
-        return Sleep(seconds)
 
     def all(self, promises: list[Promise[Any]]) -> All:
         """

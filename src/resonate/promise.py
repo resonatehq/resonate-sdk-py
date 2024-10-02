@@ -11,7 +11,6 @@ from resonate.actions import (
     All,
     AllSettled,
     Race,
-    Sleep,
 )
 from resonate.result import Err, Ok, Result
 
@@ -40,8 +39,6 @@ class Promise(Generic[T]):
         self.action = action
         if isinstance(action, (LFI, All, AllSettled, Race)):
             self.durable = action.opts.durable
-        elif isinstance(action, Sleep):
-            raise NotImplementedError
         elif isinstance(action, RFI):
             self.durable = True
         else:
