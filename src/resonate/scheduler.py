@@ -140,7 +140,7 @@ class Scheduler:
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
     ) -> None:
-        self._registered_function = DoubleDict[str, Any]()
+        self._registered_functions = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, Options] = {}
 
         self._stg_queue = Queue[tuple[LFI, Promise[Any], Context]]()
@@ -327,12 +327,12 @@ class Scheduler:
         retry_policy: RetryPolicy | None = None,
     ) -> None:
         assert (
-            self._registered_function.get(name) is None
+            self._registered_functions.get(name) is None
         ), "There's already a coroutine registered with this name."
         assert (
             name not in self._attached_options_to_top_lvl
         ), "There's already a coroutine registered with this name."
-        self._registered_function.add(name, func)
+        self._registered_functions.add(name, func)
         self._attached_options_to_top_lvl[name] = Options(
             durable=True, promise_id=None, retry_policy=retry_policy
         )
@@ -348,7 +348,7 @@ class Scheduler:
         if promise_id in self._emphemeral_promise_memo:
             return self._emphemeral_promise_memo[promise_id]
 
-        function_name = self._registered_function.get_from_value(coro)
+        function_name = self._registered_functions.get_from_value(coro)
         assert (
             function_name is not None
         ), f"There's no function registed for function {coro.__name__}."

@@ -3,19 +3,25 @@ from __future__ import annotations
 import json
 import time
 from threading import Event, Thread
+from typing_extensions import assert_never
 
 import requests
 
+from resonate.encoders import Base64Encoder
 from resonate.logging import logger
 from resonate.queue import Queue
+from resonate.record import DurablePromiseRecord
 from resonate.storage import ITaskStore, Task
+from resonate.scheduler import Scheduler
 
 
 class TaskHandler:
-    def __init__(self, task_store: ITaskStore) -> None:
+    def __init__(self, scheduler: Scheduler, task_store: ITaskStore) -> None:
         self.claimables_queue = Queue[Task]()
         self.completables_queue = Queue[Task]()
         self.task_store: ITaskStore = task_store
+        self.scheduler = scheduler
+        self.base_64_encoder = Base64Encoder()
 
         self._worker_thread = Thread(target=self._run)
         self._heartbeat_thread = Thread(target=self._heartbeat)
@@ -34,10 +40,33 @@ class TaskHandler:
             if not self._heartbeat_thread.is_alive():
                 self._heartbeat_thread.start()
 
+            if message.type == "invoke":
+                root = message.root
+                assert (
+                    root is not None
+                ), "Root promise must not be None for task message invoke"
 
-        except Exception:
-            # TODO: handle exception, how does failing to claim looks like?
-            ...
+                # Params do not have a set type since it is used to put different kinds
+                # of data in it for invoke task we expect it to have "func" which
+                # represents the function name to call and "args" which are the args
+                # to be use for the function invocation
+                params = (
+                    json.loads(self.base_64_encoder.decode(root.param.data))
+                    if root.param.data is not None
+                    else None
+                )
+
+                assert params is not None, "Params must have been set with rfc creation"
+
+                coro = self.scheduler._registered_functions.get(  # noqa: SLF001, Note: We don't want to expose _registed_functions to the user, but it is fine to use it for internal processes
+                    params["func"]
+                )
+
+                args = params["args"]
+                self.scheduler.run(message.root.id, coro, **args)
+
+        except Exception:  # noqa: BLE001
+            logger.debug("Couldn't claim task %v", task)
 
     def _complete_task(self, task: Task) -> None:
         pass

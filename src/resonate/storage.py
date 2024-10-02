@@ -515,20 +515,35 @@ class Task:
 @final
 @dataclass(frozen=True)
 class TaskMessage:
-    type: Literal["INVOKE", "RESUME"]
-    root: DurablePromiseRecord
-    leaf: DurablePromiseRecord
+    type: Literal["invoke", "resume"]
+    root: DurablePromiseRecord | None
+    leaf: DurablePromiseRecord | None
 
     @classmethod
     def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> TaskMessage:
-        kind = "INVOKE" if data["type"] == "invoke" else "RESUME"
+        assert data["type"] in ["resume", "invoke"]
+        kind = data["type"]
+
+        promises = data["promises"]
+
         return TaskMessage(
             type=kind,
-            root=decode(data["root"], encoder),
-            leaf=decode(data["leaf"], encoder),
+            root=decode(promises["root"]["data"], encoder)
+            if promises.get("root") is not None
+            else None,
+            leaf=decode(promises["leaf"]["data"], encoder)
+            if promises.get("leaf") is not None
+            else None,
         )
 
 
 class ITaskStore(ABC):
     @abstractmethod
-    def claim(self, task: Task) -> TaskMessage | None: ...
+    def claim(self, task: Task) -> TaskMessage:
+        """Raises if the task has already been claimed"""
+        ...
+
+    @abstractmethod
+    def complete(self, task: Task) -> None:
+        """Completed a task, raises if couldn't complete the task"""
+        ...
