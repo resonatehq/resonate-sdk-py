@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Literal, final
 
 import requests
@@ -497,3 +499,36 @@ def decode(
         idempotency_key_for_complete=response.get("idempotencyKeyForComplete"),
         idempotency_key_for_create=response.get("idempotencyKeyForCreate"),
     )
+
+
+@final
+@dataclass(frozen=True)
+class Task:
+    counter: int
+    id: str
+
+    @classmethod
+    def decode(cls, data: dict[str, Any]) -> Task:
+        return Task(counter=data["counter"], id=data["id"])
+
+
+@final
+@dataclass(frozen=True)
+class TaskMessage:
+    type: Literal["INVOKE", "RESUME"]
+    root: DurablePromiseRecord
+    leaf: DurablePromiseRecord
+
+    @classmethod
+    def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> TaskMessage:
+        kind = "INVOKE" if data["type"] == "invoke" else "RESUME"
+        return TaskMessage(
+            type=kind,
+            root=decode(data["root"], encoder),
+            leaf=decode(data["leaf"], encoder),
+        )
+
+
+class ITaskStore(ABC):
+    @abstractmethod
+    def claim(self, task: Task) -> TaskMessage | None: ...
