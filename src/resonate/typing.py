@@ -16,8 +16,9 @@ from resonate.actions import (
     Race,
 )
 from resonate.batching import CmdBuffer
+from resonate.commands import Command
 from resonate.context import Context
-from resonate.dataclasses import Command, CoroAndPromise, FnOrCoroutine, Runnable
+from resonate.dataclasses import CoroAndPromise, FnOrCoroutine, Runnable
 from resonate.promise import Promise
 
 T = TypeVar("T")

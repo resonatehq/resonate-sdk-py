@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from typing_extensions import ParamSpec
 
 from resonate.actions import LFI
+from resonate.commands import CreateDurablePromiseReq
 from resonate.result import Ok
 from resonate.retry_policy import Never
 
@@ -88,42 +89,10 @@ class FnOrCoroutine:
         self.args = args
         self.kwargs = kwargs
 
-    def to_req(self, func_name: str) -> CreateDurablePromiseReq:
+    def to_req(self, promise_id: str | None, func_name: str) -> CreateDurablePromiseReq:
         return CreateDurablePromiseReq(
-            func_name=func_name, args=self.args, kwargs=self.kwargs
+            promise_id=promise_id,
+            func_name=func_name,
+            args=self.args,
+            kwargs=self.kwargs,
         )
-
-
-class Command:
-    def __call__(self, ctx: Context) -> None:
-        # This is not meant to be call. We are making the type system happy.
-        _ = ctx
-        msg = "You should never be here!"
-        raise AssertionError(msg)
-
-
-class CreateDurablePromiseReq(Command):
-    def __init__(
-        self,
-        func_name: str | None = None,
-        args: tuple[Any, ...] | None = None,
-        kwargs: dict[str, Any] | None = None,
-        tags: dict[str, str] | None = None,
-    ) -> None:
-        self.func_name = func_name
-        self.args = args
-        self.kwargs = kwargs
-        self.tags = tags
-
-    def data(self) -> dict[str, Any] | None:
-        data: dict[str, Any] = {}
-        if self.func_name is not None:
-            data["func"] = self.func_name
-        if self.args is not None:
-            data["args"] = self.args
-        if self.kwargs is not None:
-            data["kwargs"] = self.kwargs
-
-        if len(data) > 0:
-            return data
-        return None

@@ -19,12 +19,12 @@ from resonate.actions import (
     Race,
 )
 from resonate.batching import CmdBuffer
+from resonate.commands import Command
 from resonate.contants import CWD
 from resonate.context import (
     Context,
 )
 from resonate.dataclasses import (
-    Command,
     CoroAndPromise,
     FnOrCoroutine,
     RouteInfo,

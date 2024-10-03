@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from resonate import scheduler
-from resonate.dataclasses import CreateDurablePromiseReq
+from resonate.commands import CreateDurablePromiseReq
 from resonate.retry_policy import (
     Linear,
     constant,
@@ -487,11 +487,12 @@ def test_rfc(store: IPromiseStore) -> None:
 def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
     yield ctx.rfc(
         CreateDurablePromiseReq(
-            "func",
+            promise_id="abc",
+            func_name="func",
             args=(1, 2),
             tags={"demo": "test"},
         )
-    ).with_options(promise_id="abc")
+    )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
