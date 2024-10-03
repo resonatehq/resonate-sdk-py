@@ -283,8 +283,11 @@ class Scheduler:
                     action.exec_unit.exec_unit
                 )
                 if func_name is not None:
+                    tags = self._attached_options_to_top_lvl[func_name]
                     req = action.exec_unit.to_req(
-                        promise_id=p.promise_id, func_name=func_name
+                        promise_id=p.promise_id,
+                        func_name=func_name,
+                        tags=tags.tags,
                     )
                 else:
                     req = CreateDurablePromiseReq(promise_id=p.promise_id)
@@ -303,8 +306,18 @@ class Scheduler:
                 assert (
                     func_name is not None
                 ), "To do a rfi the function must be registered."
-                req = action.exec_unit.to_req(p.promise_id, func_name)
-                req.tags = {"invoke": "local://default"}
+                attached_options = self._attached_options_to_top_lvl[func_name]
+
+                final_tags = attached_options.tags
+                if "resonate:invoke" not in attached_options.tags:
+                    final_tags["resonate:invoke"] = "poll://default"
+
+                req = action.exec_unit.to_req(
+                    p.promise_id,
+                    func_name,
+                    tags=final_tags,
+                )
+
             else:
                 assert_never(action.exec_unit)
         elif isinstance(action, (All, AllSettled, Race)):
@@ -349,6 +362,7 @@ class Scheduler:
         func: DurableCoro[P, Hashable] | DurableFn[P, Hashable],
         name: str | None = None,
         retry_policy: RetryPolicy | None = None,
+        tags: dict[str, str] | None = None,
     ) -> None:
         if name is None:
             name = func.__name__
@@ -360,7 +374,10 @@ class Scheduler:
         ), "There's already a coroutine registered with this name."
         self._registered_function.add(name, func)
         self._attached_options_to_top_lvl[name] = Options(
-            durable=True, promise_id=None, retry_policy=retry_policy
+            durable=True,
+            promise_id=None,
+            retry_policy=retry_policy,
+            tags=tags,
         )
 
     def run(

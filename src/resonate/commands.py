@@ -18,17 +18,11 @@ class CreateDurablePromiseReq(Command):
     def __init__(
         self,
         promise_id: str | None,
-        func_name: str | None = None,
-        args: tuple[Any, ...] | None = None,
-        kwargs: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
         tags: dict[str, str] | None = None,
     ) -> None:
         self.promise_id = promise_id
-        self.data: dict[str, Any] | None = None
-        if func_name is not None:
-            self.data = {
-                "func": func_name,
-                "args": args if args is not None else (),
-                "kwargs": kwargs if kwargs is not None else {},
-            }
+        self.data = data
+        self.headers = headers
         self.tags = tags

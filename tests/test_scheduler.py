@@ -469,7 +469,7 @@ def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
 @pytest.mark.parametrize("store", _promise_storages())
 def test_rfc(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(durable_promise_storage=store)
-    s.register(factorial)
+    s.register(factorial, tags={"a": "1"})
     p: Promise[int] = s.run("factorial-n", factorial, 4)
     with contextlib.suppress(TimeoutError):
         p.result(timeout=0.1)
@@ -481,15 +481,17 @@ def test_rfc(store: IPromiseStore) -> None:
     data = json.loads(child_promise_record.param.data)
     assert data["func"] == "factorial"
     assert data["args"] == [3]
-    assert child_promise_record.tags == {"invoke": "local://default"}
+    assert child_promise_record.tags == {"a": "1", "resonate:invoke": "poll://default"}
 
 
 def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
     yield ctx.rfc(
         CreateDurablePromiseReq(
             promise_id="abc",
-            func_name="func",
-            args=(1, 2),
+            data={
+                "func": "func",
+                "args": (1, 2),
+            },
             tags={"demo": "test"},
         )
     )
