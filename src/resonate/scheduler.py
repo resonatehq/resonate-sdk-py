@@ -250,7 +250,7 @@ class Scheduler:
                 v = Ok(self._json_encoder.decode(durable_promise_record.value.data))
         return v
 
-    def _create_promise(
+    def _create_promise(  # noqa: C901, PLR0912
         self,
         parent_promise: Promise[Any] | None,
         promise_id: str | None,
@@ -274,7 +274,9 @@ class Scheduler:
         req: CreateDurablePromiseReq
         if isinstance(action, LFI):
             if isinstance(action.exec_unit, Command):
-                assert not isinstance(action.exec_unit, CreateDurablePromiseReq)
+                assert not isinstance(
+                    action.exec_unit, CreateDurablePromiseReq
+                ), "This command is not allowed for lfi"
                 req = CreateDurablePromiseReq(promise_id=p.promise_id)
             elif isinstance(action.exec_unit, FnOrCoroutine):
                 func_name = self._registered_function.get_from_value(
@@ -290,7 +292,9 @@ class Scheduler:
                 assert_never(action.exec_unit)
         elif isinstance(action, RFI):
             if isinstance(action.exec_unit, Command):
-                assert isinstance(action.exec_unit, CreateDurablePromiseReq)
+                assert isinstance(
+                    action.exec_unit, CreateDurablePromiseReq
+                ), "This is the only command allowed for rfi"
                 req = action.exec_unit
             elif isinstance(action.exec_unit, FnOrCoroutine):
                 func_name = self._registered_function.get_from_value(
@@ -298,9 +302,8 @@ class Scheduler:
                 )
                 assert (
                     func_name is not None
-                ), "To to a rfi the function must be registered."
+                ), "To do a rfi the function must be registered."
                 req = action.exec_unit.to_req(p.promise_id, func_name)
-                # TODO: This shouldn't be hardcoded. But for now this is fine.  # noqa: E501, FIX002, TD002, TD003
                 req.tags = {"invoke": "local://default"}
             else:
                 assert_never(action.exec_unit)
