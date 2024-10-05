@@ -10,6 +10,10 @@
 #   universal: false
 
 -e file:.
+alabaster==0.7.16
+    # via sphinx
+babel==2.16.0
+    # via sphinx
 certifi==2024.8.30
     # via requests
 charset-normalizer==3.3.2
@@ -18,12 +22,21 @@ deprecated==1.2.14
     # via opentelemetry-api
     # via opentelemetry-exporter-otlp-proto-http
     # via opentelemetry-semantic-conventions
+docutils==0.21.2
+    # via sphinx
 googleapis-common-protos==1.65.0
     # via opentelemetry-exporter-otlp-proto-http
 idna==3.8
     # via requests
+imagesize==1.4.1
+    # via sphinx
 importlib-metadata==8.4.0
     # via opentelemetry-api
+    # via sphinx
+jinja2==3.1.4
+    # via sphinx
+markupsafe==2.1.5
+    # via jinja2
 opentelemetry-api==1.27.0
     # via opentelemetry-exporter-otlp-proto-http
     # via opentelemetry-sdk
@@ -41,12 +54,35 @@ opentelemetry-sdk==1.27.0
     # via resonate-sdk
 opentelemetry-semantic-conventions==0.48b0
     # via opentelemetry-sdk
+packaging==24.1
+    # via sphinx
 protobuf==4.25.4
     # via googleapis-common-protos
     # via opentelemetry-proto
+pygments==2.18.0
+    # via sphinx
 requests==2.32.3
     # via opentelemetry-exporter-otlp-proto-http
     # via resonate-sdk
+    # via sphinx
+snowballstemmer==2.2.0
+    # via sphinx
+sphinx==7.4.7
+    # via resonate-sdk
+sphinxcontrib-applehelp==2.0.0
+    # via sphinx
+sphinxcontrib-devhelp==2.0.0
+    # via sphinx
+sphinxcontrib-htmlhelp==2.1.0
+    # via sphinx
+sphinxcontrib-jsmath==1.0.1
+    # via sphinx
+sphinxcontrib-qthelp==2.0.0
+    # via sphinx
+sphinxcontrib-serializinghtml==2.0.0
+    # via sphinx
+tomli==2.0.1
+    # via sphinx
 typing-extensions==4.12.2
     # via opentelemetry-sdk
     # via resonate-sdk
