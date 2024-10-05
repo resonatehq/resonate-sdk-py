@@ -212,6 +212,14 @@ class Scheduler:
             )
         assert_never(value)
 
+    def _register_callback(self, promise: Promise[Any], recv: str) -> None:
+        self._durable_promise_storage.create_callback(
+            promise_id=promise.promise_id,
+            root_promise_id=promise.root_promise_id,
+            timeout=sys.maxsize,
+            recv=recv,
+        )
+
     def _create_durable_promise_record(
         self,
         req: CreateDurablePromiseReq,
@@ -643,6 +651,12 @@ class Scheduler:
                         runnable.coro_and_promise.route_info.promise
                     )
                 else:
+                    for (
+                        child_promise
+                    ) in runnable.coro_and_promise.route_info.promise.children_promises:
+                        if isinstance(child_promise.action, RFI):
+                            self._register_callback(child_promise, recv="default")
+
                     self._promises_to_be_resolved.append(
                         (
                             runnable.coro_and_promise.route_info.promise,
@@ -686,6 +700,9 @@ class Scheduler:
                     runnable.coro_and_promise, p.safe_result(), was_awaited=False
                 )
             else:
+                if isinstance(p.action, RFI):
+                    self._register_callback(p, recv="default")
+
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(yieldable_or_final_value, (All, AllSettled, Race)):
@@ -723,6 +740,7 @@ class Scheduler:
                     runnable.coro_and_promise, p.safe_result(), was_awaited=False
                 )
             else:
+                self._register_callback(p, recv="default")
                 self._add_coro_to_awaitables(p, runnable.coro_and_promise)
         else:
             assert_never(yieldable_or_final_value)
