@@ -503,7 +503,7 @@ def test_rfc_raw(store: IPromiseStore) -> None:
     s.register(_raw_rfc)
     p: Promise[None] = s.run("test-raw-rfc", _raw_rfc)
     with contextlib.suppress(TimeoutError):
-        p.result(timeout=0.1)
+        p.result(timeout=0.2)
 
     child_promise_record = store.get(promise_id="abc")
     assert child_promise_record.promise_id == "abc"

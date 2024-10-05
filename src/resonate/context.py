@@ -68,11 +68,15 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC:
+        promise_id: str | None = None
         if isinstance(invokable, Command):
             assert isinstance(
                 invokable, CreateDurablePromiseReq
             ), f"The only command allowed for rfc is {CreateDurablePromiseReq.__name__}"
-        return RFC(_wrap_into_execution_unit(invokable, *args, **kwargs))
+            promise_id = invokable.promise_id
+        return RFC(
+            _wrap_into_execution_unit(invokable, *args, **kwargs), promise_id=promise_id
+        )
 
     def rfi(
         self,

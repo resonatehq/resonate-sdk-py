@@ -213,6 +213,7 @@ class Scheduler:
         assert_never(value)
 
     def _register_callback(self, promise: Promise[Any], recv: str) -> None:
+        assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
         self._durable_promise_storage.create_callback(
             promise_id=promise.promise_id,
             root_promise_id=promise.root_promise_id,
