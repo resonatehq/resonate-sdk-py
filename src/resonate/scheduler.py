@@ -50,6 +50,7 @@ from resonate.promise import (
 )
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
+from resonate.storage import Task
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import Combinator, PromiseActions, Tags
@@ -179,6 +180,71 @@ class Scheduler:
     def enqueue_cqe(self, sqe: _SQE[T], value: Result[T, Exception]) -> None:
         self._completion_queue.put(_CQE[Any](sqe=sqe, fn_result=value))
         self._signal()
+
+    def invoke_task(
+        self,
+        func_name: str,
+        args: list[Any],
+        durable_promise: DurablePromiseRecord,
+        task: Task,
+    ) -> None:
+        p: Promise[Any]
+        if durable_promise.promise_id in self._emphemeral_promise_memo:
+            p = self._emphemeral_promise_memo[durable_promise.promise_id]
+            # TODO: Add the task and p to the task/promise map if neccesary and return
+            return
+
+        coro = self._registered_functions.get(func_name)
+        assert (
+            coro is not None
+        ), f"There's no function registed for function {func_name}."
+
+        attached_options = self._attached_options_to_top_lvl[func_name]
+        assert attached_options.durable, "All top level invocation must be durable."
+
+        top_lvl = LFI(
+            FnOrCoroutine(coro, *args),
+            opts=attached_options,
+        )
+
+        root_ctx = Context(
+            seed=None,
+            deps=self._deps,
+        )
+
+        p = Promise[Any](
+            promise_id=durable_promise.promise_id,
+            action=top_lvl,
+            parent_promise=None,
+        )
+        self._emphemeral_promise_memo[p.promise_id] = p
+        # TODO: Add the promise and the task to the task/promise mapping
+        # TODO: Maybe log a PromiseCreated Event
+
+        self._stg_queue.put_nowait((top_lvl, p, root_ctx))
+        self._signal()
+
+    def resume_task(
+        self,
+        func_name: str,
+        args: list[Any],
+        task: Task,
+        *,
+        root_promise_record: DurablePromiseRecord,
+        leaf_promise_record: DurablePromiseRecord,
+    ) -> None:
+        if leaf_promise_record.promise_id in self._emphemeral_promise_memo:
+            p = self._emphemeral_promise_memo[leaf_promise_record.promise_id]
+            assert (
+                leaf_promise_record.is_completed()
+            ), "Durable promise record must be completed by this point."
+
+            v = self._get_value_from_durable_promise(leaf_promise_record)
+            p.set_result(v)
+            # TODO: Complete the task
+            return
+
+        self.invoke_task(func_name, args, root_promise_record, task)
 
     def _enqueue_combinator(
         self, combinator: Combinator, promise: Promise[Any]

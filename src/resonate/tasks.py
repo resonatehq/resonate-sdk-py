@@ -58,12 +58,32 @@ class TaskHandler:
 
                 assert params is not None, "Params must have been set with rfc creation"
 
-                coro = self.scheduler._registered_functions.get(  # noqa: SLF001, Note: We don't want to expose _registed_functions to the user, but it is fine to use it for internal processes
-                    params["func"]
+                args = params["args"]
+                self.scheduler.invoke_task(params["func"], args, root, task)
+
+            elif message.type == "resume":
+                root = message.root
+                leaf = message.leaf
+                assert (
+                    root is not None and leaf is not None
+                ), "Both leaf and root promises are needed for a resume task"
+
+                # Params do not have a set type since it is used to put different kinds
+                # of data in it for invoke task we expect it to have "func" which
+                # represents the function name to call and "args" which are the args
+                # to be use for the function invocation
+                params = (
+                    json.loads(self.base_64_encoder.decode(root.param.data))
+                    if root.param.data is not None
+                    else None
                 )
 
+                assert params is not None, "Params must have been set with rfc creation"
+
                 args = params["args"]
-                self.scheduler.run(message.root.id, coro, **args)
+                self.scheduler.resume_task(
+                    params["func"], args, task, root_promise=root, leaf_promise=leaf
+                )
 
         except Exception:  # noqa: BLE001
             logger.debug("Couldn't claim task %v", task)
