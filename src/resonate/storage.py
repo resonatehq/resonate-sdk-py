@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Literal, final
 
 import requests
@@ -497,3 +499,51 @@ def decode(
         idempotency_key_for_complete=response.get("idempotencyKeyForComplete"),
         idempotency_key_for_create=response.get("idempotencyKeyForCreate"),
     )
+
+
+@final
+@dataclass(frozen=True)
+class Task:
+    counter: int
+    id: str
+
+    @classmethod
+    def decode(cls, data: dict[str, Any]) -> Task:
+        return Task(counter=data["counter"], id=data["id"])
+
+
+@final
+@dataclass(frozen=True)
+class TaskMessage:
+    type: Literal["invoke", "resume"]
+    root: DurablePromiseRecord | None
+    leaf: DurablePromiseRecord | None
+
+    @classmethod
+    def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> TaskMessage:
+        assert data["type"] in ["resume", "invoke"]
+        kind = data["type"]
+
+        promises = data["promises"]
+
+        return TaskMessage(
+            type=kind,
+            root=decode(promises["root"]["data"], encoder)
+            if promises.get("root") is not None
+            else None,
+            leaf=decode(promises["leaf"]["data"], encoder)
+            if promises.get("leaf") is not None
+            else None,
+        )
+
+
+class ITaskStore(ABC):
+    @abstractmethod
+    def claim(self, task: Task) -> TaskMessage:
+        """Raises if the task has already been claimed"""
+        ...
+
+    @abstractmethod
+    def complete(self, task: Task) -> None:
+        """Completed a task, raises if couldn't complete the task"""
+        ...
