@@ -481,7 +481,8 @@ def test_rfc(store: IPromiseStore) -> None:
     data = json.loads(child_promise_record.param.data)
     assert data["func"] == "factorial"
     assert data["args"] == [3]
-    assert child_promise_record.tags == {"a": "1", "resonate:invoke": "poll://default"}
+    assert child_promise_record.tags is not None
+    assert child_promise_record.tags.keys() == {"a", "resonate:invoke"}
 
 
 def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:

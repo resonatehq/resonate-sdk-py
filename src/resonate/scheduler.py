@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
@@ -139,6 +140,7 @@ class Scheduler:
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
     ) -> None:
+        self._sdk_id = uuid.uuid4().hex
         self._registered_function = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, Options] = {}
 
@@ -212,14 +214,39 @@ class Scheduler:
             )
         assert_never(value)
 
-    def _register_callback(self, promise: Promise[Any], recv: str) -> None:
+    def _register_callback_or_resolve_ephemeral_promise(
+        self, promise: Promise[Any], recv: str = "default"
+    ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
-        self._durable_promise_storage.create_callback(
-            promise_id=promise.promise_id,
-            root_promise_id=promise.root_promise_id,
-            timeout=sys.maxsize,
-            recv=recv,
+        durable_promise, created_callback = (
+            self._durable_promise_storage.create_callback(
+                promise_id=promise.promise_id,
+                root_promise_id=promise.root_promise_id,
+                timeout=sys.maxsize,
+                recv=recv,
+            )
         )
+        if created_callback is not None:
+            return
+
+        assert (
+            durable_promise.is_completed()
+        ), "Callback won't be created only if durable promise has been completed."
+        v = self._get_value_from_durable_promise(durable_promise_record=durable_promise)
+        promise.set_result(v)
+        assert (
+            promise.promise_id in self._emphemeral_promise_memo
+        ), "Ephemeral process must have been registered in the memo."
+
+        self._tracing_adapter.process_event(
+            PromiseCompleted(
+                promise_id=promise.promise_id,
+                tick=now(),
+                value=v,
+                parent_promise_id=promise.parent_promise_id(),
+            )
+        )
+        self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _create_durable_promise_record(
         self,
@@ -319,7 +346,7 @@ class Scheduler:
 
                 final_tags = attached_options.tags
                 if "resonate:invoke" not in attached_options.tags:
-                    final_tags["resonate:invoke"] = "poll://default"
+                    final_tags["resonate:invoke"] = f"poll://default/{self._sdk_id}"
 
                 req = action.exec_unit.to_req(
                     p.promise_id,
@@ -656,7 +683,9 @@ class Scheduler:
                         child_promise
                     ) in runnable.coro_and_promise.route_info.promise.children_promises:
                         if isinstance(child_promise.action, RFI):
-                            self._register_callback(child_promise, recv="default")
+                            self._register_callback_or_resolve_ephemeral_promise(
+                                child_promise
+                            )
 
                     self._promises_to_be_resolved.append(
                         (
@@ -702,9 +731,15 @@ class Scheduler:
                 )
             else:
                 if isinstance(p.action, RFI):
-                    self._register_callback(p, recv="default")
+                    self._register_callback_or_resolve_ephemeral_promise(p)
 
-                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+                if p.done():
+                    self._unblock_coros_waiting_on_promise(p)
+                    self._add_coro_to_runnables(
+                        runnable.coro_and_promise, p.safe_result(), was_awaited=False
+                    )
+                else:
+                    self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
         elif isinstance(yieldable_or_final_value, (All, AllSettled, Race)):
             p = self._process_combinator(yieldable_or_final_value, runnable)
@@ -741,8 +776,13 @@ class Scheduler:
                     runnable.coro_and_promise, p.safe_result(), was_awaited=False
                 )
             else:
-                self._register_callback(p, recv="default")
-                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+                self._register_callback_or_resolve_ephemeral_promise(p)
+                if p.done():
+                    self._add_coro_to_runnables(
+                        runnable.coro_and_promise, p.safe_result(), was_awaited=False
+                    )
+                else:
+                    self._add_coro_to_awaitables(p, runnable.coro_and_promise)
         else:
             assert_never(yieldable_or_final_value)
 

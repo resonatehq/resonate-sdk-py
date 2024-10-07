@@ -35,9 +35,11 @@ def test_case_0_callback_on_existing_promise(
         timeout=sys.maxsize,
         tags=None,
     )
-    callback_record = store.create_callback(
+    promise_record, callback_record = store.create_callback(
         promise_id="0.0", root_promise_id="0.0", timeout=sys.maxsize, recv="default"
     )
+    assert callback_record is not None
+    assert promise_record.promise_id == callback_record.promise_id
     assert callback_record.callback_id == "1"
     assert callback_record.timeout == sys.maxsize
     assert callback_record.promise_id == "0.0"
@@ -51,3 +53,24 @@ def test_case_1_callback_on_non_existing_promise(
         store.create_callback(
             promise_id="1.1", root_promise_id="1.0", timeout=sys.maxsize, recv="default"
         )
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_case_2_callback_on_resolved_promise(
+    store: IPromiseStore,
+) -> None:
+    store.create(
+        promise_id="2.0",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags=None,
+    )
+    store.resolve(promise_id="2.0", ikey=None, strict=False, headers=None, data="1")
+    promise_record, callback_record = store.create_callback(
+        promise_id="2.0", root_promise_id="2.0", timeout=sys.maxsize, recv="default"
+    )
+    assert promise_record.is_completed()
+    assert callback_record is None

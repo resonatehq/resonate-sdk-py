@@ -20,7 +20,7 @@ class IPromiseStore(ABC):
     @abstractmethod
     def create_callback(
         self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str
-    ) -> CallbackRecord: ...
+    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
 
     @abstractmethod
     def create(  # noqa: PLR0913
@@ -114,7 +114,7 @@ class IStorage(ABC):
         root_promise_id: str,
         timeout: int,
         recv: str,
-    ) -> CallbackRecord: ...
+    ) -> tuple[DurablePromiseRecord, CallbackRecord]: ...
 
 
 class MemoryStorage(IStorage):
@@ -135,15 +135,16 @@ class MemoryStorage(IStorage):
         return item
 
     def w_callback(
-        self,
-        promise_id: str,
-        root_promise_id: str,
-        timeout: int,
-        recv: str,
-    ) -> CallbackRecord:
+        self, promise_id: str, root_promise_id: str, timeout: int, recv: str
+    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         _ = recv
-        if root_promise_id not in self._durable_promises:
+        _ = root_promise_id
+        durable_promise = self._durable_promises.get(promise_id)
+        if durable_promise is None:
             raise ResonateError(msg="Promise not found", code="STORE_FORBIDDEN")
+
+        if durable_promise.is_completed():
+            return durable_promise, None
 
         num_callback = str(len(self._callbacks) + 1)
         record = CallbackRecord(
@@ -152,8 +153,9 @@ class MemoryStorage(IStorage):
             timeout=timeout,
             created_on=time.now(),
         )
+
         self._callbacks[num_callback] = record
-        return record
+        return durable_promise, record
 
 
 @final
@@ -163,7 +165,7 @@ class LocalPromiseStore(IPromiseStore):
 
     def create_callback(
         self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str
-    ) -> CallbackRecord:
+    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         return self._storage.w_callback(
             promise_id=promise_id,
             root_promise_id=root_promise_id,
@@ -384,7 +386,7 @@ class RemotePromiseStore(IPromiseStore):
 
     def create_callback(
         self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str
-    ) -> CallbackRecord:
+    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         response = requests.post(
             url=f"{self.url}/callbacks",
             json={
@@ -397,8 +399,15 @@ class RemotePromiseStore(IPromiseStore):
         )
 
         _ensure_success(response)
-        callback_info = response.json()["callback"]
-        return _decode_callback(response=callback_info)
+        data = response.json()
+
+        callback_data = data["callback"]
+        durable_promise = _decode_durable_promise(
+            data["promise"], encoder=self._encoder
+        )
+        if callback_data is None:
+            return durable_promise, None
+        return durable_promise, _decode_callback(response=callback_data)
 
     def create(  # noqa: PLR0913
         self,
