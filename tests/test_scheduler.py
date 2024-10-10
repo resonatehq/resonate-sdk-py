@@ -617,7 +617,7 @@ def test_blocked_on_just_remote(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_blocked_not_blocked_on_remote(store: IPromiseStore) -> None:
+def test_not_blocked_on_remote(store: IPromiseStore) -> None:
     def _local_fn(_ctx: Context) -> int:
         return 42
 
