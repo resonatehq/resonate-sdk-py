@@ -724,9 +724,6 @@ class Scheduler:
         if cmd_queue.qsize() == 0:
             return
 
-        assert (
-            cmd_queue.qsize() > 0
-        ), "There must be a non empty queue of commands to process."
         cmd_handler = self._cmd_handlers.get(cmd_type)
         assert (
             cmd_handler is not None
