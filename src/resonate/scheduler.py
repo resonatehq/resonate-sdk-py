@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import uuid
+from abc import ABC, abstractmethod
 from collections import deque
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
@@ -78,6 +79,29 @@ CmdHandlerResult: TypeAlias = Union[list[T], T, None]
 CmdHandler: TypeAlias = Callable[[list[C]], CmdHandlerResult[Any]]
 
 
+def _next_retry_delay(retry_policy: RetryPolicy, retry_attempt: int) -> float:
+    assert not isinstance(retry_policy, Never)
+    return retry_policy.calculate_delay(attempt=retry_attempt + 1)
+
+
+def _to_be_retried(
+    result: Result[Any, Exception], retry_policy: RetryPolicy, retry_attempt: int
+) -> bool:
+    return not (
+        isinstance(result, Ok)
+        or isinstance(retry_policy, Never)
+        or not retry_policy.should_retry(retry_attempt + 1)
+    )
+
+
+class _Retriable(ABC):
+    @abstractmethod
+    def to_be_retried(self) -> bool: ...
+
+    @abstractmethod
+    def next_retry_delay(self) -> float: ...
+
+
 class _BatchSQE:
     def __init__(
         self,
@@ -97,12 +121,22 @@ class _BatchSQE:
         self.retry_policy = retry_policy
 
 
-class _BatchCQE:
+class _BatchCQE(_Retriable):
     def __init__(
         self, sqe: _BatchSQE, result: Result[CmdHandlerResult[Any], Exception]
     ) -> None:
         self.sqe = sqe
         self.result = result
+
+    def to_be_retried(self) -> bool:
+        return _to_be_retried(
+            self.result,
+            retry_attempt=self.sqe.retry_attempt,
+            retry_policy=self.sqe.retry_policy,
+        )
+
+    def next_retry_delay(self) -> float:
+        return _next_retry_delay(self.sqe.retry_policy, self.sqe.retry_attempt)
 
 
 class _FnSQE(Generic[T]):
@@ -115,7 +149,7 @@ class _FnSQE(Generic[T]):
         self.fn = fn
 
 
-class _FnCQE(Generic[T]):
+class _FnCQE(Generic[T], _Retriable):
     def __init__(
         self,
         sqe: _FnSQE[T],
@@ -123,6 +157,18 @@ class _FnCQE(Generic[T]):
     ) -> None:
         self.sqe = sqe
         self.fn_result = fn_result
+
+    def to_be_retried(self) -> bool:
+        return _to_be_retried(
+            self.fn_result,
+            retry_attempt=self.sqe.route_info.retry_attempt,
+            retry_policy=self.sqe.route_info.retry_policy,
+        )
+
+    def next_retry_delay(self) -> float:
+        return _next_retry_delay(
+            self.sqe.route_info.retry_policy, self.sqe.route_info.retry_attempt
+        )
 
 
 _SQE: TypeAlias = Union[_FnSQE[Any], _BatchSQE]
@@ -592,68 +638,55 @@ class Scheduler:
 
             cqes = self._completion_queue.dequeue_all()
             for cqe in cqes:
-                if isinstance(cqe, _FnCQE):
-                    if not _to_be_retried(
-                        cqe.fn_result,
-                        retry_policy=cqe.sqe.route_info.retry_policy,
-                        retry_attempt=cqe.sqe.route_info.retry_attempt,
-                    ):
-                        promise = self._emphemeral_promise_memo[
-                            cqe.sqe.route_info.promise.promise_id
-                        ]
-                        self._tracing_adapter.process_event(
-                            ExecutionTerminated(
-                                promise_id=promise.promise_id,
-                                parent_promise_id=promise.parent_promise_id(),
-                                tick=now(),
-                            )
-                        )
-                        self._resolve_promise(promise, value=cqe.fn_result)
-                        self._unblock_coros_waiting_on_promise(promise)
-                    else:
+                if cqe.to_be_retried():
+                    delay = cqe.next_retry_delay()
+
+                    if isinstance(cqe, _FnCQE):
                         self._delay_queue.put_nowait(
                             cqe.sqe.route_info.next_retry_attempt(),
-                            delay=_next_retry_delay(
-                                cqe.sqe.route_info.retry_policy,
-                                cqe.sqe.route_info.retry_attempt,
-                            ),
+                            delay=delay,
                         )
+                    elif isinstance(cqe, _BatchCQE):
+                        cqe.sqe.retry_attempt += 1
+                        self._delay_queue.put_nowait(
+                            cqe.sqe,
+                            delay=delay,
+                        )
+                    else:
+                        assert_never(cqe)
+
+                elif isinstance(cqe, _FnCQE):
+                    self._tracing_adapter.process_event(
+                        ExecutionTerminated(
+                            promise_id=cqe.sqe.route_info.promise.promise_id,
+                            parent_promise_id=cqe.sqe.route_info.promise.parent_promise_id(),
+                            tick=now(),
+                        )
+                    )
+                    self._resolve_promise(
+                        cqe.sqe.route_info.promise, value=cqe.fn_result
+                    )
+                    self._unblock_coros_waiting_on_promise(cqe.sqe.route_info.promise)
+
                 elif isinstance(cqe, _BatchCQE):
-                    if not _to_be_retried(
-                        cqe.result,
-                        cqe.sqe.retry_policy,
-                        cqe.sqe.retry_attempt,
-                    ):
-                        if isinstance(cqe.result, Ok):
-                            result = cqe.result.unwrap()
-                            if isinstance(result, list):
-                                assert len(result) == len(
-                                    cqe.sqe.promises
-                                ), "Need equal amount for results and promises."
+                    if isinstance(cqe.result, Ok):
+                        result = cqe.result.unwrap()
+                        if isinstance(result, list):
+                            assert len(result) == len(
+                                cqe.sqe.promises
+                            ), "Need equal amount for results and promises."
 
-                                for res, p in zip(result, cqe.sqe.promises):
-                                    self._tracing_adapter.process_event(
-                                        ExecutionTerminated(
-                                            promise_id=p.promise_id,
-                                            parent_promise_id=p.parent_promise_id(),
-                                            tick=now(),
-                                        )
+                            for res, p in zip(result, cqe.sqe.promises):
+                                self._tracing_adapter.process_event(
+                                    ExecutionTerminated(
+                                        promise_id=p.promise_id,
+                                        parent_promise_id=p.parent_promise_id(),
+                                        tick=now(),
                                     )
-                                    self._resolve_promise(p, Ok(res))
-                                    self._unblock_coros_waiting_on_promise(p)
-                            else:
-                                for p in cqe.sqe.promises:
-                                    self._tracing_adapter.process_event(
-                                        ExecutionTerminated(
-                                            promise_id=p.promise_id,
-                                            parent_promise_id=p.parent_promise_id(),
-                                            tick=now(),
-                                        )
-                                    )
-                                self._resolve_promise(p, Ok(result))
+                                )
+                                self._resolve_promise(p, Ok(res))
                                 self._unblock_coros_waiting_on_promise(p)
-
-                        elif isinstance(cqe.result, Err):
+                        else:
                             for p in cqe.sqe.promises:
                                 self._tracing_adapter.process_event(
                                     ExecutionTerminated(
@@ -662,20 +695,22 @@ class Scheduler:
                                         tick=now(),
                                     )
                                 )
-                                self._resolve_promise(p, cqe.result)
-                                self._unblock_coros_waiting_on_promise(p)
-                        else:
-                            assert_never(cqe.result)
-                    else:
-                        cqe.sqe.retry_attempt += 1
-                        self._delay_queue.put_nowait(
-                            cqe.sqe,
-                            delay=_next_retry_delay(
-                                cqe.sqe.retry_policy,
-                                cqe.sqe.retry_attempt,
-                            ),
-                        )
+                            self._resolve_promise(p, Ok(result))
+                            self._unblock_coros_waiting_on_promise(p)
 
+                    elif isinstance(cqe.result, Err):
+                        for p in cqe.sqe.promises:
+                            self._tracing_adapter.process_event(
+                                ExecutionTerminated(
+                                    promise_id=p.promise_id,
+                                    parent_promise_id=p.parent_promise_id(),
+                                    tick=now(),
+                                )
+                            )
+                            self._resolve_promise(p, cqe.result)
+                            self._unblock_coros_waiting_on_promise(p)
+                    else:
+                        assert_never(cqe.result)
                 else:
                     assert_never(cqe)
 
@@ -1079,18 +1114,3 @@ class Scheduler:
                 return Err(err)
 
         assert_never(combinator)
-
-
-def _next_retry_delay(retry_policy: RetryPolicy, retry_attempt: int) -> float:
-    assert not isinstance(retry_policy, Never)
-    return retry_policy.calculate_delay(attempt=retry_attempt + 1)
-
-
-def _to_be_retried(
-    result: Result[Any, Exception], retry_policy: RetryPolicy, retry_attempt: int
-) -> bool:
-    return not (
-        isinstance(result, Ok)
-        or isinstance(retry_policy, Never)
-        or not retry_policy.should_retry(retry_attempt + 1)
-    )
