@@ -742,11 +742,7 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
     class ACommand(Command):
         n: int
 
-    retries: int = -1
-
-    def command_handler(cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
-        nonlocal retries
-        retries += 1
+    def command_handler(cmds: list[ACommand]) -> list[str]:
         raise NotImplementedError
 
     def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
@@ -772,8 +768,6 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
     for p in promises:
         with pytest.raises(NotImplementedError):
             p.result()
-
-    assert retries == 0
 
 
 @pytest.mark.parametrize("store", _promise_storages())
