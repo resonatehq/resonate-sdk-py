@@ -756,13 +756,11 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
 
     s = scheduler.Scheduler(store)
 
-    max_retries = 3
-
     s.register_command_handler(
         ACommand,
         command_handler,
         maxlen=10,
-        retry_policy=constant(0, max_retries=max_retries),
+        retry_policy=never(),
     )
     s.register(do_something, retry_policy=never())
 
@@ -775,7 +773,7 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
         with pytest.raises(NotImplementedError):
             p.result()
 
-    assert retries == max_retries
+    assert retries == 0
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -831,3 +829,41 @@ def test_batching_with_single_result(store: IPromiseStore) -> None:
 
         for p in promises:
             assert p.result() == "Ok"
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_batching_with_failing_func_and_retries(store: IPromiseStore) -> None:
+    @dataclasses.dataclass(frozen=True)
+    class ACommand(Command):
+        n: int
+
+    retries: int = -1
+
+    def command_handler(cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
+        nonlocal retries
+        retries += 1
+        raise NotImplementedError
+
+    def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.lfi(ACommand(n))
+        v: str = yield p
+        return v
+
+    s = scheduler.Scheduler(store)
+
+    max_retries = 10
+    s.register_command_handler(
+        ACommand,
+        command_handler,
+        maxlen=10,
+        retry_policy=constant(delay=0, max_retries=max_retries),
+    )
+    s.register(do_something, retry_policy=never())
+
+    n = 1
+    p: Promise[str] = s.run(f"test-batch-retries{n}", do_something, n)
+
+    with pytest.raises(NotImplementedError):
+        p.result()
+
+    assert retries == max_retries
