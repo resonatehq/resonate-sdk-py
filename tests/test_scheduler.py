@@ -140,7 +140,7 @@ def test_retry(store: IPromiseStore) -> None:
         policy = Linear(
             delay=policy_info["delay"], max_retries=policy_info["max_retries"]
         )
-        yield ctx.lfc(_failing, error=NotImplementedError).with_options(
+        yield ctx.lfc(_failing, error=RuntimeError).with_options(
             durable=False, retry_policy=policy
         )
 
@@ -150,7 +150,7 @@ def test_retry(store: IPromiseStore) -> None:
     s.register(coro, "coro-func", retry_policy=never())
 
     p: Promise[None] = s.run("retry-coro", coro, dataclasses.asdict(policy))
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError):
         assert p.result()
     assert tries == 3  # noqa: PLR2004
 
@@ -196,7 +196,7 @@ def test_structure_concurrency_with_failure(store: IPromiseStore) -> None:
     def coro_that_triggers_structure_concurrency_and_fails(
         ctx: Context,
     ) -> Generator[Yieldable, Any, int]:
-        yield ctx.lfi(_failing, error=NotImplementedError).with_options(
+        yield ctx.lfi(_failing, error=RuntimeError).with_options(
             retry_policy=constant(delay=0.03, max_retries=2), durable=False
         )
         return 1
@@ -212,7 +212,7 @@ def test_structure_concurrency_with_failure(store: IPromiseStore) -> None:
         "structure-concurrency-with-failure",
         coro_that_triggers_structure_concurrency_and_fails,
     )
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError):
         p.result()
 
     assert tries == 3  # noqa: PLR2004
@@ -229,7 +229,7 @@ def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> N
         yield ctx.lfi(_failing, error=TypeError).with_options(
             retry_policy=never(), durable=False
         )
-        yield ctx.lfi(_failing, error=NotImplementedError).with_options(
+        yield ctx.lfi(_failing, error=RuntimeError).with_options(
             durable=False, retry_policy=never()
         )
         return 1
@@ -742,8 +742,8 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
     class ACommand(Command):
         n: int
 
-    def command_handler(cmds: list[ACommand]) -> list[str]:
-        raise NotImplementedError
+    def command_handler(cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
+        raise RuntimeError
 
     def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
         p: Promise[str] = yield ctx.lfi(ACommand(n))
@@ -766,7 +766,7 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
         promises.append(p)
 
     for p in promises:
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(RuntimeError):
             p.result()
 
 
@@ -836,7 +836,7 @@ def test_batching_with_failing_func_and_retries(store: IPromiseStore) -> None:
     def command_handler(cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
         nonlocal retries
         retries += 1
-        raise NotImplementedError
+        raise RuntimeError
 
     def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
         p: Promise[str] = yield ctx.lfi(ACommand(n))
@@ -857,7 +857,7 @@ def test_batching_with_failing_func_and_retries(store: IPromiseStore) -> None:
     n = 1
     p: Promise[str] = s.run(f"test-batch-retries{n}", do_something, n)
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError):
         p.result()
 
     assert retries == max_retries
