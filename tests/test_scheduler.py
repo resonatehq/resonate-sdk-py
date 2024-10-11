@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from resonate import scheduler
-from resonate.commands import CreateDurablePromiseReq
+from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.retry_policy import (
     Linear,
     constant,
@@ -510,3 +510,72 @@ def test_rfc_raw(store: IPromiseStore) -> None:
     assert child_promise_record.promise_id == "abc"
     assert child_promise_record.state == "PENDING"
     assert child_promise_record.tags == {"demo": "test"}
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_dedup(store: IPromiseStore) -> None:
+    def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return 1
+
+        p: Promise[int] = yield ctx.lfi(factorial, n - 1).with_options(
+            promise_id=f"factorial-{n-1}", retry_policy=never()
+        )
+        return n * (yield p)
+
+    s = scheduler.Scheduler(durable_promise_storage=store)
+    s.register(factorial, retry_policy=never())
+    n = 5
+    p1: Promise[int] = s.run(f"factorial-{n}", factorial, n)
+    p2: Promise[int] = s.run(f"factorial-{n}", factorial, n)
+    assert p1 == p2
+    assert p2.result() == 120  # noqa: PLR2004
+    assert p1.done()
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_register_command(store: IPromiseStore) -> None:
+    @dataclasses.dataclass(frozen=True)
+    class GreetCommand(Command):
+        name: str
+
+    def command_handler(cmds: list[GreetCommand]) -> list[str]: ...
+
+    def greet(ctx: Context, name: str) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.lfi(GreetCommand(name=name))
+        v: str = yield p
+        return v
+
+    s = scheduler.Scheduler(store)
+    s.register_command_handler(GreetCommand, command_handler)
+    s.register(greet)
+
+    characters = [
+        "Gon Freecss",
+        "Killua Zoldyck",
+        "Kurapika",
+        "Leorio Paradinight",
+        "Hisoka Morow",
+        "Chrollo Lucilfer",
+        "Meruem",
+        "Isaac Netero",
+        "Biscuit Krueger",
+        "Feitan Portor",
+        "Shalnark",
+        "Shizuku Murasaki",
+        "Nobunaga Hazama",
+        "Pakunoda",
+        "Phinks Magcub",
+        "Uvogin",
+        "Machi Komacine",
+        "Kite",
+        "Knuckle Bine",
+        "Morel Mackernasey",
+    ]
+    promises: list[Promise[str]] = []
+    for name in characters:
+        p: Promise[str] = s.run(f"greet-{name}", greet, name)
+        promises.append(p)
+
+    for p, name in zip(promises, characters):
+        assert p.result() == name

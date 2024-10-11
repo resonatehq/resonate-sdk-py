@@ -5,7 +5,7 @@ import sys
 import uuid
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar, final
 
 from typing_extensions import ParamSpec, assert_never
 
@@ -50,6 +50,7 @@ from resonate.promise import (
 )
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
+from resonate.retry_policy import RetryPolicy, default_policy
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import Combinator, PromiseActions
@@ -59,7 +60,6 @@ if TYPE_CHECKING:
 
     from resonate.record import DurablePromiseRecord
     from resonate.result import Result
-    from resonate.retry_policy import RetryPolicy
     from resonate.storage import IPromiseStore
     from resonate.tracing import IAdapter
     from resonate.typing import (
@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     )
 
 T = TypeVar("T")
+C = TypeVar("C", bound=Command)
 P = ParamSpec("P")
 
 
@@ -170,8 +171,31 @@ class Scheduler:
         self._durable_promise_storage = durable_promise_storage
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
+        self._cmd_handlers = dict[
+            type[Command], tuple[Callable[[list[Any]], list[Any]], RetryPolicy]
+        ]()
+        self._cmd_queues = dict[type[Command], Queue[Command]]()
+
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
+
+    def register_command_handler(
+        self,
+        cmd: type[C],
+        func: Callable[[list[C]], list[Any]],
+        maxsize: int = 0,
+        retry_policy: RetryPolicy | None = None,
+    ) -> None:
+        assert (
+            cmd not in self._cmd_handlers
+        ), "There's already a command handler registered for that command."
+        assert cmd not in self._cmd_queues
+
+        self._cmd_handlers[cmd] = (
+            func,
+            (retry_policy if retry_policy is not None else default_policy()),
+        )
+        self._cmd_queues[cmd] = Queue(maxsize=maxsize)
 
     def enqueue_cqe(self, sqe: _SQE[T], value: Result[T, Exception]) -> None:
         self._completion_queue.put(_CQE[Any](sqe=sqe, fn_result=value))
@@ -741,6 +765,18 @@ class Scheduler:
             else:
                 if isinstance(p.action, RFI):
                     self._register_callback_or_resolve_ephemeral_promise(p)
+                elif isinstance(p.action, LFI) and isinstance(
+                    p.action.exec_unit, Command
+                ):
+                    assert not isinstance(
+                        p.action.exec_unit, CreateDurablePromiseReq
+                    ), "This command is reserved for rfi."
+                    command_queue = self._cmd_queues.get(type(p.action.exec_unit))
+                    assert (
+                        command_queue is not None
+                    ), "The must be a queue with commands to execute."
+
+                    raise NotImplementedError
 
                 if p.done():
                     self._unblock_coros_waiting_on_promise(p)
@@ -814,8 +850,14 @@ class Scheduler:
         )
 
         if isinstance(invocation.exec_unit, Command):
-            raise NotImplementedError
-        if isinstance(invocation.exec_unit, FnOrCoroutine):
+            assert not isinstance(
+                invocation.exec_unit, CreateDurablePromiseReq
+            ), "This command is reserved only for rfi."
+            self._cmd_queues[type(invocation.exec_unit)].put_nowait(
+                invocation.exec_unit
+            )
+
+        elif isinstance(invocation.exec_unit, FnOrCoroutine):
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
             else:
