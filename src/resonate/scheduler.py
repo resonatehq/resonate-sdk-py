@@ -74,6 +74,8 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 C = TypeVar("C", bound=Command)
 P = ParamSpec("P")
+CmdHandlerResult: TypeAlias = Union[list[T], T, None]
+CmdHandler: TypeAlias = Callable[[list[C]], CmdHandlerResult[Any]]
 
 
 class _BatchSQE:
@@ -81,7 +83,7 @@ class _BatchSQE:
         self,
         promises: list[Promise[Any]],
         commands: list[Command],
-        handler: Callable[[list[Command]], list[Any]],
+        handler: CmdHandler[Command],
     ) -> None:
         assert len(promises) == len(
             commands
@@ -92,7 +94,9 @@ class _BatchSQE:
 
 
 class _BatchCQE:
-    def __init__(self, sqe: _BatchSQE, result: Result[list[Any], Exception]) -> None:
+    def __init__(
+        self, sqe: _BatchSQE, result: Result[CmdHandlerResult[Any], Exception]
+    ) -> None:
         self.sqe = sqe
         self.result = result
 
@@ -150,7 +154,7 @@ class _Processor:
                 ), f"{fn_result} must be a result."
                 self._scheduler.enqueue_cqe(_FnCQE(sqe, fn_result))
             elif isinstance(sqe, _BatchSQE):
-                result: Result[list[Any], Exception]
+                result: Result[CmdHandlerResult[Any], Exception]
                 try:
                     result = Ok(sqe.handler(list(sqe.commands)))
                 except Exception as e:  # noqa: BLE001
@@ -206,7 +210,7 @@ class Scheduler:
         self._durable_promise_storage = durable_promise_storage
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
-        self._cmd_handlers = dict[type[Command], Callable[[list[Any]], list[Any]]]()
+        self._cmd_handlers = dict[type[Command], CmdHandler[Any]]()
         self._cmd_queues = dict[type[Command], deque[tuple[Command, Promise[Any]]]]()
 
         self._worker_thread = Thread(target=self._run, daemon=True)
@@ -215,7 +219,7 @@ class Scheduler:
     def register_command_handler(
         self,
         cmd: type[C],
-        func: Callable[[list[C]], list[Any]],
+        func: CmdHandler[C],
         maxlen: int | None = None,
     ) -> None:
         assert (
@@ -597,19 +601,31 @@ class Scheduler:
                 elif isinstance(cqe, _BatchCQE):
                     if isinstance(cqe.result, Ok):
                         result = cqe.result.unwrap()
-                        assert len(result) == len(
-                            cqe.sqe.promises
-                        ), "There must be equal amount for result values and promises."
+                        if isinstance(result, list):
+                            assert len(result) == len(
+                                cqe.sqe.promises
+                            ), "There must be equal amount for results and promises."
 
-                        for res, p in zip(result, cqe.sqe.promises):
-                            self._tracing_adapter.process_event(
-                                ExecutionTerminated(
-                                    promise_id=p.promise_id,
-                                    parent_promise_id=p.parent_promise_id(),
-                                    tick=now(),
+                            for res, p in zip(result, cqe.sqe.promises):
+                                self._tracing_adapter.process_event(
+                                    ExecutionTerminated(
+                                        promise_id=p.promise_id,
+                                        parent_promise_id=p.parent_promise_id(),
+                                        tick=now(),
+                                    )
                                 )
-                            )
-                            self._resolve_promise(p, Ok(res))
+                                self._resolve_promise(p, Ok(res))
+                                self._unblock_coros_waiting_on_promise(p)
+                        else:
+                            for p in cqe.sqe.promises:
+                                self._tracing_adapter.process_event(
+                                    ExecutionTerminated(
+                                        promise_id=p.promise_id,
+                                        parent_promise_id=p.parent_promise_id(),
+                                        tick=now(),
+                                    )
+                                )
+                            self._resolve_promise(p, Ok(result))
                             self._unblock_coros_waiting_on_promise(p)
 
                     elif isinstance(cqe.result, Err):

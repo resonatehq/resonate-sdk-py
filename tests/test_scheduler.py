@@ -701,7 +701,7 @@ def test_batching(store: IPromiseStore) -> None:
     ]
     promises: list[Promise[str]] = []
     for name in characters:
-        p: Promise[str] = s.run(f"greet-{name}", greet, name)
+        p: Promise[str] = s.run(f"test-batching-greet-{name}", greet, name)
         promises.append(p)
 
     for p, name in zip(promises, characters):
@@ -734,3 +734,57 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
         for p in promises:
             with pytest.raises(NotImplementedError):
                 p.result()
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_batching_with_no_result(store: IPromiseStore) -> None:
+    @dataclasses.dataclass(frozen=True)
+    class ACommand(Command):
+        n: int
+
+    def command_handler(cmds: list[ACommand]) -> None:
+        return None
+
+    def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.lfi(ACommand(n))
+        v: str = yield p
+        return v
+
+    s = scheduler.Scheduler(store)
+    s.register_command_handler(ACommand, command_handler, maxlen=10)
+    s.register(do_something, retry_policy=never())
+
+    promises: list[Promise[str]] = []
+    for n in range(10):
+        p: Promise[str] = s.run(f"do-something-with-no-result-{n}", do_something, n)
+        promises.append(p)
+
+        for p in promises:
+            assert p.result() is None
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_batching_with_single_result(store: IPromiseStore) -> None:
+    @dataclasses.dataclass(frozen=True)
+    class ACommand(Command):
+        n: int
+
+    def command_handler(cmds: list[ACommand]) -> str:
+        return "Ok"
+
+    def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.lfi(ACommand(n))
+        v: str = yield p
+        return v
+
+    s = scheduler.Scheduler(store)
+    s.register_command_handler(ACommand, command_handler, maxlen=10)
+    s.register(do_something, retry_policy=never())
+
+    promises: list[Promise[str]] = []
+    for n in range(10):
+        p: Promise[str] = s.run(f"do-something-with-single-result-{n}", do_something, n)
+        promises.append(p)
+
+        for p in promises:
+            assert p.result() == "Ok"
