@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Coroutine, Generator
 from typing import Any, Callable, Literal, TypeVar, Union
 
@@ -43,7 +44,7 @@ Invokable: TypeAlias = Union[DurableCoro[P, Any], DurableFn[P, Any], Command]
 
 
 Awaitables: TypeAlias = dict[Promise[Any], list[CoroAndPromise[Any]]]
-RunnableCoroutines: TypeAlias = list[tuple[Runnable[Any], bool]]
+RunnableCoroutines: TypeAlias = deque[tuple[Runnable[Any], bool]]
 
 
 CommandHandlers: TypeAlias = dict[

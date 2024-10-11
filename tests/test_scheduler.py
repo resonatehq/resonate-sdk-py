@@ -539,7 +539,8 @@ def test_register_command(store: IPromiseStore) -> None:
     class GreetCommand(Command):
         name: str
 
-    def command_handler(cmds: list[GreetCommand]) -> list[str]: ...
+    def command_handler(cmds: list[GreetCommand]) -> list[str]:
+        return [cmd.name for cmd in cmds]
 
     def greet(ctx: Context, name: str) -> Generator[Yieldable, Any, str]:
         p: Promise[str] = yield ctx.lfi(GreetCommand(name=name))
@@ -547,7 +548,7 @@ def test_register_command(store: IPromiseStore) -> None:
         return v
 
     s = scheduler.Scheduler(store)
-    s.register_command_handler(GreetCommand, command_handler)
+    s.register_command_handler(GreetCommand, command_handler, maxsize=10)
     s.register(greet)
 
     characters = [
@@ -578,4 +579,4 @@ def test_register_command(store: IPromiseStore) -> None:
         promises.append(p)
 
     for p, name in zip(promises, characters):
-        assert p.result(timeout=0.5) == name
+        assert p.result() == name

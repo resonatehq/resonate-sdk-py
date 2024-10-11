@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import os
+import queue
 import sys
 import uuid
+from collections import deque
 from inspect import isgenerator, isgeneratorfunction
 from threading import Event, Thread
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar, Union, final
 
-from typing_extensions import ParamSpec, assert_never
+from typing_extensions import ParamSpec, TypeAlias, assert_never
 
 from resonate import utils
 from resonate.actions import (
@@ -50,7 +52,6 @@ from resonate.promise import (
 )
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
-from resonate.retry_policy import RetryPolicy, default_policy
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import Combinator, PromiseActions
@@ -60,6 +61,7 @@ if TYPE_CHECKING:
 
     from resonate.record import DurablePromiseRecord
     from resonate.result import Result
+    from resonate.retry_policy import RetryPolicy
     from resonate.storage import IPromiseStore
     from resonate.tracing import IAdapter
     from resonate.typing import (
@@ -75,7 +77,28 @@ C = TypeVar("C", bound=Command)
 P = ParamSpec("P")
 
 
-class _SQE(Generic[T]):
+class _BatchSQE:
+    def __init__(
+        self,
+        promises: tuple[Promise[Any]],
+        commands: tuple[Command],
+        handler: Callable[[list[Command]], list[Any]],
+    ) -> None:
+        assert len(promises) == len(
+            commands
+        ), "There must be the same number of promises and the same number of commands."
+        self.promises = promises
+        self.commands = commands
+        self.handler = handler
+
+
+class _BatchCQE:
+    def __init__(self, sqe: _BatchSQE, results: list[Any]) -> None:
+        self.sqe = sqe
+        self.results = results
+
+
+class _FnSQE(Generic[T]):
     def __init__(
         self,
         route_info: RouteInfo,
@@ -85,21 +108,25 @@ class _SQE(Generic[T]):
         self.fn = fn
 
 
-class _CQE(Generic[T]):
+class _FnCQE(Generic[T]):
     def __init__(
         self,
-        sqe: _SQE[T],
+        sqe: _FnSQE[T],
         fn_result: Result[T, Exception],
     ) -> None:
         self.sqe = sqe
         self.fn_result = fn_result
 
 
+_SQE: TypeAlias = Union[_FnSQE[Any], _BatchSQE]
+_CQE: TypeAlias = Union[_FnCQE[Any], _BatchCQE]
+
+
 class _Processor:
     def __init__(
         self,
         max_workers: int | None,
-        sq: Queue[_SQE[Any]],
+        sq: Queue[_SQE],
         scheduler: Scheduler,
     ) -> None:
         if max_workers is None:
@@ -110,19 +137,24 @@ class _Processor:
         self._scheduler = scheduler
         self._threads = set[Thread]()
 
-    def enqueue(self, sqe: _SQE[Any]) -> None:
+    def enqueue(self, sqe: _SQE) -> None:
         self._sq.put_nowait(sqe)
         self._adjust_thread_count()
 
     def _run(self) -> None:
         while True:
             sqe = self._sq.dequeue()
-            fn_result = sqe.fn.run()
-            assert isinstance(fn_result, (Ok, Err)), f"{fn_result} must be a result."
-            self._scheduler.enqueue_cqe(
-                sqe=sqe,
-                value=fn_result,
-            )
+            if isinstance(sqe, _FnSQE):
+                fn_result = sqe.fn.run()
+                assert isinstance(
+                    fn_result, (Ok, Err)
+                ), f"{fn_result} must be a result."
+                self._scheduler.enqueue_cqe(_FnCQE(sqe, fn_result))
+            elif isinstance(sqe, _BatchSQE):
+                cmd_results = sqe.handler(list(sqe.commands))
+                self._scheduler.enqueue_cqe(_BatchCQE(sqe, cmd_results))
+            else:
+                assert_never(sqe)
 
     def _adjust_thread_count(self) -> None:
         num_threads = len(self._threads)
@@ -146,8 +178,8 @@ class Scheduler:
         self._attached_options_to_top_lvl: dict[str, Options] = {}
 
         self._stg_queue = Queue[tuple[LFI, Promise[Any], Context]]()
-        self._completion_queue = Queue[_CQE[Any]]()
-        self._submission_queue = Queue[_SQE[Any]]()
+        self._completion_queue = Queue[_CQE]()
+        self._submission_queue = Queue[_SQE]()
         self._combinators_queue = Queue[tuple[Combinator, Promise[Any]]]()
 
         self._worker_continue = Event()
@@ -160,7 +192,7 @@ class Scheduler:
             tracing_adapter if tracing_adapter is not None else StdOutAdapter()
         )
 
-        self._runnable_coros: RunnableCoroutines = []
+        self._runnable_coros: RunnableCoroutines = deque()
         self._awaitables: Awaitables = {}
 
         self._processor = _Processor(
@@ -171,10 +203,8 @@ class Scheduler:
         self._durable_promise_storage = durable_promise_storage
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
-        self._cmd_handlers = dict[
-            type[Command], tuple[Callable[[list[Any]], list[Any]], RetryPolicy]
-        ]()
-        self._cmd_queues = dict[type[Command], Queue[Command]]()
+        self._cmd_handlers = dict[type[Command], Callable[[list[Any]], list[Any]]]()
+        self._cmd_queues = dict[type[Command], Queue[tuple[Command, Promise[Any]]]]()
 
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
@@ -184,21 +214,17 @@ class Scheduler:
         cmd: type[C],
         func: Callable[[list[C]], list[Any]],
         maxsize: int = 0,
-        retry_policy: RetryPolicy | None = None,
     ) -> None:
         assert (
             cmd not in self._cmd_handlers
         ), "There's already a command handler registered for that command."
         assert cmd not in self._cmd_queues
 
-        self._cmd_handlers[cmd] = (
-            func,
-            (retry_policy if retry_policy is not None else default_policy()),
-        )
+        self._cmd_handlers[cmd] = func
         self._cmd_queues[cmd] = Queue(maxsize=maxsize)
 
-    def enqueue_cqe(self, sqe: _SQE[T], value: Result[T, Exception]) -> None:
-        self._completion_queue.put(_CQE[Any](sqe=sqe, fn_result=value))
+    def enqueue_cqe(self, cqe: _CQE) -> None:
+        self._completion_queue.put(cqe)
         self._signal()
 
     def _enqueue_combinator(
@@ -495,7 +521,7 @@ class Scheduler:
 
         else:
             self._processor.enqueue(
-                _SQE(
+                _FnSQE(
                     route_info=route_info,
                     fn=wrap_fn(
                         route_info.ctx,
@@ -540,29 +566,48 @@ class Scheduler:
 
             cqes = self._completion_queue.dequeue_all()
             for cqe in cqes:
-                if not cqe.sqe.route_info.to_be_retried(cqe.fn_result):
-                    promise_to_resolve = cqe.sqe.route_info.promise
-                    assert (
-                        promise_to_resolve.promise_id in self._emphemeral_promise_memo
-                    ), "Promise must be recorded in ephemeral storage."
+                if isinstance(cqe, _FnCQE):
+                    if not cqe.sqe.route_info.to_be_retried(cqe.fn_result):
+                        promise_to_resolve = cqe.sqe.route_info.promise
+                        assert (
+                            promise_to_resolve.promise_id
+                            in self._emphemeral_promise_memo
+                        ), "Promise must be recorded in ephemeral storage."
 
-                    promise = self._emphemeral_promise_memo[
-                        promise_to_resolve.promise_id
-                    ]
-                    self._tracing_adapter.process_event(
-                        ExecutionTerminated(
-                            promise_id=promise.promise_id,
-                            parent_promise_id=promise.parent_promise_id(),
-                            tick=now(),
+                        promise = self._emphemeral_promise_memo[
+                            promise_to_resolve.promise_id
+                        ]
+                        self._tracing_adapter.process_event(
+                            ExecutionTerminated(
+                                promise_id=promise.promise_id,
+                                parent_promise_id=promise.parent_promise_id(),
+                                tick=now(),
+                            )
                         )
-                    )
-                    self._resolve_promise(promise, value=cqe.fn_result)
-                    self._unblock_coros_waiting_on_promise(promise)
+                        self._resolve_promise(promise, value=cqe.fn_result)
+                        self._unblock_coros_waiting_on_promise(promise)
+                    else:
+                        self._delay_queue.put_nowait(
+                            cqe.sqe.route_info.next_retry_attempt(),
+                            delay=cqe.sqe.route_info.next_retry_delay(),
+                        )
+                elif isinstance(cqe, _BatchCQE):
+                    assert len(cqe.results) == len(
+                        cqe.sqe.promises
+                    ), "There must be equal amount for result values and promises."
+                    for result, promise in zip(cqe.results, cqe.sqe.promises):
+                        self._tracing_adapter.process_event(
+                            ExecutionTerminated(
+                                promise_id=promise.promise_id,
+                                parent_promise_id=promise.parent_promise_id(),
+                                tick=now(),
+                            )
+                        )
+                        self._resolve_promise(promise, Ok(result))
+                        self._unblock_coros_waiting_on_promise(promise)
+
                 else:
-                    self._delay_queue.put_nowait(
-                        cqe.sqe.route_info.next_retry_attempt(),
-                        delay=cqe.sqe.route_info.next_retry_delay(),
-                    )
+                    assert_never(cqe)
 
             combinators = self._combinators_queue.dequeue_all()
             for combinator, p in combinators:
@@ -605,7 +650,7 @@ class Scheduler:
         *,
         was_awaited: bool,
     ) -> None:
-        self._runnable_coros.append(
+        self._runnable_coros.appendleft(
             (Runnable(coro_and_promise, value_to_yield_back), was_awaited)
         )
 
@@ -672,6 +717,31 @@ class Scheduler:
             )
         )
         self._emphemeral_promise_memo.pop(promise.promise_id)
+
+    def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:
+        cmd_queue = self._cmd_queues.get(cmd_type)
+        assert cmd_queue is not None
+        if cmd_queue.qsize() == 0:
+            return
+
+        assert (
+            cmd_queue.qsize() > 0
+        ), "There must be a non empty queue of commands to process."
+        cmd_handler = self._cmd_handlers.get(cmd_type)
+        assert (
+            cmd_handler is not None
+        ), "There must be a command handler for given command."
+
+        cmds_and_promises = cmd_queue.dequeue_all()
+        cmds_to_send, promises_to_resolve = zip(*cmds_and_promises)
+
+        self._processor.enqueue(
+            _BatchSQE(
+                promises=promises_to_resolve,
+                commands=cmds_to_send,
+                handler=cmd_handler,
+            )
+        )
 
     def _advance_runnable_span(  # noqa: C901, PLR0912, PLR0915. Note: We want to keep all the control flow in the function
         self, runnable: Runnable[Any], *, was_awaited: bool
@@ -765,18 +835,6 @@ class Scheduler:
             else:
                 if isinstance(p.action, RFI):
                     self._register_callback_or_resolve_ephemeral_promise(p)
-                elif isinstance(p.action, LFI) and isinstance(
-                    p.action.exec_unit, Command
-                ):
-                    assert not isinstance(
-                        p.action.exec_unit, CreateDurablePromiseReq
-                    ), "This command is reserved for rfi."
-                    command_queue = self._cmd_queues.get(type(p.action.exec_unit))
-                    assert (
-                        command_queue is not None
-                    ), "The must be a queue with commands to execute."
-
-                    raise NotImplementedError
 
                 if p.done():
                     self._unblock_coros_waiting_on_promise(p)
@@ -785,6 +843,16 @@ class Scheduler:
                     )
                 else:
                     self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+
+                    if isinstance(p.action, LFI) and isinstance(
+                        p.action.exec_unit, Command
+                    ):
+                        assert not isinstance(
+                            p.action.exec_unit, CreateDurablePromiseReq
+                        ), "This command is reserved for rfi."
+                        self._send_pending_commands_to_processor(
+                            type(p.action.exec_unit)
+                        )
 
         elif isinstance(yieldable_or_final_value, (All, AllSettled, Race)):
             p = self._process_combinator(yieldable_or_final_value, runnable)
@@ -853,9 +921,13 @@ class Scheduler:
             assert not isinstance(
                 invocation.exec_unit, CreateDurablePromiseReq
             ), "This command is reserved only for rfi."
-            self._cmd_queues[type(invocation.exec_unit)].put_nowait(
-                invocation.exec_unit
-            )
+
+            cmd_type = type(invocation.exec_unit)
+            try:
+                self._cmd_queues[cmd_type].put_nowait((invocation.exec_unit, p))
+            except queue.Full:
+                self._send_pending_commands_to_processor(cmd_type)
+                self._cmd_queues[cmd_type].put_nowait((invocation.exec_unit, p))
 
         elif isinstance(invocation.exec_unit, FnOrCoroutine):
             if p.done():

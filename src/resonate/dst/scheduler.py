@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections import deque
 from inspect import isgenerator, isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Callable, Literal, Union, final
 
@@ -77,7 +78,7 @@ Step: TypeAlias = Literal["functions", "coroutines"]
 Mode: TypeAlias = Literal["concurrent", "sequential"]
 
 
-RunnableFunctions: TypeAlias = list[
+RunnableFunctions: TypeAlias = deque[
     tuple[Union[FnWrapper[Any], AsyncFnWrapper[Any]], Promise[Any]]
 ]
 
@@ -114,9 +115,9 @@ class DSTScheduler:
         durable_promise_storage: IPromiseStore,
     ) -> None:
         self._stg_queue: list[tuple[LFI, str]] = []
-        self._runnable_coros: RunnableCoroutines = []
+        self._runnable_coros: RunnableCoroutines = deque()
         self._awatiables: Awaitables = {}
-        self._runnable_functions: RunnableFunctions = []
+        self._runnable_functions: RunnableFunctions = deque()
 
         self.random = random
         self.seed = self.random.seed
@@ -402,8 +403,10 @@ class DSTScheduler:
             self._route_fn_or_coroutine(RouteInfo(root_ctx, p, top_lvl.exec_unit, 0))
         return p
 
-    def _get_random_element(self, array: list[T]) -> T:
-        return array.pop(self.random.randint(0, len(array) - 1))
+    def _get_random_element(self, array: deque[T]) -> T:
+        element = self.random.choice(array)
+        array.remove(element)
+        return element
 
     def _reset(self) -> None:
         self._runnable_coros.clear()
