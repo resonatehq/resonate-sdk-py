@@ -578,4 +578,4 @@ def test_register_command(store: IPromiseStore) -> None:
         promises.append(p)
 
     for p, name in zip(promises, characters):
-        assert p.result() == name
+        assert p.result(timeout=0.5) == name
