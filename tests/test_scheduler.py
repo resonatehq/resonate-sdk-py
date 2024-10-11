@@ -714,7 +714,11 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
     class ACommand(Command):
         n: int
 
-    def command_handler(cmds: list[ACommand]) -> list[str]:
+    retries: int = -1
+
+    def command_handler(cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
+        nonlocal retries
+        retries += 1
         raise NotImplementedError
 
     def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
@@ -723,7 +727,15 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
         return v
 
     s = scheduler.Scheduler(store)
-    s.register_command_handler(ACommand, command_handler, maxlen=10)
+
+    max_retries = 3
+
+    s.register_command_handler(
+        ACommand,
+        command_handler,
+        maxlen=10,
+        retry_policy=constant(0, max_retries=max_retries),
+    )
     s.register(do_something, retry_policy=never())
 
     promises: list[Promise[str]] = []
@@ -731,9 +743,11 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
         p: Promise[str] = s.run(f"do-something-{n}", do_something, n)
         promises.append(p)
 
-        for p in promises:
-            with pytest.raises(NotImplementedError):
-                p.result()
+    for p in promises:
+        with pytest.raises(NotImplementedError):
+            p.result()
+
+    assert retries == max_retries
 
 
 @pytest.mark.parametrize("store", _promise_storages())

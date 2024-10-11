@@ -195,7 +195,9 @@ class Scheduler:
 
         self._worker_continue = Event()
 
-        self._delay_queue = DelayQueue[RouteInfo](caller_event=self._worker_continue)
+        self._delay_queue = DelayQueue[Union[RouteInfo, _BatchSQE]](
+            caller_event=self._worker_continue
+        )
 
         self._deps = Dependencies()
         self._json_encoder = JsonEncoder()
@@ -566,6 +568,8 @@ class Scheduler:
             for delay_e in delay_es:
                 if isinstance(delay_e, RouteInfo):
                     self._route_fn_or_coroutine(delay_e)
+                elif isinstance(delay_e, _BatchSQE):
+                    self._processor.enqueue(delay_e)
                 else:
                     assert_never(delay_e)
 
@@ -614,24 +618,41 @@ class Scheduler:
                             ),
                         )
                 elif isinstance(cqe, _BatchCQE):
-                    if isinstance(cqe.result, Ok):
-                        result = cqe.result.unwrap()
-                        if isinstance(result, list):
-                            assert len(result) == len(
-                                cqe.sqe.promises
-                            ), "There must be equal amount for results and promises."
+                    if not _to_be_retried(
+                        cqe.result,
+                        cqe.sqe.retry_policy,
+                        cqe.sqe.retry_attempt,
+                    ):
+                        if isinstance(cqe.result, Ok):
+                            result = cqe.result.unwrap()
+                            if isinstance(result, list):
+                                assert len(result) == len(
+                                    cqe.sqe.promises
+                                ), "Need equal amount for results and promises."
 
-                            for res, p in zip(result, cqe.sqe.promises):
-                                self._tracing_adapter.process_event(
-                                    ExecutionTerminated(
-                                        promise_id=p.promise_id,
-                                        parent_promise_id=p.parent_promise_id(),
-                                        tick=now(),
+                                for res, p in zip(result, cqe.sqe.promises):
+                                    self._tracing_adapter.process_event(
+                                        ExecutionTerminated(
+                                            promise_id=p.promise_id,
+                                            parent_promise_id=p.parent_promise_id(),
+                                            tick=now(),
+                                        )
                                     )
-                                )
-                                self._resolve_promise(p, Ok(res))
+                                    self._resolve_promise(p, Ok(res))
+                                    self._unblock_coros_waiting_on_promise(p)
+                            else:
+                                for p in cqe.sqe.promises:
+                                    self._tracing_adapter.process_event(
+                                        ExecutionTerminated(
+                                            promise_id=p.promise_id,
+                                            parent_promise_id=p.parent_promise_id(),
+                                            tick=now(),
+                                        )
+                                    )
+                                self._resolve_promise(p, Ok(result))
                                 self._unblock_coros_waiting_on_promise(p)
-                        else:
+
+                        elif isinstance(cqe.result, Err):
                             for p in cqe.sqe.promises:
                                 self._tracing_adapter.process_event(
                                     ExecutionTerminated(
@@ -640,22 +661,19 @@ class Scheduler:
                                         tick=now(),
                                     )
                                 )
-                            self._resolve_promise(p, Ok(result))
-                            self._unblock_coros_waiting_on_promise(p)
-
-                    elif isinstance(cqe.result, Err):
-                        for p in cqe.sqe.promises:
-                            self._tracing_adapter.process_event(
-                                ExecutionTerminated(
-                                    promise_id=p.promise_id,
-                                    parent_promise_id=p.parent_promise_id(),
-                                    tick=now(),
-                                )
-                            )
-                            self._resolve_promise(p, cqe.result)
-                            self._unblock_coros_waiting_on_promise(p)
+                                self._resolve_promise(p, cqe.result)
+                                self._unblock_coros_waiting_on_promise(p)
+                        else:
+                            assert_never(cqe.result)
                     else:
-                        assert_never(cqe.result)
+                        cqe.sqe.retry_attempt += 1
+                        self._delay_queue.put_nowait(
+                            cqe.sqe,
+                            delay=_next_retry_delay(
+                                cqe.sqe.retry_policy,
+                                cqe.sqe.retry_attempt,
+                            ),
+                        )
 
                 else:
                     assert_never(cqe)
