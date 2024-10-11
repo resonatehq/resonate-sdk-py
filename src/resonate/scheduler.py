@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import queue
 import sys
 import uuid
 from collections import deque
@@ -80,8 +79,8 @@ P = ParamSpec("P")
 class _BatchSQE:
     def __init__(
         self,
-        promises: tuple[Promise[Any]],
-        commands: tuple[Command],
+        promises: list[Promise[Any]],
+        commands: list[Command],
         handler: Callable[[list[Command]], list[Any]],
     ) -> None:
         assert len(promises) == len(
@@ -93,9 +92,9 @@ class _BatchSQE:
 
 
 class _BatchCQE:
-    def __init__(self, sqe: _BatchSQE, results: list[Any]) -> None:
+    def __init__(self, sqe: _BatchSQE, result: Result[list[Any], Exception]) -> None:
         self.sqe = sqe
-        self.results = results
+        self.result = result
 
 
 class _FnSQE(Generic[T]):
@@ -151,8 +150,12 @@ class _Processor:
                 ), f"{fn_result} must be a result."
                 self._scheduler.enqueue_cqe(_FnCQE(sqe, fn_result))
             elif isinstance(sqe, _BatchSQE):
-                cmd_results = sqe.handler(list(sqe.commands))
-                self._scheduler.enqueue_cqe(_BatchCQE(sqe, cmd_results))
+                result: Result[list[Any], Exception]
+                try:
+                    result = Ok(sqe.handler(list(sqe.commands)))
+                except Exception as e:  # noqa: BLE001
+                    result = Err(e)
+                self._scheduler.enqueue_cqe(_BatchCQE(sqe, result))
             else:
                 assert_never(sqe)
 
@@ -204,7 +207,7 @@ class Scheduler:
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
         self._cmd_handlers = dict[type[Command], Callable[[list[Any]], list[Any]]]()
-        self._cmd_queues = dict[type[Command], Queue[tuple[Command, Promise[Any]]]]()
+        self._cmd_queues = dict[type[Command], deque[tuple[Command, Promise[Any]]]]()
 
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
@@ -213,7 +216,7 @@ class Scheduler:
         self,
         cmd: type[C],
         func: Callable[[list[C]], list[Any]],
-        maxsize: int = 0,
+        maxlen: int | None = None,
     ) -> None:
         assert (
             cmd not in self._cmd_handlers
@@ -221,7 +224,7 @@ class Scheduler:
         assert cmd not in self._cmd_queues
 
         self._cmd_handlers[cmd] = func
-        self._cmd_queues[cmd] = Queue(maxsize=maxsize)
+        self._cmd_queues[cmd] = deque(maxlen=maxlen)
 
     def enqueue_cqe(self, cqe: _CQE) -> None:
         self._completion_queue.put(cqe)
@@ -592,19 +595,36 @@ class Scheduler:
                             delay=cqe.sqe.route_info.next_retry_delay(),
                         )
                 elif isinstance(cqe, _BatchCQE):
-                    assert len(cqe.results) == len(
-                        cqe.sqe.promises
-                    ), "There must be equal amount for result values and promises."
-                    for result, promise in zip(cqe.results, cqe.sqe.promises):
-                        self._tracing_adapter.process_event(
-                            ExecutionTerminated(
-                                promise_id=promise.promise_id,
-                                parent_promise_id=promise.parent_promise_id(),
-                                tick=now(),
+                    if isinstance(cqe.result, Ok):
+                        result = cqe.result.unwrap()
+                        assert len(result) == len(
+                            cqe.sqe.promises
+                        ), "There must be equal amount for result values and promises."
+
+                        for res, p in zip(result, cqe.sqe.promises):
+                            self._tracing_adapter.process_event(
+                                ExecutionTerminated(
+                                    promise_id=p.promise_id,
+                                    parent_promise_id=p.parent_promise_id(),
+                                    tick=now(),
+                                )
                             )
-                        )
-                        self._resolve_promise(promise, Ok(result))
-                        self._unblock_coros_waiting_on_promise(promise)
+                            self._resolve_promise(p, Ok(res))
+                            self._unblock_coros_waiting_on_promise(p)
+
+                    elif isinstance(cqe.result, Err):
+                        for p in cqe.sqe.promises:
+                            self._tracing_adapter.process_event(
+                                ExecutionTerminated(
+                                    promise_id=p.promise_id,
+                                    parent_promise_id=p.parent_promise_id(),
+                                    tick=now(),
+                                )
+                            )
+                            self._resolve_promise(p, cqe.result)
+                            self._unblock_coros_waiting_on_promise(p)
+                    else:
+                        assert_never(cqe.result)
 
                 else:
                     assert_never(cqe)
@@ -634,7 +654,15 @@ class Scheduler:
             not p.done()
         ), "If the promise is resolved already it makes no sense to block coroutine"
         self._awaitables.setdefault(p, []).append(coro_and_promise)
+
+        if isinstance(p.action, LFI) and isinstance(p.action.exec_unit, Command):
+            assert not isinstance(
+                p.action.exec_unit, CreateDurablePromiseReq
+            ), "This command is reserved for rfi."
+            self._send_pending_commands_to_processor(type(p.action.exec_unit))
+
         coro_and_promise.route_info.promise.increase_blocked_on()
+
         self._tracing_adapter.process_event(
             ExecutionAwaited(
                 promise_id=coro_and_promise.route_info.promise.promise_id,
@@ -721,16 +749,19 @@ class Scheduler:
     def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:
         cmd_queue = self._cmd_queues.get(cmd_type)
         assert cmd_queue is not None
-        if cmd_queue.qsize() == 0:
+        if len(cmd_queue) == 0:
             return
 
         cmd_handler = self._cmd_handlers.get(cmd_type)
         assert (
             cmd_handler is not None
         ), "There must be a command handler for given command."
-
-        cmds_and_promises = cmd_queue.dequeue_all()
-        cmds_to_send, promises_to_resolve = zip(*cmds_and_promises)
+        cmds_to_send: list[Command] = []
+        promises_to_resolve: list[Promise[Any]] = []
+        while cmd_queue:
+            cmd, p = cmd_queue.pop()
+            cmds_to_send.append(cmd)
+            promises_to_resolve.append(p)
 
         self._processor.enqueue(
             _BatchSQE(
@@ -841,16 +872,6 @@ class Scheduler:
                 else:
                     self._add_coro_to_awaitables(p, runnable.coro_and_promise)
 
-                    if isinstance(p.action, LFI) and isinstance(
-                        p.action.exec_unit, Command
-                    ):
-                        assert not isinstance(
-                            p.action.exec_unit, CreateDurablePromiseReq
-                        ), "This command is reserved for rfi."
-                        self._send_pending_commands_to_processor(
-                            type(p.action.exec_unit)
-                        )
-
         elif isinstance(yieldable_or_final_value, (All, AllSettled, Race)):
             p = self._process_combinator(yieldable_or_final_value, runnable)
             self._add_coro_to_runnables(
@@ -920,11 +941,11 @@ class Scheduler:
             ), "This command is reserved only for rfi."
 
             cmd_type = type(invocation.exec_unit)
-            try:
-                self._cmd_queues[cmd_type].put_nowait((invocation.exec_unit, p))
-            except queue.Full:
+            cmd_queue = self._cmd_queues[cmd_type]
+            if cmd_queue.maxlen is not None and len(cmd_queue) == cmd_queue.maxlen:
                 self._send_pending_commands_to_processor(cmd_type)
-                self._cmd_queues[cmd_type].put_nowait((invocation.exec_unit, p))
+
+            cmd_queue.appendleft((invocation.exec_unit, p))
 
         elif isinstance(invocation.exec_unit, FnOrCoroutine):
             if p.done():

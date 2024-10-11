@@ -534,7 +534,7 @@ def test_dedup(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_register_command(store: IPromiseStore) -> None:
+def test_batching(store: IPromiseStore) -> None:
     @dataclasses.dataclass(frozen=True)
     class GreetCommand(Command):
         name: str
@@ -548,7 +548,7 @@ def test_register_command(store: IPromiseStore) -> None:
         return v
 
     s = scheduler.Scheduler(store)
-    s.register_command_handler(GreetCommand, command_handler, maxsize=10)
+    s.register_command_handler(GreetCommand, command_handler, maxlen=10)
     s.register(greet)
 
     characters = [
@@ -580,3 +580,31 @@ def test_register_command(store: IPromiseStore) -> None:
 
     for p, name in zip(promises, characters):
         assert p.result() == name
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_batching_with_failing_func(store: IPromiseStore) -> None:
+    @dataclasses.dataclass(frozen=True)
+    class ACommand(Command):
+        n: int
+
+    def command_handler(cmds: list[ACommand]) -> list[str]:
+        raise NotImplementedError
+
+    def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.lfi(ACommand(n))
+        v: str = yield p
+        return v
+
+    s = scheduler.Scheduler(store)
+    s.register_command_handler(ACommand, command_handler, maxlen=10)
+    s.register(do_something, retry_policy=never())
+
+    promises: list[Promise[str]] = []
+    for n in range(10):
+        p: Promise[str] = s.run(f"do-something-{n}", do_something, n)
+        promises.append(p)
+
+        for p in promises:
+            with pytest.raises(NotImplementedError):
+                p.result()
