@@ -550,7 +550,7 @@ class Scheduler:
             )
         )
 
-    def _run(self) -> None:  # noqa: C901, PLR0912
+    def _run(self) -> None:  # noqa: C901, PLR0912, PLR0915
         while self._worker_continue.wait():
             self._worker_continue.clear()
 

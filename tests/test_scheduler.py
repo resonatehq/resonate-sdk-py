@@ -743,7 +743,7 @@ def test_batching_with_no_result(store: IPromiseStore) -> None:
         n: int
 
     def command_handler(cmds: list[ACommand]) -> None:
-        return None
+        _ = cmds
 
     def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
         p: Promise[str] = yield ctx.lfi(ACommand(n))
@@ -770,6 +770,7 @@ def test_batching_with_single_result(store: IPromiseStore) -> None:
         n: int
 
     def command_handler(cmds: list[ACommand]) -> str:
+        _ = cmds
         return "Ok"
 
     def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
