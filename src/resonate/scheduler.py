@@ -548,17 +548,17 @@ class Scheduler:
                     ),
                 )
             )
-
-        self._tracing_adapter.process_event(
-            ExecutionInvoked(
-                route_info.promise.promise_id,
-                route_info.promise.parent_promise_id(),
-                now(),
-                route_info.fn_or_coroutine.exec_unit.__name__,
-                route_info.fn_or_coroutine.args,
-                route_info.fn_or_coroutine.kwargs,
+        if route_info.retry_attempt == 0:
+            self._tracing_adapter.process_event(
+                ExecutionInvoked(
+                    route_info.promise.promise_id,
+                    route_info.promise.parent_promise_id(),
+                    now(),
+                    route_info.fn_or_coroutine.exec_unit.__name__,
+                    route_info.fn_or_coroutine.args,
+                    route_info.fn_or_coroutine.kwargs,
+                )
             )
-        )
 
     def _run(self) -> None:  # noqa: C901, PLR0912, PLR0915
         while self._worker_continue.wait():
@@ -575,12 +575,19 @@ class Scheduler:
 
             top_lvls = self._stg_queue.dequeue_all()
             for top_lvl, p, root_ctx in top_lvls:
-                assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
+                assert isinstance(
+                    top_lvl.exec_unit, FnOrCoroutine
+                ), "Only functions or coroutines can be passed at the top level"
                 if p.done():
                     self._unblock_coros_waiting_on_promise(p)
                 else:
                     self._route_fn_or_coroutine(
-                        RouteInfo(root_ctx, p, top_lvl.exec_unit, retry_attempt=0)
+                        RouteInfo(
+                            root_ctx,
+                            p,
+                            top_lvl.exec_unit,
+                            retry_attempt=0,
+                        )
                     )
 
             cqes = self._completion_queue.dequeue_all()
@@ -591,14 +598,8 @@ class Scheduler:
                         retry_policy=cqe.sqe.route_info.retry_policy,
                         retry_attempt=cqe.sqe.route_info.retry_attempt,
                     ):
-                        promise_to_resolve = cqe.sqe.route_info.promise
-                        assert (
-                            promise_to_resolve.promise_id
-                            in self._emphemeral_promise_memo
-                        ), "Promise must be recorded in ephemeral storage."
-
                         promise = self._emphemeral_promise_memo[
-                            promise_to_resolve.promise_id
+                            cqe.sqe.route_info.promise.promise_id
                         ]
                         self._tracing_adapter.process_event(
                             ExecutionTerminated(
