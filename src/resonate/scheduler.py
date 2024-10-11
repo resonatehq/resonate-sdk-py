@@ -51,6 +51,7 @@ from resonate.promise import (
 )
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
+from resonate.retry_policy import Never, RetryPolicy, default_policy
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import Combinator, PromiseActions
@@ -60,7 +61,6 @@ if TYPE_CHECKING:
 
     from resonate.record import DurablePromiseRecord
     from resonate.result import Result
-    from resonate.retry_policy import RetryPolicy
     from resonate.storage import IPromiseStore
     from resonate.tracing import IAdapter
     from resonate.typing import (
@@ -84,6 +84,8 @@ class _BatchSQE:
         promises: list[Promise[Any]],
         commands: list[Command],
         handler: CmdHandler[Command],
+        retry_attempt: int,
+        retry_policy: RetryPolicy,
     ) -> None:
         assert len(promises) == len(
             commands
@@ -91,6 +93,8 @@ class _BatchSQE:
         self.promises = promises
         self.commands = commands
         self.handler = handler
+        self.retry_attempt = retry_attempt
+        self.retry_policy = retry_policy
 
 
 class _BatchCQE:
@@ -210,7 +214,7 @@ class Scheduler:
         self._durable_promise_storage = durable_promise_storage
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
-        self._cmd_handlers = dict[type[Command], CmdHandler[Any]]()
+        self._cmd_handlers = dict[type[Command], tuple[CmdHandler[Any], RetryPolicy]]()
         self._cmd_queues = dict[type[Command], deque[tuple[Command, Promise[Any]]]]()
 
         self._worker_thread = Thread(target=self._run, daemon=True)
@@ -221,13 +225,17 @@ class Scheduler:
         cmd: type[C],
         func: CmdHandler[C],
         maxlen: int | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> None:
         assert (
             cmd not in self._cmd_handlers
         ), "There's already a command handler registered for that command."
         assert cmd not in self._cmd_queues
 
-        self._cmd_handlers[cmd] = func
+        if retry_policy is None:
+            retry_policy = default_policy()
+
+        self._cmd_handlers[cmd] = (func, retry_policy)
         self._cmd_queues[cmd] = deque(maxlen=maxlen)
 
     def enqueue_cqe(self, cqe: _CQE) -> None:
@@ -574,7 +582,11 @@ class Scheduler:
             cqes = self._completion_queue.dequeue_all()
             for cqe in cqes:
                 if isinstance(cqe, _FnCQE):
-                    if not cqe.sqe.route_info.to_be_retried(cqe.fn_result):
+                    if not _to_be_retried(
+                        cqe.fn_result,
+                        retry_policy=cqe.sqe.route_info.retry_policy,
+                        retry_attempt=cqe.sqe.route_info.retry_attempt,
+                    ):
                         promise_to_resolve = cqe.sqe.route_info.promise
                         assert (
                             promise_to_resolve.promise_id
@@ -596,7 +608,10 @@ class Scheduler:
                     else:
                         self._delay_queue.put_nowait(
                             cqe.sqe.route_info.next_retry_attempt(),
-                            delay=cqe.sqe.route_info.next_retry_delay(),
+                            delay=_next_retry_delay(
+                                cqe.sqe.route_info.retry_policy,
+                                cqe.sqe.route_info.retry_attempt,
+                            ),
                         )
                 elif isinstance(cqe, _BatchCQE):
                     if isinstance(cqe.result, Ok):
@@ -768,9 +783,9 @@ class Scheduler:
         if len(cmd_queue) == 0:
             return
 
-        cmd_handler = self._cmd_handlers.get(cmd_type)
+        cmd_handler_and_retry_policy = self._cmd_handlers.get(cmd_type)
         assert (
-            cmd_handler is not None
+            cmd_handler_and_retry_policy is not None
         ), "There must be a command handler for given command."
         cmds_to_send: list[Command] = []
         promises_to_resolve: list[Promise[Any]] = []
@@ -779,11 +794,14 @@ class Scheduler:
             cmds_to_send.append(cmd)
             promises_to_resolve.append(p)
 
+        handler, retry_policy = cmd_handler_and_retry_policy
         self._processor.enqueue(
             _BatchSQE(
                 promises=promises_to_resolve,
                 commands=cmds_to_send,
-                handler=cmd_handler,
+                handler=handler,
+                retry_attempt=0,
+                retry_policy=retry_policy,
             )
         )
 
@@ -807,7 +825,11 @@ class Scheduler:
 
         if isinstance(yieldable_or_final_value, FinalValue):
             final_value = yieldable_or_final_value.v
-            if not runnable.coro_and_promise.route_info.to_be_retried(final_value):
+            if not _to_be_retried(
+                final_value,
+                runnable.coro_and_promise.route_info.retry_policy,
+                runnable.coro_and_promise.route_info.retry_attempt,
+            ):
                 self._tracing_adapter.process_event(
                     ExecutionTerminated(
                         promise_id=runnable.coro_and_promise.route_info.promise.promise_id,
@@ -845,7 +867,10 @@ class Scheduler:
             else:
                 self._delay_queue.put_nowait(
                     runnable.coro_and_promise.route_info.next_retry_attempt(),
-                    delay=runnable.coro_and_promise.route_info.next_retry_delay(),
+                    delay=_next_retry_delay(
+                        runnable.coro_and_promise.route_info.retry_policy,
+                        runnable.coro_and_promise.route_info.retry_attempt,
+                    ),
                 )
 
         elif isinstance(yieldable_or_final_value, LFC):
@@ -1035,3 +1060,18 @@ class Scheduler:
                 return Err(err)
 
         assert_never(combinator)
+
+
+def _next_retry_delay(retry_policy: RetryPolicy, retry_attempt: int) -> float:
+    assert not isinstance(retry_policy, Never)
+    return retry_policy.calculate_delay(attempt=retry_attempt + 1)
+
+
+def _to_be_retried(
+    result: Result[Any, Exception], retry_policy: RetryPolicy, retry_attempt: int
+) -> bool:
+    return not (
+        isinstance(result, Ok)
+        or isinstance(retry_policy, Never)
+        or not retry_policy.should_retry(retry_attempt + 1)
+    )

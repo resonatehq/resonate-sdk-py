@@ -7,8 +7,6 @@ from typing_extensions import ParamSpec
 
 from resonate.actions import LFI
 from resonate.commands import CreateDurablePromiseReq
-from resonate.result import Ok
-from resonate.retry_policy import Never
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -49,17 +47,6 @@ class RouteInfo:
             fn_or_coroutine=self.fn_or_coroutine,
             retry_attempt=self.retry_attempt + 1,
         )
-
-    def to_be_retried(self, result: Result[Any, Exception]) -> bool:
-        return not (
-            isinstance(result, Ok)
-            or isinstance(self.retry_policy, Never)
-            or not self.retry_policy.should_retry(self.retry_attempt + 1)
-        )
-
-    def next_retry_delay(self) -> float:
-        assert not isinstance(self.retry_policy, Never)
-        return self.retry_policy.calculate_delay(attempt=self.retry_attempt + 1)
 
 
 class CoroAndPromise(Generic[T]):
