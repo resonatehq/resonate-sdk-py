@@ -606,7 +606,65 @@ class Scheduler:
                 )
             )
 
-    def _run(self) -> None:  # noqa: C901, PLR0912, PLR0915
+    def _resolve_promise_with_cqe(self, cqe: _CQE) -> None:
+        if isinstance(cqe, _FnCQE):
+            self._tracing_adapter.process_event(
+                ExecutionTerminated(
+                    promise_id=cqe.sqe.route_info.promise.promise_id,
+                    parent_promise_id=cqe.sqe.route_info.promise.parent_promise_id(),
+                    tick=now(),
+                )
+            )
+            self._resolve_promise(cqe.sqe.route_info.promise, value=cqe.fn_result)
+            self._unblock_coros_waiting_on_promise(cqe.sqe.route_info.promise)
+
+        elif isinstance(cqe, _BatchCQE):
+            if isinstance(cqe.result, Ok):
+                result = cqe.result.unwrap()
+                if isinstance(result, list):
+                    assert len(result) == len(
+                        cqe.sqe.promises
+                    ), "Need equal amount for results and promises."
+
+                    for res, p in zip(result, cqe.sqe.promises):
+                        self._tracing_adapter.process_event(
+                            ExecutionTerminated(
+                                promise_id=p.promise_id,
+                                parent_promise_id=p.parent_promise_id(),
+                                tick=now(),
+                            )
+                        )
+                        self._resolve_promise(p, Ok(res))
+                        self._unblock_coros_waiting_on_promise(p)
+                else:
+                    for p in cqe.sqe.promises:
+                        self._tracing_adapter.process_event(
+                            ExecutionTerminated(
+                                promise_id=p.promise_id,
+                                parent_promise_id=p.parent_promise_id(),
+                                tick=now(),
+                            )
+                        )
+                    self._resolve_promise(p, Ok(result))
+                    self._unblock_coros_waiting_on_promise(p)
+
+            elif isinstance(cqe.result, Err):
+                for p in cqe.sqe.promises:
+                    self._tracing_adapter.process_event(
+                        ExecutionTerminated(
+                            promise_id=p.promise_id,
+                            parent_promise_id=p.parent_promise_id(),
+                            tick=now(),
+                        )
+                    )
+                    self._resolve_promise(p, cqe.result)
+                    self._unblock_coros_waiting_on_promise(p)
+            else:
+                assert_never(cqe.result)
+        else:
+            assert_never(cqe)
+
+    def _run(self) -> None:  # noqa: C901, PLR0912
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
@@ -654,65 +712,8 @@ class Scheduler:
                         )
                     else:
                         assert_never(cqe)
-
-                elif isinstance(cqe, _FnCQE):
-                    self._tracing_adapter.process_event(
-                        ExecutionTerminated(
-                            promise_id=cqe.sqe.route_info.promise.promise_id,
-                            parent_promise_id=cqe.sqe.route_info.promise.parent_promise_id(),
-                            tick=now(),
-                        )
-                    )
-                    self._resolve_promise(
-                        cqe.sqe.route_info.promise, value=cqe.fn_result
-                    )
-                    self._unblock_coros_waiting_on_promise(cqe.sqe.route_info.promise)
-
-                elif isinstance(cqe, _BatchCQE):
-                    if isinstance(cqe.result, Ok):
-                        result = cqe.result.unwrap()
-                        if isinstance(result, list):
-                            assert len(result) == len(
-                                cqe.sqe.promises
-                            ), "Need equal amount for results and promises."
-
-                            for res, p in zip(result, cqe.sqe.promises):
-                                self._tracing_adapter.process_event(
-                                    ExecutionTerminated(
-                                        promise_id=p.promise_id,
-                                        parent_promise_id=p.parent_promise_id(),
-                                        tick=now(),
-                                    )
-                                )
-                                self._resolve_promise(p, Ok(res))
-                                self._unblock_coros_waiting_on_promise(p)
-                        else:
-                            for p in cqe.sqe.promises:
-                                self._tracing_adapter.process_event(
-                                    ExecutionTerminated(
-                                        promise_id=p.promise_id,
-                                        parent_promise_id=p.parent_promise_id(),
-                                        tick=now(),
-                                    )
-                                )
-                            self._resolve_promise(p, Ok(result))
-                            self._unblock_coros_waiting_on_promise(p)
-
-                    elif isinstance(cqe.result, Err):
-                        for p in cqe.sqe.promises:
-                            self._tracing_adapter.process_event(
-                                ExecutionTerminated(
-                                    promise_id=p.promise_id,
-                                    parent_promise_id=p.parent_promise_id(),
-                                    tick=now(),
-                                )
-                            )
-                            self._resolve_promise(p, cqe.result)
-                            self._unblock_coros_waiting_on_promise(p)
-                    else:
-                        assert_never(cqe.result)
                 else:
-                    assert_never(cqe)
+                    self._resolve_promise_with_cqe(cqe)
 
             combinators = self._combinators_queue.dequeue_all()
             for combinator, p in combinators:
