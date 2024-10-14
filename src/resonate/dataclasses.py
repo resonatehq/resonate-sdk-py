@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from inspect import isgenerator
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from typing_extensions import ParamSpec
@@ -12,7 +13,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate.context import Context
-    from resonate.itertools import FinalValue
     from resonate.promise import Promise
     from resonate.result import Result
     from resonate.typing import (
@@ -49,20 +49,66 @@ class RouteInfo:
         )
 
 
-class CoroAndPromise(Generic[T]):
+class ResonateCoro(Generic[T]):
     def __init__(
         self,
         route_info: RouteInfo,
         coro: Generator[Yieldable, Any, T],
     ) -> None:
+        assert isgenerator(coro)
         self.route_info = route_info
-        self.coro = coro
-        self.final_value: FinalValue[T] | None = None
+        self._coro = coro
+        self._coro_active = True
+        self._return_value: T | None = None
+        self._error_to_raise: Exception | None = None
+
+    def next(self) -> Yieldable:
+        if self._coro_active:
+            return next(self._coro)
+        msg = "Next can only be called when coro is active."
+        raise RuntimeError(msg)
+
+    def send(self, v: T) -> Yieldable:
+        if self._coro_active:
+            try:
+                return self._coro.send(v)
+            except StopIteration as e:
+                assert self._return_value is None, "return value can only be set once."
+                self._return_value = e.value
+                self._coro_active = False
+
+        for child in self.route_info.promise.children_promises:
+            if child.done():
+                continue
+            return child
+        raise StopIteration(self._return_value)
+
+    def throw(self, error: Exception) -> Yieldable:
+        if self._coro_active:
+            try:
+                return self._coro.throw(error)
+            except StopIteration as e:
+                assert self._return_value is None, "return value can only be set once."
+                self._return_value = e.value
+                self._coro_active = False
+
+        if self._error_to_raise is None:
+            self._error_to_raise = error
+
+        for child in self.route_info.promise.children_promises:
+            if child.done():
+                continue
+            return child
+
+        if self._error_to_raise is not None:
+            raise error
+
+        raise StopIteration(self._return_value)
 
 
 @dataclass(frozen=True)
 class Runnable(Generic[T]):
-    coro_and_promise: CoroAndPromise[T]
+    coro: ResonateCoro[T]
     next_value: Result[Any, Exception] | None
 
 
