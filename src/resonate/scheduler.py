@@ -853,11 +853,20 @@ class Scheduler:
 
         if isinstance(yieldable_or_final_value, FinalValue):
             final_value = yieldable_or_final_value.v
-            if not _to_be_retried(
+            if _to_be_retried(
                 final_value,
                 runnable.coro.route_info.retry_policy,
                 runnable.coro.route_info.retry_attempt,
             ):
+                self._delay_queue.put_nowait(
+                    runnable.coro.route_info.next_retry_attempt(),
+                    delay=_next_retry_delay(
+                        runnable.coro.route_info.retry_policy,
+                        runnable.coro.route_info.retry_attempt,
+                    ),
+                )
+
+            else:
                 self._tracing_adapter.process_event(
                     ExecutionTerminated(
                         promise_id=runnable.coro.route_info.promise.promise_id,
@@ -867,17 +876,9 @@ class Scheduler:
                 )
                 assert all_promises_are_done(
                     runnable.coro.route_info.promise.children_promises
-                )
+                ), "All children promise must have been resolved."
                 self._resolve_promise(runnable.coro.route_info.promise, final_value)
                 self._unblock_coros_waiting_on_promise(runnable.coro.route_info.promise)
-            else:
-                self._delay_queue.put_nowait(
-                    runnable.coro.route_info.next_retry_attempt(),
-                    delay=_next_retry_delay(
-                        runnable.coro.route_info.retry_policy,
-                        runnable.coro.route_info.retry_attempt,
-                    ),
-                )
 
         elif isinstance(yieldable_or_final_value, LFC):
             p = self._process_local_invocation(
@@ -905,7 +906,9 @@ class Scheduler:
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
                 self._add_coro_to_runnables(
-                    runnable.coro, p.safe_result(), was_awaited=False
+                    runnable.coro,
+                    p.safe_result(),
+                    was_awaited=False,
                 )
             else:
                 if isinstance(p.action, RFI):
