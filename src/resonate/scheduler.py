@@ -7,7 +7,14 @@ from abc import ABC, abstractmethod
 from collections import deque
 from inspect import isgeneratorfunction
 from threading import Event, Thread
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar, Union, final
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    TypeVar,
+    Union,
+    final,
+)
 
 from typing_extensions import ParamSpec, TypeAlias, assert_never
 
@@ -22,6 +29,7 @@ from resonate.actions import (
     DeferredInvocation,
     Race,
 )
+from resonate.batching import CommandBuffer
 from resonate.collections import DoubleDict
 from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.context import Context
@@ -54,7 +62,10 @@ from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
-from resonate.typing import Combinator, PromiseActions
+from resonate.typing import (
+    CmdHandler,
+    Combinator,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
@@ -65,17 +76,17 @@ if TYPE_CHECKING:
     from resonate.tracing import IAdapter
     from resonate.typing import (
         Awaitables,
+        CmdHandlerResult,
         DurableCoro,
         DurableFn,
         EphemeralPromiseMemo,
+        PromiseActions,
         RunnableCoroutines,
     )
 
 T = TypeVar("T")
 C = TypeVar("C", bound=Command)
 P = ParamSpec("P")
-CmdHandlerResult: TypeAlias = Union[list[T], T, None]
-CmdHandler: TypeAlias = Callable[[list[C]], CmdHandlerResult[Any]]
 
 
 def _next_retry_delay(retry_policy: RetryPolicy, retry_attempt: int) -> float:
@@ -205,7 +216,7 @@ class _Processor:
             elif isinstance(sqe, _BatchSQE):
                 result: Result[CmdHandlerResult[Any], Exception]
                 try:
-                    result = Ok(sqe.handler(list(sqe.commands)))
+                    result = Ok(sqe.handler(sqe.commands))
                 except Exception as e:  # noqa: BLE001
                     result = Err(e)
                 self._scheduler.enqueue_cqe(_BatchCQE(sqe, result))
@@ -262,7 +273,7 @@ class Scheduler:
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
         self._cmd_handlers = dict[type[Command], tuple[CmdHandler[Any], RetryPolicy]]()
-        self._cmd_queues = dict[type[Command], deque[tuple[Command, Promise[Any]]]]()
+        self._cmd_buffers = dict[type[Command], CommandBuffer[Command]]()
 
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
@@ -277,13 +288,13 @@ class Scheduler:
         assert (
             cmd not in self._cmd_handlers
         ), "There's already a command handler registered for that command."
-        assert cmd not in self._cmd_queues
+        assert cmd not in self._cmd_buffers
 
         if retry_policy is None:
             retry_policy = default_policy()
 
         self._cmd_handlers[cmd] = (func, retry_policy)
-        self._cmd_queues[cmd] = deque(maxlen=maxlen)
+        self._cmd_buffers[cmd] = CommandBuffer(maxlen=maxlen)
 
     def enqueue_cqe(self, cqe: _CQE) -> None:
         self._completion_queue.put(cqe)
@@ -605,7 +616,7 @@ class Scheduler:
                 )
             )
 
-    def _resolve_promise_with_cqe(self, cqe: _CQE) -> None:
+    def _resolve_promise_with_cqe(self, cqe: _CQE) -> None:  # noqa: PLR0912
         if isinstance(cqe, _FnCQE):
             self._tracing_adapter.process_event(
                 ExecutionTerminated(
@@ -633,7 +644,10 @@ class Scheduler:
                                 tick=now(),
                             )
                         )
-                        self._resolve_promise(p, Ok(res))
+                        if isinstance(res, Exception):
+                            self._resolve_promise(p, Err(res))
+                        else:
+                            self._resolve_promise(p, Ok(res))
                         self._unblock_coros_waiting_on_promise(p)
                 else:
                     for p in cqe.sqe.promises:
@@ -811,21 +825,18 @@ class Scheduler:
         self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:
-        cmd_queue = self._cmd_queues.get(cmd_type)
-        assert cmd_queue is not None
-        if len(cmd_queue) == 0:
+        cmd_buffer = self._cmd_buffers.get(cmd_type)
+        assert (
+            cmd_buffer is not None
+        ), f"There must be a buffer for cmd {cmd_type.__name__}"
+        if cmd_buffer.is_empty():
             return
 
         cmd_handler_and_retry_policy = self._cmd_handlers.get(cmd_type)
         assert (
             cmd_handler_and_retry_policy is not None
         ), "There must be a command handler for given command."
-        cmds_to_send: list[Command] = []
-        promises_to_resolve: list[Promise[Any]] = []
-        while cmd_queue:
-            cmd, p = cmd_queue.pop()
-            cmds_to_send.append(cmd)
-            promises_to_resolve.append(p)
+        cmds_to_send, promises_to_resolve = cmd_buffer.pop_all()
 
         handler, retry_policy = cmd_handler_and_retry_policy
         self._processor.enqueue(
@@ -992,11 +1003,10 @@ class Scheduler:
             ), "This command is reserved only for rfi."
 
             cmd_type = type(invocation.exec_unit)
-            cmd_queue = self._cmd_queues[cmd_type]
-            if cmd_queue.maxlen is not None and len(cmd_queue) == cmd_queue.maxlen:
+            cmd_queue = self._cmd_buffers[cmd_type]
+            cmd_queue.add(invocation.exec_unit, p)
+            if cmd_queue.is_full():
                 self._send_pending_commands_to_processor(cmd_type)
-
-            cmd_queue.appendleft((invocation.exec_unit, p))
 
         elif isinstance(invocation.exec_unit, FnOrCoroutine):
             if p.done():

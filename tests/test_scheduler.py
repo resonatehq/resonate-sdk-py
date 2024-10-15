@@ -13,6 +13,7 @@ import pytest
 
 from resonate import scheduler
 from resonate.commands import Command, CreateDurablePromiseReq
+from resonate.result import Ok
 from resonate.retry_policy import (
     Linear,
     constant,
@@ -60,18 +61,6 @@ def _promise_storages() -> list[IPromiseStore]:
     if os.getenv("RESONATE_STORE_URL") is not None:
         stores.append(RemotePromiseStore(url=os.environ["RESONATE_STORE_URL"]))
     return stores
-
-
-@pytest.mark.skip
-@pytest.mark.parametrize("store", _promise_storages())
-def test_coro_return_promise(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(
-        processor_threads=1,
-        durable_promise_storage=store,
-    )
-    s.register(bar, "bar-function", retry_policy=never())
-    p: Promise[Promise[str]] = s.run("bar", bar, name="A", sleep_time=0.01)
-    assert p.result(timeout=2) == "A"
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -861,3 +850,52 @@ def test_batching_with_failing_func_and_retries(store: IPromiseStore) -> None:
         p.result()
 
     assert retries == max_retries
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
+    @dataclasses.dataclass(frozen=True)
+    class ACommand(Command):
+        n: int
+
+    should_fail: bool = False
+
+    def command_handler(cmds: list[ACommand]) -> list[str | Exception]:
+        nonlocal should_fail
+        results: list[str | Exception] = []
+        for _ in range(len(cmds)):
+            if should_fail:
+                results.append(RuntimeError("something bad happened"))
+            else:
+                results.append("something good happened")
+            should_fail = not should_fail
+        return results
+
+    def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.lfi(ACommand(n))
+        v: str = yield p
+        return v
+
+    s = scheduler.Scheduler(store)
+
+    s.register_command_handler(
+        ACommand,
+        command_handler,
+        retry_policy=never(),
+    )
+    s.register(do_something, retry_policy=never())
+
+    promises: list[Promise[str]] = []
+    for i in range(10):
+        promises.append(s.run(f"test-batch-element-level-failure{i}", do_something, i))  # noqa: PERF401
+
+    successes = 0
+    failures = 0
+    for p in promises:
+        result = p.safe_result()
+        if isinstance(result, Ok):
+            successes += 1
+        else:
+            failures += 1
+
+    assert successes == failures
