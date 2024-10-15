@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from inspect import isgenerator
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from typing_extensions import ParamSpec
+from typing_extensions import ParamSpec, assert_never
 
 from resonate.actions import LFI
 from resonate.commands import CreateDurablePromiseReq
+from resonate.result import Err, Ok
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -59,51 +60,56 @@ class ResonateCoro(Generic[T]):
         self.route_info = route_info
         self._coro = coro
         self._coro_active = True
-        self._return_value: T | None = None
-        self._error_to_raise: Exception | None = None
+        self._final_value: Result[T, Exception] | None = None
+        self._first_error_used = False
 
     def next(self) -> Yieldable:
-        if self._coro_active:
-            return next(self._coro)
-        msg = "Next can only be called when coro is active."
-        raise RuntimeError(msg)
+        assert self._coro_active
+        return next(self._coro)
 
     def send(self, v: T) -> Yieldable:
         if self._coro_active:
             try:
                 return self._coro.send(v)
             except StopIteration as e:
-                assert self._return_value is None, "return value can only be set once."
-                self._return_value = e.value
+                assert self._final_value is None, "return value can only be set once."
+                self._final_value = Ok(e.value)
                 self._coro_active = False
 
         for child in self.route_info.promise.children_promises:
             if child.done():
                 continue
             return child
-        raise StopIteration(self._return_value)
+
+        assert not self._coro_active
+        assert isinstance(self._final_value, Ok)
+        raise StopIteration(self._final_value.unwrap())
 
     def throw(self, error: Exception) -> Yieldable:
         if self._coro_active:
             try:
                 return self._coro.throw(error)
             except StopIteration as e:
-                assert self._return_value is None, "return value can only be set once."
-                self._return_value = e.value
+                assert self._final_value is None, "return value can only be set once."
+                self._final_value = Ok(e.value)
                 self._coro_active = False
 
-        if self._error_to_raise is None:
-            self._error_to_raise = error
+        if not self._first_error_used:
+            self._final_value = Err(error)
+            self._first_error_used = True
 
         for child in self.route_info.promise.children_promises:
             if child.done():
                 continue
             return child
 
-        if self._error_to_raise is not None:
-            raise error
-
-        raise StopIteration(self._return_value)
+        assert not self._coro_active
+        assert self._final_value is not None
+        if isinstance(self._final_value, Ok):
+            raise StopIteration(self._final_value)
+        if isinstance(self._final_value, Err):
+            raise self._final_value.err()
+        assert_never(self._final_value)
 
 
 @dataclass(frozen=True)
