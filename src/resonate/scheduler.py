@@ -5,7 +5,7 @@ import sys
 import uuid
 from abc import ABC, abstractmethod
 from collections import deque
-from inspect import isgenerator, isgeneratorfunction
+from inspect import isgeneratorfunction
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar, Union, final
 
@@ -26,8 +26,8 @@ from resonate.collections import DoubleDict
 from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.context import Context
 from resonate.dataclasses import (
-    CoroAndPromise,
     FnOrCoroutine,
+    ResonateCoro,
     RouteInfo,
     Runnable,
 )
@@ -48,7 +48,6 @@ from resonate.promise import (
     Promise,
     all_promises_are_done,
     any_promise_is_done,
-    get_first_error_if_any,
 )
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
@@ -87,10 +86,10 @@ def _next_retry_delay(retry_policy: RetryPolicy, retry_attempt: int) -> float:
 def _to_be_retried(
     result: Result[Any, Exception], retry_policy: RetryPolicy, retry_attempt: int
 ) -> bool:
-    return not (
-        isinstance(result, Ok)
-        or isinstance(retry_policy, Never)
-        or not retry_policy.should_retry(retry_attempt + 1)
+    return (
+        isinstance(result, Err)
+        and not isinstance(retry_policy, Never)
+        and retry_policy.should_retry(retry_attempt + 1)
     )
 
 
@@ -577,7 +576,7 @@ class Scheduler:
                 **route_info.fn_or_coroutine.kwargs,
             )
             self._add_coro_to_runnables(
-                CoroAndPromise(route_info, coro),
+                ResonateCoro(route_info, coro),
                 None,
                 was_awaited=False,
             )
@@ -700,8 +699,9 @@ class Scheduler:
                     delay = cqe.next_retry_delay()
 
                     if isinstance(cqe, _FnCQE):
+                        cqe.sqe.route_info.retry_attempt += 1
                         self._delay_queue.put_nowait(
-                            cqe.sqe.route_info.next_retry_attempt(),
+                            cqe.sqe.route_info,
                             delay=delay,
                         )
                     elif isinstance(cqe, _BatchCQE):
@@ -733,13 +733,11 @@ class Scheduler:
 
             assert not self._runnable_coros, "Runnables should have been all exhausted"
 
-    def _add_coro_to_awaitables(
-        self, p: Promise[Any], coro_and_promise: CoroAndPromise[Any]
-    ) -> None:
+    def _add_coro_to_awaitables(self, p: Promise[Any], coro: ResonateCoro[Any]) -> None:
         assert (
             not p.done()
         ), "If the promise is resolved already it makes no sense to block coroutine"
-        self._awaitables.setdefault(p, []).append(coro_and_promise)
+        self._awaitables.setdefault(p, []).append(coro)
 
         if isinstance(p.action, LFI) and isinstance(p.action.exec_unit, Command):
             assert not isinstance(
@@ -747,25 +745,25 @@ class Scheduler:
             ), "This command is reserved for rfi."
             self._send_pending_commands_to_processor(type(p.action.exec_unit))
 
-        coro_and_promise.route_info.promise.increase_blocked_on()
+        coro.route_info.promise.increase_blocked_on()
 
         self._tracing_adapter.process_event(
             ExecutionAwaited(
-                promise_id=coro_and_promise.route_info.promise.promise_id,
+                promise_id=coro.route_info.promise.promise_id,
                 tick=now(),
-                parent_promise_id=coro_and_promise.route_info.promise.parent_promise_id(),
+                parent_promise_id=coro.route_info.promise.parent_promise_id(),
             )
         )
 
     def _add_coro_to_runnables(
         self,
-        coro_and_promise: CoroAndPromise[Any],
+        coro: ResonateCoro[Any],
         value_to_yield_back: Result[Any, Exception] | None,
         *,
         was_awaited: bool,
     ) -> None:
         self._runnable_coros.appendleft(
-            (Runnable(coro_and_promise, value_to_yield_back), was_awaited)
+            (Runnable(coro, value_to_yield_back), was_awaited)
         )
 
     def _unblock_coros_waiting_on_promise(self, p: Promise[Any]) -> None:
@@ -773,35 +771,15 @@ class Scheduler:
         if self._awaitables.get(p) is None:
             return
 
-        for coro_and_promise in self._awaitables.pop(p):
-            coro_and_promise.route_info.promise.decrease_blocked_on()
-            if coro_and_promise.route_info.promise.is_blocked():
+        for coro in self._awaitables.pop(p):
+            coro.route_info.promise.decrease_blocked_on()
+            if coro.route_info.promise.is_blocked():
                 continue
-            if coro_and_promise.final_value is None:
-                self._add_coro_to_runnables(
-                    coro_and_promise=coro_and_promise,
-                    value_to_yield_back=p.safe_result(),
-                    was_awaited=True,
-                )
-            else:
-                assert all_promises_are_done(
-                    coro_and_promise.route_info.promise.children_promises
-                ), "All children promises must be resolved."
-                first_error = get_first_error_if_any(
-                    coro_and_promise.route_info.promise.children_promises
-                )
-                if first_error is None:
-                    self._resolve_promise(
-                        coro_and_promise.route_info.promise,
-                        coro_and_promise.final_value.v,
-                    )
-                else:
-                    self._resolve_promise(
-                        coro_and_promise.route_info.promise, first_error
-                    )
-                self._unblock_coros_waiting_on_promise(
-                    coro_and_promise.route_info.promise
-                )
+            self._add_coro_to_runnables(
+                coro=coro,
+                value_to_yield_back=p.safe_result(),
+                was_awaited=True,
+            )
 
     def _resolve_promise(
         self, promise: Promise[T], value: Result[T, Exception]
@@ -863,70 +841,47 @@ class Scheduler:
     def _advance_runnable_span(  # noqa: C901, PLR0912, PLR0915. Note: We want to keep all the control flow in the function
         self, runnable: Runnable[Any], *, was_awaited: bool
     ) -> None:
-        assert isgenerator(
-            runnable.coro_and_promise.coro
-        ), "Only coroutines can be advanced"
-
         yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if was_awaited:
             self._tracing_adapter.process_event(
                 ExecutionResumed(
-                    promise_id=runnable.coro_and_promise.route_info.promise.promise_id,
+                    promise_id=runnable.coro.route_info.promise.promise_id,
                     tick=now(),
-                    parent_promise_id=runnable.coro_and_promise.route_info.promise.parent_promise_id(),
+                    parent_promise_id=runnable.coro.route_info.promise.parent_promise_id(),
                 )
             )
 
         if isinstance(yieldable_or_final_value, FinalValue):
             final_value = yieldable_or_final_value.v
-            if not _to_be_retried(
+            if _to_be_retried(
                 final_value,
-                runnable.coro_and_promise.route_info.retry_policy,
-                runnable.coro_and_promise.route_info.retry_attempt,
+                runnable.coro.route_info.retry_policy,
+                runnable.coro.route_info.retry_attempt,
             ):
-                self._tracing_adapter.process_event(
-                    ExecutionTerminated(
-                        promise_id=runnable.coro_and_promise.route_info.promise.promise_id,
-                        tick=now(),
-                        parent_promise_id=runnable.coro_and_promise.route_info.promise.parent_promise_id(),
-                    )
-                )
-                if all_promises_are_done(
-                    runnable.coro_and_promise.route_info.promise.children_promises
-                ):
-                    self._resolve_promise(
-                        runnable.coro_and_promise.route_info.promise, final_value
-                    )
-                    self._unblock_coros_waiting_on_promise(
-                        runnable.coro_and_promise.route_info.promise
-                    )
-                else:
-                    runnable.coro_and_promise.final_value = yieldable_or_final_value
-                    callback_registered: bool = False
-                    for (
-                        child_promise
-                    ) in runnable.coro_and_promise.route_info.promise.children_promises:
-                        if not child_promise.done():
-                            self._add_coro_to_awaitables(
-                                child_promise, runnable.coro_and_promise
-                            )
-                            if isinstance(child_promise.action, RFI):
-                                if not callback_registered:
-                                    self._register_callback_or_resolve_ephemeral_promise(
-                                        child_promise
-                                    )
-                                callback_registered = True
+                runnable.coro.route_info.retry_attempt += 1
 
-                        self._signal()
-            else:
                 self._delay_queue.put_nowait(
-                    runnable.coro_and_promise.route_info.next_retry_attempt(),
+                    runnable.coro.route_info,
                     delay=_next_retry_delay(
-                        runnable.coro_and_promise.route_info.retry_policy,
-                        runnable.coro_and_promise.route_info.retry_attempt,
+                        runnable.coro.route_info.retry_policy,
+                        runnable.coro.route_info.retry_attempt,
                     ),
                 )
+
+            else:
+                self._tracing_adapter.process_event(
+                    ExecutionTerminated(
+                        promise_id=runnable.coro.route_info.promise.promise_id,
+                        tick=now(),
+                        parent_promise_id=runnable.coro.route_info.promise.parent_promise_id(),
+                    )
+                )
+                assert all_promises_are_done(
+                    runnable.coro.route_info.promise.children_promises
+                ), "All children promise must have been resolved."
+                self._resolve_promise(runnable.coro.route_info.promise, final_value)
+                self._unblock_coros_waiting_on_promise(runnable.coro.route_info.promise)
 
         elif isinstance(yieldable_or_final_value, LFC):
             p = self._process_local_invocation(
@@ -938,23 +893,25 @@ class Scheduler:
 
             if p.done():
                 self._add_coro_to_runnables(
-                    runnable.coro_and_promise, p.safe_result(), was_awaited=False
+                    runnable.coro,
+                    p.safe_result(),
+                    was_awaited=False,
                 )
             else:
-                self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+                self._add_coro_to_awaitables(p, runnable.coro)
 
         elif isinstance(yieldable_or_final_value, LFI):
             p = self._process_local_invocation(yieldable_or_final_value, runnable)
-            self._add_coro_to_runnables(
-                runnable.coro_and_promise, Ok(p), was_awaited=False
-            )
+            self._add_coro_to_runnables(runnable.coro, Ok(p), was_awaited=False)
 
         elif isinstance(yieldable_or_final_value, Promise):
             p = yieldable_or_final_value
             if p.done():
                 self._unblock_coros_waiting_on_promise(p)
                 self._add_coro_to_runnables(
-                    runnable.coro_and_promise, p.safe_result(), was_awaited=False
+                    runnable.coro,
+                    p.safe_result(),
+                    was_awaited=False,
                 )
             else:
                 if isinstance(p.action, RFI):
@@ -963,16 +920,16 @@ class Scheduler:
                 if p.done():
                     self._unblock_coros_waiting_on_promise(p)
                     self._add_coro_to_runnables(
-                        runnable.coro_and_promise, p.safe_result(), was_awaited=False
+                        runnable.coro,
+                        p.safe_result(),
+                        was_awaited=False,
                     )
                 else:
-                    self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+                    self._add_coro_to_awaitables(p, runnable.coro)
 
         elif isinstance(yieldable_or_final_value, (All, AllSettled, Race)):
             p = self._process_combinator(yieldable_or_final_value, runnable)
-            self._add_coro_to_runnables(
-                runnable.coro_and_promise, Ok(p), was_awaited=False
-            )
+            self._add_coro_to_runnables(runnable.coro, Ok(p), was_awaited=False)
 
         elif isinstance(yieldable_or_final_value, DeferredInvocation):
             deferred_p: Promise[Any] = self.run(
@@ -982,14 +939,12 @@ class Scheduler:
                 **yieldable_or_final_value.coro.kwargs,
             )
             self._add_coro_to_runnables(
-                runnable.coro_and_promise, Ok(deferred_p), was_awaited=False
+                runnable.coro, Ok(deferred_p), was_awaited=False
             )
 
         elif isinstance(yieldable_or_final_value, RFI):
             p = self._process_remote_invocation(yieldable_or_final_value, runnable)
-            self._add_coro_to_runnables(
-                runnable.coro_and_promise, Ok(p), was_awaited=False
-            )
+            self._add_coro_to_runnables(runnable.coro, Ok(p), was_awaited=False)
         elif isinstance(yieldable_or_final_value, RFC):
             p = self._process_remote_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
@@ -1000,16 +955,16 @@ class Scheduler:
 
             if p.done():
                 self._add_coro_to_runnables(
-                    runnable.coro_and_promise, p.safe_result(), was_awaited=False
+                    runnable.coro, p.safe_result(), was_awaited=False
                 )
             else:
                 self._register_callback_or_resolve_ephemeral_promise(p)
                 if p.done():
                     self._add_coro_to_runnables(
-                        runnable.coro_and_promise, p.safe_result(), was_awaited=False
+                        runnable.coro, p.safe_result(), was_awaited=False
                     )
                 else:
-                    self._add_coro_to_awaitables(p, runnable.coro_and_promise)
+                    self._add_coro_to_awaitables(p, runnable.coro)
         else:
             assert_never(yieldable_or_final_value)
 
@@ -1017,7 +972,7 @@ class Scheduler:
         self, invocation: RFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         return self._create_promise(
-            parent_promise=runnable.coro_and_promise.route_info.promise,
+            parent_promise=runnable.coro.route_info.promise,
             promise_id=invocation.promise_id,
             action=invocation,
         )
@@ -1026,7 +981,7 @@ class Scheduler:
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         p = self._create_promise(
-            parent_promise=runnable.coro_and_promise.route_info.promise,
+            parent_promise=runnable.coro.route_info.promise,
             promise_id=invocation.opts.promise_id,
             action=invocation,
         )
@@ -1049,7 +1004,7 @@ class Scheduler:
             else:
                 self._route_fn_or_coroutine(
                     RouteInfo(
-                        ctx=runnable.coro_and_promise.route_info.ctx,
+                        ctx=runnable.coro.route_info.ctx,
                         promise=p,
                         fn_or_coroutine=invocation.exec_unit,
                         retry_attempt=0,
@@ -1063,7 +1018,7 @@ class Scheduler:
         self, combinator: Combinator, runnable: Runnable[Any]
     ) -> Promise[Any]:
         p = self._create_promise(
-            parent_promise=runnable.coro_and_promise.route_info.promise,
+            parent_promise=runnable.coro.route_info.promise,
             promise_id=combinator.opts.promise_id,
             action=combinator,
         )
