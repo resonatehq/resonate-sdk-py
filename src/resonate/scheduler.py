@@ -86,10 +86,10 @@ def _next_retry_delay(retry_policy: RetryPolicy, retry_attempt: int) -> float:
 def _to_be_retried(
     result: Result[Any, Exception], retry_policy: RetryPolicy, retry_attempt: int
 ) -> bool:
-    return not (
-        isinstance(result, Ok)
-        or isinstance(retry_policy, Never)
-        or not retry_policy.should_retry(retry_attempt + 1)
+    return (
+        isinstance(result, Err)
+        and not isinstance(retry_policy, Never)
+        and retry_policy.should_retry(retry_attempt + 1)
     )
 
 
@@ -699,8 +699,9 @@ class Scheduler:
                     delay = cqe.next_retry_delay()
 
                     if isinstance(cqe, _FnCQE):
+                        cqe.sqe.route_info.retry_attempt += 1
                         self._delay_queue.put_nowait(
-                            cqe.sqe.route_info.next_retry_attempt(),
+                            cqe.sqe.route_info,
                             delay=delay,
                         )
                     elif isinstance(cqe, _BatchCQE):
@@ -858,8 +859,10 @@ class Scheduler:
                 runnable.coro.route_info.retry_policy,
                 runnable.coro.route_info.retry_attempt,
             ):
+                runnable.coro.route_info.retry_attempt += 1
+
                 self._delay_queue.put_nowait(
-                    runnable.coro.route_info.next_retry_attempt(),
+                    runnable.coro.route_info,
                     delay=_next_retry_delay(
                         runnable.coro.route_info.retry_policy,
                         runnable.coro.route_info.retry_attempt,

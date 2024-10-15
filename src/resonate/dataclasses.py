@@ -41,14 +41,6 @@ class RouteInfo:
         self.retry_attempt = retry_attempt
         self.retry_policy = promise.action.opts.retry_policy
 
-    def next_retry_attempt(self) -> RouteInfo:
-        return RouteInfo(
-            ctx=self.ctx,
-            promise=self.promise,
-            fn_or_coroutine=self.fn_or_coroutine,
-            retry_attempt=self.retry_attempt + 1,
-        )
-
 
 class ResonateCoro(Generic[T]):
     def __init__(
