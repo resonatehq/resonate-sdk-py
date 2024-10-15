@@ -616,7 +616,7 @@ class Scheduler:
                 )
             )
 
-    def _resolve_promise_with_cqe(self, cqe: _CQE) -> None:  # noqa: PLR0912
+    def _resolve_promise_with_cqe(self, cqe: _CQE) -> None:
         if isinstance(cqe, _FnCQE):
             self._tracing_adapter.process_event(
                 ExecutionTerminated(
@@ -629,39 +629,27 @@ class Scheduler:
             self._unblock_coros_waiting_on_promise(cqe.sqe.route_info.promise)
 
         elif isinstance(cqe, _BatchCQE):
-            if isinstance(cqe.result, Ok):
+            if isinstance(cqe.result, Ok) and isinstance(cqe.result.unwrap(), list):
                 result = cqe.result.unwrap()
-                if isinstance(result, list):
-                    assert len(result) == len(
-                        cqe.sqe.promises
-                    ), "Need equal amount for results and promises."
+                assert isinstance(result, list)
+                assert len(result) == len(
+                    cqe.sqe.promises
+                ), "Need equal amount for results and promises."
 
-                    for res, p in zip(result, cqe.sqe.promises):
-                        self._tracing_adapter.process_event(
-                            ExecutionTerminated(
-                                promise_id=p.promise_id,
-                                parent_promise_id=p.parent_promise_id(),
-                                tick=now(),
-                            )
+                for res, p in zip(result, cqe.sqe.promises):
+                    self._tracing_adapter.process_event(
+                        ExecutionTerminated(
+                            promise_id=p.promise_id,
+                            parent_promise_id=p.parent_promise_id(),
+                            tick=now(),
                         )
-                        if isinstance(res, Exception):
-                            self._resolve_promise(p, Err(res))
-                        else:
-                            self._resolve_promise(p, Ok(res))
-                        self._unblock_coros_waiting_on_promise(p)
-                else:
-                    for p in cqe.sqe.promises:
-                        self._tracing_adapter.process_event(
-                            ExecutionTerminated(
-                                promise_id=p.promise_id,
-                                parent_promise_id=p.parent_promise_id(),
-                                tick=now(),
-                            )
-                        )
-                    self._resolve_promise(p, Ok(result))
+                    )
+                    if isinstance(res, Exception):
+                        self._resolve_promise(p, Err(res))
+                    else:
+                        self._resolve_promise(p, Ok(res))
                     self._unblock_coros_waiting_on_promise(p)
-
-            elif isinstance(cqe.result, Err):
+            else:
                 for p in cqe.sqe.promises:
                     self._tracing_adapter.process_event(
                         ExecutionTerminated(
@@ -672,8 +660,7 @@ class Scheduler:
                     )
                     self._resolve_promise(p, cqe.result)
                     self._unblock_coros_waiting_on_promise(p)
-            else:
-                assert_never(cqe.result)
+
         else:
             assert_never(cqe)
 
