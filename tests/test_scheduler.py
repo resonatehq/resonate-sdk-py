@@ -682,7 +682,7 @@ def test_batching(store: IPromiseStore) -> None:
     class GreetCommand(Command):
         name: str
 
-    def command_handler(cmds: list[GreetCommand]) -> list[str]:
+    def command_handler(ctx: Context, cmds: list[GreetCommand]) -> list[str]:  # noqa: ARG001
         return [cmd.name for cmd in cmds]
 
     def greet(ctx: Context, name: str) -> Generator[Yieldable, Any, str]:
@@ -731,7 +731,7 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
     class ACommand(Command):
         n: int
 
-    def command_handler(cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
+    def command_handler(ctx: Context, cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
         raise RuntimeError
 
     def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
@@ -765,7 +765,7 @@ def test_batching_with_no_result(store: IPromiseStore) -> None:
     class ACommand(Command):
         n: int
 
-    def command_handler(cmds: list[ACommand]) -> None:
+    def command_handler(ctx: Context, cmds: list[ACommand]) -> None:  # noqa: ARG001
         _ = cmds
 
     def do_something(ctx: Context, n: int) -> Generator[Yieldable, Any, str]:
@@ -792,7 +792,7 @@ def test_batching_with_single_result(store: IPromiseStore) -> None:
     class ACommand(Command):
         n: int
 
-    def command_handler(cmds: list[ACommand]) -> str:
+    def command_handler(ctx: Context, cmds: list[ACommand]) -> str:  # noqa: ARG001
         _ = cmds
         return "Ok"
 
@@ -822,7 +822,7 @@ def test_batching_with_failing_func_and_retries(store: IPromiseStore) -> None:
 
     retries: int = -1
 
-    def command_handler(cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
+    def command_handler(ctx: Context, cmds: list[ACommand]) -> list[str]:  # noqa: ARG001
         nonlocal retries
         retries += 1
         raise RuntimeError
@@ -860,7 +860,7 @@ def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
 
     should_fail: bool = False
 
-    def command_handler(cmds: list[ACommand]) -> list[str | Exception]:
+    def command_handler(ctx: Context, cmds: list[ACommand]) -> list[str | Exception]:  # noqa: ARG001
         nonlocal should_fail
         results: list[str | Exception] = []
         for _ in range(len(cmds)):

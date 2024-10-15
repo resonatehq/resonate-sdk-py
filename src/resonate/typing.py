@@ -69,4 +69,4 @@ EphemeralPromiseMemo: TypeAlias = dict[str, Promise[Any]]
 C = TypeVar("C", bound=Command)
 
 CmdHandlerResult: TypeAlias = Union[list[Union[T, Exception]], T, None]
-CmdHandler: TypeAlias = Callable[[list[C]], CmdHandlerResult[Any]]
+CmdHandler: TypeAlias = Callable[[Context, list[C]], CmdHandlerResult[Any]]

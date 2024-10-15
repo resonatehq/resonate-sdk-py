@@ -113,8 +113,9 @@ class _Retriable(ABC):
 
 
 class _BatchSQE:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
+        ctx: Context,
         promises: list[Promise[Any]],
         commands: list[Command],
         handler: CmdHandler[Command],
@@ -124,6 +125,7 @@ class _BatchSQE:
         assert len(promises) == len(
             commands
         ), "There must be the same number of promises and the same number of commands."
+        self.ctx = ctx
         self.promises = promises
         self.commands = commands
         self.handler = handler
@@ -216,7 +218,7 @@ class _Processor:
             elif isinstance(sqe, _BatchSQE):
                 result: Result[CmdHandlerResult[Any], Exception]
                 try:
-                    result = Ok(sqe.handler(sqe.commands))
+                    result = Ok(sqe.handler(sqe.ctx, sqe.commands))
                 except Exception as e:  # noqa: BLE001
                     result = Err(e)
                 self._scheduler.enqueue_cqe(_BatchCQE(sqe, result))
@@ -828,6 +830,7 @@ class Scheduler:
         handler, retry_policy = cmd_handler_and_retry_policy
         self._processor.enqueue(
             _BatchSQE(
+                ctx=Context(seed=None, deps=self._deps),
                 promises=promises_to_resolve,
                 commands=cmds_to_send,
                 handler=handler,
