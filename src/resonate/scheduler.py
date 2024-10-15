@@ -287,6 +287,9 @@ class Scheduler:
         maxlen: int | None = None,
         retry_policy: RetryPolicy | None = None,
     ) -> None:
+        assert not isgeneratorfunction(
+            func
+        ), "Batch handlers must be a function. Not a generator."
         assert (
             cmd not in self._cmd_handlers
         ), "There's already a command handler registered for that command."
