@@ -8,6 +8,7 @@ from typing_extensions import ParamSpec, assert_never
 
 from resonate.actions import LFI
 from resonate.commands import CreateDurablePromiseReq
+from resonate.promise import all_promises_are_done
 from resonate.result import Err, Ok
 
 if TYPE_CHECKING:
@@ -73,6 +74,9 @@ class ResonateCoro(Generic[T]):
                 continue
             return child
 
+        assert all_promises_are_done(
+            self.route_info.promise.children_promises
+        ), "All children promise must have been resolved."
         assert not self._coro_active
         assert isinstance(self._final_value, Ok)
         raise StopIteration(self._final_value.unwrap())
@@ -94,6 +98,9 @@ class ResonateCoro(Generic[T]):
             if child.done():
                 continue
             return child
+        assert all_promises_are_done(
+            self.route_info.promise.children_promises
+        ), "All children promise must have been resolved."
 
         assert not self._coro_active
         assert self._final_value is not None

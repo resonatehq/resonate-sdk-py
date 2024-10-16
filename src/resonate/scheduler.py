@@ -751,8 +751,6 @@ class Scheduler:
             ), "This command is reserved for rfi."
             self._send_pending_commands_to_processor(type(p.action.exec_unit))
 
-        coro.route_info.promise.increase_blocked_on()
-
         self._tracing_adapter.process_event(
             ExecutionAwaited(
                 promise_id=coro.route_info.promise.promise_id,
@@ -778,9 +776,6 @@ class Scheduler:
             return
 
         for coro in self._awaitables.pop(p):
-            coro.route_info.promise.decrease_blocked_on()
-            if coro.route_info.promise.is_blocked():
-                continue
             self._add_coro_to_runnables(
                 coro=coro,
                 value_to_yield_back=p.safe_result(),
@@ -881,9 +876,6 @@ class Scheduler:
                         parent_promise_id=runnable.coro.route_info.promise.parent_promise_id(),
                     )
                 )
-                assert all_promises_are_done(
-                    runnable.coro.route_info.promise.children_promises
-                ), "All children promise must have been resolved."
                 self._resolve_promise(runnable.coro.route_info.promise, final_value)
                 self._unblock_coros_waiting_on_promise(runnable.coro.route_info.promise)
 
