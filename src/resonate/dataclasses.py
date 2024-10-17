@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from inspect import isgenerator
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from typing_extensions import ParamSpec
+from typing_extensions import ParamSpec, assert_never
 
 from resonate.actions import LFI
-from resonate.result import Ok
-from resonate.retry_policy import Never
+from resonate.commands import CreateDurablePromiseReq
+from resonate.promise import all_promises_are_done
+from resonate.result import Err, Ok
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -40,39 +42,78 @@ class RouteInfo:
         self.retry_attempt = retry_attempt
         self.retry_policy = promise.action.opts.retry_policy
 
-    def next_retry_attempt(self) -> RouteInfo:
-        return RouteInfo(
-            ctx=self.ctx,
-            promise=self.promise,
-            fn_or_coroutine=self.fn_or_coroutine,
-            retry_attempt=self.retry_attempt + 1,
-        )
 
-    def to_be_retried(self, result: Result[Any, Exception]) -> bool:
-        return not (
-            isinstance(result, Ok)
-            or isinstance(self.retry_policy, Never)
-            or not self.retry_policy.should_retry(self.retry_attempt + 1)
-        )
-
-    def next_retry_delay(self) -> float:
-        assert not isinstance(self.retry_policy, Never)
-        return self.retry_policy.calculate_delay(attempt=self.retry_attempt + 1)
-
-
-class CoroAndPromise(Generic[T]):
+class ResonateCoro(Generic[T]):
     def __init__(
         self,
         route_info: RouteInfo,
         coro: Generator[Yieldable, Any, T],
     ) -> None:
+        assert isgenerator(coro)
         self.route_info = route_info
-        self.coro = coro
+        self._coro = coro
+        self._coro_active = True
+        self._final_value: Result[T, Exception] | None = None
+        self._first_error_used = False
+
+    def next(self) -> Yieldable:
+        assert self._coro_active
+        return next(self._coro)
+
+    def send(self, v: T) -> Yieldable:
+        if self._coro_active:
+            try:
+                return self._coro.send(v)
+            except StopIteration as e:
+                assert self._final_value is None, "return value can only be set once."
+                self._final_value = Ok(e.value)
+                self._coro_active = False
+
+        for child in self.route_info.promise.children_promises:
+            if child.done():
+                continue
+            return child
+
+        assert all_promises_are_done(
+            self.route_info.promise.children_promises
+        ), "All children promise must have been resolved."
+        assert not self._coro_active
+        assert isinstance(self._final_value, Ok)
+        raise StopIteration(self._final_value.unwrap())
+
+    def throw(self, error: Exception) -> Yieldable:
+        if self._coro_active:
+            try:
+                return self._coro.throw(error)
+            except StopIteration as e:
+                assert self._final_value is None, "return value can only be set once."
+                self._final_value = Ok(e.value)
+                self._coro_active = False
+
+        if not self._first_error_used:
+            self._final_value = Err(error)
+            self._first_error_used = True
+
+        for child in self.route_info.promise.children_promises:
+            if child.done():
+                continue
+            return child
+        assert all_promises_are_done(
+            self.route_info.promise.children_promises
+        ), "All children promise must have been resolved."
+
+        assert not self._coro_active
+        assert self._final_value is not None
+        if isinstance(self._final_value, Ok):
+            raise StopIteration(self._final_value)
+        if isinstance(self._final_value, Err):
+            raise self._final_value.err()
+        assert_never(self._final_value)
 
 
 @dataclass(frozen=True)
 class Runnable(Generic[T]):
-    coro_and_promise: CoroAndPromise[T]
+    coro: ResonateCoro[T]
     next_value: Result[Any, Exception] | None
 
 
@@ -88,17 +129,15 @@ class FnOrCoroutine:
         self.args = args
         self.kwargs = kwargs
 
-    def json_data(self) -> dict[str, Any]:
-        return {
-            "func": self.exec_unit.__name__,
-            "args": self.args,
-            "kwargs": self.kwargs,
-        }
-
-
-class Command:
-    def __call__(self, ctx: Context) -> None:
-        # This is not meant to be call. We are making the type system happy.
-        _ = ctx
-        msg = "You should never be here!"
-        raise AssertionError(msg)
+    def to_req(
+        self, promise_id: str | None, func_name: str, tags: dict[str, str]
+    ) -> CreateDurablePromiseReq:
+        return CreateDurablePromiseReq(
+            promise_id=promise_id,
+            data={
+                "func": func_name,
+                "args": self.args,
+                "kwargs": self.kwargs,
+            },
+            tags=tags,
+        )

@@ -20,7 +20,7 @@ deprecated==1.2.14
     # via opentelemetry-semantic-conventions
 googleapis-common-protos==1.65.0
     # via opentelemetry-exporter-otlp-proto-http
-idna==3.8
+idna==3.10
     # via requests
 importlib-metadata==8.4.0
     # via opentelemetry-api
@@ -41,7 +41,7 @@ opentelemetry-sdk==1.27.0
     # via resonate-sdk
 opentelemetry-semantic-conventions==0.48b0
     # via opentelemetry-sdk
-protobuf==4.25.4
+protobuf==4.25.5
     # via googleapis-common-protos
     # via opentelemetry-proto
 requests==2.32.3
@@ -50,9 +50,9 @@ requests==2.32.3
 typing-extensions==4.12.2
     # via opentelemetry-sdk
     # via resonate-sdk
-urllib3==2.2.2
+urllib3==2.2.3
     # via requests
 wrapt==1.16.0
     # via deprecated
-zipp==3.20.1
+zipp==3.20.2
     # via importlib-metadata

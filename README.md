@@ -23,6 +23,12 @@
   <br /><br />
 </div>
 
+<div align="center">
+
+[![Static Badge](https://img.shields.io/badge/join%20our%20waitlist-8A2BE2?color=green)](https://forms.gle/bVRdiHD4RoBgNXCV9)
+
+</div>
+
 ## Distributed Async Await
 
 Resonate's Distributed Async Await is a new programming model that simplifies coding for the cloud. It ensures code completion even if hardware or software failures occur during execution. The programming model does this with just functions and promises, making it trivial to build `coordinated` and `reliable` distributed applications.
