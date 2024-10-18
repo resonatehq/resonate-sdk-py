@@ -1,0 +1,1550 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+          "DTD/xhtml1-strict.dtd">
+<html>
+  
+
+  <head>
+    
+    <title>resonate.typing</title>
+    <meta name="generator" content="pydoctor 24.3.3"> 
+        
+    </meta>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1 maximum-scale=1" />
+    <link rel="stylesheet" type="text/css" href="bootstrap.min.css" />
+    <link rel="stylesheet" type="text/css" href="apidocs.css" />
+    <link rel="stylesheet" type="text/css" href="extra.css" />
+</head>
+
+  <body>
+
+    
+
+    <nav class="navbar navbar-default mainnavbar">
+      
+  
+  <div class="container-fluid">
+
+
+    <div class="navbar-header">
+      
+      <div class="navlinks">
+        <span class="navbar-brand">
+          <a href="https://github.com/resonatehq/resonate-sdk-py" class="projecthome">Resonate Python SDK</a> <a href="index.html">API Documentation</a>
+        </span>
+
+        <a href="moduleIndex.html">
+          Modules
+        </a>
+
+        <a href="classIndex.html">
+          Classes
+        </a>
+
+        <a href="nameIndex.html">
+          Names
+        </a>
+
+        <div id="search-box-container">
+          <div class="input-group">
+            <input id="search-box" type="search" name="search-query" placeholder="Search..." aria-label="Search" minlength="2" class="form-control" autocomplete="off" />
+            
+            <span class="input-group-btn">
+              <a style="display: none;" class="btn btn-default" id="search-clear-button" title="Clear" onclick="clearSearch()"><img src="fonts/x-circle.svg" alt="Clear" /></a>
+              <a class="btn btn-default" id="search-help-button" title="Help" onclick="toggleSearchHelpText()"><img src="fonts/info.svg" alt="Help" /></a>
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+      <div id="search-results-container" style="display: none;">
+        
+        <div id="search-buttons">
+          <span class="label label-default" id="search-docstrings-button">
+          <label class="checkbox-inline">
+            <input type="checkbox" id="toggle-search-in-docstrings-checkbox" value="false" onclick="toggleSearchInDocstrings()">
+              search in docstrings
+            </input>
+          </label>
+          </span>
+          
+        </div>
+        
+        <noscript>
+            <h1>Cannot search: JavaScript is not supported/enabled in your browser.</h1>
+        </noscript>
+
+        <div class="hint" id="search-help-box">
+          <p class="rst-last">
+      
+            Search bar offers the following options:
+            <ul>   
+                <li>
+                  <strong>Term presence.</strong> The below example searches for documents that 
+                    must contain “foo”, might contain “bar” and must not contain “baz”: <code>+foo bar -baz</code>
+                </li> 
+
+                <li>
+                  <strong>Wildcards.</strong> The below example searches for documents with words beginning with “foo”: <code>foo*</code>
+                </li> 
+
+                <li>
+                  <strong>Search in specific fields.</strong> The following search matches all objects 
+                  in "twisted.mail" that matches “search”: <code>+qname:twisted.mail.* +search</code>
+
+                  <p>
+                    Possible fields: 'name', 'qname' (fully qualified name), 'docstring', and 'kind'.
+                    Last two fields are only applicable if "search in docstrings" is enabled.
+                  </p>
+                </li>
+
+                <li>
+                  <strong>Fuzzy matches.</strong> The following search matches all documents 
+                  that have a word within 1 edit distance of “foo”: <code>foo~1</code>
+                </li>
+            </ul>
+
+          </p>
+        </div>
+
+        <div id="search-status"> </div>
+
+        <div class="warning" id="search-warn-box" style="display: none;">
+          <p class="rst-last"><span id="search-warn"></span></p>
+        </div>
+
+        <table id="search-results">
+          <!-- Filled dynamically by JS -->
+        </table>
+        
+        <div style="margin-top: 8px;">
+          <p>Results provided by <a href="https://lunrjs.com">Lunr.js</a></p>
+        </div>
+      </div>
+
+    </div>
+
+
+  </div>
+</nav>
+    
+    <div class="container-fluid">
+
+      <!-- Side navigation -->
+      <div class="sidebarcontainer" style="display: none;">
+        
+        <div class="sidebar"><nav class="sidebar">
+  
+
+  <div>
+
+      <div class="thingTitle">
+        <span>Module</span>
+        <code class="thisobject"><a href="resonate.typing.html" class="internal-link" title="This module">typing</a></code> 
+      </div>
+      
+      <div>
+        
+
+        
+         
+
+        
+        
+
+        
+         
+
+        
+         
+
+        <div class="childrenKindTitle">Variables</div>
+        <ul>
+    
+    <li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#P" class="internal-link" title="resonate.typing.P">P</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#C" class="internal-link" title="resonate.typing.C">C</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#T" class="internal-link" title="resonate.typing.T">T</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#Awaitables" class="internal-link" title="resonate.typing.Awaitables"><wbr></wbr>Awaitables</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#CmdHandler" class="internal-link" title="resonate.typing.CmdHandler"><wbr></wbr>Cmd<wbr></wbr>Handler</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#CmdHandlerResult" class="internal-link" title="resonate.typing.CmdHandlerResult"><wbr></wbr>Cmd<wbr></wbr>Handler<wbr></wbr>Result</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#Combinator" class="internal-link" title="resonate.typing.Combinator"><wbr></wbr>Combinator</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#CommandHandlerQueues" class="internal-link" title="resonate.typing.CommandHandlerQueues"><wbr></wbr>Command<wbr></wbr>Handler<wbr></wbr>Queues</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#CommandHandlers" class="internal-link" title="resonate.typing.CommandHandlers"><wbr></wbr>Command<wbr></wbr>Handlers</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#Data" class="internal-link" title="resonate.typing.Data"><wbr></wbr>Data</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#DurableAsyncFn" class="internal-link" title="resonate.typing.DurableAsyncFn"><wbr></wbr>Durable<wbr></wbr>Async<wbr></wbr>Fn</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#DurableCoro" class="internal-link" title="resonate.typing.DurableCoro"><wbr></wbr>Durable<wbr></wbr>Coro</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#DurableFn" class="internal-link" title="resonate.typing.DurableFn"><wbr></wbr>Durable<wbr></wbr>Fn</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#DurableSyncFn" class="internal-link" title="resonate.typing.DurableSyncFn"><wbr></wbr>Durable<wbr></wbr>Sync<wbr></wbr>Fn</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#EphemeralPromiseMemo" class="internal-link" title="resonate.typing.EphemeralPromiseMemo"><wbr></wbr>Ephemeral<wbr></wbr>Promise<wbr></wbr>Memo</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#ExecutionUnit" class="internal-link" title="resonate.typing.ExecutionUnit"><wbr></wbr>Execution<wbr></wbr>Unit</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#Headers" class="internal-link" title="resonate.typing.Headers"><wbr></wbr>Headers</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#IdempotencyKey" class="internal-link" title="resonate.typing.IdempotencyKey"><wbr></wbr>Idempotency<wbr></wbr>Key</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#Invokable" class="internal-link" title="resonate.typing.Invokable"><wbr></wbr>Invokable</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#MockFn" class="internal-link" title="resonate.typing.MockFn"><wbr></wbr>Mock<wbr></wbr>Fn</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#PromiseActions" class="internal-link" title="resonate.typing.PromiseActions"><wbr></wbr>Promise<wbr></wbr>Actions</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#RunnableCoroutines" class="internal-link" title="resonate.typing.RunnableCoroutines"><wbr></wbr>Runnable<wbr></wbr>Coroutines</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#State" class="internal-link" title="resonate.typing.State"><wbr></wbr>State</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#Tags" class="internal-link" title="resonate.typing.Tags"><wbr></wbr>Tags</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#Yieldable" class="internal-link" title="resonate.typing.Yieldable"><wbr></wbr>Yieldable</a></code>
+            </div>
+        
+
+    </li>
+</ul> 
+
+        
+         
+        
+      </div>
+  </div><div>
+
+      <div class="thingTitle">
+        <span>Package</span>
+        <code><a href="index.html" class="internal-link" title="The parent of this module">resonate</a></code> 
+      </div>
+      
+      <div>
+        
+
+        <div class="childrenKindTitle">Modules</div>
+        <ul>
+    
+    <li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.actions.html" class="internal-link" title="resonate.actions">actions</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.batching.html" class="internal-link" title="resonate.batching">batching</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.collections.html" class="internal-link" title="resonate.collections">collections</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.commands.html" class="internal-link" title="resonate.commands">commands</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.contants.html" class="internal-link" title="resonate.contants">contants</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.context.html" class="internal-link" title="resonate.context">context</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.dataclasses.html" class="internal-link" title="resonate.dataclasses">dataclasses</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.dependency_injection.html" class="internal-link" title="resonate.dependency_injection">dependency<wbr></wbr>_injection</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.dst.html" class="internal-link" title="resonate.dst">dst</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.encoders.html" class="internal-link" title="resonate.encoders">encoders</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.errors.html" class="internal-link" title="resonate.errors">errors</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.events.html" class="internal-link" title="resonate.events">events</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.functools.html" class="internal-link" title="resonate.functools">functools</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.itertools.html" class="internal-link" title="resonate.itertools">itertools</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.logging.html" class="internal-link" title="resonate.logging">logging</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.options.html" class="internal-link" title="resonate.options">options</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.promise.html" class="internal-link" title="resonate.promise">promise</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.queue.html" class="internal-link" title="resonate.queue">queue</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.random.html" class="internal-link" title="resonate.random">random</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.record.html" class="internal-link" title="resonate.record">record</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.result.html" class="internal-link" title="resonate.result">result</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.retry_policy.html" class="internal-link" title="resonate.retry_policy">retry<wbr></wbr>_policy</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.html" class="internal-link" title="resonate.scheduler">scheduler</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.storage.html" class="internal-link" title="resonate.storage">storage</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.testing.html" class="internal-link" title="resonate.testing">testing</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.time.html" class="internal-link" title="resonate.time">time</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.tracing.html" class="internal-link" title="resonate.tracing">tracing</a></code>
+            </div>
+        
+
+    </li><li class=" thisobject">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.typing.html" class="internal-link" title="resonate.typing">typing</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.utils.html" class="internal-link" title="resonate.utils">utils</a></code>
+            </div>
+        
+
+    </li>
+</ul> 
+
+        
+        
+
+        
+         
+
+        
+         
+
+        
+         
+
+        
+         
+        
+      </div>
+  </div>
+
+</nav>
+        </div>
+        <div id="collapseSideBar">
+          <a class="btn btn-link" onclick="toggleSideBarCollapse()" title="Toggle Sidebar Collapse">
+          </a>
+        </div> 
+        <script src="sidebartoggle.js" type="text/javascript"></script>
+       
+      </div>
+
+      <div id="main" class="">
+        
+
+        
+
+        <div class="page-header">
+          <h1 class="module"><code><code><a href="index.html" class="internal-link">resonate</a></code><wbr></wbr>.<code><a href="resonate.typing.html" class="internal-link" title="resonate.typing">typing</a></code></code></h1>
+          <div id="showPrivate">
+            <button class="btn btn-link" onclick="togglePrivate()">Toggle Private API</button>
+          </div>
+        </div>
+
+        <div class="categoryHeader">
+          module documentation
+        </div>
+
+        <div class="extrasDocstring">
+          
+          <p></p>
+        </div>
+
+        <div class="moduleDocstring">
+          <div><p class="undocumented">Undocumented</p></div>
+        </div>
+
+        <div id="splitTables">
+          <table class="children sortable" id="id100">
+  
+  
+  <tr class="constant">
+    
+    <td>Constant</td>
+    <td><code><a href="#P" class="internal-link" title="resonate.typing.P">P</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typevariable">
+    
+    <td>Type Variable</td>
+    <td><code><a href="#C" class="internal-link" title="resonate.typing.C">C</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typevariable">
+    
+    <td>Type Variable</td>
+    <td><code><a href="#T" class="internal-link" title="resonate.typing.T">T</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#Awaitables" class="internal-link" title="resonate.typing.Awaitables"><wbr></wbr>Awaitables</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#CmdHandler" class="internal-link" title="resonate.typing.CmdHandler"><wbr></wbr>Cmd<wbr></wbr>Handler</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#CmdHandlerResult" class="internal-link" title="resonate.typing.CmdHandlerResult"><wbr></wbr>Cmd<wbr></wbr>Handler<wbr></wbr>Result</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#Combinator" class="internal-link" title="resonate.typing.Combinator"><wbr></wbr>Combinator</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#CommandHandlerQueues" class="internal-link" title="resonate.typing.CommandHandlerQueues"><wbr></wbr>Command<wbr></wbr>Handler<wbr></wbr>Queues</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#CommandHandlers" class="internal-link" title="resonate.typing.CommandHandlers"><wbr></wbr>Command<wbr></wbr>Handlers</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#Data" class="internal-link" title="resonate.typing.Data"><wbr></wbr>Data</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#DurableAsyncFn" class="internal-link" title="resonate.typing.DurableAsyncFn"><wbr></wbr>Durable<wbr></wbr>Async<wbr></wbr>Fn</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#DurableCoro" class="internal-link" title="resonate.typing.DurableCoro"><wbr></wbr>Durable<wbr></wbr>Coro</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#DurableFn" class="internal-link" title="resonate.typing.DurableFn"><wbr></wbr>Durable<wbr></wbr>Fn</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#DurableSyncFn" class="internal-link" title="resonate.typing.DurableSyncFn"><wbr></wbr>Durable<wbr></wbr>Sync<wbr></wbr>Fn</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#EphemeralPromiseMemo" class="internal-link" title="resonate.typing.EphemeralPromiseMemo"><wbr></wbr>Ephemeral<wbr></wbr>Promise<wbr></wbr>Memo</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#ExecutionUnit" class="internal-link" title="resonate.typing.ExecutionUnit"><wbr></wbr>Execution<wbr></wbr>Unit</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#Headers" class="internal-link" title="resonate.typing.Headers"><wbr></wbr>Headers</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#IdempotencyKey" class="internal-link" title="resonate.typing.IdempotencyKey"><wbr></wbr>Idempotency<wbr></wbr>Key</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#Invokable" class="internal-link" title="resonate.typing.Invokable"><wbr></wbr>Invokable</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#MockFn" class="internal-link" title="resonate.typing.MockFn"><wbr></wbr>Mock<wbr></wbr>Fn</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#PromiseActions" class="internal-link" title="resonate.typing.PromiseActions"><wbr></wbr>Promise<wbr></wbr>Actions</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#RunnableCoroutines" class="internal-link" title="resonate.typing.RunnableCoroutines"><wbr></wbr>Runnable<wbr></wbr>Coroutines</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#State" class="internal-link" title="resonate.typing.State"><wbr></wbr>State</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#Tags" class="internal-link" title="resonate.typing.Tags"><wbr></wbr>Tags</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr><tr class="typealias">
+    
+    <td>Type Alias</td>
+    <td><code><a href="#Yieldable" class="internal-link" title="resonate.typing.Yieldable"><wbr></wbr>Yieldable</a></code></td>
+    <td><span class="undocumented">Undocumented</span></td>
+  </tr>
+</table>
+          
+
+            
+        </div>
+
+        <div id="childList">
+          <div class="baseconstant">
+  
+  
+  <a name="resonate.typing.P">
+    
+  </a>
+  <a name="P">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">P</span> =
+    
+    <a class="headerLink" href="#P" title="resonate.typing.P">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>ParamSpec(<wbr></wbr><span class="rst-variable-quote">'</span><span class="rst-variable-string">P</span><span class="rst-variable-quote">'</span>)</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypevariable">
+  
+  
+  <a name="resonate.typing.C">
+    
+  </a>
+  <a name="C">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">C</span> =
+    
+    <a class="headerLink" href="#C" title="resonate.typing.C">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>TypeVar(<wbr></wbr><span class="rst-variable-quote">'</span><span class="rst-variable-string">C</span><span class="rst-variable-quote">'</span>,
+        <wbr></wbr>bound=<a href="resonate.commands.Command.html" class="internal-link" title="resonate.commands.Command">Command</a>)</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypevariable">
+  
+  
+  <a name="resonate.typing.T">
+    
+  </a>
+  <a name="T">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">T</span> =
+    
+    <a class="headerLink" href="#T" title="resonate.typing.T">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>TypeVar(<wbr></wbr><span class="rst-variable-quote">'</span><span class="rst-variable-string">T</span><span class="rst-variable-quote">'</span>)</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.Awaitables">
+    
+  </a>
+  <a name="Awaitables">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">Awaitables</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#Awaitables" title="resonate.typing.Awaitables">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>dict[<wbr></wbr><a href="resonate.promise.Promise.html" class="internal-link" title="resonate.promise.Promise">Promise</a>[<wbr></wbr>Any], <wbr></wbr>list[<wbr></wbr><a href="resonate.dataclasses.ResonateCoro.html" class="internal-link" title="resonate.dataclasses.ResonateCoro">ResonateCoro</a>[<wbr></wbr>Any]]]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.CmdHandler">
+    
+  </a>
+  <a name="CmdHandler">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">CmdHandler</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#CmdHandler" title="resonate.typing.CmdHandler">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>Callable[<wbr></wbr>[<wbr></wbr><a href="resonate.context.Context.html" class="internal-link" title="resonate.context.Context">Context</a>, <wbr></wbr>list[<wbr></wbr><a href="#C" class="internal-link" title="resonate.typing.C">C</a>]], <wbr></wbr><a href="#CmdHandlerResult" class="internal-link" title="resonate.typing.CmdHandlerResult">CmdHandlerResult</a>[<wbr></wbr>Any]]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.CmdHandlerResult">
+    
+  </a>
+  <a name="CmdHandlerResult">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">CmdHandlerResult</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#CmdHandlerResult" title="resonate.typing.CmdHandlerResult">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>list[<wbr></wbr><a href="#T" class="internal-link" title="resonate.typing.T">T</a> | Exception] | <a href="#T" class="internal-link" title="resonate.typing.T">T</a> | None</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.Combinator">
+    
+  </a>
+  <a name="Combinator">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">Combinator</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#Combinator" title="resonate.typing.Combinator">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code><a href="resonate.actions.All.html" class="internal-link" title="resonate.actions.All">All</a> | <a href="resonate.actions.AllSettled.html" class="internal-link" title="resonate.actions.AllSettled">AllSettled</a> | <a href="resonate.actions.Race.html" class="internal-link" title="resonate.actions.Race">Race</a></code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.CommandHandlerQueues">
+    
+  </a>
+  <a name="CommandHandlerQueues">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">CommandHandlerQueues</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#CommandHandlerQueues" title="resonate.typing.CommandHandlerQueues">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>dict[<wbr></wbr>type[<wbr></wbr><a href="resonate.commands.Command.html" class="internal-link" title="resonate.commands.Command">Command</a>], <wbr></wbr><a href="resonate.batching.CmdBuffer.html" class="internal-link" title="resonate.batching.CmdBuffer">CmdBuffer</a>[<wbr></wbr>tuple[<wbr></wbr><a href="resonate.promise.Promise.html" class="internal-link" title="resonate.promise.Promise">Promise</a>[<wbr></wbr>Any], <wbr></wbr><a href="resonate.commands.Command.html" class="internal-link" title="resonate.commands.Command">Command</a>]]]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.CommandHandlers">
+    
+  </a>
+  <a name="CommandHandlers">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">CommandHandlers</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#CommandHandlers" title="resonate.typing.CommandHandlers">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>dict[<wbr></wbr>type[<wbr></wbr><a href="resonate.commands.Command.html" class="internal-link" title="resonate.commands.Command">Command</a>], <wbr></wbr>Callable[<wbr></wbr>[<wbr></wbr>list[<wbr></wbr>Any]], <wbr></wbr>list[<wbr></wbr>Any] | None]]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.Data">
+    
+  </a>
+  <a name="Data">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">Data</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#Data" title="resonate.typing.Data">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>str | None</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.DurableAsyncFn">
+    
+  </a>
+  <a name="DurableAsyncFn">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">DurableAsyncFn</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#DurableAsyncFn" title="resonate.typing.DurableAsyncFn">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>Callable[<wbr></wbr>Concatenate[<wbr></wbr><a href="resonate.context.Context.html" class="internal-link" title="resonate.context.Context">Context</a>, <wbr></wbr><a href="#P" class="internal-link" title="resonate.typing.P">P</a>], <wbr></wbr>Coroutine[<wbr></wbr>Any, <wbr></wbr>Any, <wbr></wbr><a href="#T" class="internal-link" title="resonate.typing.T">T</a>]]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.DurableCoro">
+    
+  </a>
+  <a name="DurableCoro">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">DurableCoro</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#DurableCoro" title="resonate.typing.DurableCoro">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>Callable[<wbr></wbr>Concatenate[<wbr></wbr><a href="resonate.context.Context.html" class="internal-link" title="resonate.context.Context">Context</a>, <wbr></wbr><a href="#P" class="internal-link" title="resonate.typing.P">P</a>], <wbr></wbr>Generator[<wbr></wbr><a href="#Yieldable" class="internal-link" title="resonate.typing.Yieldable">Yieldable</a>, <wbr></wbr>Any, <wbr></wbr><a href="#T" class="internal-link" title="resonate.typing.T">T</a>]]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.DurableFn">
+    
+  </a>
+  <a name="DurableFn">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">DurableFn</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#DurableFn" title="resonate.typing.DurableFn">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code><a href="#DurableSyncFn" class="internal-link" title="resonate.typing.DurableSyncFn">DurableSyncFn</a>[<wbr></wbr><a href="#P" class="internal-link" title="resonate.typing.P">P</a>, <wbr></wbr><a href="#T" class="internal-link" title="resonate.typing.T">T</a>] | <a href="#DurableAsyncFn" class="internal-link" title="resonate.typing.DurableAsyncFn">DurableAsyncFn</a>[<wbr></wbr><a href="#P" class="internal-link" title="resonate.typing.P">P</a>, <wbr></wbr><a href="#T" class="internal-link" title="resonate.typing.T">T</a>]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.DurableSyncFn">
+    
+  </a>
+  <a name="DurableSyncFn">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">DurableSyncFn</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#DurableSyncFn" title="resonate.typing.DurableSyncFn">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>Callable[<wbr></wbr>Concatenate[<wbr></wbr><a href="resonate.context.Context.html" class="internal-link" title="resonate.context.Context">Context</a>, <wbr></wbr><a href="#P" class="internal-link" title="resonate.typing.P">P</a>], <wbr></wbr><a href="#T" class="internal-link" title="resonate.typing.T">T</a>]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.EphemeralPromiseMemo">
+    
+  </a>
+  <a name="EphemeralPromiseMemo">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">EphemeralPromiseMemo</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#EphemeralPromiseMemo" title="resonate.typing.EphemeralPromiseMemo">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>dict[<wbr></wbr>str, <wbr></wbr><a href="resonate.promise.Promise.html" class="internal-link" title="resonate.promise.Promise">Promise</a>[<wbr></wbr>Any]]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.ExecutionUnit">
+    
+  </a>
+  <a name="ExecutionUnit">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">ExecutionUnit</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#ExecutionUnit" title="resonate.typing.ExecutionUnit">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code><a href="resonate.commands.Command.html" class="internal-link" title="resonate.commands.Command">Command</a> | <a href="resonate.dataclasses.FnOrCoroutine.html" class="internal-link" title="resonate.dataclasses.FnOrCoroutine">FnOrCoroutine</a></code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.Headers">
+    
+  </a>
+  <a name="Headers">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">Headers</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#Headers" title="resonate.typing.Headers">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>dict[<wbr></wbr>str, <wbr></wbr>str] | None</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.IdempotencyKey">
+    
+  </a>
+  <a name="IdempotencyKey">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">IdempotencyKey</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#IdempotencyKey" title="resonate.typing.IdempotencyKey">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>str | None</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.Invokable">
+    
+  </a>
+  <a name="Invokable">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">Invokable</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#Invokable" title="resonate.typing.Invokable">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code><a href="#DurableCoro" class="internal-link" title="resonate.typing.DurableCoro">DurableCoro</a>[<wbr></wbr><a href="#P" class="internal-link" title="resonate.typing.P">P</a>, <wbr></wbr>Any] | <a href="#DurableFn" class="internal-link" title="resonate.typing.DurableFn">DurableFn</a>[<wbr></wbr><a href="#P" class="internal-link" title="resonate.typing.P">P</a>, <wbr></wbr>Any] | <a href="resonate.commands.Command.html" class="internal-link" title="resonate.commands.Command">Command</a></code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.MockFn">
+    
+  </a>
+  <a name="MockFn">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">MockFn</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#MockFn" title="resonate.typing.MockFn">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>Callable[<wbr></wbr>[], <wbr></wbr><a href="#T" class="internal-link" title="resonate.typing.T">T</a>]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.PromiseActions">
+    
+  </a>
+  <a name="PromiseActions">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">PromiseActions</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#PromiseActions" title="resonate.typing.PromiseActions">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code><a href="#Combinator" class="internal-link" title="resonate.typing.Combinator">Combinator</a> | <a href="resonate.actions.LFI.html" class="internal-link" title="resonate.actions.LFI">LFI</a> | <a href="resonate.actions.RFI.html" class="internal-link" title="resonate.actions.RFI">RFI</a></code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.RunnableCoroutines">
+    
+  </a>
+  <a name="RunnableCoroutines">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">RunnableCoroutines</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#RunnableCoroutines" title="resonate.typing.RunnableCoroutines">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>deque[<wbr></wbr>tuple[<wbr></wbr><a href="resonate.dataclasses.Runnable.html" class="internal-link" title="resonate.dataclasses.Runnable">Runnable</a>[<wbr></wbr>Any], <wbr></wbr>bool]]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.State">
+    
+  </a>
+  <a name="State">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">State</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#State" title="resonate.typing.State">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>Literal[<wbr></wbr><span class="rst-variable-quote">'</span><span class="rst-variable-string">PENDING</span><span class="rst-variable-quote">'</span>,
+        <wbr></wbr><span class="rst-variable-quote">'</span><span class="rst-variable-string">RESOLVED</span><span class="rst-variable-quote">'</span>,
+        <wbr></wbr><span class="rst-variable-quote">'</span><span class="rst-variable-string">REJECTED</span><span class="rst-variable-quote">'</span>,
+        <wbr></wbr><span class="rst-variable-quote">'</span><span class="rst-variable-string">REJECTED_CANCELED</span><span class="rst-variable-quote">'</span>,
+        <wbr></wbr><span class="rst-variable-quote">'</span><span class="rst-variable-string">REJECTED_TIMEDOUT</span><span class="rst-variable-quote">'</span>]</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.Tags">
+    
+  </a>
+  <a name="Tags">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">Tags</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#Tags" title="resonate.typing.Tags">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code>dict[<wbr></wbr>str, <wbr></wbr>str] | None</code></pre></td></tr></table>
+  </div>
+</div><div class="basetypealias">
+  
+  
+  <a name="resonate.typing.Yieldable">
+    
+  </a>
+  <a name="Yieldable">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">Yieldable</span>: <code>TypeAlias</code> =
+    
+    <a class="headerLink" href="#Yieldable" title="resonate.typing.Yieldable">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    <table class="valueTable"><tr class="fieldStart"><td class="fieldName">Value</td></tr><tr><td><pre class="constant-value"><code><a href="resonate.actions.LFC.html" class="internal-link" title="resonate.actions.LFC">LFC</a> | <a href="resonate.promise.Promise.html" class="internal-link" title="resonate.promise.Promise">Promise</a>[<wbr></wbr>Any] | <a href="#PromiseActions" class="internal-link" title="resonate.typing.PromiseActions">PromiseActions</a> | <a href="resonate.actions.DeferredInvocation.html" class="internal-link" title="resonate.actions.DeferredInvocation">DeferredInvocation</a> | <a href="resonate.actions.RFC.html" class="internal-link" title="resonate.actions.RFC">RFC</a></code></pre></td></tr></table>
+  </div>
+</div>
+        </div>
+      
+      </div>
+    </div>
+
+    <footer class="navbar navbar-default">
+
+  
+  <div class="container">
+    <a href="index.html">API Documentation</a> for <a href="https://github.com/resonatehq/resonate-sdk-py" class="projecthome">Resonate Python SDK</a>,
+  generated by <a href="https://github.com/twisted/pydoctor/">pydoctor</a>
+    24.3.3 at 2024-10-18 22:30:03.
+  </div>
+
+  <!-- Search related scripts needs to be loaded at the end of HTML 
+    parsing not to introduce overhead and display HTML data asap -->
+  <script src="ajax.js" type="text/javascript"></script>
+  <script src="searchlib.js" type="text/javascript"></script>
+  <script src="search.js" type="text/javascript"></script>
+
+</footer>
+  
+    <script src="pydoctor.js" type="text/javascript"></script>
+
+  </body>
+</html>
