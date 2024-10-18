@@ -12,9 +12,11 @@ from resonate.actions import (
     AllSettled,
     Race,
 )
+from resonate.commands import Command
 from resonate.result import Err, Ok, Result
 
 if TYPE_CHECKING:
+    from resonate.options import Options
     from resonate.typing import PromiseActions
 
 T = TypeVar("T")
@@ -50,6 +52,13 @@ class Promise(Generic[T]):
             self.durable = True
         else:
             assert_never(action)
+
+    def change_to_lfi(self, opts: Options) -> None:
+        assert isinstance(self.action, RFI), "Can only change from rfi to lfi"
+        assert not isinstance(
+            self.action.exec_unit, Command
+        ), "Cannot change action if is a command."
+        self.action = LFI(self.action.exec_unit, opts=opts)
 
     def is_blocked_on_remote(self) -> bool:
         blocked_on_remote = False

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import uuid
@@ -60,6 +61,7 @@ from resonate.promise import (
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
+from resonate.tasks import Invoke, Resume, Task
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
@@ -246,10 +248,11 @@ class Scheduler:
         self._registered_function = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, Options] = {}
 
-        self._stg_queue = Queue[tuple[LFI, Promise[Any], Context]]()
+        self._stg_queue = Queue[Promise[Any]]()
         self._completion_queue = Queue[_CQE]()
         self._submission_queue = Queue[_SQE]()
         self._combinators_queue = Queue[tuple[Combinator, Promise[Any]]]()
+        self._tasks_queue = Queue[Task]()
 
         self._worker_continue = Event()
 
@@ -258,6 +261,7 @@ class Scheduler:
         )
 
         self._deps = Dependencies()
+        self._context = Context(None, self._deps)
         self._json_encoder = JsonEncoder()
         self._tracing_adapter: IAdapter = (
             tracing_adapter if tracing_adapter is not None else StdOutAdapter()
@@ -410,7 +414,65 @@ class Scheduler:
                 v = Ok(self._json_encoder.decode(durable_promise_record.value.data))
         return v
 
-    def _create_promise(  # noqa: C901, PLR0912
+    def _promise_to_durable_promise_req(  # noqa: PLR0912
+        self, p: Promise[Any]
+    ) -> CreateDurablePromiseReq:
+        req: CreateDurablePromiseReq
+        if isinstance(p.action, LFI):
+            if isinstance(p.action.exec_unit, Command):
+                assert not isinstance(
+                    p.action.exec_unit, CreateDurablePromiseReq
+                ), "This command is not allowed for lfi"
+                req = CreateDurablePromiseReq(promise_id=p.promise_id)
+            elif isinstance(p.action.exec_unit, FnOrCoroutine):
+                func_name = self._registered_function.get_from_value(
+                    p.action.exec_unit.exec_unit
+                )
+                if func_name is not None:
+                    tags = self._attached_options_to_top_lvl[func_name]
+                    req = p.action.exec_unit.to_req(
+                        promise_id=p.promise_id,
+                        func_name=func_name,
+                        tags=tags.tags,
+                    )
+                else:
+                    req = CreateDurablePromiseReq(promise_id=p.promise_id)
+            else:
+                assert_never(p.action.exec_unit)
+        elif isinstance(p.action, RFI):
+            if isinstance(p.action.exec_unit, Command):
+                assert isinstance(
+                    p.action.exec_unit, CreateDurablePromiseReq
+                ), "This is the only command allowed for rfi"
+                req = p.action.exec_unit
+            elif isinstance(p.action.exec_unit, FnOrCoroutine):
+                func_name = self._registered_function.get_from_value(
+                    p.action.exec_unit.exec_unit
+                )
+                assert (
+                    func_name is not None
+                ), "To do a rfi the function must be registered."
+                attached_options = self._attached_options_to_top_lvl[func_name]
+
+                final_tags = attached_options.tags
+                if "resonate:invoke" not in attached_options.tags:
+                    final_tags["resonate:invoke"] = f"poll://default/{self._sdk_id}"
+
+                req = p.action.exec_unit.to_req(
+                    p.promise_id,
+                    func_name,
+                    tags=final_tags,
+                )
+
+            else:
+                assert_never(p.action.exec_unit)
+        elif isinstance(p.action, (All, AllSettled, Race)):
+            req = CreateDurablePromiseReq(promise_id=p.promise_id)
+        else:
+            assert_never(p.action)
+        return req
+
+    def _create_promise(
         self,
         parent_promise: Promise[Any] | None,
         promise_id: str | None,
@@ -431,60 +493,6 @@ class Scheduler:
 
         self._emphemeral_promise_memo[p.promise_id] = p
 
-        req: CreateDurablePromiseReq
-        if isinstance(action, LFI):
-            if isinstance(action.exec_unit, Command):
-                assert not isinstance(
-                    action.exec_unit, CreateDurablePromiseReq
-                ), "This command is not allowed for lfi"
-                req = CreateDurablePromiseReq(promise_id=p.promise_id)
-            elif isinstance(action.exec_unit, FnOrCoroutine):
-                func_name = self._registered_function.get_from_value(
-                    action.exec_unit.exec_unit
-                )
-                if func_name is not None:
-                    tags = self._attached_options_to_top_lvl[func_name]
-                    req = action.exec_unit.to_req(
-                        promise_id=p.promise_id,
-                        func_name=func_name,
-                        tags=tags.tags,
-                    )
-                else:
-                    req = CreateDurablePromiseReq(promise_id=p.promise_id)
-            else:
-                assert_never(action.exec_unit)
-        elif isinstance(action, RFI):
-            if isinstance(action.exec_unit, Command):
-                assert isinstance(
-                    action.exec_unit, CreateDurablePromiseReq
-                ), "This is the only command allowed for rfi"
-                req = action.exec_unit
-            elif isinstance(action.exec_unit, FnOrCoroutine):
-                func_name = self._registered_function.get_from_value(
-                    action.exec_unit.exec_unit
-                )
-                assert (
-                    func_name is not None
-                ), "To do a rfi the function must be registered."
-                attached_options = self._attached_options_to_top_lvl[func_name]
-
-                final_tags = attached_options.tags
-                if "resonate:invoke" not in attached_options.tags:
-                    final_tags["resonate:invoke"] = f"poll://default/{self._sdk_id}"
-
-                req = action.exec_unit.to_req(
-                    p.promise_id,
-                    func_name,
-                    tags=final_tags,
-                )
-
-            else:
-                assert_never(action.exec_unit)
-        elif isinstance(action, (All, AllSettled, Race)):
-            req = CreateDurablePromiseReq(promise_id=p.promise_id)
-        else:
-            assert_never(action)
-
         if not p.durable:
             self._tracing_adapter.process_event(
                 PromiseCreated(
@@ -495,7 +503,10 @@ class Scheduler:
             )
             return p
 
-        durable_promise_record = self._create_durable_promise_record(req=req)
+        durable_promise_record = self._create_durable_promise_record(
+            self._promise_to_durable_promise_req(p)
+        )
+
         self._tracing_adapter.process_event(
             PromiseCreated(
                 promise_id=p.promise_id,
@@ -503,6 +514,7 @@ class Scheduler:
                 parent_promise_id=p.parent_promise_id(),
             )
         )
+
         if durable_promise_record.is_pending():
             return p
 
@@ -540,6 +552,10 @@ class Scheduler:
             tags=tags,
         )
 
+    def enqueue_tasks(self, task: Task) -> None:
+        self._tasks_queue.put_nowait(task)
+        self._signal()
+
     def run(
         self,
         promise_id: str,
@@ -548,9 +564,6 @@ class Scheduler:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Promise[T]:
-        if promise_id in self._emphemeral_promise_memo:
-            return self._emphemeral_promise_memo[promise_id]
-
         function_name = self._registered_function.get_from_value(coro)
         assert (
             function_name is not None
@@ -558,23 +571,27 @@ class Scheduler:
         attached_options = self._attached_options_to_top_lvl[function_name]
 
         assert attached_options.durable, "All top level invocation must be durable."
-        top_lvl = LFI(
-            FnOrCoroutine(coro, *args, **kwargs),
-            opts=attached_options,
-        )
 
-        root_ctx = Context(
-            seed=None,
-            deps=self._deps,
-        )
+        p: Promise[Any]
+        if promise_id in self._emphemeral_promise_memo:
+            p = self._emphemeral_promise_memo[promise_id]
+            if not isinstance(p.action, RFI):
+                return p
 
-        p: Promise[Any] = self._create_promise(
-            promise_id=promise_id,
-            parent_promise=None,
-            action=top_lvl,
-        )
+            p.change_to_lfi(opts=attached_options)
+            assert isinstance(p.action, LFI)
 
-        self._stg_queue.put_nowait((top_lvl, p, root_ctx))
+        else:
+            p = self._create_promise(
+                promise_id=promise_id,
+                parent_promise=None,
+                action=LFI(
+                    FnOrCoroutine(coro, *args, **kwargs),
+                    opts=attached_options,
+                ),
+            )
+
+        self._stg_queue.put_nowait(p)
         self._signal()
         return p
 
@@ -669,7 +686,44 @@ class Scheduler:
         else:
             assert_never(cqe)
 
-    def _run(self) -> None:  # noqa: C901, PLR0912
+    def _handle_invoke(self, promise_id: str) -> None:
+        durable_promise = self._durable_promise_storage.get(promise_id=promise_id)
+        assert durable_promise.param.data is not None
+        data: dict[str, Any] = json.loads(durable_promise.param.data)
+        func_name: str = data["func"]
+        args: list[Any] = data["args"]
+        kwargs: dict[str, Any] = data["kwargs"]
+        func_pointer = self._registered_function.get(func_name)
+        assert func_pointer is not None, "Function must be registered to run."
+
+        attached_options = self._attached_options_to_top_lvl[func_name]
+
+        p: Promise[Any]
+
+        if durable_promise.promise_id in self._emphemeral_promise_memo:
+            p = self._emphemeral_promise_memo[durable_promise.promise_id]
+            assert p.parent_promise is not None
+            assert isinstance(p.action, RFI)
+            p.change_to_lfi(opts=attached_options)
+        else:
+            p = Promise[Any](
+                promise_id=durable_promise.promise_id,
+                parent_promise=None,
+                action=LFI(
+                    FnOrCoroutine(func_pointer, *args, **kwargs),
+                    opts=attached_options,
+                ),
+            )
+            assert (
+                p.promise_id not in self._emphemeral_promise_memo
+            ), "There should not be a new promise with same promise id."
+
+            self._emphemeral_promise_memo[p.promise_id] = p
+
+        self._stg_queue.put_nowait(p)
+        self._signal()
+
+    def _run(self) -> None:  # noqa: C901, PLR0912, PLR0915
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
@@ -682,19 +736,42 @@ class Scheduler:
                 else:
                     assert_never(delay_e)
 
+            tasks = self._tasks_queue.dequeue_all()
+            for task in tasks:
+                if isinstance(task, Invoke):
+                    self._handle_invoke(task.promise_id)
+
+                elif isinstance(task, Resume):
+                    leaf_promise = self._emphemeral_promise_memo.get(
+                        task.leaf_promise_id
+                    )
+                    if leaf_promise is None:
+                        self._handle_invoke(task.root_promise_id)
+                    else:
+                        durable_promise = self._durable_promise_storage.get(
+                            promise_id=task.leaf_promise_id
+                        )
+                        v = self._get_value_from_durable_promise(durable_promise)
+
+                        self._resolve_promise(leaf_promise, v)
+                        self._unblock_coros_waiting_on_promise(leaf_promise)
+                else:
+                    assert_never(task)
+
             top_lvls = self._stg_queue.dequeue_all()
-            for top_lvl, p, root_ctx in top_lvls:
+            for p in top_lvls:
+                assert isinstance(p.action, LFI)
                 assert isinstance(
-                    top_lvl.exec_unit, FnOrCoroutine
+                    p.action.exec_unit, FnOrCoroutine
                 ), "Only functions or coroutines can be passed at the top level"
                 if p.done():
                     self._unblock_coros_waiting_on_promise(p)
                 else:
                     self._route_fn_or_coroutine(
                         RouteInfo(
-                            root_ctx,
+                            self._context,
                             p,
-                            top_lvl.exec_unit,
+                            p.action.exec_unit,
                             retry_attempt=0,
                         )
                     )
@@ -828,7 +905,7 @@ class Scheduler:
         handler, retry_policy = cmd_handler_and_retry_policy
         self._processor.enqueue(
             _BatchSQE(
-                ctx=Context(seed=None, deps=self._deps),
+                ctx=self._context,
                 promises=promises_to_resolve,
                 commands=cmds_to_send,
                 handler=handler,

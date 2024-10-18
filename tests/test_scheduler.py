@@ -4,6 +4,7 @@ import contextlib
 import dataclasses
 import json
 import os
+import sys
 import time
 from concurrent.futures import TimeoutError
 from functools import cache
@@ -11,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from resonate import scheduler
+from resonate import scheduler, utils
 from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.result import Ok
 from resonate.retry_policy import (
@@ -25,6 +26,7 @@ from resonate.storage import (
     MemoryStorage,
     RemotePromiseStore,
 )
+from resonate.tasks import Invoke, Resume
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -899,3 +901,108 @@ def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
             failures += 1
 
     assert successes == failures
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_task_invoke_no_state(store: IPromiseStore) -> None:
+    def a_foo(ctx: Context) -> Generator[Yieldable, Any, int]:
+        v: int = yield ctx.lfc(a_bar)
+        return v + 1
+
+    def a_bar(ctx: Context) -> Generator[Yieldable, Any, int]:
+        v: int = yield ctx.lfc(a_baz)
+        return v + 1
+
+    def a_baz(ctx: Context) -> int:
+        return 1
+
+    promise_id = "a_foo"
+    durable_record = store.create(
+        promise_id=promise_id,
+        ikey=utils.string_to_ikey(promise_id),
+        strict=False,
+        headers=None,
+        data=json.dumps({"func": a_foo.__name__, "args": [], "kwargs": {}}),
+        timeout=sys.maxsize,
+        tags=None,
+    )
+    assert durable_record.is_pending()
+    s = scheduler.Scheduler(store)
+    s.register(a_foo, retry_policy=never())
+    s.enqueue_tasks(Invoke(promise_id))
+    time.sleep(0.1)
+    dp = store.get(promise_id=promise_id)
+    assert dp.is_completed()
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_task_resume_no_state(store: IPromiseStore) -> None:
+    def a_foo(ctx: Context) -> Generator[Yieldable, Any, int]:
+        v: int = yield ctx.rfc(a_bar)
+        return v + 1
+
+    def a_bar(ctx: Context) -> Generator[Yieldable, Any, int]:
+        v: int = yield ctx.lfc(a_baz)
+        return v + 1
+
+    def a_baz(ctx: Context) -> int:
+        return 1
+
+    store.create(
+        promise_id="a_foo",
+        ikey=utils.string_to_ikey("a_foo"),
+        strict=False,
+        headers=None,
+        data=json.dumps({"func": a_foo.__name__, "args": [], "kwargs": {}}),
+        timeout=sys.maxsize,
+        tags=None,
+    )
+    store.create(
+        promise_id="a_foo.1",
+        ikey=utils.string_to_ikey("a_foo.1"),
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags=None,
+    )
+    s = scheduler.Scheduler(store)
+    s._complete_durable_promise_record("a_foo.1", Ok(2))  # noqa: SLF001
+
+    s.register(a_foo)
+    s.register(a_bar)
+    s.enqueue_tasks(Resume(root_promise_id="a_foo", leaf_promise_id="a_foo.1"))
+    time.sleep(0.1)
+    dp = store.get(promise_id="a_foo.1")
+    assert dp.is_completed()
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_invoke_resume_same_node(store: IPromiseStore) -> None:
+    def b_foo(ctx: Context) -> Generator[Yieldable, Any, int]:
+        v: int = yield ctx.rfc(b_bar)
+        return v + 1
+
+    def b_bar(ctx: Context) -> Generator[Yieldable, Any, int]:
+        v: int = yield ctx.lfc(b_baz)
+        return v + 1
+
+    def b_baz(ctx: Context) -> int:
+        return 1
+
+    s = scheduler.Scheduler(store)
+    s.register(b_foo)
+    s.register(b_bar)
+
+    promise_id = "invoke_resume_same_node_foo"
+    leaf_promise_id = f"{promise_id}.1"
+    s.run(promise_id, b_foo)
+    time.sleep(0.1)
+    s.enqueue_tasks(Invoke(leaf_promise_id))
+    time.sleep(0.1)
+    s.enqueue_tasks(Resume(promise_id, leaf_promise_id))
+    time.sleep(0.1)
+    leaf_dp = store.get(promise_id=leaf_promise_id)
+    assert leaf_dp.is_completed()
+    root_dp = store.get(promise_id=promise_id)
+    assert root_dp.is_completed()
