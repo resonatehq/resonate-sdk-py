@@ -55,10 +55,14 @@ class ResonateCoro(Generic[T]):
         self._coro_active = True
         self._final_value: Result[T, Exception] | None = None
         self._first_error_used = False
+        self._next_child_to_yield = 0
 
     def next(self) -> Yieldable:
         assert self._coro_active
         return next(self._coro)
+
+    def _pending_children(self) -> list[Promise[Any]]:
+        return self.route_info.promise.children_promises[self._next_child_to_yield :]
 
     def send(self, v: T) -> Yieldable:
         if self._coro_active:
@@ -69,7 +73,8 @@ class ResonateCoro(Generic[T]):
                 self._final_value = Ok(e.value)
                 self._coro_active = False
 
-        for child in self.route_info.promise.children_promises:
+        for child in self._pending_children():
+            self._next_child_to_yield += 1
             if child.done():
                 continue
             return child
@@ -94,10 +99,12 @@ class ResonateCoro(Generic[T]):
             self._final_value = Err(error)
             self._first_error_used = True
 
-        for child in self.route_info.promise.children_promises:
+        for child in self._pending_children():
+            self._next_child_to_yield += 1
             if child.done():
                 continue
             return child
+
         assert all_promises_are_done(
             self.route_info.promise.children_promises
         ), "All children promise must have been resolved."
