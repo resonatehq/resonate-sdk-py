@@ -35,6 +35,7 @@ from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.context import Context
 from resonate.dataclasses import (
     FnOrCoroutine,
+    Params,
     ResonateCoro,
     RouteInfo,
     Runnable,
@@ -60,6 +61,8 @@ from resonate.promise import (
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
+from resonate.storage import LocalPromiseStore
+from resonate.tasks import Invoke, LocalTaskSource, Resume, Task, TaskHandler
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
@@ -250,6 +253,18 @@ class Scheduler:
         self._completion_queue = Queue[_CQE]()
         self._submission_queue = Queue[_SQE]()
         self._combinators_queue = Queue[tuple[Combinator, Promise[Any]]]()
+        self._tasks_queue = Queue[Task]()
+        self._task_monitored_promises: set[Promise[Any]] = set()
+
+        task_source = (
+            LocalTaskSource()
+            if isinstance(durable_promise_storage, LocalPromiseStore)
+            else None
+        )
+
+        self._task_handler = TaskHandler(
+            self, durable_promise_storage, task_source=task_source
+        )
 
         self._worker_continue = Event()
 
@@ -307,6 +322,10 @@ class Scheduler:
 
     def enqueue_cqe(self, cqe: _CQE) -> None:
         self._completion_queue.put(cqe)
+        self._signal()
+
+    def enqueue_task(self, task: Task) -> None:
+        self._tasks_queue.put_nowait(task)
         self._signal()
 
     def _enqueue_combinator(
@@ -675,9 +694,16 @@ class Scheduler:
         else:
             assert_never(cqe)
 
-    def _run(self) -> None:  # noqa: C901, PLR0912
+    def _run(self) -> None:  # noqa: C901, PLR0912, PLR0915
         while self._worker_continue.wait():
             self._worker_continue.clear()
+
+            blocked_promises = [
+                p for p in self._task_monitored_promises if p.is_blocked_on_remote()
+            ]
+            for blocked_promise in blocked_promises:
+                self._task_handler.enqueue_completable(blocked_promise.promise_id)
+                self._task_monitored_promises.remove(blocked_promise)
 
             delay_es = self._delay_queue.dequeue_all()
             for delay_e in delay_es:
@@ -687,6 +713,26 @@ class Scheduler:
                     self._processor.enqueue(delay_e)
                 else:
                     assert_never(delay_e)
+
+            tasks = self._tasks_queue.dequeue_all()
+            for task in tasks:
+                if isinstance(task, Invoke):
+                    self._handle_invoke(task.promise_record)
+                elif isinstance(task, Resume):
+                    leaf_promise = self._emphemeral_promise_memo.get(
+                        task.leaf_promise_record.promise_id
+                    )
+                    if leaf_promise is None:
+                        self._handle_invoke(task.root_promise_record)
+                    else:
+                        self._task_monitored_promises.add(leaf_promise.root_promise)
+                        v = self._get_value_from_durable_promise(
+                            task.leaf_promise_record
+                        )
+                        self._resolve_promise(leaf_promise, v)
+                        self._unblock_coros_waiting_on_promise(leaf_promise)
+                else:
+                    assert_never(task)
 
             top_lvls = self._stg_queue.dequeue_all()
             for p in top_lvls:
@@ -745,6 +791,49 @@ class Scheduler:
 
             assert not self._runnable_coros, "Runnables should have been all exhausted"
 
+    def _handle_invoke(self, durable_promise: DurablePromiseRecord) -> None:
+        assert durable_promise.param.data is not None
+        params = Params.decode(durable_promise.param.data)
+
+        func_pointer = self._registered_function.get(params.func_name)
+        assert func_pointer is not None, "Function must be registered to run."
+
+        attached_options = self._attached_options_to_top_lvl[params.func_name]
+
+        p: Promise[Any]
+
+        if durable_promise.promise_id in self._emphemeral_promise_memo:
+            p = self._emphemeral_promise_memo[durable_promise.promise_id]
+            assert p.parent_promise is not None
+            assert isinstance(p.action, RFI)
+            self._change_promise_to_lfi(p, opts=attached_options)
+        else:
+            p = Promise[Any](
+                promise_id=durable_promise.promise_id,
+                parent_promise=None,
+                action=LFI(
+                    FnOrCoroutine(func_pointer, *params.args, **params.kwargs),
+                    opts=attached_options,
+                ),
+            )
+            assert (
+                p.promise_id not in self._emphemeral_promise_memo
+            ), "There should not be a new promise with same promise id."
+
+            self._emphemeral_promise_memo[p.promise_id] = p
+
+        self._task_monitored_promises.add(p)
+        self._stg_queue.put_nowait(p)
+        self._signal()
+
+    def _change_promise_to_lfi(self, promise: Promise[Any], opts: Options) -> None:
+        assert isinstance(promise.action, RFI), "Can only promote RFI to LFI"
+        assert not isinstance(
+            promise.action.exec_unit, Command
+        ), "Can not change action if it is a command"
+
+        promise.action = LFI(promise.action.exec_unit, opts=opts)
+
     def _add_coro_to_awaitables(self, p: Promise[Any], coro: ResonateCoro[Any]) -> None:
         assert (
             not p.done()
@@ -791,6 +880,10 @@ class Scheduler:
     def _resolve_promise(
         self, promise: Promise[T], value: Result[T, Exception]
     ) -> None:
+        if promise in self._task_monitored_promises:
+            self._task_handler.enqueue_completable(promise_id=promise.promise_id)
+            self._task_monitored_promises.discard(promise)
+
         if promise.durable:
             completed_record = self._complete_durable_promise_record(
                 promise_id=promise.promise_id,
@@ -1070,3 +1163,12 @@ class Scheduler:
                 return Err(err)
 
         assert_never(combinator)
+
+    def _change_to_lfi(self, promise: Promise[Any], opts: Options) -> None:
+        assert isinstance(
+            promise.action, RFI
+        ), "Can only change a promise from rfi to lfi"
+        assert not isinstance(
+            promise.action.exec_unit, Command
+        ), "Cannot change action if it is a command."
+        self.action = LFI(self.action.exec_unit, opts=opts)
