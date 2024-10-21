@@ -153,7 +153,9 @@ class TaskPoller(TaskSource):
             try:
                 headers = {"Accept": "text/event-stream"}
                 response = requests.get(  # noqa: S113
-                    "http://localhost:8002/default/0",  # TODO: do not hardcode this, this should be configured by the user.
+                    # TODO(avillega): do not hardcode this,  # noqa: FIX002, TD003
+                    # this should be configured by the user.
+                    "http://localhost:8002/default/0",
                     headers=headers,
                     stream=True,
                 )
