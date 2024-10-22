@@ -880,10 +880,6 @@ class Scheduler:
     def _resolve_promise(
         self, promise: Promise[T], value: Result[T, Exception]
     ) -> None:
-        if promise in self._task_monitored_promises:
-            self._task_handler.enqueue_completable(promise_id=promise.promise_id)
-            self._task_monitored_promises.discard(promise)
-
         if promise.durable:
             completed_record = self._complete_durable_promise_record(
                 promise_id=promise.promise_id,
@@ -908,6 +904,11 @@ class Scheduler:
                 parent_promise_id=promise.parent_promise_id(),
             )
         )
+
+        if promise in self._task_monitored_promises:
+            self._task_handler.enqueue_completable(promise_id=promise.promise_id)
+            self._task_monitored_promises.remove(promise)
+
         self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:
