@@ -2,31 +2,20 @@ from __future__ import annotations
 
 import os
 import sys
-from functools import cache
 
 import pytest
 
 from resonate.storage import (
-    IPromiseStore,
-    LocalPromiseStore,
-    MemoryStorage,
-    RemotePromiseStore,
+    RemoteStore,
 )
 
 
-@cache
-def _promise_storages() -> list[IPromiseStore]:
-    stores: list[IPromiseStore] = [LocalPromiseStore(MemoryStorage())]
-    if os.getenv("RESONATE_STORE_URL") is not None:
-        stores.append(RemotePromiseStore(url=os.environ["RESONATE_STORE_URL"]))
-    return stores
-
-
-@pytest.mark.parametrize("store", _promise_storages())
-def test_case_0_callback_on_existing_promise(
-    store: IPromiseStore,
-) -> None:
-    store.create(
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_case_0_callback_on_existing_promise() -> None:
+    remote_store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
+    remote_store.create(
         promise_id="0.0",
         ikey=None,
         strict=False,
@@ -35,7 +24,7 @@ def test_case_0_callback_on_existing_promise(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record, callback_record = store.create_callback(
+    promise_record, callback_record = remote_store.create_callback(
         promise_id="0.0", root_promise_id="0.0", timeout=sys.maxsize, recv="default"
     )
     assert callback_record is not None
@@ -45,21 +34,23 @@ def test_case_0_callback_on_existing_promise(
     assert callback_record.promise_id == "0.0"
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_case_1_callback_on_non_existing_promise(
-    store: IPromiseStore,
-) -> None:
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_case_1_callback_on_non_existing_promise() -> None:
+    remote_store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     with pytest.raises(Exception):  # noqa: B017, PT011
-        store.create_callback(
+        remote_store.create_callback(
             promise_id="1.1", root_promise_id="1.0", timeout=sys.maxsize, recv="default"
         )
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_case_2_callback_on_resolved_promise(
-    store: IPromiseStore,
-) -> None:
-    store.create(
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_case_2_callback_on_resolved_promise() -> None:
+    remote_store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
+    remote_store.create(
         promise_id="2.0",
         ikey=None,
         strict=False,
@@ -68,8 +59,10 @@ def test_case_2_callback_on_resolved_promise(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(promise_id="2.0", ikey=None, strict=False, headers=None, data="1")
-    promise_record, callback_record = store.create_callback(
+    remote_store.resolve(
+        promise_id="2.0", ikey=None, strict=False, headers=None, data="1"
+    )
+    promise_record, callback_record = remote_store.create_callback(
         promise_id="2.0", root_promise_id="2.0", timeout=sys.maxsize, recv="default"
     )
     assert promise_record.is_completed()

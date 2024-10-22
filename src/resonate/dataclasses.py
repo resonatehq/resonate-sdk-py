@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from inspect import isgenerator
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
@@ -147,20 +146,4 @@ class FnOrCoroutine:
                 "kwargs": self.kwargs,
             },
             tags=tags,
-        )
-
-
-@dataclass(frozen=True)
-class Params:
-    func_name: str
-    args: list[Any]
-    kwargs: dict[str, Any]
-
-    @classmethod
-    def decode(cls, data: str) -> Params:
-        data_dict: dict[str, Any] = json.loads(data)
-        return Params(
-            func_name=data_dict["func"],
-            args=data_dict["args"],
-            kwargs=data_dict["kwargs"],
         )

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Union
 
@@ -13,22 +11,11 @@ from typing_extensions import TypeAlias
 from resonate.encoders import Base64Encoder
 from resonate.logging import logger
 from resonate.queue import Queue
-from resonate.storage import IPromiseStore, TaskRecord
+from resonate.record import Invoke, Resume, TaskRecord
 
 if TYPE_CHECKING:
-    from resonate.record import DurablePromiseRecord
     from resonate.scheduler import Scheduler
-
-
-@dataclass(frozen=True)
-class Invoke:
-    promise_record: DurablePromiseRecord
-
-
-@dataclass(frozen=True)
-class Resume:
-    root_promise_record: DurablePromiseRecord
-    leaf_promise_record: DurablePromiseRecord
+    from resonate.storage import ITaskStore
 
 
 Task: TypeAlias = Union[Invoke, Resume]
@@ -38,13 +25,12 @@ class TaskHandler:
     def __init__(
         self,
         scheduler: Scheduler,
-        store: IPromiseStore,
-        task_source: TaskSource | None = None,
+        store: ITaskStore,
         heartbeat_freq: int = 10,
     ) -> None:
         self._claimables_queue = Queue[TaskRecord]()
         self._completables_queue = Queue[str]()
-        self._store: IPromiseStore = store
+        self._store = store
         self._scheduler = scheduler
         self._base_64_encoder = Base64Encoder()
         self._heartbeat_freq = heartbeat_freq
@@ -57,7 +43,6 @@ class TaskHandler:
         self._heartbeat_thread: Thread | None = None
 
         self._worker_thread.start()
-        self._task_source = TaskPoller(self) if task_source is None else task_source
 
     def enqueue_claimable(self, task: TaskRecord) -> None:
         self._claimables_queue.put_nowait(task)
@@ -65,7 +50,12 @@ class TaskHandler:
 
     def _claim_task(self, task: TaskRecord) -> None:
         try:
-            message = self._store.claim_task(task)
+            message = self._store.claim_task(
+                task_id=task.id,
+                counter=task.counter,
+                pid=self._scheduler.pid,
+                ttl=5,
+            )
 
             self._heartbeat()
 
@@ -83,8 +73,8 @@ class TaskHandler:
                 assert leaf is not None, "Resume message must contain a leaf promise"
                 self._scheduler.enqueue_task(
                     Resume(
-                        root_promise_record=root_promise,
-                        leaf_promise_record=leaf,
+                        root_promise=root_promise,
+                        leaf_promise=leaf,
                     )
                 )
 
@@ -100,7 +90,7 @@ class TaskHandler:
         assert (
             task is not None
         ), f"A task must exists for the given promise_id {promise_id}"
-        self._store.complete_task(task)
+        self._store.complete_task(task_id=task.id, counter=task.counter)
         self._promise_id_to_task.pop(promise_id)
 
     def _run(self) -> None:
@@ -124,23 +114,13 @@ class TaskHandler:
             self._heartbeat_thread.start()
 
     def _do_heartbeat(self) -> None:
-        active_tasks = self._store.heartbeat_tasks()
+        active_tasks = self._store.heartbeat_tasks(pid=self._scheduler.pid)
         while active_tasks > 0:
             time.sleep(self._heartbeat_freq)
-            active_tasks = self._store.heartbeat_tasks()
+            active_tasks = self._store.heartbeat_tasks(pid=self._scheduler.pid)
 
 
-class TaskSource(ABC):
-    @abstractmethod
-    def _run(self) -> None: ...
-
-
-class LocalTaskSource(TaskSource):
-    def _run(self) -> None:
-        pass
-
-
-class TaskPoller(TaskSource):
+class TaskPoller:
     def __init__(self, task_handler: TaskHandler) -> None:
         self.task_handler = task_handler
         self.stop = False

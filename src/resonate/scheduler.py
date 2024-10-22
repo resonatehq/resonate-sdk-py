@@ -35,7 +35,6 @@ from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.context import Context
 from resonate.dataclasses import (
     FnOrCoroutine,
-    Params,
     ResonateCoro,
     RouteInfo,
     Runnable,
@@ -61,8 +60,8 @@ from resonate.promise import (
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
-from resonate.storage import LocalPromiseStore
-from resonate.tasks import Invoke, LocalTaskSource, Resume, Task, TaskHandler
+from resonate.storage import RemoteStore
+from resonate.tasks import Invoke, Resume, Task, TaskHandler
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
@@ -245,7 +244,7 @@ class Scheduler:
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
     ) -> None:
-        self._sdk_id = uuid.uuid4().hex
+        self.pid = uuid.uuid4().hex
         self._registered_function = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, Options] = {}
 
@@ -256,15 +255,11 @@ class Scheduler:
         self._tasks_queue = Queue[Task]()
         self._task_monitored_promises: set[Promise[Any]] = set()
 
-        task_source = (
-            LocalTaskSource()
-            if isinstance(durable_promise_storage, LocalPromiseStore)
-            else None
-        )
-
-        self._task_handler = TaskHandler(
-            self, durable_promise_storage, task_source=task_source
-        )
+        self._task_handler: TaskHandler | None = None
+        if isinstance(durable_promise_storage, RemoteStore):
+            self._task_handler = TaskHandler(
+                scheduler=self, store=durable_promise_storage
+            )
 
         self._worker_continue = Event()
 
@@ -365,6 +360,9 @@ class Scheduler:
         self, promise: Promise[Any], recv: str = "default"
     ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
+        assert isinstance(
+            self._durable_promise_storage, RemoteStore
+        ), "Registering callback is only support when using remote storage."
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 promise_id=promise.promise_id,
@@ -530,7 +528,7 @@ class Scheduler:
 
                 final_tags = attached_options.tags
                 if "resonate:invoke" not in attached_options.tags:
-                    final_tags["resonate:invoke"] = f"poll://default/{self._sdk_id}"
+                    final_tags["resonate:invoke"] = f"poll://default/{self.pid}"
 
                 req = promise.action.exec_unit.to_req(
                     promise.promise_id,
@@ -698,12 +696,12 @@ class Scheduler:
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
-            blocked_promises = [
-                p for p in self._task_monitored_promises if p.is_blocked_on_remote()
-            ]
-            for blocked_promise in blocked_promises:
-                self._task_handler.enqueue_completable(blocked_promise.promise_id)
-                self._task_monitored_promises.remove(blocked_promise)
+            if self._task_handler is not None:
+                for blocked_promise in (
+                    p for p in self._task_monitored_promises if p.is_blocked_on_remote()
+                ):
+                    self._task_handler.enqueue_completable(blocked_promise.promise_id)
+                    self._task_monitored_promises.remove(blocked_promise)
 
             delay_es = self._delay_queue.dequeue_all()
             for delay_e in delay_es:
@@ -717,18 +715,16 @@ class Scheduler:
             tasks = self._tasks_queue.dequeue_all()
             for task in tasks:
                 if isinstance(task, Invoke):
-                    self._handle_invoke(task.promise_record)
+                    self._handle_invoke(task.promise)
                 elif isinstance(task, Resume):
                     leaf_promise = self._emphemeral_promise_memo.get(
-                        task.leaf_promise_record.promise_id
+                        task.leaf_promise.promise_id
                     )
                     if leaf_promise is None:
-                        self._handle_invoke(task.root_promise_record)
+                        self._handle_invoke(task.root_promise)
                     else:
                         self._task_monitored_promises.add(leaf_promise.root_promise)
-                        v = self._get_value_from_durable_promise(
-                            task.leaf_promise_record
-                        )
+                        v = self._get_value_from_durable_promise(task.leaf_promise)
                         self._resolve_promise(leaf_promise, v)
                         self._unblock_coros_waiting_on_promise(leaf_promise)
                 else:
@@ -792,13 +788,12 @@ class Scheduler:
             assert not self._runnable_coros, "Runnables should have been all exhausted"
 
     def _handle_invoke(self, durable_promise: DurablePromiseRecord) -> None:
-        assert durable_promise.param.data is not None
-        params = Params.decode(durable_promise.param.data)
+        params = durable_promise.param.func_data()
 
-        func_pointer = self._registered_function.get(params.func_name)
+        func_pointer = self._registered_function.get(params["func_name"])
         assert func_pointer is not None, "Function must be registered to run."
 
-        attached_options = self._attached_options_to_top_lvl[params.func_name]
+        attached_options = self._attached_options_to_top_lvl[params["func_name"]]
 
         p: Promise[Any]
 
@@ -812,7 +807,7 @@ class Scheduler:
                 promise_id=durable_promise.promise_id,
                 parent_promise=None,
                 action=LFI(
-                    FnOrCoroutine(func_pointer, *params.args, **params.kwargs),
+                    FnOrCoroutine(func_pointer, *params["args"], **params["kwargs"]),
                     opts=attached_options,
                 ),
             )
@@ -905,7 +900,7 @@ class Scheduler:
             )
         )
 
-        if promise in self._task_monitored_promises:
+        if self._task_handler is not None and promise in self._task_monitored_promises:
             self._task_handler.enqueue_completable(promise_id=promise.promise_id)
             self._task_monitored_promises.remove(promise)
 

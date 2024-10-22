@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal, final
 
 import requests
 
-from resonate import time
 from resonate.encoders import Base64Encoder, IEncoder
 from resonate.errors import ResonateError
 from resonate.logging import logger
@@ -18,21 +16,27 @@ if TYPE_CHECKING:
     from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
 
 
-class IPromiseStore(ABC):
+class ICallbackStore(ABC):
     @abstractmethod
     def create_callback(
         self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
 
+
+class ITaskStore(ABC):
     @abstractmethod
-    def claim_task(self, task: TaskRecord) -> TaskMessage: ...
+    def claim_task(
+        self, *, task_id: str, counter: int, pid: str, ttl: int
+    ) -> TaskMessage: ...
 
     @abstractmethod
-    def complete_task(self, task: TaskRecord) -> None: ...
+    def complete_task(self, *, task_id: str, counter: int) -> None: ...
 
     @abstractmethod
-    def heartbeat_tasks(self) -> int: ...
+    def heartbeat_tasks(self, *, pid: str) -> int: ...
 
+
+class IPromiseStore(ABC):
     @abstractmethod
     def create(  # noqa: PLR0913
         self,
@@ -118,20 +122,10 @@ class IStorage(ABC):
         fn: Callable[[DurablePromiseRecord | None], DurablePromiseRecord],
     ) -> DurablePromiseRecord: ...
 
-    @abstractmethod
-    def w_callback(
-        self,
-        promise_id: str,
-        root_promise_id: str,
-        timeout: int,
-        recv: str,
-    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
-
 
 class MemoryStorage(IStorage):
     def __init__(self) -> None:
         self._durable_promises: dict[str, DurablePromiseRecord] = {}
-        self._callbacks: dict[str, CallbackRecord] = {}
 
     def rmw_durable_promise(
         self,
@@ -145,53 +139,11 @@ class MemoryStorage(IStorage):
         self._durable_promises[promise_id] = item
         return item
 
-    def w_callback(
-        self, promise_id: str, root_promise_id: str, timeout: int, recv: str
-    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
-        _ = recv
-        _ = root_promise_id
-        durable_promise = self._durable_promises.get(promise_id)
-        if durable_promise is None:
-            raise ResonateError(msg="Promise not found", code="STORE_FORBIDDEN")
-
-        if durable_promise.is_completed():
-            return durable_promise, None
-
-        num_callback = str(len(self._callbacks) + 1)
-        record = CallbackRecord(
-            num_callback,
-            promise_id=promise_id,
-            timeout=timeout,
-            created_on=time.now(),
-        )
-
-        self._callbacks[num_callback] = record
-        return durable_promise, record
-
 
 @final
-class LocalPromiseStore(IPromiseStore):
+class LocalStore(IPromiseStore):
     def __init__(self, storage: IStorage | None = None) -> None:
         self._storage = storage or MemoryStorage()
-
-    def create_callback(
-        self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str
-    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
-        return self._storage.w_callback(
-            promise_id=promise_id,
-            root_promise_id=root_promise_id,
-            timeout=timeout,
-            recv=recv,
-        )
-
-    def claim_task(self, task: TaskRecord) -> TaskMessage:
-        raise NotImplementedError
-
-    def complete_task(self, task: TaskRecord) -> None:
-        raise NotImplementedError
-
-    def heartbeat_tasks(self) -> int:
-        raise NotImplementedError
 
     def create(  # noqa: PLR0913
         self,
@@ -384,18 +336,14 @@ class LocalPromiseStore(IPromiseStore):
 
 
 @final
-class RemotePromiseStore(IPromiseStore):
+class RemoteStore(IPromiseStore, ICallbackStore, ITaskStore):
     def __init__(
         self,
         url: str,
         request_timeout: int = 10,
         encoder: IEncoder[str, str] | None = None,
-        pid: str | None = None,
-        task_ttl: int = 5,
     ) -> None:
         self.url = url
-        self.pid = pid or uuid.uuid4().hex
-        self._task_ttl = task_ttl
         self._request_timeout = request_timeout
         self._encoder = encoder or Base64Encoder()
 
@@ -426,45 +374,45 @@ class RemotePromiseStore(IPromiseStore):
         data = response.json()
 
         callback_data = data["callback"]
-        durable_promise = _decode_durable_promise(
-            data["promise"], encoder=self._encoder
-        )
+        durable_promise = DurablePromiseRecord.decode(data["promise"])
         if callback_data is None:
             return durable_promise, None
-        return durable_promise, _decode_callback(response=callback_data)
+        return durable_promise, CallbackRecord.decode(callback_data)
 
-    def claim_task(self, task: TaskRecord) -> TaskMessage:
+    def claim_task(
+        self, *, task_id: str, counter: int, pid: str, ttl: int
+    ) -> TaskMessage:
         response = requests.post(
             url=f"{self.url}/tasks/claim",
             headers={},
             json={
-                "id": task.id,
-                "counter": task.counter,
-                "processId": self.pid,
-                "ttl": self._task_ttl + round(time.now() / 1_000_000),
+                "id": task_id,
+                "counter": counter,
+                "processId": pid,
+                "ttl": ttl,
             },
             timeout=self._request_timeout,
         )
         _ensure_success(response)
-        return TaskMessage.decode(data=response.json(), encoder=self._encoder)
+        return TaskMessage.decode(data=response.json())
 
-    def complete_task(self, task: TaskRecord) -> None:
+    def complete_task(self, *, task_id: str, counter: int) -> None:
         response = requests.post(
             url=f"{self.url}/tasks/complete",
             headers={},
             json={
-                "id": task.id,
-                "counter": task.counter,
+                "id": task_id,
+                "counter": counter,
             },
             timeout=self._request_timeout,
         )
         _ensure_success(response)
 
-    def heartbeat_tasks(self) -> int:
+    def heartbeat_tasks(self, *, pid: str) -> int:
         response = requests.post(
             url=f"{self.url}/tasks/heartbeat",
             headers={},
-            json={"processId": self.pid},
+            json={"processId": pid},
             timeout=self._request_timeout,
         )
         _ensure_success(response)
@@ -500,7 +448,7 @@ class RemotePromiseStore(IPromiseStore):
 
         _ensure_success(response)
 
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(response.json())
 
     def cancel(
         self,
@@ -522,7 +470,7 @@ class RemotePromiseStore(IPromiseStore):
             timeout=self._request_timeout,
         )
         _ensure_success(response)
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(response.json())
 
     def resolve(
         self,
@@ -545,7 +493,7 @@ class RemotePromiseStore(IPromiseStore):
             timeout=self._request_timeout,
         )
         _ensure_success(response)
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(response.json())
 
     def reject(
         self,
@@ -568,14 +516,14 @@ class RemotePromiseStore(IPromiseStore):
             timeout=self._request_timeout,
         )
         _ensure_success(response)
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(response.json())
 
     def get(self, *, promise_id: str) -> DurablePromiseRecord:
         response = requests.get(
             f"{self.url}/promises/{promise_id}", timeout=self._request_timeout
         )
         _ensure_success(response)
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(response.json())
 
     def search(
         self, *, promise_id: str, state: State, tags: Tags, limit: int | None = None
@@ -601,59 +549,6 @@ def _encode(value: str, encoder: IEncoder[str, str]) -> str:
         raise ResonateError(msg, "STORE_ENCODER", e) from e
 
 
-def _decode_callback(response: dict[str, Any]) -> CallbackRecord:
-    return CallbackRecord(
-        response["id"],
-        response["promiseId"],
-        timeout=response["timeout"],
-        created_on=response["createdOn"],
-    )
-
-
-def _decode_durable_promise(
-    response: dict[str, Any], encoder: IEncoder[str, str]
-) -> DurablePromiseRecord:
-    if response["param"]:
-        param = Param(
-            data=encoder.decode(response["param"]["data"]),
-            headers=response["param"].get("headers"),
-        )
-    else:
-        param = Param(data=None, headers=None)
-
-    if response["value"]:
-        value = Value(
-            data=encoder.decode(response["value"]["data"]),
-            headers=response["value"].get("headers"),
-        )
-    else:
-        value = Value(data=None, headers=None)
-
-    return DurablePromiseRecord(
-        promise_id=response["id"],
-        state=response["state"],
-        param=param,
-        value=value,
-        timeout=response["timeout"],
-        tags=response.get("tags"),
-        created_on=response["createdOn"],
-        completed_on=response.get("completedOn"),
-        idempotency_key_for_complete=response.get("idempotencyKeyForComplete"),
-        idempotency_key_for_create=response.get("idempotencyKeyForCreate"),
-    )
-
-
-@final
-@dataclass(frozen=True)
-class TaskRecord:
-    counter: int
-    id: str
-
-    @classmethod
-    def decode(cls, data: dict[str, Any]) -> TaskRecord:
-        return TaskRecord(counter=data["counter"], id=data["id"])
-
-
 @final
 @dataclass(frozen=True)
 class TaskMessage:
@@ -662,7 +557,7 @@ class TaskMessage:
     leaf: DurablePromiseRecord | None
 
     @classmethod
-    def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> TaskMessage:
+    def decode(cls, data: dict[str, Any]) -> TaskMessage:
         assert data["type"] in ["resume", "invoke"]
         kind = data["type"]
 
@@ -670,10 +565,10 @@ class TaskMessage:
 
         return TaskMessage(
             type=kind,
-            root=_decode_durable_promise(promises["root"]["data"], encoder)
+            root=DurablePromiseRecord.decode(promises["root"]["data"])
             if promises.get("root") is not None
             else None,
-            leaf=_decode_durable_promise(promises["leaf"]["data"], encoder)
+            leaf=DurablePromiseRecord.decode(promises["leaf"]["data"])
             if promises.get("leaf") is not None
             else None,
         )

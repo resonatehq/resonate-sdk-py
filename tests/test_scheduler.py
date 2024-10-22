@@ -21,9 +21,9 @@ from resonate.retry_policy import (
 )
 from resonate.storage import (
     IPromiseStore,
-    LocalPromiseStore,
+    LocalStore,
     MemoryStorage,
-    RemotePromiseStore,
+    RemoteStore,
 )
 
 if TYPE_CHECKING:
@@ -57,9 +57,9 @@ def bar(
 
 @cache
 def _promise_storages() -> list[IPromiseStore]:
-    stores: list[IPromiseStore] = [LocalPromiseStore(MemoryStorage())]
+    stores: list[IPromiseStore] = [LocalStore(MemoryStorage())]
     if os.getenv("RESONATE_STORE_URL") is not None:
-        stores.append(RemotePromiseStore(url=os.environ["RESONATE_STORE_URL"]))
+        stores.append(RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     return stores
 
 
@@ -457,6 +457,9 @@ def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_rfc(store: IPromiseStore) -> None:
+    if isinstance(store, LocalStore):
+        return
+
     s = scheduler.Scheduler(durable_promise_storage=store)
     s.register(factorial, tags={"a": "1"})
     p: Promise[int] = s.run("factorial-n", factorial, 4)
@@ -489,6 +492,8 @@ def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_rfc_raw(store: IPromiseStore) -> None:
+    if isinstance(store, LocalStore):
+        return
     s = scheduler.Scheduler(durable_promise_storage=store)
     s.register(_raw_rfc)
     p: Promise[None] = s.run("test-raw-rfc", _raw_rfc)
@@ -502,7 +507,10 @@ def test_rfc_raw(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_blocked_on_remote_deep(store: IPromiseStore) -> None:
+def test_blocked_on_remote_deep(store: IPromiseStore) -> None:  # noqa: C901
+    if isinstance(store, LocalStore):
+        return
+
     def _local_fn(_ctx: Context) -> int:
         return 42
 
@@ -557,6 +565,9 @@ def test_blocked_on_remote_deep(store: IPromiseStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_blocked_on_remote_shallow(store: IPromiseStore) -> None:
+    if isinstance(store, LocalStore):
+        return
+
     def _local_fn(_ctx: Context) -> int:
         return 42
 
@@ -584,6 +595,9 @@ def test_blocked_on_remote_shallow(store: IPromiseStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_blocked_on_just_remote(store: IPromiseStore) -> None:
+    if isinstance(store, LocalStore):
+        return
+
     def top_level(ctx: Context) -> Generator[Yieldable, Any, Any]:
         yield ctx.rfi(
             CreateDurablePromiseReq(
