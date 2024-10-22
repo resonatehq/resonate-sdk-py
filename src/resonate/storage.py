@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal, final
 
 import requests
@@ -21,6 +23,15 @@ class IPromiseStore(ABC):
     def create_callback(
         self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
+
+    @abstractmethod
+    def claim_task(self, task: TaskRecord) -> TaskMessage: ...
+
+    @abstractmethod
+    def complete_task(self, task: TaskRecord) -> None: ...
+
+    @abstractmethod
+    def heartbeat_tasks(self) -> int: ...
 
     @abstractmethod
     def create(  # noqa: PLR0913
@@ -114,7 +125,7 @@ class IStorage(ABC):
         root_promise_id: str,
         timeout: int,
         recv: str,
-    ) -> tuple[DurablePromiseRecord, CallbackRecord]: ...
+    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
 
 
 class MemoryStorage(IStorage):
@@ -172,6 +183,15 @@ class LocalPromiseStore(IPromiseStore):
             timeout=timeout,
             recv=recv,
         )
+
+    def claim_task(self, task: TaskRecord) -> TaskMessage:
+        raise NotImplementedError
+
+    def complete_task(self, task: TaskRecord) -> None:
+        raise NotImplementedError
+
+    def heartbeat_tasks(self) -> int:
+        raise NotImplementedError
 
     def create(  # noqa: PLR0913
         self,
@@ -370,8 +390,12 @@ class RemotePromiseStore(IPromiseStore):
         url: str,
         request_timeout: int = 10,
         encoder: IEncoder[str, str] | None = None,
+        pid: str | None = None,
+        task_ttl: int = 5,
     ) -> None:
         self.url = url
+        self.pid = pid or uuid.uuid4().hex
+        self._task_ttl = task_ttl
         self._request_timeout = request_timeout
         self._encoder = encoder or Base64Encoder()
 
@@ -408,6 +432,43 @@ class RemotePromiseStore(IPromiseStore):
         if callback_data is None:
             return durable_promise, None
         return durable_promise, _decode_callback(response=callback_data)
+
+    def claim_task(self, task: TaskRecord) -> TaskMessage:
+        response = requests.post(
+            url=f"{self.url}/tasks/claim",
+            headers={},
+            json={
+                "id": task.id,
+                "counter": task.counter,
+                "processId": self.pid,
+                "ttl": self._task_ttl + round(time.now() / 1_000_000),
+            },
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+        return TaskMessage.decode(data=response.json(), encoder=self._encoder)
+
+    def complete_task(self, task: TaskRecord) -> None:
+        response = requests.post(
+            url=f"{self.url}/tasks/complete",
+            headers={},
+            json={
+                "id": task.id,
+                "counter": task.counter,
+            },
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+
+    def heartbeat_tasks(self) -> int:
+        response = requests.post(
+            url=f"{self.url}/tasks/heartbeat",
+            headers={},
+            json={"processId": self.pid},
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+        return response.json()["tasksAffected"]
 
     def create(  # noqa: PLR0913
         self,
@@ -580,3 +641,39 @@ def _decode_durable_promise(
         idempotency_key_for_complete=response.get("idempotencyKeyForComplete"),
         idempotency_key_for_create=response.get("idempotencyKeyForCreate"),
     )
+
+
+@final
+@dataclass(frozen=True)
+class TaskRecord:
+    counter: int
+    id: str
+
+    @classmethod
+    def decode(cls, data: dict[str, Any]) -> TaskRecord:
+        return TaskRecord(counter=data["counter"], id=data["id"])
+
+
+@final
+@dataclass(frozen=True)
+class TaskMessage:
+    type: Literal["invoke", "resume"]
+    root: DurablePromiseRecord | None
+    leaf: DurablePromiseRecord | None
+
+    @classmethod
+    def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> TaskMessage:
+        assert data["type"] in ["resume", "invoke"]
+        kind = data["type"]
+
+        promises = data["promises"]
+
+        return TaskMessage(
+            type=kind,
+            root=_decode_durable_promise(promises["root"]["data"], encoder)
+            if promises.get("root") is not None
+            else None,
+            leaf=_decode_durable_promise(promises["leaf"]["data"], encoder)
+            if promises.get("leaf") is not None
+            else None,
+        )
