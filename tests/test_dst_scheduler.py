@@ -28,7 +28,7 @@ from resonate.result import Ok
 from resonate.retry_policy import never
 from resonate.storage import (
     IPromiseStore,
-    LocalPromiseStore,
+    LocalStore,
     MemoryStorage,
     RemoteServer,
 )
@@ -118,7 +118,7 @@ def greet_with_batching_but_with_call(
 
 @cache
 def _promise_storages() -> list[IPromiseStore]:
-    stores: list[IPromiseStore] = [LocalPromiseStore(MemoryStorage())]
+    stores: list[IPromiseStore] = [LocalStore(MemoryStorage())]
     if os.getenv("RESONATE_STORE_URL") is not None:
         stores.append(RemoteServer(url=os.environ["RESONATE_STORE_URL"]))
     return stores

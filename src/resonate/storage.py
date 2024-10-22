@@ -127,7 +127,7 @@ class MemoryStorage(IStorage):
 
 
 @final
-class LocalPromiseStore(IPromiseStore):
+class LocalStore(IPromiseStore):
     def __init__(self, storage: IStorage | None = None) -> None:
         self._storage = storage or MemoryStorage()
 

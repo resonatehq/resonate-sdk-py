@@ -9,7 +9,7 @@ import pytest
 
 from resonate.storage import (
     IPromiseStore,
-    LocalPromiseStore,
+    LocalStore,
     MemoryStorage,
     RemoteServer,
 )
@@ -17,7 +17,7 @@ from resonate.storage import (
 
 @cache
 def _promise_storages() -> list[IPromiseStore]:
-    stores: list[IPromiseStore] = [LocalPromiseStore(MemoryStorage())]
+    stores: list[IPromiseStore] = [LocalStore(MemoryStorage())]
     if os.getenv("RESONATE_STORE_URL") is not None:
         stores.append(RemoteServer(url=os.environ["RESONATE_STORE_URL"]))
     return stores
