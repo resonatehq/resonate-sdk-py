@@ -14,7 +14,7 @@ class Command:
         raise AssertionError(msg)
 
 
-class CreateDurablePromiseReq(Command):
+class CreateDurablePromise(Command):
     def __init__(
         self,
         promise_id: str | None,

@@ -31,7 +31,7 @@ from resonate.actions import (
 )
 from resonate.batching import CommandBuffer
 from resonate.collections import DoubleDict
-from resonate.commands import Command, CreateDurablePromiseReq
+from resonate.commands import Command, CreateDurablePromise
 from resonate.context import Context
 from resonate.dataclasses import (
     FnOrCoroutine,
@@ -378,7 +378,7 @@ class Scheduler:
 
     def _create_durable_promise_record(
         self,
-        req: CreateDurablePromiseReq,
+        req: CreateDurablePromise,
     ) -> DurablePromiseRecord:
         assert (
             req.promise_id is not None
@@ -446,7 +446,7 @@ class Scheduler:
             return p
 
         durable_promise_record = self._create_durable_promise_record(
-            req=self._promise_to_create_durable_promise_req(p)
+            req=self._promise_to_create_durable_promise_command(p)
         )
         self._tracing_adapter.process_event(
             PromiseCreated(
@@ -469,35 +469,35 @@ class Scheduler:
         self._resolve_promise(p, v)
         return p
 
-    def _promise_to_create_durable_promise_req(  # noqa: PLR0912
+    def _promise_to_create_durable_promise_command(  # noqa: PLR0912
         self, promise: Promise[Any]
-    ) -> CreateDurablePromiseReq:
-        req: CreateDurablePromiseReq
+    ) -> CreateDurablePromise:
+        req: CreateDurablePromise
         if isinstance(promise.action, LFI):
             if isinstance(promise.action.exec_unit, Command):
                 assert not isinstance(
-                    promise.action.exec_unit, CreateDurablePromiseReq
+                    promise.action.exec_unit, CreateDurablePromise
                 ), "This command is not allowed for lfi"
-                req = CreateDurablePromiseReq(promise_id=promise.promise_id)
+                req = CreateDurablePromise(promise_id=promise.promise_id)
             elif isinstance(promise.action.exec_unit, FnOrCoroutine):
                 func_name = self._registered_function.get_from_value(
                     promise.action.exec_unit.exec_unit
                 )
                 if func_name is not None:
                     tags = self._attached_options_to_top_lvl[func_name]
-                    req = promise.action.exec_unit.to_req(
+                    req = promise.action.exec_unit.to_create_durable_promise_command(
                         promise_id=promise.promise_id,
                         func_name=func_name,
                         tags=tags.tags,
                     )
                 else:
-                    req = CreateDurablePromiseReq(promise_id=promise.promise_id)
+                    req = CreateDurablePromise(promise_id=promise.promise_id)
             else:
                 assert_never(promise.action.exec_unit)
         elif isinstance(promise.action, RFI):
             if isinstance(promise.action.exec_unit, Command):
                 assert isinstance(
-                    promise.action.exec_unit, CreateDurablePromiseReq
+                    promise.action.exec_unit, CreateDurablePromise
                 ), "This is the only command allowed for rfi"
                 req = promise.action.exec_unit
             elif isinstance(promise.action.exec_unit, FnOrCoroutine):
@@ -513,7 +513,7 @@ class Scheduler:
                 if "resonate:invoke" not in attached_options.tags:
                     final_tags["resonate:invoke"] = f"poll://default/{self._sdk_id}"
 
-                req = promise.action.exec_unit.to_req(
+                req = promise.action.exec_unit.to_create_durable_promise_command(
                     promise.promise_id,
                     func_name,
                     tags=final_tags,
@@ -522,7 +522,7 @@ class Scheduler:
             else:
                 assert_never(promise.action.exec_unit)
         elif isinstance(promise.action, (All, AllSettled, Race)):
-            req = CreateDurablePromiseReq(promise_id=promise.promise_id)
+            req = CreateDurablePromise(promise_id=promise.promise_id)
         else:
             assert_never(promise.action)
         return req
@@ -753,7 +753,7 @@ class Scheduler:
 
         if isinstance(p.action, LFI) and isinstance(p.action.exec_unit, Command):
             assert not isinstance(
-                p.action.exec_unit, CreateDurablePromiseReq
+                p.action.exec_unit, CreateDurablePromise
             ), "This command is reserved for rfi."
             self._send_pending_commands_to_processor(type(p.action.exec_unit))
 
@@ -990,7 +990,7 @@ class Scheduler:
 
         if isinstance(invocation.exec_unit, Command):
             assert not isinstance(
-                invocation.exec_unit, CreateDurablePromiseReq
+                invocation.exec_unit, CreateDurablePromise
             ), "This command is reserved only for rfi."
 
             cmd_type = type(invocation.exec_unit)
