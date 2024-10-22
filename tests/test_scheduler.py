@@ -821,7 +821,7 @@ def test_batching_with_single_result(store: PromiseStore) -> None:
 
     promises: list[Promise[str]] = []
     for n in range(10):
-        p: Promise[str] = s.run(f"do-something-with-single-result-{n}", do_something, n)
+        p: Promise[str] = s.run(f"do-batching-with-single-result-{n}", do_something, n)
         promises.append(p)
 
         for p in promises:
