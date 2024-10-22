@@ -1163,12 +1163,3 @@ class Scheduler:
                 return Err(err)
 
         assert_never(combinator)
-
-    def _change_to_lfi(self, promise: Promise[Any], opts: Options) -> None:
-        assert isinstance(
-            promise.action, RFI
-        ), "Can only change a promise from rfi to lfi"
-        assert not isinstance(
-            promise.action.exec_unit, Command
-        ), "Cannot change action if it is a command."
-        self.action = LFI(self.action.exec_unit, opts=opts)
