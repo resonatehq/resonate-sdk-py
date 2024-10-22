@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from typing_extensions import ParamSpec, assert_never
 
 from resonate.actions import LFI
-from resonate.commands import CreateDurablePromiseReq
+from resonate.commands import CreateDurablePromise
 from resonate.promise import all_promises_are_done
 from resonate.result import Err, Ok
 
@@ -135,10 +135,10 @@ class FnOrCoroutine:
         self.args = args
         self.kwargs = kwargs
 
-    def to_req(
+    def to_create_durable_promise_command(
         self, promise_id: str | None, func_name: str, tags: dict[str, str]
-    ) -> CreateDurablePromiseReq:
-        return CreateDurablePromiseReq(
+    ) -> CreateDurablePromise:
+        return CreateDurablePromise(
             promise_id=promise_id,
             data={
                 "func": func_name,

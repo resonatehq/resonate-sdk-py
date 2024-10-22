@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from resonate import scheduler
-from resonate.commands import Command, CreateDurablePromiseReq
+from resonate.commands import Command, CreateDurablePromise
 from resonate.result import Ok
 from resonate.retry_policy import (
     Linear,
@@ -476,7 +476,7 @@ def test_rfc(store: IPromiseStore) -> None:
 
 def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
     yield ctx.rfc(
-        CreateDurablePromiseReq(
+        CreateDurablePromise(
             promise_id="abc",
             data={
                 "func": "func",
@@ -527,7 +527,7 @@ def test_blocked_on_remote_deep(store: IPromiseStore) -> None:
     def _rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
         yield ctx.lfi(_local_fn)
         yield ctx.rfi(
-            CreateDurablePromiseReq(
+            CreateDurablePromise(
                 promise_id="abc2",
                 data={
                     "func": "func",
@@ -563,7 +563,7 @@ def test_blocked_on_remote_shallow(store: IPromiseStore) -> None:
     def top_level(ctx: Context) -> Generator[Yieldable, Any, Any]:
         yield ctx.lfi(_local_fn)
         yield ctx.rfi(
-            CreateDurablePromiseReq(
+            CreateDurablePromise(
                 promise_id="abc2",
                 data={
                     "func": "func",
@@ -586,7 +586,7 @@ def test_blocked_on_remote_shallow(store: IPromiseStore) -> None:
 def test_blocked_on_just_remote(store: IPromiseStore) -> None:
     def top_level(ctx: Context) -> Generator[Yieldable, Any, Any]:
         yield ctx.rfi(
-            CreateDurablePromiseReq(
+            CreateDurablePromise(
                 promise_id="abc2",
                 data={
                     "func": "func",
@@ -636,7 +636,7 @@ def test_not_blocked_on_remote_long_lfi(store: IPromiseStore) -> None:
     def top_level(ctx: Context) -> Generator[Yieldable, Any, Any]:
         yield ctx.lfi(_local_fn)
         yield ctx.rfi(
-            CreateDurablePromiseReq(
+            CreateDurablePromise(
                 promise_id="abc2",
                 data={
                     "func": "func",
