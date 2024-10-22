@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     )
     from resonate.options import Options
     from resonate.record import DurablePromiseRecord
-    from resonate.storage import IPromiseStore
+    from resonate.storage import PromiseStore
     from resonate.typing import (
         Awaitables,
         CommandHandlerQueues,
@@ -112,7 +112,7 @@ class DSTScheduler:
             MockFn[Any],
         ]
         | None,
-        durable_promise_storage: IPromiseStore,
+        durable_promise_storage: PromiseStore,
     ) -> None:
         self._stg_queue: list[tuple[LFI, str]] = []
         self._runnable_coros: RunnableCoroutines = deque()

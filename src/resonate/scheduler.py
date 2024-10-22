@@ -61,8 +61,8 @@ from resonate.promise import (
 from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
-from resonate.storage import LocalPromiseStore
-from resonate.tasks import Invoke, LocalTaskSource, Resume, Task, TaskHandler
+from resonate.storage import RemoteStore
+from resonate.tasks import Invoke, Resume, Task, TaskHandler
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 
     from resonate.record import DurablePromiseRecord
     from resonate.result import Result
-    from resonate.storage import IPromiseStore
+    from resonate.storage import PromiseStore
     from resonate.tracing import IAdapter
     from resonate.typing import (
         Awaitables,
@@ -240,7 +240,7 @@ class _Processor:
 class Scheduler:
     def __init__(
         self,
-        durable_promise_storage: IPromiseStore,
+        durable_promise_storage: PromiseStore,
         *,
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
@@ -255,16 +255,6 @@ class Scheduler:
         self._combinators_queue = Queue[tuple[Combinator, Promise[Any]]]()
         self._tasks_queue = Queue[Task]()
         self._task_monitored_promises: set[Promise[Any]] = set()
-
-        task_source = (
-            LocalTaskSource()
-            if isinstance(durable_promise_storage, LocalPromiseStore)
-            else None
-        )
-
-        self._task_handler = TaskHandler(
-            self, durable_promise_storage, task_source=task_source
-        )
 
         self._worker_continue = Event()
 
@@ -292,6 +282,11 @@ class Scheduler:
         )
         self._durable_promise_storage = durable_promise_storage
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
+
+        if isinstance(self._durable_promise_storage, RemoteStore):
+            self._task_handler = TaskHandler(self, self._durable_promise_storage)
+        else:
+            self._task_handler = None
 
         self._cmd_handlers = dict[type[Command], tuple[CmdHandler[Any], RetryPolicy]]()
         self._cmd_buffers = dict[type[Command], CommandBuffer[Command]]()
@@ -365,6 +360,9 @@ class Scheduler:
         self, promise: Promise[Any], recv: str = "default"
     ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
+        assert isinstance(
+            self._durable_promise_storage, RemoteStore
+        ), "Callback creation only if using remote storage"
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 promise_id=promise.promise_id,
@@ -698,12 +696,13 @@ class Scheduler:
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
-            blocked_promises = [
-                p for p in self._task_monitored_promises if p.is_blocked_on_remote()
-            ]
-            for blocked_promise in blocked_promises:
-                self._task_handler.enqueue_completable(blocked_promise.promise_id)
-                self._task_monitored_promises.remove(blocked_promise)
+            if self._task_handler is not None:
+                blocked_promises = [
+                    p for p in self._task_monitored_promises if p.is_blocked_on_remote()
+                ]
+                for blocked_promise in blocked_promises:
+                    self._task_handler.enqueue_completable(blocked_promise.promise_id)
+                    self._task_monitored_promises.remove(blocked_promise)
 
             delay_es = self._delay_queue.dequeue_all()
             for delay_e in delay_es:
@@ -905,7 +904,7 @@ class Scheduler:
             )
         )
 
-        if promise in self._task_monitored_promises:
+        if self._task_handler is not None and promise in self._task_monitored_promises:
             self._task_handler.enqueue_completable(promise_id=promise.promise_id)
             self._task_monitored_promises.remove(promise)
 

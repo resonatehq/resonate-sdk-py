@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Union
@@ -13,7 +12,7 @@ from typing_extensions import TypeAlias
 from resonate.encoders import Base64Encoder
 from resonate.logging import logger
 from resonate.queue import Queue
-from resonate.storage import IPromiseStore, TaskRecord
+from resonate.storage import TaskRecord, TaskStore
 
 if TYPE_CHECKING:
     from resonate.record import DurablePromiseRecord
@@ -38,13 +37,12 @@ class TaskHandler:
     def __init__(
         self,
         scheduler: Scheduler,
-        store: IPromiseStore,
-        task_source: TaskSource | None = None,
+        store: TaskStore,
         heartbeat_freq: int = 10,
     ) -> None:
         self._claimables_queue = Queue[TaskRecord]()
         self._completables_queue = Queue[str]()
-        self._store: IPromiseStore = store
+        self._store = store
         self._scheduler = scheduler
         self._base_64_encoder = Base64Encoder()
         self._heartbeat_freq = heartbeat_freq
@@ -57,7 +55,6 @@ class TaskHandler:
         self._heartbeat_thread: Thread | None = None
 
         self._worker_thread.start()
-        self._task_source = TaskPoller(self) if task_source is None else task_source
 
     def enqueue_claimable(self, task: TaskRecord) -> None:
         self._claimables_queue.put_nowait(task)
@@ -130,17 +127,7 @@ class TaskHandler:
             active_tasks = self._store.heartbeat_tasks()
 
 
-class TaskSource(ABC):
-    @abstractmethod
-    def _run(self) -> None: ...
-
-
-class LocalTaskSource(TaskSource):
-    def _run(self) -> None:
-        pass
-
-
-class TaskPoller(TaskSource):
+class TaskPoller:
     def __init__(self, task_handler: TaskHandler) -> None:
         self.task_handler = task_handler
         self.stop = False
