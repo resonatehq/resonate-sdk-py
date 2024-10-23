@@ -919,3 +919,42 @@ def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
             failures += 1
 
     assert successes == failures
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_remote_call_same_node(store: IPromiseStore) -> None:
+    if not isinstance(store, RemoteServer):
+        return
+
+    def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
+        return 1
+
+    def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
+        n = yield ctx.rfc(_number_from_other_node)
+        return n
+
+    s = scheduler.Scheduler(store)
+    s.register(_remotely, retry_policy=never())
+    s.register(_number_from_other_node, retry_policy=never())
+    p: Promise[int] = s.run("test-remote-call-same-node", _remotely)
+    assert p.result() == 1
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_remote_invocation_same_node(store: IPromiseStore) -> None:
+    if not isinstance(store, RemoteServer):
+        return
+
+    def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
+        return 1
+
+    def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
+        p = yield ctx.rfi(_number_from_other_node)
+        n = yield p
+        return n
+
+    s = scheduler.Scheduler(store)
+    s.register(_remotely, retry_policy=never())
+    s.register(_number_from_other_node, retry_policy=never())
+    p: Promise[int] = s.run("test-remote-invocation-same-node", _remotely)
+    assert p.result() == 1

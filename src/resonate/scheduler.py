@@ -275,6 +275,7 @@ class Scheduler:
 
         self._runnable_coros: RunnableCoroutines = deque()
         self._awaitables: Awaitables = {}
+        self._tasks_monitored_promises: set[str] = set()
 
         self._processor = _Processor(
             processor_threads,
@@ -302,7 +303,7 @@ class Scheduler:
 
     def enqueue_task(self, sqe: TaskRecord) -> None:
         assert self._task_handler is not None
-        self._task_handler.enqueue(sqe=sqe)
+        self._task_handler.enqueue_to_claim(sqe=sqe)
 
     def register_command_handler(
         self,
@@ -738,6 +739,7 @@ class Scheduler:
 
             poll_msgs = self._poll_msg_queue.dequeue_all()
             for msg in poll_msgs:
+                self._tasks_monitored_promises.add(msg.root_promise_store.promise_id)
                 if isinstance(msg, Invoke):
                     self._handle_invoke(durable_promise_record=msg.root_promise_store)
                 elif isinstance(msg, Resume):
@@ -801,7 +803,8 @@ class Scheduler:
         assert func_pointer is not None, "Function must be registered to invoke"
 
         attached_options = self._attached_options_to_top_lvl[invoke_info["func_name"]]
-        if durable_promise_record.promise_id is self._emphemeral_promise_memo:
+
+        if durable_promise_record.promise_id in self._emphemeral_promise_memo:
             p = self._emphemeral_promise_memo[durable_promise_record.promise_id]
             assert p.parent_promise is not None
             assert isinstance(p.action, RFI)
@@ -817,9 +820,10 @@ class Scheduler:
                     opts=attached_options,
                 ),
             )
+
             assert (
-                p.promise_id not in self._emphemeral_promise_memo
-            ), "There should not be a new promise with same promise id."
+                durable_promise_record.promise_id not in self._emphemeral_promise_memo
+            ), "There should not be a new promise with same promise id"
             self._emphemeral_promise_memo[p.promise_id] = p
 
         self._stg_queue.put_nowait(p)
@@ -852,6 +856,12 @@ class Scheduler:
                 parent_promise_id=coro.route_info.promise.parent_promise_id(),
             )
         )
+        if (
+            self._task_handler is not None
+            and coro.route_info.promise.promise_id in self._tasks_monitored_promises
+        ):
+            self._tasks_monitored_promises.remove(coro.route_info.promise.promise_id)
+            self._task_handler.enqueue_to_complete(coro.route_info.promise.promise_id)
 
     def _add_coro_to_runnables(
         self,
@@ -903,6 +913,12 @@ class Scheduler:
                 parent_promise_id=promise.parent_promise_id(),
             )
         )
+        if (
+            self._task_handler is not None
+            and promise.promise_id is self._tasks_monitored_promises
+        ):
+            self._tasks_monitored_promises.remove(promise.promise_id)
+            self._task_handler.enqueue_to_complete(promise.promise_id)
         self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:

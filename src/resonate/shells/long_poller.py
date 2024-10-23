@@ -1,36 +1,47 @@
 from __future__ import annotations
 
 import json
+from threading import Thread
+from typing import TYPE_CHECKING
 
 import requests
 
 from resonate.encoders import JsonEncoder
 from resonate.record import TaskRecord
-from resonate.scheduler import Scheduler
-from resonate.storage import RemoteServer
+
+if TYPE_CHECKING:
+    from resonate.tasks import TaskHandler
 
 
 class LongPoller:
-    def __init__(self, url: str = "http://localhost") -> None:
+    def __init__(
+        self,
+        task_handler: TaskHandler,
+        logic_group: str,
+        pid: str,
+        url: str = "http://localhost",
+    ) -> None:
         self._url = url
-        storage = RemoteServer(f"{url}:8001")
-        self._scheduler = Scheduler(storage)
+        self._login_group = logic_group
+        self._pid = pid
+        self._task_handler = task_handler
         self._encoder = JsonEncoder()
+        self._worket_thread = Thread(target=self._run, daemon=True)
+        self._worket_thread.start()
 
-    def run(self) -> None:
+    def _run(self) -> None:
         while True:
             response = requests.get(  # noqa: S113
-                f"{self._url}:8002/{self._scheduler.logic_group}/{self._scheduler.pid}",
+                f"{self._url}:8002/{self._login_group}/0",
                 headers={"Accept": "text/event-stream"},
                 stream=True,
             )
             for line in response.iter_lines(chunk_size=None, decode_unicode=True):
                 if not line:
                     continue
-
                 stripped: str = line.strip()
                 assert stripped.startswith("data:")
                 info = json.loads(stripped[5:])
-                self._scheduler.enqueue_task(
+                self._task_handler.enqueue_to_claim(
                     TaskRecord.decode(info["task"], encoder=self._encoder)
                 )

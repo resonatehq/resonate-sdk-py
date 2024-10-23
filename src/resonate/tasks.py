@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import time
-from threading import Thread
+from threading import Event, Thread
 from typing import TYPE_CHECKING
-
-from typing_extensions import assert_never
 
 from resonate.logging import logger
 from resonate.queue import Queue
 from resonate.record import TaskRecord
+from resonate.shells.long_poller import LongPoller
 
 if TYPE_CHECKING:
     from resonate.scheduler import Scheduler
@@ -16,13 +15,27 @@ if TYPE_CHECKING:
 
 
 class TaskHandler:
-    def __init__(self, scheduler: Scheduler, storage: ITaskStore) -> None:
+    def __init__(
+        self,
+        scheduler: Scheduler,
+        storage: ITaskStore,
+        *,
+        with_long_polling: bool = True,
+    ) -> None:
         self._scheduler = scheduler
-        self._submission_queue = Queue[TaskRecord]()
+        self._claimables = Queue[TaskRecord]()
+        self._completables = Queue[str]()
         self._storage = storage
         self._tasks_to_complete: dict[str, TaskRecord] = {}
+        if with_long_polling:
+            self._long_poller = LongPoller(
+                task_handler=self,
+                logic_group=scheduler.logic_group,
+                pid=scheduler.pid,
+            )
         self._heartbeating_thread = Thread(target=self._heartbeat, daemon=True)
         self._heartbeating_thread.start()
+        self._continue_event = Event()
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
 
@@ -32,16 +45,25 @@ class TaskHandler:
             logger.debug("Heatbeat affected %s tasks", affected)
             time.sleep(2)
 
-    def enqueue(self, sqe: TaskRecord) -> None:
-        self._submission_queue.put(sqe)
+    def _signal(self) -> None:
+        self._continue_event.set()
+
+    def enqueue_to_claim(self, sqe: TaskRecord) -> None:
+        self._claimables.put(sqe)
+        self._signal()
+
+    def enqueue_to_complete(self, sqe: str) -> None:
+        self._completables.put(sqe)
+        self._signal()
 
     def _run(self) -> None:
-        while True:
-            sqe = self._submission_queue.dequeue()
-            if isinstance(sqe, TaskRecord):
+        while self._continue_event.wait():
+            self._continue_event.clear()
+            claimables = self._claimables.dequeue_all()
+            for claimable in claimables:
                 poll_msg = self._storage.claim_task(
-                    task_id=sqe.task_id,
-                    counter=sqe.counter,
+                    task_id=claimable.task_id,
+                    counter=claimable.counter,
                     pid=self._scheduler.pid,
                     ttl=5000,
                 )
@@ -49,16 +71,18 @@ class TaskHandler:
                     poll_msg.root_promise_store.promise_id
                     not in self._tasks_to_complete
                 ), "There can only be one task per top level promise at a time."
-                self._tasks_to_complete[poll_msg.root_promise_store.promise_id] = sqe
+                self._tasks_to_complete[poll_msg.root_promise_store.promise_id] = (
+                    claimable
+                )
 
                 self._scheduler.enqueue_poll_msg(poll_msg)
-            elif isinstance(sqe, str):
+
+            completables = self._completables.dequeue_all()
+            for completable in completables:
                 assert (
-                    sqe in self._tasks_to_complete
-                ), f"Task to complete related to promise {sqe} not found."
-                task_record = self._tasks_to_complete[sqe]
+                    completable in self._tasks_to_complete
+                ), f"Task to complete related to promise {completable} not found."
+                task_record = self._tasks_to_complete[completable]
                 self._storage.complete_task(
                     task_id=task_record.task_id, counter=task_record.counter
                 )
-            else:
-                assert_never(sqe)

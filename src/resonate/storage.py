@@ -386,7 +386,7 @@ class RemoteServer(IPromiseStore, ICallbackStore, ITaskStore):
         if promises.get("leaf") is None:
             return Invoke.decode(data=promises["root"]["data"], encoder=self._encoder)
 
-        return Resume.decode(data=data, encoder=self._encoder)
+        return Resume.decode(data=promises, encoder=self._encoder)
 
     def complete_task(self, *, task_id: str, counter: int) -> None:
         response = requests.post(
