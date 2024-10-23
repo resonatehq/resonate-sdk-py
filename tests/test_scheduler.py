@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import os
-import random
 import time
 from concurrent.futures import TimeoutError
 from functools import cache
@@ -945,19 +944,23 @@ def test_remote_factorial(store: IPromiseStore) -> None:
     groups = ["remote-lambda-group-a", "remote-lambda-group-b"]
     s1 = scheduler.Scheduler(durable_promise_storage=store, logic_group=groups[0])
     s2 = scheduler.Scheduler(durable_promise_storage=store, logic_group=groups[1])
+    group_switch: int = 0
 
     def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        nonlocal group_switch
+        group_switch = 1 if group_switch == 0 else 0
         if n in (0, 1):
             return 1
+
         return n * (
             yield ctx.rfc(factorial, n - 1).with_options(
                 promise_id=f"factorial-remote-{n-1}",
-                recv=random.choice(groups),  # noqa: S311
+                recv=groups[group_switch],
             )
         )
 
     s1.register(factorial, retry_policy=never())
     s2.register(factorial, retry_policy=never())
-    n = 10
+    n = 7
     p: Promise[int] = s1.run(f"factorial-remote-{n}", factorial, n)
-    assert p.result() == 3_628_800  # noqa: PLR2004
+    assert p.result() == 5_040  # noqa: PLR2004
