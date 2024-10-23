@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any, TypedDict, final
 
 from typing_extensions import Self
 
@@ -11,6 +12,12 @@ from resonate.encoders import IEncoder
 if TYPE_CHECKING:
     from resonate.encoders import IEncoder
     from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
+
+
+class _InvokeInfo(TypedDict):
+    func_name: str
+    args: list[Any]
+    kwargs: dict[str, Any]
 
 
 class Decodable(ABC):
@@ -24,6 +31,15 @@ class Decodable(ABC):
 class Param:
     data: Data
     headers: Headers
+
+    def invoke_info(self) -> _InvokeInfo:
+        assert self.data is not None
+        data_dict = json.loads(self.data)
+        return {
+            "func_name": data_dict["func"],
+            "args": data_dict["args"],
+            "kwargs": data_dict["kwargs"],
+        }
 
 
 @final

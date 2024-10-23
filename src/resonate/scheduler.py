@@ -58,6 +58,7 @@ from resonate.promise import (
     any_promise_is_done,
 )
 from resonate.queue import DelayQueue, Queue
+from resonate.record import Invoke, Resume
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
 from resonate.storage import RemoteServer
@@ -67,6 +68,7 @@ from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
     CmdHandler,
     Combinator,
+    PollMessage,
 )
 
 if TYPE_CHECKING:
@@ -253,6 +255,7 @@ class Scheduler:
         self._completion_queue = Queue[_CQE]()
         self._submission_queue = Queue[_SQE]()
         self._combinators_queue = Queue[tuple[Combinator, Promise[Any]]]()
+        self._poll_msg_queue = Queue[PollMessage]()
 
         self._worker_continue = Event()
 
@@ -293,9 +296,13 @@ class Scheduler:
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
 
+    def enqueue_poll_msg(self, msg: PollMessage) -> None:
+        self._poll_msg_queue.put_nowait(msg)
+        self._signal()
+
     def enqueue_task(self, sqe: TaskRecord) -> None:
         assert self._task_handler is not None
-        self._task_handler.enqueue(sqe)
+        self._task_handler.enqueue(action="claim", sqe=sqe)
 
     def register_command_handler(
         self,
@@ -319,7 +326,7 @@ class Scheduler:
         self._cmd_buffers[cmd] = CommandBuffer(maxlen=maxlen)
 
     def enqueue_cqe(self, cqe: _CQE) -> None:
-        self._completion_queue.put(cqe)
+        self._completion_queue.put_nowait(cqe)
         self._signal()
 
     def _enqueue_combinator(
@@ -726,6 +733,25 @@ class Scheduler:
                         )
                     )
 
+            poll_msgs = self._poll_msg_queue.dequeue_all()
+            for msg in poll_msgs:
+                if isinstance(msg, Invoke):
+                    self._handle_invoke(durable_promise_record=msg.root_promise_store)
+                elif isinstance(msg, Resume):
+                    leaf_promise = self._emphemeral_promise_memo.get(
+                        msg.leaf_promise_store.promise_id
+                    )
+                    if leaf_promise is None:
+                        self._handle_invoke(
+                            durable_promise_record=msg.root_promise_store
+                        )
+                    else:
+                        v = self._get_value_from_durable_promise(msg.leaf_promise_store)
+                        self._resolve_promise(leaf_promise, v)
+                        self._unblock_coros_waiting_on_promise(leaf_promise)
+                else:
+                    assert_never(msg)
+
             cqes = self._completion_queue.dequeue_all()
             for cqe in cqes:
                 if cqe.to_be_retried():
@@ -765,6 +791,44 @@ class Scheduler:
                 self._advance_runnable_span(runnable=runnable, was_awaited=was_awaited)
 
             assert not self._runnable_coros, "Runnables should have been all exhausted"
+
+    def _handle_invoke(self, durable_promise_record: DurablePromiseRecord) -> None:
+        invoke_info = durable_promise_record.param.invoke_info()
+        func_pointer = self._registered_function.get(invoke_info["func_name"])
+        assert func_pointer is not None, "Function must be registered to invoke"
+
+        attached_options = self._attached_options_to_top_lvl[invoke_info["func_name"]]
+        if durable_promise_record.promise_id is self._emphemeral_promise_memo:
+            p = self._emphemeral_promise_memo[durable_promise_record.promise_id]
+            assert p.parent_promise is not None
+            assert isinstance(p.action, RFI)
+            self._change_promise_to_lfi(p, attached_options)
+        else:
+            p = Promise[Any](
+                promise_id=durable_promise_record.promise_id,
+                parent_promise=None,
+                action=LFI(
+                    FnOrCoroutine(
+                        func_pointer, *invoke_info["args"], **invoke_info["kwargs"]
+                    ),
+                    opts=attached_options,
+                ),
+            )
+            assert (
+                p.promise_id not in self._emphemeral_promise_memo
+            ), "There should not be a new promise with same promise id."
+            self._emphemeral_promise_memo[p.promise_id] = p
+
+        self._stg_queue.put_nowait(p)
+        self._signal()
+
+    def _change_promise_to_lfi(self, promise: Promise[Any], opts: Options) -> None:
+        assert isinstance(promise.action, RFI), "Can only promote RFI to LFI"
+        assert not isinstance(
+            promise.action.exec_unit, Command
+        ), "Can not change action if it is a command"
+
+        promise.action = LFI(promise.action.exec_unit, opts=opts)
 
     def _add_coro_to_awaitables(self, p: Promise[Any], coro: ResonateCoro[Any]) -> None:
         assert (
