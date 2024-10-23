@@ -61,6 +61,7 @@ from resonate.queue import DelayQueue, Queue
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
 from resonate.storage import RemoteServer
+from resonate.tasks import TaskHandler
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
@@ -71,7 +72,7 @@ from resonate.typing import (
 if TYPE_CHECKING:
     from collections.abc import Hashable
 
-    from resonate.record import DurablePromiseRecord
+    from resonate.record import DurablePromiseRecord, TaskRecord
     from resonate.result import Result
     from resonate.storage import IPromiseStore
     from resonate.tracing import IAdapter
@@ -243,6 +244,7 @@ class Scheduler:
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
     ) -> None:
+        self.logic_group: str = "default"
         self.pid = uuid.uuid4().hex
         self._registered_function = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, Options] = {}
@@ -276,7 +278,13 @@ class Scheduler:
             self._submission_queue,
             self,
         )
+
         self._durable_promise_storage = durable_promise_storage
+
+        self._task_handler: TaskHandler | None = None
+        if isinstance(self._durable_promise_storage, RemoteServer):
+            self._task_handler = TaskHandler(self, self._durable_promise_storage)
+
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
         self._cmd_handlers = dict[type[Command], tuple[CmdHandler[Any], RetryPolicy]]()
@@ -284,6 +292,10 @@ class Scheduler:
 
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
+
+    def enqueue_task(self, sqe: TaskRecord) -> None:
+        assert self._task_handler is not None
+        self._task_handler.enqueue(sqe)
 
     def register_command_handler(
         self,
@@ -344,12 +356,15 @@ class Scheduler:
         assert_never(value)
 
     def _register_callback_or_resolve_ephemeral_promise(
-        self, promise: Promise[Any], recv: str = "default"
+        self, promise: Promise[Any], recv: str | None = None
     ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
         assert isinstance(
             self._durable_promise_storage, RemoteServer
         ), "Registering callback only makes sense if using remote server."
+
+        if recv is None:
+            recv = self.logic_group
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 promise_id=promise.promise_id,
@@ -515,7 +530,9 @@ class Scheduler:
 
                 final_tags = attached_options.tags
                 if "resonate:invoke" not in attached_options.tags:
-                    final_tags["resonate:invoke"] = f"poll://default/{self.pid}"
+                    final_tags["resonate:invoke"] = (
+                        f"poll://{self.logic_group}/{self.pid}"
+                    )
 
                 req = promise.action.exec_unit.to_req(
                     promise.promise_id,

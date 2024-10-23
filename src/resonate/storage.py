@@ -384,7 +384,7 @@ class RemoteServer(IPromiseStore, ICallbackStore, ITaskStore):
 
         promises: dict[str, Any] = data["promises"]
         if promises.get("leaf") is None:
-            return Invoke.decode(data=data["root"], encoder=self._encoder)
+            return Invoke.decode(data=promises["root"]["data"], encoder=self._encoder)
 
         return Resume.decode(data=data, encoder=self._encoder)
 

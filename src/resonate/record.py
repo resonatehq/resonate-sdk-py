@@ -138,10 +138,10 @@ class Resume(Decodable):
     def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> Self:
         return cls(
             root_promise_store=DurablePromiseRecord.decode(
-                data["root"], encoder=encoder
+                data["root"]["data"], encoder=encoder
             ),
             leaf_promise_store=DurablePromiseRecord.decode(
-                data["leaf"], encoder=encoder
+                data["leaf"]["data"], encoder=encoder
             ),
         )
 
