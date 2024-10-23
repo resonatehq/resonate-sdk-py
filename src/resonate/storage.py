@@ -1,18 +1,38 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Callable, Literal, final
+from typing import TYPE_CHECKING, Any, Callable, Literal, final
 
 import requests
 
 from resonate.encoders import Base64Encoder, IEncoder
 from resonate.errors import ResonateError
 from resonate.logging import logger
-from resonate.record import CallbackRecord, DurablePromiseRecord, Param, Value
+from resonate.record import (
+    CallbackRecord,
+    DurablePromiseRecord,
+    Invoke,
+    Param,
+    Resume,
+    Value,
+)
 from resonate.time import now
 
 if TYPE_CHECKING:
-    from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
+    from resonate.typing import Data, Headers, IdempotencyKey, PollMessage, State, Tags
+
+
+class ITaskStore(ABC):
+    @abstractmethod
+    def claim_task(
+        self, *, task_id: str, counter: int, pid: str, ttl: int
+    ) -> PollMessage: ...
+
+    @abstractmethod
+    def complete_task(self, *, task_id: str, counter: int) -> None: ...
+
+    @abstractmethod
+    def heartbeat_tasks(self, *, pid: str) -> int: ...
 
 
 class ICallbackStore(ABC):
@@ -322,7 +342,7 @@ class LocalStore(IPromiseStore):
 
 
 @final
-class RemoteServer(IPromiseStore, ICallbackStore):
+class RemoteServer(IPromiseStore, ICallbackStore, ITaskStore):
     def __init__(
         self,
         url: str,
@@ -341,6 +361,54 @@ class RemoteServer(IPromiseStore, ICallbackStore):
             request_headers["Idempotency-Key"] = ikey
 
         return request_headers
+
+    def claim_task(
+        self, *, task_id: str, counter: int, pid: str, ttl: int
+    ) -> PollMessage:
+        response = requests.post(
+            url=f"{self.url}/tasks/claim",
+            headers={},
+            json={
+                "id": task_id,
+                "counter": counter,
+                "processId": pid,
+                "ttl": ttl,
+            },
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+
+        data = response.json()
+        kind: Literal["resume", "invoke"] = data["type"]
+        assert kind in ("resume", "invoke")
+
+        promises: dict[str, Any] = data["promises"]
+        if promises.get("leaf") is None:
+            return Invoke.decode(data=data["root"], encoder=self._encoder)
+
+        return Resume.decode(data=data, encoder=self._encoder)
+
+    def complete_task(self, *, task_id: str, counter: int) -> None:
+        response = requests.post(
+            url=f"{self.url}/tasks/complete",
+            headers={},
+            json={
+                "id": task_id,
+                "counter": counter,
+            },
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+
+    def heartbeat_tasks(self, *, pid: str) -> int:
+        response = requests.post(
+            url=f"{self.url}/tasks/heartbeat",
+            headers={},
+            json={"processId": pid},
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+        return response.json()["tasksAffected"]
 
     def create_callback(
         self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str

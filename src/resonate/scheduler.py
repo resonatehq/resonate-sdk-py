@@ -243,7 +243,7 @@ class Scheduler:
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
     ) -> None:
-        self._sdk_id = uuid.uuid4().hex
+        self.pid = uuid.uuid4().hex
         self._registered_function = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, Options] = {}
 
@@ -515,7 +515,7 @@ class Scheduler:
 
                 final_tags = attached_options.tags
                 if "resonate:invoke" not in attached_options.tags:
-                    final_tags["resonate:invoke"] = f"poll://default/{self._sdk_id}"
+                    final_tags["resonate:invoke"] = f"poll://default/{self.pid}"
 
                 req = promise.action.exec_unit.to_req(
                     promise.promise_id,

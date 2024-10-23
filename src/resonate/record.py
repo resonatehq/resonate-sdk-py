@@ -114,3 +114,45 @@ class DurablePromiseRecord(Decodable):
             idempotency_key_for_complete=data.get("idempotencyKeyForComplete"),
             idempotency_key_for_create=data.get("idempotencyKeyForCreate"),
         )
+
+
+@final
+@dataclass(frozen=True)
+class Invoke(Decodable):
+    root_promise_store: DurablePromiseRecord
+
+    @classmethod
+    def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> Self:
+        return cls(
+            root_promise_store=DurablePromiseRecord.decode(data, encoder=encoder),
+        )
+
+
+@final
+@dataclass(frozen=True)
+class Resume(Decodable):
+    root_promise_store: DurablePromiseRecord
+    leaf_promise_store: DurablePromiseRecord
+
+    @classmethod
+    def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> Self:
+        return cls(
+            root_promise_store=DurablePromiseRecord.decode(
+                data["root"], encoder=encoder
+            ),
+            leaf_promise_store=DurablePromiseRecord.decode(
+                data["leaf"], encoder=encoder
+            ),
+        )
+
+
+@final
+@dataclass(frozen=True)
+class TaskRecord(Decodable):
+    task_id: str
+    counter: int
+
+    @classmethod
+    def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> Self:
+        _ = encoder
+        return cls(task_id=data["id"], counter=data["counter"])
