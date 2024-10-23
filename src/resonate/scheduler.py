@@ -1088,9 +1088,16 @@ class Scheduler:
         assert isinstance(
             self._durable_promise_storage, (ITaskStore, ICallbackStore)
         ), "Used storage does not support rfi."
+        promise_id: str | None
+        if not isinstance(invocation.exec_unit, Command):
+            promise_id = invocation.opts.promise_id
+        else:
+            assert isinstance(invocation.exec_unit, CreateDurablePromiseReq)
+            promise_id = invocation.exec_unit.promise_id
+
         return self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
-            promise_id=invocation.opts.promise_id,
+            promise_id=promise_id,
             action=invocation,
         )
 

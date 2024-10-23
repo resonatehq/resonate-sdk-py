@@ -72,7 +72,9 @@ class Context:
             assert isinstance(
                 invokable, CreateDurablePromiseReq
             ), f"The only command allowed for rfc is {CreateDurablePromiseReq.__name__}"
-        return RFC(_wrap_into_execution_unit(invokable, *args, **kwargs))
+        return RFC(
+            _wrap_into_execution_unit(invokable, *args, **kwargs),
+        )
 
     def rfi(
         self,
