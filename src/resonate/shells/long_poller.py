@@ -31,8 +31,9 @@ class LongPoller:
 
     def _run(self) -> None:
         while True:
+            poll_url = f"{self._url}:8002/{self._login_group}/{self._pid}"
             response = requests.get(  # noqa: S113
-                f"{self._url}:8002/{self._login_group}/{self._pid}",
+                url=poll_url,
                 headers={"Accept": "text/event-stream"},
                 stream=True,
             )

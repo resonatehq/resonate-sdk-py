@@ -364,15 +364,14 @@ class Scheduler:
         assert_never(value)
 
     def _register_callback_or_resolve_ephemeral_promise(
-        self, promise: Promise[Any], recv: str | None
+        self, promise: Promise[Any]
     ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
         assert isinstance(
             self._durable_promise_storage, ICallbackStore
         ), "Used storage does not support callbacks."
 
-        if recv is None:
-            recv = self.logic_group
+        recv = f"poll://{self.logic_group}/{self.pid}"
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 promise_id=promise.promise_id,
@@ -540,10 +539,12 @@ class Scheduler:
                 attached_options = self._attached_options_to_top_lvl[func_name]
 
                 final_tags = attached_options.tags
-                if "resonate:invoke" not in attached_options.tags:
-                    final_tags["resonate:invoke"] = (
-                        f"poll://{self.logic_group}/{self.pid}"
-                    )
+                target_url: str
+                if promise.action.opts.target is not None:
+                    target_url = f"poll://{promise.action.opts.target}"
+                else:
+                    target_url = f"poll://{self.logic_group}"
+                final_tags["resonate:invoke"] = target_url
 
                 req = promise.action.exec_unit.to_req(
                     promise.promise_id,
@@ -1025,9 +1026,7 @@ class Scheduler:
                 )
             else:
                 if isinstance(p.action, RFI):
-                    self._register_callback_or_resolve_ephemeral_promise(
-                        p, p.action.opts.recv
-                    )
+                    self._register_callback_or_resolve_ephemeral_promise(p)
 
                 if p.done():
                     self._unblock_coros_waiting_on_promise(p)
@@ -1070,9 +1069,7 @@ class Scheduler:
                     runnable.coro, p.safe_result(), was_awaited=False
                 )
             else:
-                self._register_callback_or_resolve_ephemeral_promise(
-                    p, yieldable_or_final_value.opts.recv
-                )
+                self._register_callback_or_resolve_ephemeral_promise(p)
                 if p.done():
                     self._add_coro_to_runnables(
                         runnable.coro, p.safe_result(), was_awaited=False

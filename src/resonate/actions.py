@@ -27,12 +27,12 @@ class RFI:
     opts: ROptions = field(default=ROptions())
 
     def with_options(
-        self, promise_id: str | None = None, recv: str | None = None
+        self, promise_id: str | None = None, target: str | None = None
     ) -> Self:
         assert not isinstance(
             self.exec_unit, Command
         ), "Options must be set on the command."
-        self.opts = ROptions(promise_id=promise_id, recv=recv)
+        self.opts = ROptions(promise_id=promise_id, target=target)
         return self
 
 
@@ -43,12 +43,12 @@ class RFC:
     opts: ROptions = field(default=ROptions())
 
     def with_options(
-        self, promise_id: str | None = None, recv: str | None = None
+        self, promise_id: str | None = None, target: str | None = None
     ) -> Self:
         assert not isinstance(
             self.exec_unit, Command
         ), "Options must be set on the command."
-        self.opts = ROptions(promise_id=promise_id, recv=recv)
+        self.opts = ROptions(promise_id=promise_id, target=target)
         return self
 
     def to_invocation(self) -> RFI:

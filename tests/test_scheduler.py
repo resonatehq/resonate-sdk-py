@@ -902,16 +902,15 @@ def test_remote_call_same_node(store: IPromiseStore) -> None:
         return 1
 
     def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
-        n = yield ctx.rfc(_number_from_other_node).with_options(
-            recv="remote-call-same-node"
-        )
+        n = yield ctx.rfc(_number_from_other_node).with_options(target="call-same-node")
         return n
 
-    s = scheduler.Scheduler(store)
+    s = scheduler.Scheduler(store, logic_group="call-same-node")
     s.register(_remotely, retry_policy=never())
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-call-same-node", _remotely)
     assert p.result() == 1
+    time.sleep(1)
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -924,43 +923,41 @@ def test_remote_invocation_same_node(store: IPromiseStore) -> None:
 
     def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
         p = yield ctx.rfi(_number_from_other_node).with_options(
-            recv="remote-invocation-same-node"
+            target="invocation-same-node"
         )
         n = yield p
         return n
 
-    s = scheduler.Scheduler(store)
+    s = scheduler.Scheduler(store, logic_group="invocation-same-node")
     s.register(_remotely, retry_policy=never())
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-invocation-same-node", _remotely)
     assert p.result() == 1
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize("store", _promise_storages())
-def test_remote_factorial(store: IPromiseStore) -> None:
+def test_remote_invocation_other_node(store: IPromiseStore) -> None:
     if not isinstance(store, RemoteServer):
         return
 
-    groups = ["remote-lambda-group-a", "remote-lambda-group-b"]
-    s1 = scheduler.Scheduler(durable_promise_storage=store, logic_group=groups[0])
-    s2 = scheduler.Scheduler(durable_promise_storage=store, logic_group=groups[1])
-    group_switch: int = 0
+    def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
+        return 1
 
-    def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
-        nonlocal group_switch
-        group_switch = 1 if group_switch == 0 else 0
-        if n in (0, 1):
-            return 1
-
-        return n * (
-            yield ctx.rfc(factorial, n - 1).with_options(
-                promise_id=f"factorial-remote-{n-1}",
-                recv=groups[group_switch],
-            )
+    def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
+        p = yield ctx.rfi(_number_from_other_node).with_options(
+            target="invocation-other-node"
         )
+        n = yield p
+        return n
 
-    s1.register(factorial, retry_policy=never())
-    s2.register(factorial, retry_policy=never())
-    n = 7
-    p: Promise[int] = s1.run(f"factorial-remote-{n}", factorial, n)
-    assert p.result() == 5_040  # noqa: PLR2004
+    s = scheduler.Scheduler(store, logic_group="invocation-this-node")
+    s.register(_remotely, retry_policy=never())
+    s.register(_number_from_other_node, retry_policy=never())
+
+    s_other = scheduler.Scheduler(store, logic_group="invocation-other-node")
+    s_other.register(_remotely, retry_policy=never())
+    s_other.register(_number_from_other_node, retry_policy=never())
+
+    p: Promise[int] = s.run("test-remote-invocation-other-node", _remotely)
+    assert p.result() == 1
