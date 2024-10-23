@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import json
 import os
+import random
 import time
 from concurrent.futures import TimeoutError
 from functools import cache
@@ -398,20 +398,20 @@ def test_race_combinator(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(durable_promise_storage=store, processor_threads=16)
 
     # Test case 1
-    waits_results = [(0.03, "A"), (0.03, "B"), (0.01, "C"), (0.03, "D"), (0.03, "E")]
+    waits_results = [(0.1, "A"), (0.1, "B"), (0.01, "C"), (0.1, "D"), (0.1, "E")]
     expected = "C"
     s.register(race_coro, "race-coro", retry_policy=never())
     p_race: Promise[str] = s.run("race-coro-0", race_coro, waits_results=waits_results)
     assert p_race.result() == expected
 
     # Test case 2
-    waits_results = [(0.05, "A"), (0.04, "B"), (0.03, "C"), (0.02, "D"), (0.01, "E")]
+    waits_results = [(0.1, "A"), (0.1, "B"), (0.1, "C"), (0.1, "D"), (0.01, "E")]
     expected = "E"
     p_race = s.run("race-coro-1", race_coro, waits_results=waits_results)
     assert p_race.result() == expected
 
     # # Test case 3
-    waits_results = [(0.010, "A"), (0.02, "B"), (0.02, "C")]
+    waits_results = [(0.01, "A"), (0.1, "B"), (0.1, "C")]
     expected = "A"
     p_race = s.run("race-coro-2", race_coro, waits_results=waits_results)
     assert p_race.result() == expected
@@ -447,33 +447,6 @@ def test_coro_retry(store: IPromiseStore) -> None:
         p.result()
 
     assert tries == 4  # noqa: PLR2004
-
-
-def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
-    if n in (0, 1):
-        return 1
-    return n * (yield ctx.rfc(factorial, n - 1))
-
-
-@pytest.mark.parametrize("store", _promise_storages())
-def test_rfc(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
-    s = scheduler.Scheduler(durable_promise_storage=store)
-    s.register(factorial, tags={"a": "1"})
-    p: Promise[int] = s.run("factorial-n", factorial, 4)
-    with contextlib.suppress(TimeoutError):
-        p.result(timeout=0.1)
-
-    child_promise_record = store.get(promise_id="factorial-n.1")
-    assert child_promise_record.promise_id == "factorial-n.1"
-    assert child_promise_record.param is not None
-    assert child_promise_record.param.data is not None
-    data = json.loads(child_promise_record.param.data)
-    assert data["func"] == "factorial"
-    assert data["args"] == [3]
-    assert child_promise_record.tags is not None
-    assert child_promise_record.tags.keys() == {"a", "resonate:invoke"}
 
 
 def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
@@ -930,7 +903,9 @@ def test_remote_call_same_node(store: IPromiseStore) -> None:
         return 1
 
     def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
-        n = yield ctx.rfc(_number_from_other_node)
+        n = yield ctx.rfc(_number_from_other_node).with_options(
+            recv="remote-call-same-node"
+        )
         return n
 
     s = scheduler.Scheduler(store)
@@ -949,7 +924,9 @@ def test_remote_invocation_same_node(store: IPromiseStore) -> None:
         return 1
 
     def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
-        p = yield ctx.rfi(_number_from_other_node)
+        p = yield ctx.rfi(_number_from_other_node).with_options(
+            recv="remote-invocation-same-node"
+        )
         n = yield p
         return n
 
@@ -958,3 +935,29 @@ def test_remote_invocation_same_node(store: IPromiseStore) -> None:
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-invocation-same-node", _remotely)
     assert p.result() == 1
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_remote_factorial(store: IPromiseStore) -> None:
+    if not isinstance(store, RemoteServer):
+        return
+
+    groups = ["remote-lambda-group-a", "remote-lambda-group-b"]
+    s1 = scheduler.Scheduler(durable_promise_storage=store, logic_group=groups[0])
+    s2 = scheduler.Scheduler(durable_promise_storage=store, logic_group=groups[1])
+
+    def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n in (0, 1):
+            return 1
+        return n * (
+            yield ctx.rfc(factorial, n - 1).with_options(
+                promise_id=f"factorial-{n-1}",
+                recv=random.choice(groups),  # noqa: S311
+            )
+        )
+
+    s1.register(factorial, retry_policy=never())
+    s2.register(factorial, retry_policy=never())
+    n = 10
+    p: Promise[int] = s1.run(f"factorial-{n}", factorial, n)
+    assert p.result() == 3_628_800  # noqa: PLR2004

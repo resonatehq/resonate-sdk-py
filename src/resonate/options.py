@@ -6,7 +6,14 @@ from resonate.retry_policy import RetryPolicy, default_policy
 
 
 @final
-class Options:
+class ROptions:
+    def __init__(self, promise_id: str | None = None, recv: str | None = None) -> None:
+        self.promise_id = promise_id
+        self.recv = recv
+
+
+@final
+class LOptions:
     def __init__(
         self,
         *,

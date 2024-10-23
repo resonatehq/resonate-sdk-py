@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from resonate.events import (
         SchedulerEvents,
     )
-    from resonate.options import Options
+    from resonate.options import LOptions
     from resonate.record import DurablePromiseRecord
     from resonate.storage import IPromiseStore
     from resonate.typing import (
@@ -228,7 +228,7 @@ class DSTScheduler:
     def add(
         self,
         promise_id: str,
-        opts: Options,
+        opts: LOptions,
         coro: DurableCoro[P, Any] | DurableFn[P, Any],
         /,
         *args: P.args,

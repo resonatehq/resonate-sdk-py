@@ -51,7 +51,7 @@ from resonate.events import (
 )
 from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
 from resonate.itertools import FinalValue, iterate_coro
-from resonate.options import Options
+from resonate.options import LOptions
 from resonate.promise import (
     Promise,
     all_promises_are_done,
@@ -243,13 +243,14 @@ class Scheduler:
         self,
         durable_promise_storage: IPromiseStore,
         *,
+        logic_group: str = "default",
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
     ) -> None:
-        self.logic_group: str = "default"
+        self.logic_group: str = logic_group
         self.pid = uuid.uuid4().hex
         self._registered_function = DoubleDict[str, Any]()
-        self._attached_options_to_top_lvl: dict[str, Options] = {}
+        self._attached_options_to_top_lvl: dict[str, LOptions] = {}
 
         self._stg_queue = Queue[Promise[Any]]()
         self._completion_queue = Queue[_CQE]()
@@ -364,7 +365,7 @@ class Scheduler:
         assert_never(value)
 
     def _register_callback_or_resolve_ephemeral_promise(
-        self, promise: Promise[Any], recv: str | None = None
+        self, promise: Promise[Any], recv: str | None
     ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
         assert isinstance(
@@ -575,7 +576,7 @@ class Scheduler:
             name not in self._attached_options_to_top_lvl
         ), "There's already a coroutine registered with this name."
         self._registered_function.add(name, func)
-        self._attached_options_to_top_lvl[name] = Options(
+        self._attached_options_to_top_lvl[name] = LOptions(
             durable=True,
             promise_id=None,
             retry_policy=retry_policy,
@@ -799,10 +800,13 @@ class Scheduler:
 
     def _handle_invoke(self, durable_promise_record: DurablePromiseRecord) -> None:
         invoke_info = durable_promise_record.invoke_info()
-        func_pointer = self._registered_function.get(invoke_info["func_name"])
-        assert func_pointer is not None, "Function must be registered to invoke"
+        func_name = invoke_info["func_name"]
+        func_pointer = self._registered_function.get(func_name)
+        assert (
+            func_pointer is not None
+        ), f"Function {func_name} must be registered to invoke"
 
-        attached_options = self._attached_options_to_top_lvl[invoke_info["func_name"]]
+        attached_options = self._attached_options_to_top_lvl[func_name]
 
         if durable_promise_record.promise_id in self._emphemeral_promise_memo:
             p = self._emphemeral_promise_memo[durable_promise_record.promise_id]
@@ -829,7 +833,7 @@ class Scheduler:
         self._stg_queue.put_nowait(p)
         self._signal()
 
-    def _change_promise_to_lfi(self, promise: Promise[Any], opts: Options) -> None:
+    def _change_promise_to_lfi(self, promise: Promise[Any], opts: LOptions) -> None:
         assert isinstance(promise.action, RFI), "Can only promote RFI to LFI"
         assert not isinstance(
             promise.action.exec_unit, Command
@@ -1021,7 +1025,9 @@ class Scheduler:
                 )
             else:
                 if isinstance(p.action, RFI):
-                    self._register_callback_or_resolve_ephemeral_promise(p)
+                    self._register_callback_or_resolve_ephemeral_promise(
+                        p, p.action.opts.recv
+                    )
 
                 if p.done():
                     self._unblock_coros_waiting_on_promise(p)
@@ -1064,7 +1070,9 @@ class Scheduler:
                     runnable.coro, p.safe_result(), was_awaited=False
                 )
             else:
-                self._register_callback_or_resolve_ephemeral_promise(p)
+                self._register_callback_or_resolve_ephemeral_promise(
+                    p, yieldable_or_final_value.opts.recv
+                )
                 if p.done():
                     self._add_coro_to_runnables(
                         runnable.coro, p.safe_result(), was_awaited=False
@@ -1082,7 +1090,7 @@ class Scheduler:
         ), "Used storage does not support rfi."
         return self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
-            promise_id=invocation.promise_id,
+            promise_id=invocation.opts.promise_id,
             action=invocation,
         )
 
