@@ -19,7 +19,7 @@ class LongPoller:
 
     def run(self) -> None:
         while True:
-            response = requests.get(
+            response = requests.get(  # noqa: S113
                 f"{self._url}:8002/{self._scheduler.logic_group}/{self._scheduler.pid}",
                 headers={"Accept": "text/event-stream"},
                 stream=True,

@@ -61,7 +61,7 @@ from resonate.queue import DelayQueue, Queue
 from resonate.record import Invoke, Resume
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
-from resonate.storage import RemoteServer
+from resonate.storage import ICallbackStore, ITaskStore
 from resonate.tasks import TaskHandler
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
@@ -285,7 +285,7 @@ class Scheduler:
         self._durable_promise_storage = durable_promise_storage
 
         self._task_handler: TaskHandler | None = None
-        if isinstance(self._durable_promise_storage, RemoteServer):
+        if isinstance(self._durable_promise_storage, ITaskStore):
             self._task_handler = TaskHandler(self, self._durable_promise_storage)
 
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
@@ -302,7 +302,7 @@ class Scheduler:
 
     def enqueue_task(self, sqe: TaskRecord) -> None:
         assert self._task_handler is not None
-        self._task_handler.enqueue(action="claim", sqe=sqe)
+        self._task_handler.enqueue(sqe=sqe)
 
     def register_command_handler(
         self,
@@ -367,8 +367,8 @@ class Scheduler:
     ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
         assert isinstance(
-            self._durable_promise_storage, RemoteServer
-        ), "Registering callback only makes sense if using remote server."
+            self._durable_promise_storage, ICallbackStore
+        ), "Used storage does not support callbacks."
 
         if recv is None:
             recv = self.logic_group
@@ -521,6 +521,9 @@ class Scheduler:
             else:
                 assert_never(promise.action.exec_unit)
         elif isinstance(promise.action, RFI):
+            assert isinstance(
+                self._durable_promise_storage, (ITaskStore, ICallbackStore)
+            ), "Used storage does not support rfi."
             if isinstance(promise.action.exec_unit, Command):
                 assert isinstance(
                     promise.action.exec_unit, CreateDurablePromiseReq
@@ -703,7 +706,7 @@ class Scheduler:
         else:
             assert_never(cqe)
 
-    def _run(self) -> None:  # noqa: C901, PLR0912
+    def _run(self) -> None:  # noqa: C901, PLR0912, PLR0915
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
@@ -1058,6 +1061,9 @@ class Scheduler:
     def _process_remote_invocation(
         self, invocation: RFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
+        assert isinstance(
+            self._durable_promise_storage, (ITaskStore, ICallbackStore)
+        ), "Used storage does not support rfi."
         return self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=invocation.promise_id,
