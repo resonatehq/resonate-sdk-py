@@ -51,6 +51,7 @@ from resonate.events import (
 )
 from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
 from resonate.itertools import FinalValue, iterate_coro
+from resonate.logging import logger
 from resonate.options import LOptions
 from resonate.promise import (
     Promise,
@@ -381,6 +382,11 @@ class Scheduler:
             )
         )
         if created_callback is not None:
+            logger.info(
+                "Callback pointing to %s has been registered for when %s is completed",
+                recv,
+                promise.promise_id,
+            )
             return
 
         assert (
@@ -740,6 +746,9 @@ class Scheduler:
 
             poll_msgs = self._poll_msg_queue.dequeue_all()
             for msg in poll_msgs:
+                logger.info(
+                    "Message arrived %s on woker %s/%s", msg, self.logic_group, self.pid
+                )
                 self._tasks_monitored_promises.add(msg.root_promise_store.promise_id)
                 if isinstance(msg, Invoke):
                     self._handle_invoke(durable_promise_record=msg.root_promise_store)
@@ -920,7 +929,7 @@ class Scheduler:
         )
         if (
             self._task_handler is not None
-            and promise.promise_id is self._tasks_monitored_promises
+            and promise.promise_id in self._tasks_monitored_promises
         ):
             self._tasks_monitored_promises.remove(promise.promise_id)
             self._task_handler.enqueue_to_complete(promise.promise_id)

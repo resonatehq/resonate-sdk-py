@@ -75,6 +75,12 @@ class TaskHandler:
                     claimable
                 )
 
+                logger.info(
+                    "Task related to promise %s has been claimed from worker %s/%s",
+                    poll_msg.root_promise_store.promise_id,
+                    self._scheduler.logic_group,
+                    self._scheduler.pid,
+                )
                 self._scheduler.enqueue_poll_msg(poll_msg)
 
             completables = self._completables.dequeue_all()
@@ -85,4 +91,10 @@ class TaskHandler:
                 task_record = self._tasks_to_complete[completable]
                 self._storage.complete_task(
                     task_id=task_record.task_id, counter=task_record.counter
+                )
+                logger.info(
+                    "Task related to promise %s has been completed from worker %s/%s",
+                    completable,
+                    self._scheduler.logic_group,
+                    self._scheduler.pid,
                 )
