@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, Literal, final
+from typing import TYPE_CHECKING, Callable, Literal, final
 
 import requests
 
@@ -360,12 +360,14 @@ class RemoteServer(IPromiseStore, ICallbackStore):
         data = response.json()
 
         callback_data = data["callback"]
-        durable_promise = _decode_durable_promise(
+        durable_promise = DurablePromiseRecord.decode(
             data["promise"], encoder=self._encoder
         )
         if callback_data is None:
             return durable_promise, None
-        return durable_promise, _decode_callback(response=callback_data)
+        return durable_promise, CallbackRecord.decode(
+            callback_data, encoder=self._encoder
+        )
 
     def create(  # noqa: PLR0913
         self,
@@ -397,7 +399,7 @@ class RemoteServer(IPromiseStore, ICallbackStore):
 
         _ensure_success(response)
 
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(data=response.json(), encoder=self._encoder)
 
     def cancel(
         self,
@@ -419,7 +421,7 @@ class RemoteServer(IPromiseStore, ICallbackStore):
             timeout=self._request_timeout,
         )
         _ensure_success(response)
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(data=response.json(), encoder=self._encoder)
 
     def resolve(
         self,
@@ -442,7 +444,7 @@ class RemoteServer(IPromiseStore, ICallbackStore):
             timeout=self._request_timeout,
         )
         _ensure_success(response)
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(data=response.json(), encoder=self._encoder)
 
     def reject(
         self,
@@ -465,14 +467,14 @@ class RemoteServer(IPromiseStore, ICallbackStore):
             timeout=self._request_timeout,
         )
         _ensure_success(response)
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(data=response.json(), encoder=self._encoder)
 
     def get(self, *, promise_id: str) -> DurablePromiseRecord:
         response = requests.get(
             f"{self.url}/promises/{promise_id}", timeout=self._request_timeout
         )
         _ensure_success(response)
-        return _decode_durable_promise(response=response.json(), encoder=self._encoder)
+        return DurablePromiseRecord.decode(data=response.json(), encoder=self._encoder)
 
     def search(
         self, *, promise_id: str, state: State, tags: Tags, limit: int | None = None
@@ -496,45 +498,3 @@ def _encode(value: str, encoder: IEncoder[str, str]) -> str:
     except Exception as e:
         msg = "Encoder error"
         raise ResonateError(msg, "STORE_ENCODER", e) from e
-
-
-def _decode_callback(response: dict[str, Any]) -> CallbackRecord:
-    return CallbackRecord(
-        response["id"],
-        response["promiseId"],
-        timeout=response["timeout"],
-        created_on=response["createdOn"],
-    )
-
-
-def _decode_durable_promise(
-    response: dict[str, Any], encoder: IEncoder[str, str]
-) -> DurablePromiseRecord:
-    if response["param"]:
-        param = Param(
-            data=encoder.decode(response["param"]["data"]),
-            headers=response["param"].get("headers"),
-        )
-    else:
-        param = Param(data=None, headers=None)
-
-    if response["value"]:
-        value = Value(
-            data=encoder.decode(response["value"]["data"]),
-            headers=response["value"].get("headers"),
-        )
-    else:
-        value = Value(data=None, headers=None)
-
-    return DurablePromiseRecord(
-        promise_id=response["id"],
-        state=response["state"],
-        param=param,
-        value=value,
-        timeout=response["timeout"],
-        tags=response.get("tags"),
-        created_on=response["createdOn"],
-        completed_on=response.get("completedOn"),
-        idempotency_key_for_complete=response.get("idempotencyKeyForComplete"),
-        idempotency_key_for_create=response.get("idempotencyKeyForCreate"),
-    )
