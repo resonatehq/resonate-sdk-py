@@ -32,15 +32,6 @@ class Param:
     data: Data
     headers: Headers
 
-    def invoke_info(self) -> _InvokeInfo:
-        assert self.data is not None
-        data_dict = json.loads(self.data)
-        return {
-            "func_name": data_dict["func"],
-            "args": data_dict["args"],
-            "kwargs": data_dict["kwargs"],
-        }
-
 
 @final
 @dataclass(frozen=True)
@@ -81,6 +72,15 @@ class DurablePromiseRecord(Decodable):
     idempotency_key_for_create: IdempotencyKey
     idempotency_key_for_complete: IdempotencyKey
     tags: Tags
+
+    def invoke_info(self) -> _InvokeInfo:
+        assert self.param.data is not None
+        data_dict = json.loads(self.param.data)
+        return {
+            "func_name": data_dict["func"],
+            "args": data_dict["args"],
+            "kwargs": data_dict["kwargs"],
+        }
 
     def is_completed(self) -> bool:
         return not self.is_pending()

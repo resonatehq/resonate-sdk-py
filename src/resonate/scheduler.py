@@ -793,7 +793,7 @@ class Scheduler:
             assert not self._runnable_coros, "Runnables should have been all exhausted"
 
     def _handle_invoke(self, durable_promise_record: DurablePromiseRecord) -> None:
-        invoke_info = durable_promise_record.param.invoke_info()
+        invoke_info = durable_promise_record.invoke_info()
         func_pointer = self._registered_function.get(invoke_info["func_name"])
         assert func_pointer is not None, "Function must be registered to invoke"
 
