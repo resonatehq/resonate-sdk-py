@@ -19,7 +19,6 @@ from resonate.retry_policy import (
     never,
 )
 from resonate.storage import (
-    IPromiseStore,
     LocalStore,
     MemoryStorage,
     RemoteServer,
@@ -30,6 +29,7 @@ if TYPE_CHECKING:
 
     from resonate.context import Context
     from resonate.promise import Promise
+    from resonate.storage.traits import IPromiseStore
     from resonate.typing import Yieldable
 
 

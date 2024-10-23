@@ -11,7 +11,7 @@ from resonate.shells.long_poller import LongPoller
 
 if TYPE_CHECKING:
     from resonate.scheduler import Scheduler
-    from resonate.storage import ITaskStore
+    from resonate.storage.traits import ITaskStore
 
 
 class TaskHandler:

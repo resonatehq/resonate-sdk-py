@@ -27,7 +27,6 @@ from resonate.options import LOptions
 from resonate.result import Ok
 from resonate.retry_policy import never
 from resonate.storage import (
-    IPromiseStore,
     LocalStore,
     MemoryStorage,
     RemoteServer,
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
     from resonate.dependency_injection import Dependencies
     from resonate.dst.scheduler import DSTScheduler
     from resonate.promise import Promise
+    from resonate.storage.traits import IPromiseStore
     from resonate.typing import Yieldable
 
 T = TypeVar("T")

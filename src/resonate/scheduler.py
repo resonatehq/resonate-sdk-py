@@ -61,7 +61,7 @@ from resonate.queue import DelayQueue, Queue
 from resonate.record import Invoke, Resume
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
-from resonate.storage import ICallbackStore, ITaskStore
+from resonate.storage.traits import ICallbackStore, IPromiseStore, ITaskStore
 from resonate.tasks import TaskHandler
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
@@ -76,7 +76,6 @@ if TYPE_CHECKING:
 
     from resonate.record import DurablePromiseRecord, TaskRecord
     from resonate.result import Result
-    from resonate.storage import IPromiseStore
     from resonate.tracing import IAdapter
     from resonate.typing import (
         Awaitables,
