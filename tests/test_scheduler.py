@@ -655,15 +655,15 @@ def test_dedup(store: IPromiseStore) -> None:
             return 1
 
         p: Promise[int] = yield ctx.lfi(factorial, n - 1).with_options(
-            promise_id=f"factorial-{n-1}", retry_policy=never()
+            promise_id=f"factorial-dedup-{n-1}", retry_policy=never()
         )
         return n * (yield p)
 
     s = scheduler.Scheduler(durable_promise_storage=store)
     s.register(factorial, retry_policy=never())
     n = 5
-    p1: Promise[int] = s.run(f"factorial-{n}", factorial, n)
-    p2: Promise[int] = s.run(f"factorial-{n}", factorial, n)
+    p1: Promise[int] = s.run(f"factorial-dedup-{n}", factorial, n)
+    p2: Promise[int] = s.run(f"factorial-dedup-{n}", factorial, n)
     assert p1 == p2
     assert p2.result() == 120  # noqa: PLR2004
     assert p1.done()
@@ -951,7 +951,7 @@ def test_remote_factorial(store: IPromiseStore) -> None:
             return 1
         return n * (
             yield ctx.rfc(factorial, n - 1).with_options(
-                promise_id=f"factorial-{n-1}",
+                promise_id=f"factorial-remote-{n-1}",
                 recv=random.choice(groups),  # noqa: S311
             )
         )
@@ -959,5 +959,5 @@ def test_remote_factorial(store: IPromiseStore) -> None:
     s1.register(factorial, retry_policy=never())
     s2.register(factorial, retry_policy=never())
     n = 10
-    p: Promise[int] = s1.run(f"factorial-{n}", factorial, n)
+    p: Promise[int] = s1.run(f"factorial-remote-{n}", factorial, n)
     assert p.result() == 3_628_800  # noqa: PLR2004

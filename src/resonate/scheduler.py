@@ -863,6 +863,7 @@ class Scheduler:
         if (
             self._task_handler is not None
             and coro.route_info.promise.promise_id in self._tasks_monitored_promises
+            and isinstance(p.action, RFI)
         ):
             self._tasks_monitored_promises.remove(coro.route_info.promise.promise_id)
             self._task_handler.enqueue_to_complete(coro.route_info.promise.promise_id)
