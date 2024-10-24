@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import uuid
 from abc import ABC, abstractmethod
 from collections import deque
@@ -59,23 +60,22 @@ from resonate.promise import (
     any_promise_is_done,
 )
 from resonate.queue import DelayQueue, Queue
-from resonate.record import Invoke, Resume
+from resonate.record import Invoke, Resume, TaskRecord
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
+from resonate.shells.long_poller import LongPoller
 from resonate.storage.traits import ICallbackStore, IPromiseStore, ITaskStore
-from resonate.tasks import TaskHandler
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
     CmdHandler,
     Combinator,
-    PollMessage,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
 
-    from resonate.record import DurablePromiseRecord, TaskRecord
+    from resonate.record import DurablePromiseRecord
     from resonate.result import Result
     from resonate.tracing import IAdapter
     from resonate.typing import (
@@ -246,6 +246,7 @@ class Scheduler:
         logic_group: str = "default",
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
+        with_long_polling: bool | None = None,
     ) -> None:
         self.logic_group: str = logic_group
         self.pid = uuid.uuid4().hex
@@ -256,7 +257,7 @@ class Scheduler:
         self._completion_queue = Queue[_CQE]()
         self._submission_queue = Queue[_SQE]()
         self._combinators_queue = Queue[tuple[Combinator, Promise[Any]]]()
-        self._poll_msg_queue = Queue[PollMessage]()
+        self._task_record_queue = Queue[TaskRecord]()
 
         self._worker_continue = Event()
 
@@ -276,7 +277,7 @@ class Scheduler:
 
         self._runnable_coros: RunnableCoroutines = deque()
         self._awaitables: Awaitables = {}
-        self._tasks_monitored_promises: set[str] = set()
+        self._tasks_to_complete: dict[str, TaskRecord] = {}
 
         self._processor = _Processor(
             processor_threads,
@@ -286,9 +287,12 @@ class Scheduler:
 
         self._durable_promise_storage = durable_promise_storage
 
-        self._task_handler: TaskHandler | None = None
+        self._heartbeating_thread: Thread | None = None
         if isinstance(self._durable_promise_storage, ITaskStore):
-            self._task_handler = TaskHandler(self, self._durable_promise_storage)
+            self._heartbeating_thread = Thread(target=self._heartbeat, daemon=True)
+            self._heartbeating_thread.start()
+            if with_long_polling is None or with_long_polling:
+                self._long_poller = LongPoller(self)
 
         self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
 
@@ -298,13 +302,16 @@ class Scheduler:
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
 
-    def enqueue_poll_msg(self, msg: PollMessage) -> None:
-        self._poll_msg_queue.put_nowait(msg)
-        self._signal()
+    def _heartbeat(self) -> None:
+        while True:
+            assert isinstance(self._durable_promise_storage, ITaskStore)
+            affected = self._durable_promise_storage.heartbeat_tasks(pid=self.pid)
+            logger.debug("Heatbeat affected %s tasks", affected)
+            time.sleep(2)
 
-    def enqueue_task(self, sqe: TaskRecord) -> None:
-        assert self._task_handler is not None
-        self._task_handler.enqueue_to_claim(sqe=sqe)
+    def enqueue_task_record(self, task_record: TaskRecord) -> None:
+        self._task_record_queue.put_nowait(task_record)
+        self._signal()
 
     def register_command_handler(
         self,
@@ -744,12 +751,25 @@ class Scheduler:
                         )
                     )
 
-            poll_msgs = self._poll_msg_queue.dequeue_all()
-            for msg in poll_msgs:
+            task_records = self._task_record_queue.dequeue_all()
+            for record in task_records:
+                assert isinstance(
+                    self._durable_promise_storage, ITaskStore
+                ), "We should only be receiving tasks messages if using an storage with tasks support"  # noqa: E501
+                msg = self._durable_promise_storage.claim_task(
+                    task_id=record.task_id,
+                    counter=record.counter,
+                    pid=self.pid,
+                    ttl=5 * 1_000,
+                )
+
                 logger.info(
                     "Message arrived %s on woker %s/%s", msg, self.logic_group, self.pid
                 )
-                self._tasks_monitored_promises.add(msg.root_promise_store.promise_id)
+                assert (
+                    msg.root_promise_store.promise_id not in self._tasks_to_complete
+                ), "Only one task at a time for a given promise."
+                self._tasks_to_complete[msg.root_promise_store.promise_id] = record
                 if isinstance(msg, Invoke):
                     self._handle_invoke(durable_promise_record=msg.root_promise_store)
                 elif isinstance(msg, Resume):
@@ -761,8 +781,30 @@ class Scheduler:
                             durable_promise_record=msg.root_promise_store
                         )
                     else:
+                        self._tracing_adapter.process_event(
+                            ExecutionResumed(
+                                promise_id=leaf_promise.promise_id,
+                                parent_promise_id=leaf_promise.parent_promise_id(),
+                                tick=now(),
+                            )
+                        )
                         v = self._get_value_from_durable_promise(msg.leaf_promise_store)
-                        self._resolve_promise(leaf_promise, v)
+                        leaf_promise.set_result(v)
+                        self._tracing_adapter.process_event(
+                            PromiseCompleted(
+                                promise_id=leaf_promise.promise_id,
+                                tick=now(),
+                                value=v,
+                                parent_promise_id=leaf_promise.parent_promise_id(),
+                            )
+                        )
+                        if (
+                            isinstance(self._durable_promise_storage, ITaskStore)
+                            and leaf_promise.promise_id in self._tasks_to_complete
+                        ):
+                            self._complete_task_monitoring_promise(
+                                leaf_promise.promise_id
+                            )
                         self._unblock_coros_waiting_on_promise(leaf_promise)
                 else:
                     assert_never(msg)
@@ -850,6 +892,19 @@ class Scheduler:
 
         promise.action = LFI(promise.action.exec_unit, opts=opts)
 
+    def _complete_task_monitoring_promise(self, promise_id: str) -> None:
+        record = self._tasks_to_complete.pop(promise_id)
+        assert isinstance(self._durable_promise_storage, ITaskStore)
+        self._durable_promise_storage.complete_task(
+            task_id=record.task_id, counter=record.counter
+        )
+        logger.info(
+            "Task related to promise %s has been completed from worker %s/%s",
+            promise_id,
+            self.logic_group,
+            self.pid,
+        )
+
     def _add_coro_to_awaitables(self, p: Promise[Any], coro: ResonateCoro[Any]) -> None:
         assert (
             not p.done()
@@ -870,11 +925,10 @@ class Scheduler:
             )
         )
         if (
-            self._task_handler is not None
-            and coro.route_info.promise.promise_id in self._tasks_monitored_promises
+            isinstance(self._durable_promise_storage, ITaskStore)
+            and coro.route_info.promise.promise_id in self._tasks_to_complete
         ):
-            self._tasks_monitored_promises.remove(coro.route_info.promise.promise_id)
-            self._task_handler.enqueue_to_complete(coro.route_info.promise.promise_id)
+            self._complete_task_monitoring_promise(coro.route_info.promise.promise_id)
 
     def _add_coro_to_runnables(
         self,
@@ -927,11 +981,10 @@ class Scheduler:
             )
         )
         if (
-            self._task_handler is not None
-            and promise.promise_id in self._tasks_monitored_promises
+            isinstance(self._durable_promise_storage, ITaskStore)
+            and promise.promise_id in self._tasks_to_complete
         ):
-            self._tasks_monitored_promises.remove(promise.promise_id)
-            self._task_handler.enqueue_to_complete(promise.promise_id)
+            self._complete_task_monitoring_promise(promise.promise_id)
         self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:

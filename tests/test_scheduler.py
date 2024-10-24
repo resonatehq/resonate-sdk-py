@@ -910,7 +910,6 @@ def test_remote_call_same_node(store: IPromiseStore) -> None:
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-call-same-node", _remotely)
     assert p.result() == 1
-    time.sleep(2)
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -933,7 +932,6 @@ def test_remote_invocation_same_node(store: IPromiseStore) -> None:
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-invocation-same-node", _remotely)
     assert p.result() == 1
-    time.sleep(2)
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -961,4 +959,3 @@ def test_remote_invocation_other_node(store: IPromiseStore) -> None:
 
     p: Promise[int] = s.run("test-remote-invocation-other-node", _remotely)
     assert p.result() == 1
-    time.sleep(2)
