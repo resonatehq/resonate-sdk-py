@@ -21,6 +21,7 @@ from resonate.commands import Command
 from resonate.context import Context
 from resonate.dataclasses import FnOrCoroutine, ResonateCoro, Runnable
 from resonate.promise import Promise
+from resonate.record import Invoke, Resume
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -70,3 +71,5 @@ C = TypeVar("C", bound=Command)
 
 CmdHandlerResult: TypeAlias = Union[list[Union[T, Exception]], T, None]
 CmdHandler: TypeAlias = Callable[[Context, list[C]], CmdHandlerResult[Any]]
+
+PollMessage: TypeAlias = Union[Invoke, Resume]
