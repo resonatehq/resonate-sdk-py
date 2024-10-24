@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from resonate.record import (
@@ -27,7 +27,12 @@ class ITaskStore(ABC):
 class ICallbackStore(ABC):
     @abstractmethod
     def create_callback(
-        self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str
+        self,
+        *,
+        promise_id: str,
+        root_promise_id: str,
+        timeout: int,
+        recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
 
 

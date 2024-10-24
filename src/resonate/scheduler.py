@@ -372,7 +372,7 @@ class Scheduler:
             self._durable_promise_storage, ICallbackStore
         ), "Used storage does not support callbacks."
 
-        recv = f"poll://{self.logic_group}/{self.pid}"
+        recv = {"type": "poll", "data": {"group": self.logic_group}}
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 promise_id=promise.promise_id,

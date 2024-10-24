@@ -88,7 +88,12 @@ class RemoteServer(IPromiseStore, ICallbackStore, ITaskStore):
         return response.json()["tasksAffected"]
 
     def create_callback(
-        self, *, promise_id: str, root_promise_id: str, timeout: int, recv: str
+        self,
+        *,
+        promise_id: str,
+        root_promise_id: str,
+        timeout: int,
+        recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         response = requests.post(
             url=f"{self.url}/callbacks",
