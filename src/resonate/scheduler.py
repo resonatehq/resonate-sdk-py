@@ -781,13 +781,6 @@ class Scheduler:
                             durable_promise_record=msg.root_promise_store
                         )
                     else:
-                        self._tracing_adapter.process_event(
-                            ExecutionResumed(
-                                promise_id=leaf_promise.promise_id,
-                                parent_promise_id=leaf_promise.parent_promise_id(),
-                                tick=now(),
-                            )
-                        )
                         v = self._get_value_from_durable_promise(msg.leaf_promise_store)
                         leaf_promise.set_result(v)
                         self._tracing_adapter.process_event(
@@ -798,13 +791,12 @@ class Scheduler:
                                 parent_promise_id=leaf_promise.parent_promise_id(),
                             )
                         )
-                        if (
-                            isinstance(self._durable_promise_storage, ITaskStore)
-                            and leaf_promise.promise_id in self._tasks_to_complete
-                        ):
-                            self._complete_task_monitoring_promise(
-                                leaf_promise.promise_id
-                            )
+                        assert (
+                            msg.root_promise_store.promise_id in self._tasks_to_complete
+                        ), "Root promise must be monitored by a task."
+                        self._complete_task_monitoring_promise(
+                            msg.root_promise_store.promise_id
+                        )
                         self._unblock_coros_waiting_on_promise(leaf_promise)
                 else:
                     assert_never(msg)
