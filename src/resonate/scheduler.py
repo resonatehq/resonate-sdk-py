@@ -372,7 +372,7 @@ class Scheduler:
             self._durable_promise_storage, ICallbackStore
         ), "Used storage does not support callbacks."
 
-        recv = {"type": "poll", "data": {"group": self.logic_group}}
+        recv = {"type": "poll", "data": {"group": self.logic_group, "id": self.pid}}
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 promise_id=promise.promise_id,
@@ -872,7 +872,6 @@ class Scheduler:
         if (
             self._task_handler is not None
             and coro.route_info.promise.promise_id in self._tasks_monitored_promises
-            and isinstance(p.action, RFI)
         ):
             self._tasks_monitored_promises.remove(coro.route_info.promise.promise_id)
             self._task_handler.enqueue_to_complete(coro.route_info.promise.promise_id)

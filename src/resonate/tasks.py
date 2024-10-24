@@ -70,7 +70,7 @@ class TaskHandler:
                 assert (
                     poll_msg.root_promise_store.promise_id
                     not in self._tasks_to_complete
-                ), "There can only be one task per top level promise at a time."
+                ), "There can only be one task per top level promise at a time"
                 self._tasks_to_complete[poll_msg.root_promise_store.promise_id] = (
                     claimable
                 )
@@ -88,7 +88,7 @@ class TaskHandler:
                 assert (
                     completable in self._tasks_to_complete
                 ), f"Task to complete related to promise {completable} not found."
-                task_record = self._tasks_to_complete[completable]
+                task_record = self._tasks_to_complete.pop(completable)
                 self._storage.complete_task(
                     task_id=task_record.task_id, counter=task_record.counter
                 )
