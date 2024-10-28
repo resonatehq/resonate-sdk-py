@@ -15,7 +15,7 @@ from resonate.record import (
 from resonate.storage.traits import ICallbackStore, IPromiseStore, ITaskStore
 
 if TYPE_CHECKING:
-    from resonate.typing import Data, Headers, IdempotencyKey, PollMessage, State, Tags
+    from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
 
 
 @final
@@ -41,7 +41,7 @@ class RemoteServer(IPromiseStore, ICallbackStore, ITaskStore):
 
     def claim_task(
         self, *, task_id: str, counter: int, pid: str, ttl: int
-    ) -> PollMessage:
+    ) -> Invoke | Resume:
         response = requests.post(
             url=f"{self.url}/tasks/claim",
             headers={},

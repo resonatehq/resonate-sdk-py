@@ -7,15 +7,17 @@ if TYPE_CHECKING:
     from resonate.record import (
         CallbackRecord,
         DurablePromiseRecord,
+        Invoke,
+        Resume,
     )
-    from resonate.typing import Data, Headers, IdempotencyKey, PollMessage, State, Tags
+    from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
 
 
 class ITaskStore(ABC):
     @abstractmethod
     def claim_task(
         self, *, task_id: str, counter: int, pid: str, ttl: int
-    ) -> PollMessage: ...
+    ) -> Invoke | Resume: ...
 
     @abstractmethod
     def complete_task(self, *, task_id: str, counter: int) -> None: ...
