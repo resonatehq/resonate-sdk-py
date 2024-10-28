@@ -9,12 +9,12 @@ K = TypeVar("K")
 class EphemeralMemo(Generic[K, V]):
     def __init__(self) -> None:
         self._memo: dict[K, V] = {}
-        self._roots: set[K] = set()
+        self.roots: set[V] = set()
 
     def add(self, key: K, value: V, *, as_root: bool) -> None:
         if as_root:
-            assert key not in self._roots, f"There's alredy a root for key={key}"
-            self._roots.add(key)
+            assert key not in self.roots, f"There's alredy a root for key={key}"
+            self.roots.add(value)
 
         assert key not in self._memo, f"There's already a value for key={key}"
         self._memo[key] = value
@@ -25,7 +25,7 @@ class EphemeralMemo(Generic[K, V]):
     def pop(self, key: K) -> V:
         assert key in self._memo, f"There's not value for key={key}"
         value = self._memo.pop(key)
-        self._roots.discard(key)
+        self.roots.discard(value)
         return value
 
     def has(self, key: K) -> bool:
@@ -33,7 +33,11 @@ class EphemeralMemo(Generic[K, V]):
 
     def clear(self) -> None:
         self._memo.clear()
-        self._roots.clear()
+        self.roots.clear()
+
+    def is_a_root(self, key: K) -> bool:
+        assert key in self._memo, f"There's not value for key={key}"
+        return key in self.roots
 
 
 class DoubleDict(Generic[K, V]):
