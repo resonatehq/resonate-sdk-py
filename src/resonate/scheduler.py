@@ -31,7 +31,7 @@ from resonate.actions import (
     Race,
 )
 from resonate.batching import CommandBuffer
-from resonate.collections import DoubleDict
+from resonate.collections import DoubleDict, EphemeralMemo
 from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.context import Context
 from resonate.dataclasses import (
@@ -83,7 +83,6 @@ if TYPE_CHECKING:
         CmdHandlerResult,
         DurableCoro,
         DurableFn,
-        EphemeralPromiseMemo,
         PromiseActions,
         RunnableCoroutines,
     )
@@ -294,7 +293,7 @@ class Scheduler:
             if with_long_polling is None or with_long_polling:
                 self._long_poller = LongPoller(self)
 
-        self._emphemeral_promise_memo: EphemeralPromiseMemo = {}
+        self._emphemeral_promise_memo = EphemeralMemo[str, Promise[Any]]()
 
         self._cmd_handlers = dict[type[Command], tuple[CmdHandler[Any], RetryPolicy]]()
         self._cmd_buffers = dict[type[Command], CommandBuffer[Command]]()
@@ -401,8 +400,8 @@ class Scheduler:
         ), "Callback won't be created only if durable promise has been completed."
         v = self._get_value_from_durable_promise(durable_promise_record=durable_promise)
         promise.set_result(v)
-        assert (
-            promise.promise_id in self._emphemeral_promise_memo
+        assert self._emphemeral_promise_memo.has(
+            promise.promise_id
         ), "Ephemeral process must have been registered in the memo."
 
         self._tracing_adapter.process_event(
@@ -461,6 +460,7 @@ class Scheduler:
     ) -> Promise[Any]:
         if parent_promise is not None:
             p = parent_promise.child_promise(promise_id=promise_id, action=action)
+            as_root = False
         else:
             assert (
                 promise_id is not None
@@ -468,11 +468,9 @@ class Scheduler:
             p = Promise[Any](
                 promise_id=promise_id, action=action, parent_promise=parent_promise
             )
-        assert (
-            p.promise_id not in self._emphemeral_promise_memo
-        ), "There should not be a new promise with same promise id."
+            as_root = True
 
-        self._emphemeral_promise_memo[p.promise_id] = p
+        self._emphemeral_promise_memo.add(p.promise_id, p, as_root=as_root)
 
         if not p.durable:
             self._tracing_adapter.process_event(
@@ -612,9 +610,8 @@ class Scheduler:
 
         assert attached_options.durable, "All top level invocation must be durable."
 
-        p: Promise[Any]
-        if promise_id in self._emphemeral_promise_memo:
-            p = self._emphemeral_promise_memo[promise_id]
+        p = self._emphemeral_promise_memo.get(promise_id)
+        if p is not None:
             return p
 
         p = self._create_promise(
@@ -851,12 +848,8 @@ class Scheduler:
 
         attached_options = self._attached_options_to_top_lvl[func_name]
 
-        if durable_promise_record.promise_id in self._emphemeral_promise_memo:
-            p = self._emphemeral_promise_memo[durable_promise_record.promise_id]
-            assert p.parent_promise is not None
-            assert isinstance(p.action, RFI)
-            self._change_promise_to_lfi(p, attached_options)
-        else:
+        p = self._emphemeral_promise_memo.get(durable_promise_record.promise_id)
+        if p is None:
             p = Promise[Any](
                 promise_id=durable_promise_record.promise_id,
                 parent_promise=None,
@@ -867,11 +860,12 @@ class Scheduler:
                     opts=attached_options,
                 ),
             )
+            self._emphemeral_promise_memo.add(p.promise_id, p, as_root=True)
 
-            assert (
-                durable_promise_record.promise_id not in self._emphemeral_promise_memo
-            ), "There should not be a new promise with same promise id"
-            self._emphemeral_promise_memo[p.promise_id] = p
+        else:
+            assert p.parent_promise is not None
+            assert isinstance(p.action, RFI)
+            self._change_promise_to_lfi(p, attached_options)
 
         self._stg_queue.put_nowait(p)
         self._signal()
@@ -960,8 +954,9 @@ class Scheduler:
             promise.set_result(v)
         else:
             promise.set_result(value)
-        assert (
-            promise.promise_id in self._emphemeral_promise_memo
+
+        assert self._emphemeral_promise_memo.has(
+            promise.promise_id
         ), "Ephemeral process must have been registered in the memo."
 
         self._tracing_adapter.process_event(

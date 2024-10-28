@@ -64,8 +64,6 @@ State: TypeAlias = Literal[
     "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
 ]
 
-EphemeralPromiseMemo: TypeAlias = dict[str, Promise[Any]]
-
 
 C = TypeVar("C", bound=Command)
 
