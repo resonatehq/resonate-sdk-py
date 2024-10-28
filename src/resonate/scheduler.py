@@ -890,6 +890,9 @@ class Scheduler:
         self, durable_promise_record: DurablePromiseRecord, record: TaskRecord
     ) -> None:
         promise_id = durable_promise_record.promise_id
+        assert (
+            promise_id not in self._monitored_tasks
+        ), f"{promise_id} is already monitored by a task"
         self._monitored_tasks[promise_id] = record
 
         invoke_info = durable_promise_record.invoke_info()
@@ -916,20 +919,10 @@ class Scheduler:
             self._emphemeral_promise_memo.add(p.promise_id, p, as_root=True)
 
         else:
-            assert p.parent_promise is not None
-            assert isinstance(p.action, RFI)
-            self._change_promise_to_lfi(p, attached_options)
+            raise NotImplementedError
 
         self._stg_queue.put_nowait(p)
         self._signal()
-
-    def _change_promise_to_lfi(self, promise: Promise[Any], opts: LOptions) -> None:
-        assert isinstance(promise.action, RFI), "Can only promote RFI to LFI"
-        assert not isinstance(
-            promise.action.exec_unit, Command
-        ), "Can not change action if it is a command"
-
-        promise.action = LFI(promise.action.exec_unit, opts=opts)
 
     def _complete_task_monitoring_promise(self, promise_id: str) -> None:
         record = self._monitored_tasks.pop(promise_id)
