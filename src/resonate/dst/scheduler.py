@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from resonate.record import DurablePromiseRecord
     from resonate.storage.traits import IPromiseStore
     from resonate.typing import (
-        Awaitables,
+        Awaiting,
         CommandHandlerQueues,
         CommandHandlers,
         DurableCoro,
@@ -116,7 +116,7 @@ class DSTScheduler:
     ) -> None:
         self._stg_queue: list[tuple[LFI, str]] = []
         self._runnable_coros: RunnableCoroutines = deque()
-        self._awatiables: Awaitables = {}
+        self._awaiting: Awaiting = {}
         self._runnable_functions: RunnableFunctions = deque()
 
         self.random = random
@@ -409,7 +409,7 @@ class DSTScheduler:
     def _reset(self) -> None:
         self._runnable_coros.clear()
         self._runnable_functions.clear()
-        self._awatiables.clear()
+        self._awaiting.clear()
         self._emphemeral_promise_memo.clear()
         self.probe_results.clear()
         for queue in self._handler_queues.values():
@@ -604,7 +604,7 @@ class DSTScheduler:
         assert (
             not p.done()
         ), "If the promise is resolved already it makes no sense to block coroutine"
-        self._awatiables.setdefault(p, []).append(coro)
+        self._awaiting.setdefault(p, []).append(coro)
         self._events.append(
             ExecutionAwaited(
                 promise_id=coro.route_info.promise.promise_id,
@@ -644,7 +644,7 @@ class DSTScheduler:
                 yieldable_or_final_value.to_invocation(), runnable
             )
             assert (
-                p not in self._awatiables
+                p not in self._awaiting
             ), "Since it's a call it should be a promise without dependants"
             if p.done():
                 self._add_coro_to_runnables(
@@ -681,9 +681,9 @@ class DSTScheduler:
 
     def _unblock_coros_waiting_on_promise(self, p: Promise[Any]) -> None:
         assert p.done(), "Promise must be done to unblock waiting coroutines"
-        if self._awatiables.get(p) is None:
+        if self._awaiting.get(p) is None:
             return
-        for coro in self._awatiables.pop(p):
+        for coro in self._awaiting.pop(p):
             self._add_coro_to_runnables(coro, p.safe_result(), was_awaited=True)
 
     def _next_step(self) -> Step:

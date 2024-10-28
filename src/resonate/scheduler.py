@@ -79,7 +79,7 @@ if TYPE_CHECKING:
     from resonate.result import Result
     from resonate.tracing import IAdapter
     from resonate.typing import (
-        Awaitables,
+        Awaiting,
         CmdHandlerResult,
         DurableCoro,
         DurableFn,
@@ -275,7 +275,7 @@ class Scheduler:
         )
 
         self._runnable_coros: RunnableCoroutines = deque()
-        self._awaitables: Awaitables = {}
+        self._awaiting: Awaiting = {}
         self._tasks_to_complete: dict[str, TaskRecord] = {}
 
         self._processor = _Processor(
@@ -895,7 +895,7 @@ class Scheduler:
         assert (
             not p.done()
         ), "If the promise is resolved already it makes no sense to block coroutine"
-        self._awaitables.setdefault(p, []).append(coro)
+        self._awaiting.setdefault(p, []).append(coro)
 
         if isinstance(p.action, LFI) and isinstance(p.action.exec_unit, Command):
             assert not isinstance(
@@ -929,10 +929,10 @@ class Scheduler:
 
     def _unblock_coros_waiting_on_promise(self, p: Promise[Any]) -> None:
         assert p.done(), "Promise must be done to unblock waiting coroutines."
-        if self._awaitables.get(p) is None:
+        if self._awaiting.get(p) is None:
             return
 
-        for coro in self._awaitables.pop(p):
+        for coro in self._awaiting.pop(p):
             self._add_coro_to_runnables(
                 coro=coro,
                 value_to_yield_back=p.safe_result(),
@@ -1047,7 +1047,7 @@ class Scheduler:
                 yieldable_or_final_value.to_invocation(), runnable
             )
             assert (
-                p not in self._awaitables
+                p not in self._awaiting
             ), "Since it's a call it should be a promise without dependants"
 
             if p.done():
@@ -1109,7 +1109,7 @@ class Scheduler:
                 yieldable_or_final_value.to_invocation(), runnable
             )
             assert (
-                p not in self._awaitables
+                p not in self._awaiting
             ), "Since it's a call it should be a promise without dependants"
 
             if p.done():

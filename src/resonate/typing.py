@@ -43,7 +43,7 @@ MockFn: TypeAlias = Callable[[], T]
 Invokable: TypeAlias = Union[DurableCoro[P, Any], DurableFn[P, Any], Command]
 
 
-Awaitables: TypeAlias = dict[Promise[Any], list[ResonateCoro[Any]]]
+Awaiting: TypeAlias = dict[Promise[Any], list[ResonateCoro[Any]]]
 RunnableCoroutines: TypeAlias = deque[tuple[Runnable[Any], bool]]
 
 
