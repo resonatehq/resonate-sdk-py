@@ -37,7 +37,8 @@ class EphemeralMemo(Generic[K, V]):
 
     def is_a_root(self, key: K) -> bool:
         assert key in self._memo, f"There's not value for key={key}"
-        return key in self.roots
+        value = self._memo[key]
+        return value in self.roots
 
 
 class DoubleDict(Generic[K, V]):

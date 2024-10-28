@@ -276,7 +276,7 @@ class Scheduler:
 
         self._runnable_coros: RunnableCoroutines = deque()
         self._awaiting: Awaiting = {}
-        self._tasks_to_complete: dict[str, TaskRecord] = {}
+        self._monitored_tasks: dict[str, TaskRecord] = {}
 
         self._processor = _Processor(
             processor_threads,
@@ -764,37 +764,25 @@ class Scheduler:
                     "Message arrived %s on woker %s/%s", msg, self.logic_group, self.pid
                 )
                 assert (
-                    msg.root_promise_store.promise_id not in self._tasks_to_complete
+                    msg.root_promise_store.promise_id not in self._monitored_tasks
                 ), "Only one task at a time for a given promise."
-                self._tasks_to_complete[msg.root_promise_store.promise_id] = record
+
                 if isinstance(msg, Invoke):
-                    self._handle_invoke(durable_promise_record=msg.root_promise_store)
-                elif isinstance(msg, Resume):
-                    leaf_promise = self._emphemeral_promise_memo.get(
-                        msg.leaf_promise_store.promise_id
+                    self._handle_invoke(
+                        durable_promise_record=msg.root_promise_store, record=record
                     )
-                    if leaf_promise is None:
+                elif isinstance(msg, Resume):
+                    root_promise = self._emphemeral_promise_memo.get(
+                        msg.root_promise_store.promise_id
+                    )
+                    if root_promise is None:
                         self._handle_invoke(
-                            durable_promise_record=msg.root_promise_store
+                            durable_promise_record=msg.root_promise_store, record=record
                         )
                     else:
-                        v = self._get_value_from_durable_promise(msg.leaf_promise_store)
-                        leaf_promise.set_result(v)
-                        self._tracing_adapter.process_event(
-                            PromiseCompleted(
-                                promise_id=leaf_promise.promise_id,
-                                tick=now(),
-                                value=v,
-                                parent_promise_id=leaf_promise.parent_promise_id(),
-                            )
+                        self._handle_resume(
+                            durable_promise_record=msg.leaf_promise_store, record=record
                         )
-                        assert (
-                            msg.root_promise_store.promise_id in self._tasks_to_complete
-                        ), "Root promise must be monitored by a task."
-                        self._complete_task_monitoring_promise(
-                            msg.root_promise_store.promise_id
-                        )
-                        self._unblock_coros_waiting_on_promise(leaf_promise)
                 else:
                     assert_never(msg)
 
@@ -838,7 +826,72 @@ class Scheduler:
 
             assert not self._runnable_coros, "Runnables should have been all exhausted"
 
-    def _handle_invoke(self, durable_promise_record: DurablePromiseRecord) -> None:
+            tasks_to_complete: list[str] = []
+            for monitored in self._monitored_tasks:
+                root_promise = self._emphemeral_promise_memo.get(monitored)
+                assert root_promise is not None
+                assert self._emphemeral_promise_memo.is_a_root(
+                    monitored
+                ), "Only roots can be monitored by tasks."
+                if (
+                    root_promise.is_blocked_on_remote()
+                    and self._all_non_completed_leafs_are_in_awaiting(root_promise)
+                ):
+                    tasks_to_complete.append(monitored)
+
+            for task in tasks_to_complete:
+                self._complete_task_monitoring_promise(task)
+
+    def _all_non_completed_leafs_are_in_awaiting(
+        self, root_promise: Promise[Any]
+    ) -> bool:
+        assert root_promise.leaf_promises is not None
+        return all(
+            leaf in self._awaiting
+            for leaf in root_promise.leaf_promises
+            if not leaf.done()
+        )
+
+    def _handle_resume(
+        self,
+        durable_promise_record: DurablePromiseRecord,
+        record: TaskRecord,
+    ) -> None:
+        leaf_promise = self._emphemeral_promise_memo.get(
+            durable_promise_record.promise_id
+        )
+        # In theory it's possible this assertion get's raised. But very unlikely
+        assert (
+            leaf_promise is not None
+        ), "If the root is there, we expect the leaf is also there."
+
+        root_promise_id = leaf_promise.root_promise.promise_id
+        assert (
+            self._emphemeral_promise_memo.get(root_promise_id) is not None
+        ), "Root promise must be tracked on memo"
+        assert (
+            root_promise_id not in self._monitored_tasks
+        ), f"{root_promise_id} is already monitored by a task."
+        self._monitored_tasks[root_promise_id] = record
+        v = self._get_value_from_durable_promise(durable_promise_record)
+        assert not leaf_promise.done()
+        leaf_promise.set_result(v)
+        self._tracing_adapter.process_event(
+            PromiseCompleted(
+                promise_id=leaf_promise.promise_id,
+                tick=now(),
+                value=v,
+                parent_promise_id=leaf_promise.parent_promise_id(),
+            )
+        )
+        self._unblock_coros_waiting_on_promise(leaf_promise)
+
+    def _handle_invoke(
+        self, durable_promise_record: DurablePromiseRecord, record: TaskRecord
+    ) -> None:
+        promise_id = durable_promise_record.promise_id
+        self._monitored_tasks[promise_id] = record
+
         invoke_info = durable_promise_record.invoke_info()
         func_name = invoke_info["func_name"]
         func_pointer = self._registered_function.get(func_name)
@@ -848,10 +901,10 @@ class Scheduler:
 
         attached_options = self._attached_options_to_top_lvl[func_name]
 
-        p = self._emphemeral_promise_memo.get(durable_promise_record.promise_id)
+        p = self._emphemeral_promise_memo.get(promise_id)
         if p is None:
             p = Promise[Any](
-                promise_id=durable_promise_record.promise_id,
+                promise_id=promise_id,
                 parent_promise=None,
                 action=LFI(
                     FnOrCoroutine(
@@ -879,7 +932,7 @@ class Scheduler:
         promise.action = LFI(promise.action.exec_unit, opts=opts)
 
     def _complete_task_monitoring_promise(self, promise_id: str) -> None:
-        record = self._tasks_to_complete.pop(promise_id)
+        record = self._monitored_tasks.pop(promise_id)
         assert isinstance(self._durable_promise_storage, ITaskStore)
         self._durable_promise_storage.complete_task(
             task_id=record.task_id, counter=record.counter
@@ -910,11 +963,6 @@ class Scheduler:
                 parent_promise_id=coro.route_info.promise.parent_promise_id(),
             )
         )
-        if (
-            isinstance(self._durable_promise_storage, ITaskStore)
-            and coro.route_info.promise.promise_id in self._tasks_to_complete
-        ):
-            self._complete_task_monitoring_promise(coro.route_info.promise.promise_id)
 
     def _add_coro_to_runnables(
         self,
@@ -969,7 +1017,7 @@ class Scheduler:
         )
         if (
             isinstance(self._durable_promise_storage, ITaskStore)
-            and promise.promise_id in self._tasks_to_complete
+            and promise.promise_id in self._monitored_tasks
         ):
             self._complete_task_monitoring_promise(promise.promise_id)
         self._emphemeral_promise_memo.pop(promise.promise_id)
