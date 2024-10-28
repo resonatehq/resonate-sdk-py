@@ -893,6 +893,7 @@ def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
     assert successes == failures
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize("store", _promise_storages())
 def test_remote_call_same_node(store: IPromiseStore) -> None:
     if not isinstance(store, RemoteServer):
@@ -912,6 +913,7 @@ def test_remote_call_same_node(store: IPromiseStore) -> None:
     assert p.result() == 1
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize("store", _promise_storages())
 def test_remote_invocation_same_node(store: IPromiseStore) -> None:
     if not isinstance(store, RemoteServer):

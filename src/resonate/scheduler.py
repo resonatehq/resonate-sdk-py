@@ -31,7 +31,7 @@ from resonate.actions import (
     Race,
 )
 from resonate.batching import CommandBuffer
-from resonate.collections import DoubleDict, EphemeralMemo
+from resonate.collections import Awaiting, DoubleDict, EphemeralMemo
 from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.context import Context
 from resonate.dataclasses import (
@@ -79,7 +79,7 @@ if TYPE_CHECKING:
     from resonate.result import Result
     from resonate.tracing import IAdapter
     from resonate.typing import (
-        Awaiting,
+        AwaitingFor,
         CmdHandlerResult,
         DurableCoro,
         DurableFn,
@@ -275,7 +275,7 @@ class Scheduler:
         )
 
         self._runnable_coros: RunnableCoroutines = deque()
-        self._awaiting: Awaiting = {}
+        self._awaiting = Awaiting[Promise[Any], ResonateCoro[Any]]()
         self._monitored_tasks: dict[str, TaskRecord] = {}
 
         self._processor = _Processor(
@@ -671,6 +671,7 @@ class Scheduler:
             )
 
     def _resolve_promise_with_cqe(self, cqe: _CQE) -> None:
+        awaiting_for: AwaitingFor = "local"
         if isinstance(cqe, _FnCQE):
             self._tracing_adapter.process_event(
                 ExecutionTerminated(
@@ -680,7 +681,9 @@ class Scheduler:
                 )
             )
             self._resolve_promise(cqe.sqe.route_info.promise, value=cqe.fn_result)
-            self._unblock_coros_waiting_on_promise(cqe.sqe.route_info.promise)
+            self._unblock_coros_waiting_on_promise(
+                cqe.sqe.route_info.promise, awaiting_for
+            )
 
         elif isinstance(cqe, _BatchCQE):
             if isinstance(cqe.result, Ok) and isinstance(cqe.result.unwrap(), list):
@@ -702,7 +705,7 @@ class Scheduler:
                         self._resolve_promise(p, Err(res))
                     else:
                         self._resolve_promise(p, Ok(res))
-                    self._unblock_coros_waiting_on_promise(p)
+                    self._unblock_coros_waiting_on_promise(p, awaiting_for)
             else:
                 for p in cqe.sqe.promises:
                     self._tracing_adapter.process_event(
@@ -713,7 +716,7 @@ class Scheduler:
                         )
                     )
                     self._resolve_promise(p, cqe.result)
-                    self._unblock_coros_waiting_on_promise(p)
+                    self._unblock_coros_waiting_on_promise(p, awaiting_for)
 
         else:
             assert_never(cqe)
@@ -738,7 +741,7 @@ class Scheduler:
                     p.action.exec_unit, FnOrCoroutine
                 ), "Only functions or coroutines can be passed at the top level"
                 if p.done():
-                    self._unblock_coros_waiting_on_promise(p)
+                    self._unblock_coros_waiting_on_promise(p, "local")
                 else:
                     self._route_fn_or_coroutine(
                         RouteInfo(
@@ -816,7 +819,7 @@ class Scheduler:
                 )
                 if self._combinator_done(combinator):
                     self._resolve_promise(p, self._combinator_result(combinator))
-                    self._unblock_coros_waiting_on_promise(p)
+                    self._unblock_coros_waiting_on_promise(p, "local")
                 else:
                     self._enqueue_combinator(combinator, p)
 
@@ -847,7 +850,7 @@ class Scheduler:
     ) -> bool:
         assert root_promise.leaf_promises is not None
         return all(
-            leaf in self._awaiting
+            self._awaiting.waiting_for(leaf)
             for leaf in root_promise.leaf_promises
             if not leaf.done()
         )
@@ -884,7 +887,7 @@ class Scheduler:
                 parent_promise_id=leaf_promise.parent_promise_id(),
             )
         )
-        self._unblock_coros_waiting_on_promise(leaf_promise)
+        self._unblock_coros_waiting_on_promise(leaf_promise, "remote")
 
     def _handle_invoke(
         self, durable_promise_record: DurablePromiseRecord, record: TaskRecord
@@ -937,11 +940,16 @@ class Scheduler:
             self.pid,
         )
 
-    def _add_coro_to_awaitables(self, p: Promise[Any], coro: ResonateCoro[Any]) -> None:
+    def _add_coro_to_awaitables(
+        self,
+        p: Promise[Any],
+        coro: ResonateCoro[Any],
+        awaiting_for: AwaitingFor,
+    ) -> None:
         assert (
             not p.done()
         ), "If the promise is resolved already it makes no sense to block coroutine"
-        self._awaiting.setdefault(p, []).append(coro)
+        self._awaiting.append(p, coro, awaiting_for)
 
         if isinstance(p.action, LFI) and isinstance(p.action.exec_unit, Command):
             assert not isinstance(
@@ -968,12 +976,16 @@ class Scheduler:
             (Runnable(coro, value_to_yield_back), was_awaited)
         )
 
-    def _unblock_coros_waiting_on_promise(self, p: Promise[Any]) -> None:
+    def _unblock_coros_waiting_on_promise(
+        self,
+        p: Promise[Any],
+        awaiting_for: AwaitingFor,
+    ) -> None:
         assert p.done(), "Promise must be done to unblock waiting coroutines."
-        if self._awaiting.get(p) is None:
+        if self._awaiting.get(p, awaiting_for) is None:
             return
 
-        for coro in self._awaiting.pop(p):
+        for coro in self._awaiting.pop(p, awaiting_for):
             self._add_coro_to_runnables(
                 coro=coro,
                 value_to_yield_back=p.safe_result(),
@@ -1081,14 +1093,16 @@ class Scheduler:
                     )
                 )
                 self._resolve_promise(runnable.coro.route_info.promise, final_value)
-                self._unblock_coros_waiting_on_promise(runnable.coro.route_info.promise)
+                self._unblock_coros_waiting_on_promise(
+                    runnable.coro.route_info.promise, "local"
+                )
 
         elif isinstance(yieldable_or_final_value, LFC):
             p = self._process_local_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
             )
-            assert (
-                p not in self._awaiting
+            assert not self._awaiting.waiting_for(
+                p
             ), "Since it's a call it should be a promise without dependants"
 
             if p.done():
@@ -1098,7 +1112,7 @@ class Scheduler:
                     was_awaited=False,
                 )
             else:
-                self._add_coro_to_awaitables(p, runnable.coro)
+                self._add_coro_to_awaitables(p, runnable.coro, "local")
 
         elif isinstance(yieldable_or_final_value, LFI):
             p = self._process_local_invocation(yieldable_or_final_value, runnable)
@@ -1106,26 +1120,29 @@ class Scheduler:
 
         elif isinstance(yieldable_or_final_value, Promise):
             p = yieldable_or_final_value
+            awaiting_for: AwaitingFor = (
+                "remote" if isinstance(p.action, RFI) else "local"
+            )
             if p.done():
-                self._unblock_coros_waiting_on_promise(p)
+                self._unblock_coros_waiting_on_promise(p, awaiting_for)
                 self._add_coro_to_runnables(
                     runnable.coro,
                     p.safe_result(),
                     was_awaited=False,
                 )
             else:
-                if isinstance(p.action, RFI):
+                if awaiting_for == "remote":
                     self._register_callback_or_resolve_ephemeral_promise(p)
 
                 if p.done():
-                    self._unblock_coros_waiting_on_promise(p)
+                    self._unblock_coros_waiting_on_promise(p, awaiting_for)
                     self._add_coro_to_runnables(
                         runnable.coro,
                         p.safe_result(),
                         was_awaited=False,
                     )
                 else:
-                    self._add_coro_to_awaitables(p, runnable.coro)
+                    self._add_coro_to_awaitables(p, runnable.coro, awaiting_for)
 
         elif isinstance(yieldable_or_final_value, (All, AllSettled, Race)):
             p = self._process_combinator(yieldable_or_final_value, runnable)
@@ -1149,8 +1166,8 @@ class Scheduler:
             p = self._process_remote_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
             )
-            assert (
-                p not in self._awaiting
+            assert not self._awaiting.waiting_for(
+                p
             ), "Since it's a call it should be a promise without dependants"
 
             if p.done():
@@ -1164,7 +1181,7 @@ class Scheduler:
                         runnable.coro, p.safe_result(), was_awaited=False
                     )
                 else:
-                    self._add_coro_to_awaitables(p, runnable.coro)
+                    self._add_coro_to_awaitables(p, runnable.coro, "remote")
         else:
             assert_never(yieldable_or_final_value)
 
@@ -1209,7 +1226,7 @@ class Scheduler:
 
         elif isinstance(invocation.exec_unit, FnOrCoroutine):
             if p.done():
-                self._unblock_coros_waiting_on_promise(p)
+                self._unblock_coros_waiting_on_promise(p, "local")
             else:
                 self._route_fn_or_coroutine(
                     RouteInfo(
@@ -1231,7 +1248,7 @@ class Scheduler:
             action=combinator,
         )
         if p.done():
-            self._unblock_coros_waiting_on_promise(p)
+            self._unblock_coros_waiting_on_promise(p, "local")
         else:
             self._enqueue_combinator(combinator, p)
 

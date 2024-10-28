@@ -19,7 +19,7 @@ from resonate.actions import (
 from resonate.batching import CmdBuffer
 from resonate.commands import Command
 from resonate.context import Context
-from resonate.dataclasses import FnOrCoroutine, ResonateCoro, Runnable
+from resonate.dataclasses import FnOrCoroutine, Runnable
 from resonate.promise import Promise
 
 T = TypeVar("T")
@@ -42,8 +42,7 @@ MockFn: TypeAlias = Callable[[], T]
 
 Invokable: TypeAlias = Union[DurableCoro[P, Any], DurableFn[P, Any], Command]
 
-
-Awaiting: TypeAlias = dict[Promise[Any], list[ResonateCoro[Any]]]
+AwaitingFor: TypeAlias = Literal["local", "remote"]
 RunnableCoroutines: TypeAlias = deque[tuple[Runnable[Any], bool]]
 
 

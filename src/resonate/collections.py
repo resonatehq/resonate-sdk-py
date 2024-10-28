@@ -1,9 +1,64 @@
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
+
+from typing_extensions import assert_never
+
+if TYPE_CHECKING:
+    from resonate.typing import AwaitingFor
 
 V = TypeVar("V")
 K = TypeVar("K")
+
+
+class Awaiting(Generic[K, V]):
+    def __init__(self) -> None:
+        self._local: dict[K, list[V]] = {}
+        self._remote: dict[K, list[V]] = {}
+
+    def clear(self) -> None:
+        self._local.clear()
+        self._remote.clear()
+
+    def waiting_for(self, key: K, awaiting_for: AwaitingFor | None = None) -> bool:
+        if awaiting_for is None:
+            return key in self._local or key in self._remote
+        if awaiting_for == "local":
+            return key in self._local
+        if awaiting_for == "remote":
+            return key in self._remote
+
+        assert_never(awaiting_for)
+
+    def append(self, key: K, value: V, awaiting_for: AwaitingFor) -> None:
+        awaiting: dict[K, list[V]]
+        if awaiting_for == "local":
+            awaiting = self._local
+        elif awaiting_for == "remote":
+            awaiting = self._remote
+        else:
+            assert_never(awaiting_for)
+        awaiting.setdefault(key, []).append(value)
+
+    def get(self, key: K, awaiting_for: AwaitingFor) -> list[V] | None:
+        awaiting: dict[K, list[V]]
+        if awaiting_for == "local":
+            awaiting = self._local
+        elif awaiting_for == "remote":
+            awaiting = self._remote
+        else:
+            assert_never(awaiting_for)
+        return awaiting.get(key)
+
+    def pop(self, key: K, awaiting_for: AwaitingFor) -> list[V]:
+        awaiting: dict[K, list[V]]
+        if awaiting_for == "local":
+            awaiting = self._local
+        elif awaiting_for == "remote":
+            awaiting = self._remote
+        else:
+            assert_never(awaiting_for)
+        return awaiting.pop(key)
 
 
 class EphemeralMemo(Generic[K, V]):
