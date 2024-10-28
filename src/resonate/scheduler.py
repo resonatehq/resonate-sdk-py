@@ -829,22 +829,6 @@ class Scheduler:
 
             assert not self._runnable_coros, "Runnables should have been all exhausted"
 
-            tasks_to_complete: list[str] = []
-            for monitored in self._monitored_tasks:
-                root_promise = self._emphemeral_promise_memo.get(monitored)
-                assert root_promise is not None
-                assert self._emphemeral_promise_memo.is_a_root(
-                    monitored
-                ), "Only roots can be monitored by tasks."
-                if (
-                    root_promise.is_blocked_on_remote()
-                    and self._all_non_completed_leafs_are_in_awaiting(root_promise)
-                ):
-                    tasks_to_complete.append(monitored)
-
-            for task in tasks_to_complete:
-                self._complete_task_monitoring_promise(task)
-
     def _all_non_completed_leafs_are_in_awaiting(
         self, root_promise: Promise[Any]
     ) -> bool:
@@ -957,13 +941,25 @@ class Scheduler:
             ), "This command is reserved for rfi."
             self._send_pending_commands_to_processor(type(p.action.exec_unit))
 
+        promise_id = coro.route_info.promise.promise_id
         self._tracing_adapter.process_event(
             ExecutionAwaited(
-                promise_id=coro.route_info.promise.promise_id,
+                promise_id=promise_id,
                 tick=now(),
                 parent_promise_id=coro.route_info.promise.parent_promise_id(),
             )
         )
+        if awaiting_for == "remote" and promise_id in self._monitored_tasks:
+            assert self._emphemeral_promise_memo.is_a_root(
+                promise_id
+            ), "Only root promises can be monitored"
+            root_promise = self._emphemeral_promise_memo.get(promise_id)
+            assert root_promise is not None, "Root promise was expected to be in memo"
+            if (
+                root_promise.is_blocked_on_remote()
+                and self._all_non_completed_leafs_are_in_awaiting(root_promise)
+            ):
+                self._complete_task_monitoring_promise(promise_id)
 
     def _add_coro_to_runnables(
         self,
