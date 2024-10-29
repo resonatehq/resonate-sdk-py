@@ -380,7 +380,7 @@ class Scheduler:
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 promise_id=promise.promise_id,
-                root_promise_id=promise.root_promise().promise_id,
+                root_promise_id=promise.partition_root().promise_id,
                 timeout=sys.maxsize,
                 recv=recv,
             )
@@ -850,7 +850,7 @@ class Scheduler:
             leaf_promise is not None
         ), "If the root is there, we expect the leaf is also there."
 
-        root_promise_id = leaf_promise.root_promise().promise_id
+        root_promise_id = leaf_promise.partition_root().promise_id
         assert (
             self._emphemeral_promise_memo.get(root_promise_id) is not None
         ), "Root promise must be tracked on memo"

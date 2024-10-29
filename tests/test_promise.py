@@ -19,11 +19,11 @@ def test_child_creation() -> None:
     child_promise = root_promise.child_promise(promise_id=None, action=action)
     assert child_promise.promise_id == "a.1"
     assert child_promise.parent_promise == root_promise
-    assert child_promise.root_promise().promise_id == root_promise.promise_id
+    assert child_promise.root().promise_id == root_promise.promise_id
     child_child_promise = child_promise.child_promise(None, action)
     assert child_child_promise.promise_id == "a.1.1"
     assert child_child_promise.parent_promise == child_promise
-    assert child_child_promise.root_promise().promise_id == root_promise.promise_id
+    assert child_child_promise.root().promise_id == root_promise.promise_id
 
 
 def test_leaf_promises() -> None:
@@ -111,17 +111,21 @@ def test_leaf_promises() -> None:
     )
 
 
-def test_promote_as_root() -> None:
+def test_partition_root() -> None:
     action = LFI(exec_unit=FnOrCoroutine(_foo))
-    root_promise: Promise[Any] = Promise(
-        promise_id="a", action=action, parent_promise=None
-    )
-    assert root_promise.root_promise() == root_promise
-    child_1 = root_promise.child_promise(promise_id=None, action=action)
-    assert child_1.root_promise() == root_promise
-    assert len(root_promise.leaf_promises.symmetric_difference({child_1})) == 0
-    assert root_promise.children_promises == [child_1]
-    child_1.promote_as_root()
-    assert child_1.root_promise() == child_1
-    assert len(root_promise.leaf_promises) == 0
-    assert len(root_promise.children_promises) == 0
+    p2: Promise[Any] = Promise(promise_id="p2", action=action, parent_promise=None)
+    p1 = p2.child_promise(promise_id="p1", action=action)
+    assert p1.root() == p2
+    assert p1.partition_root() == p2
+    p0 = p1.child_promise(promise_id="p0", action=action)
+    assert p0.root() == p2
+    assert p0.partition_root() == p2
+    assert len(p2.leaf_promises.symmetric_difference({p0})) == 0
+    assert p2.children_promises == [p1]
+    assert p1.children_promises == [p0]
+    p1.mark_as_partition()
+    assert p0.root() == p2
+    assert p0.partition_root() == p1
+    assert len(p2.leaf_promises.symmetric_difference({p0})) == 0
+    assert p2.children_promises == [p1]
+    assert p1.children_promises == [p0]
