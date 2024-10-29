@@ -18,17 +18,15 @@ K = TypeVar("K")
 
 class Runnables:
     def __init__(self) -> None:
-        self.available: deque[tuple[Runnable[Any], bool]] = deque()
-        self.incomplete: deque[Runnable[Any]] = deque()
+        self.available = deque[tuple[Runnable[Any], bool]]()
 
     def nothing_in_available(self) -> bool:
         return len(self.available) == 0
 
     def clear(self) -> None:
         self.available.clear()
-        self.incomplete.clear()
 
-    def append_left(
+    def appendleft(
         self,
         coro: ResonateCoro[Any],
         next_value: Result[Any, Exception] | None,

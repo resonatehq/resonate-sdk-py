@@ -968,7 +968,7 @@ class Scheduler:
         *,
         was_awaited: bool,
     ) -> None:
-        self._runnables.append_left(coro, value_to_yield_back, was_awaited=was_awaited)
+        self._runnables.appendleft(coro, value_to_yield_back, was_awaited=was_awaited)
 
     def _unblock_coros_waiting_on_promise(
         self,
@@ -1050,9 +1050,6 @@ class Scheduler:
     def _advance_runnable_span(  # noqa: C901, PLR0912, PLR0915. Note: We want to keep all the control flow in the function
         self, runnable: Runnable[Any], *, was_awaited: bool
     ) -> None:
-        assert (
-            runnable.coro is not None
-        ), "Only runnables with coroutines can be advanced."
         yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if was_awaited:
@@ -1113,7 +1110,11 @@ class Scheduler:
 
         elif isinstance(yieldable_or_final_value, LFI):
             p = self._process_local_invocation(yieldable_or_final_value, runnable)
-            self._add_coro_to_runnables(runnable.coro, Ok(p), was_awaited=False)
+            self._add_coro_to_runnables(
+                runnable.coro,
+                Ok(p),
+                was_awaited=False,
+            )
 
         elif isinstance(yieldable_or_final_value, Promise):
             p = yieldable_or_final_value
@@ -1153,12 +1154,18 @@ class Scheduler:
                 **yieldable_or_final_value.coro.kwargs,
             )
             self._add_coro_to_runnables(
-                runnable.coro, Ok(deferred_p), was_awaited=False
+                runnable.coro,
+                Ok(deferred_p),
+                was_awaited=False,
             )
 
         elif isinstance(yieldable_or_final_value, RFI):
             p = self._process_remote_invocation(yieldable_or_final_value, runnable)
-            self._add_coro_to_runnables(runnable.coro, Ok(p), was_awaited=False)
+            self._add_coro_to_runnables(
+                runnable.coro,
+                Ok(p),
+                was_awaited=False,
+            )
         elif isinstance(yieldable_or_final_value, RFC):
             p = self._process_remote_invocation(
                 yieldable_or_final_value.to_invocation(), runnable
@@ -1169,13 +1176,17 @@ class Scheduler:
 
             if p.done():
                 self._add_coro_to_runnables(
-                    runnable.coro, p.safe_result(), was_awaited=False
+                    runnable.coro,
+                    p.safe_result(),
+                    was_awaited=False,
                 )
             else:
                 self._register_callback_or_resolve_ephemeral_promise(p)
                 if p.done():
                     self._add_coro_to_runnables(
-                        runnable.coro, p.safe_result(), was_awaited=False
+                        runnable.coro,
+                        p.safe_result(),
+                        was_awaited=False,
                     )
                 else:
                     self._add_coro_to_awaitables(p, runnable.coro, "remote")
@@ -1185,9 +1196,6 @@ class Scheduler:
     def _process_remote_invocation(
         self, invocation: RFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        assert (
-            runnable.coro is not None
-        ), "Coroutine is needed to process remote invocation."
         assert isinstance(
             self._durable_promise_storage, (ITaskStore, ICallbackStore)
         ), "Used storage does not support rfi."
@@ -1207,9 +1215,6 @@ class Scheduler:
     def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        assert (
-            runnable.coro is not None
-        ), "Coroutine is needed to process local invocation."
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=invocation.opts.promise_id,
@@ -1245,7 +1250,6 @@ class Scheduler:
     def _process_combinator(
         self, combinator: Combinator, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        assert runnable.coro is not None, "Coroutine is needed to process combinator."
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=combinator.opts.promise_id,

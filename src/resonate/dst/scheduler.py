@@ -579,9 +579,6 @@ class DSTScheduler:
     def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        assert (
-            runnable.coro is not None
-        ), "Coroutine is needed to process local invocation."
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=invocation.opts.promise_id,
@@ -624,10 +621,6 @@ class DSTScheduler:
     def _advance_runnable_span(
         self, runnable: Runnable[Any], *, was_awaited: bool
     ) -> None:
-        assert (
-            runnable.coro is not None
-        ), "Only runnables with coroutines can be advanced."
-
         yieldable_or_final_value = iterate_coro(runnable)
 
         if was_awaited:
@@ -684,7 +677,9 @@ class DSTScheduler:
             if p.done():
                 self._unblock_coros_waiting_on_promise(p, awaiting_for)
                 self._add_coro_to_runnables(
-                    runnable.coro, p.safe_result(), was_awaited=False
+                    runnable.coro,
+                    p.safe_result(),
+                    was_awaited=False,
                 )
             else:
                 self._add_coro_to_awaitables(p, runnable.coro, awaiting_for)
@@ -705,7 +700,11 @@ class DSTScheduler:
         if self._awaiting.get(p, awaiting_for) is None:
             return
         for coro in self._awaiting.pop(p, awaiting_for):
-            self._add_coro_to_runnables(coro, p.safe_result(), was_awaited=True)
+            self._add_coro_to_runnables(
+                coro,
+                p.safe_result(),
+                was_awaited=True,
+            )
 
     def _next_step(self) -> Step:
         next_step: Step

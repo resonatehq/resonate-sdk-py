@@ -43,7 +43,6 @@ Invokable: TypeAlias = Union[DurableCoro[P, Any], DurableFn[P, Any], Command]
 
 AwaitingFor: TypeAlias = Literal["local", "remote"]
 
-
 CommandHandlers: TypeAlias = dict[
     type[Command], Callable[[list[Any]], Union[list[Any], None]]
 ]

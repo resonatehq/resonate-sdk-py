@@ -22,7 +22,6 @@ class FinalValue(Generic[T]):
 
 
 def iterate_coro(runnable: Runnable[T]) -> Yieldable | FinalValue[T]:
-    assert runnable.coro is not None, "Coroutine is needed to iterate."
     yieldable: Yieldable
     try:
         if runnable.next_value is None:

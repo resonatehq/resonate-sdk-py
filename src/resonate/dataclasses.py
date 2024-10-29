@@ -119,7 +119,7 @@ class ResonateCoro(Generic[T]):
 
 @dataclass(frozen=True)
 class Runnable(Generic[T]):
-    coro: ResonateCoro[T] | None
+    coro: ResonateCoro[T]
     next_value: Result[Any, Exception] | None
 
 
