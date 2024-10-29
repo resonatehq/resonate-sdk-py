@@ -9,6 +9,7 @@ if TYPE_CHECKING:
         DurablePromiseRecord,
         Invoke,
         Resume,
+        TaskRecord,
     )
     from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
 
@@ -34,6 +35,22 @@ class ITaskStore(ABC):
         timeout: int,
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
+
+    @abstractmethod
+    def create_with_task(  # noqa: PLR0913
+        self,
+        *,
+        promise_id: str,
+        ikey: IdempotencyKey,
+        strict: bool,
+        headers: Headers,
+        data: Data,
+        timeout: int,
+        tags: Tags,
+        pid: str,
+        ttl: int,
+        recv: str | dict[str, Any],
+    ) -> tuple[DurablePromiseRecord, TaskRecord | None]: ...
 
 
 class IPromiseStore(ABC):

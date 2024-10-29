@@ -479,9 +479,8 @@ class Scheduler:
             )
             return p
 
-        durable_promise_record = self._create_durable_promise_record(
-            req=self._promise_to_create_durable_promise_req(p)
-        )
+        create_command = self._promise_to_create_durable_promise_req(p)
+        durable_promise_record = self._create_durable_promise_record(req=create_command)
         self._tracing_adapter.process_event(
             PromiseCreated(
                 promise_id=p.promise_id,

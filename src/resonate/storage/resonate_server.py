@@ -11,6 +11,7 @@ from resonate.record import (
     DurablePromiseRecord,
     Invoke,
     Resume,
+    TaskRecord,
 )
 from resonate.storage.traits import IPromiseStore, ITaskStore
 
@@ -38,6 +39,53 @@ class RemoteServer(IPromiseStore, ITaskStore):
             request_headers["Idempotency-Key"] = ikey
 
         return request_headers
+
+    def create_with_task(  # noqa: PLR0913
+        self,
+        *,
+        promise_id: str,
+        ikey: str | None,
+        strict: bool,
+        headers: dict[str, str] | None,
+        data: str | None,
+        timeout: int,
+        tags: dict[str, str] | None,
+        pid: str,
+        ttl: int,
+        recv: str | dict[str, Any],
+    ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
+        request_headers = self._initialize_headers(strict=strict, ikey=ikey)
+        response = requests.post(
+            url=f"{self.url}/promises/task",
+            headers=request_headers,
+            json={
+                "promise": {
+                    "id": promise_id,
+                    "param": {
+                        "headers": headers,
+                        "data": self._encode_data(data),
+                    },
+                    "timeout": timeout,
+                    "tags": tags,
+                },
+                "task": {
+                    "processId": pid,
+                    "ttl": ttl,
+                    "recv": recv,
+                },
+            },
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+        data_json = response.json()
+
+        task_data = data_json["task"]
+        durable_promise = DurablePromiseRecord.decode(
+            data_json["promise"], encoder=self._encoder
+        )
+        if task_data is None:
+            return durable_promise, None
+        return durable_promise, TaskRecord.decode(task_data, encoder=self._encoder)
 
     def claim_task(
         self, *, task_id: str, counter: int, pid: str, ttl: int
