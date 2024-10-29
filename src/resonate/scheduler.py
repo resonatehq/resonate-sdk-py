@@ -1050,6 +1050,9 @@ class Scheduler:
     def _advance_runnable_span(  # noqa: C901, PLR0912, PLR0915. Note: We want to keep all the control flow in the function
         self, runnable: Runnable[Any], *, was_awaited: bool
     ) -> None:
+        assert (
+            runnable.coro is not None
+        ), "Only runnables with coroutines can be advanced."
         yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if was_awaited:
@@ -1182,6 +1185,9 @@ class Scheduler:
     def _process_remote_invocation(
         self, invocation: RFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
+        assert (
+            runnable.coro is not None
+        ), "Coroutine is needed to process remote invocation."
         assert isinstance(
             self._durable_promise_storage, (ITaskStore, ICallbackStore)
         ), "Used storage does not support rfi."
@@ -1201,6 +1207,9 @@ class Scheduler:
     def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
+        assert (
+            runnable.coro is not None
+        ), "Coroutine is needed to process local invocation."
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=invocation.opts.promise_id,
@@ -1236,6 +1245,7 @@ class Scheduler:
     def _process_combinator(
         self, combinator: Combinator, runnable: Runnable[Any]
     ) -> Promise[Any]:
+        assert runnable.coro is not None, "Coroutine is needed to process combinator."
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=combinator.opts.promise_id,
