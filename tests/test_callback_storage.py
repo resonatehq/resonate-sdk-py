@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from resonate.storage import (
+from resonate.storage.resonate_server import (
     RemoteServer,
 )
 
