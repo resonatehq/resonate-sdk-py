@@ -461,7 +461,7 @@ class Scheduler:
     ) -> Promise[Any]:
         if parent_promise is not None:
             p = parent_promise.child_promise(promise_id=promise_id, action=action)
-            as_root = False
+
         else:
             assert (
                 promise_id is not None
@@ -469,9 +469,8 @@ class Scheduler:
             p = Promise[Any](
                 promise_id=promise_id, action=action, parent_promise=parent_promise
             )
-            as_root = True
 
-        self._emphemeral_promise_memo.add(p.promise_id, p, as_root=as_root)
+        self._emphemeral_promise_memo.add(p.promise_id, p)
 
         if not p.durable:
             self._tracing_adapter.process_event(
@@ -863,17 +862,20 @@ class Scheduler:
             root_promise_id not in self._monitored_tasks
         ), f"{root_promise_id} is already monitored by a task."
         self._monitored_tasks[root_promise_id] = record
-        v = self._get_value_from_durable_promise(durable_promise_record)
-        assert not leaf_promise.done()
-        leaf_promise.set_result(v)
-        self._tracing_adapter.process_event(
-            PromiseCompleted(
-                promise_id=leaf_promise.promise_id,
-                tick=now(),
-                value=v,
-                parent_promise_id=leaf_promise.parent_promise_id(),
+        if not leaf_promise.done():
+            v = self._get_value_from_durable_promise(durable_promise_record)
+            leaf_promise.set_result(v)
+            self._tracing_adapter.process_event(
+                PromiseCompleted(
+                    promise_id=leaf_promise.promise_id,
+                    tick=now(),
+                    value=v,
+                    parent_promise_id=leaf_promise.parent_promise_id(),
+                )
             )
-        )
+        assert self._awaiting.waiting_for(
+            leaf_promise, "remote"
+        ), f"There must be something waiting for {leaf_promise.promise_id}"
         self._unblock_coros_waiting_on_promise(leaf_promise, "remote")
 
     def _handle_invoke(
@@ -905,7 +907,7 @@ class Scheduler:
                 parent_promise=None,
                 action=local_action,
             )
-            self._emphemeral_promise_memo.add(p.promise_id, p, as_root=True)
+            self._emphemeral_promise_memo.add(p.promise_id, p)
 
         else:
             assert self._runnables.in_incomplete(
@@ -960,9 +962,6 @@ class Scheduler:
             )
         )
         if awaiting_for == "remote" and promise_id in self._monitored_tasks:
-            assert self._emphemeral_promise_memo.is_a_root(
-                promise_id
-            ), "Only root promises can be monitored"
             root_promise = self._emphemeral_promise_memo.get(promise_id)
             assert root_promise is not None, "Root promise was expected to be in memo"
             if (

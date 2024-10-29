@@ -314,7 +314,6 @@ class DSTScheduler:
     ) -> Promise[Any]:
         if parent_promise is not None:
             p = parent_promise.child_promise(promise_id=promise_id, action=action)
-            as_root = False
         else:
             assert (
                 promise_id is not None
@@ -322,9 +321,8 @@ class DSTScheduler:
             p = Promise[Any](
                 promise_id=promise_id, action=action, parent_promise=parent_promise
             )
-            as_root = True
 
-        self._emphemeral_promise_memo.add(p.promise_id, p, as_root=as_root)
+        self._emphemeral_promise_memo.add(p.promise_id, p)
         if isinstance(action, LFI):
             if isinstance(action.exec_unit, Command):
                 raise NotImplementedError
