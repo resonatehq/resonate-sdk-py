@@ -461,10 +461,11 @@ def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
     )
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_rfc_raw(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_rfc_raw() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     s = scheduler.Scheduler(durable_promise_storage=store)
     s.register(_raw_rfc)
@@ -478,10 +479,11 @@ def test_rfc_raw(store: IPromiseStore) -> None:
     assert child_promise_record.tags == {"demo": "test"}
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_blocked_on_remote_deep(store: IPromiseStore) -> None:  # noqa: C901
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_blocked_on_remote_deep() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     def _local_fn(_ctx: Context) -> int:
         return 42
@@ -535,10 +537,11 @@ def test_blocked_on_remote_deep(store: IPromiseStore) -> None:  # noqa: C901
     assert p.is_blocked_on_remote()
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_blocked_on_remote_shallow(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_blocked_on_remote_shallow() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     def _local_fn(_ctx: Context) -> int:
         return 42
@@ -565,10 +568,11 @@ def test_blocked_on_remote_shallow(store: IPromiseStore) -> None:
     assert p.is_blocked_on_remote()
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_blocked_on_just_remote(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_blocked_on_just_remote() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     def top_level(ctx: Context) -> Generator[Yieldable, Any, Any]:
         yield ctx.rfi(
@@ -591,10 +595,11 @@ def test_blocked_on_just_remote(store: IPromiseStore) -> None:
     assert p.is_blocked_on_remote()
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_not_blocked_on_remote(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_not_blocked_on_remote() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     def _local_fn(_ctx: Context) -> int:
         return 42
@@ -616,10 +621,11 @@ def test_not_blocked_on_remote(store: IPromiseStore) -> None:
     assert not p.is_blocked_on_remote()
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_not_blocked_on_remote_long_lfi(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_not_blocked_on_remote_long_lfi() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     def _local_fn(_ctx: Context) -> int:
         time.sleep(1)
@@ -894,10 +900,11 @@ def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
 
 
 @pytest.mark.skip
-@pytest.mark.parametrize("store", _promise_storages())
-def test_remote_call_same_node(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_remote_call_same_node() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
         return 1
@@ -914,10 +921,11 @@ def test_remote_call_same_node(store: IPromiseStore) -> None:
 
 
 @pytest.mark.skip
-@pytest.mark.parametrize("store", _promise_storages())
-def test_remote_invocation_same_node(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_remote_invocation_same_node() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
         return 1
@@ -936,10 +944,11 @@ def test_remote_invocation_same_node(store: IPromiseStore) -> None:
     assert p.result() == 1
 
 
-@pytest.mark.parametrize("store", _promise_storages())
-def test_remote_invocation_other_node(store: IPromiseStore) -> None:
-    if not isinstance(store, RemoteServer):
-        return
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_remote_invocation_other_node() -> None:
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
 
     def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
         return 1

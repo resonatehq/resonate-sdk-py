@@ -59,3 +59,27 @@ def test_human_in_the_loop() -> None:
         data=json.dumps(50),
     )
     assert p.result() == "Hi Peter with age 50"
+
+
+@pytest.mark.skip
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_factorial_same_node() -> None:
+    node_group = "test-factorial-same-node"
+
+    def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 0:
+            return 1
+        return n * (
+            yield ctx.rfc(factorial, n - 1).with_options(
+                f"factorial-{n-1}", target=node_group
+            )
+        )
+
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    s = Scheduler(store, logic_group=node_group)
+    s.register(factorial)
+    n = 2
+    p: Promise[int] = s.run(f"factorial-{n}", factorial, n)
+    assert p.result() == 2  # noqa: PLR2004

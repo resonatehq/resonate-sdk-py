@@ -74,6 +74,12 @@ class EphemeralMemo(Generic[K, V]):
         assert key not in self._memo, f"There's already a value for key={key}"
         self._memo[key] = value
 
+    def add_to_roots(self, key: K) -> None:
+        value = self._memo.get(key)
+        assert value is not None, f"There's not a value for key={key}"
+        assert value not in self.roots, "Value already in roots"
+        self.roots.add(value)
+
     def get(self, key: K) -> V | None:
         return self._memo.get(key)
 
