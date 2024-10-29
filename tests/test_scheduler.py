@@ -899,7 +899,7 @@ def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
     assert successes == failures
 
 
-@pytest.mark.skip
+
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
