@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from typing_extensions import assert_never
 
 from resonate.dataclasses import ResonateCoro, Runnable
-from resonate.promise import Promise
 
 if TYPE_CHECKING:
+    from resonate.promise import Promise
     from resonate.result import Result
     from resonate.typing import AwaitingFor
 
@@ -19,20 +19,9 @@ K = TypeVar("K")
 class Runnables:
     def __init__(self) -> None:
         self.available = deque[tuple[Runnable[Any], bool]]()
-        self._incomplete = set[Promise[Any]]()
 
     def nothing_in_available(self) -> bool:
         return len(self.available) == 0
-
-    def remove_from_incomplete(self, child_promise: Promise[Any]) -> None:
-        self._incomplete.remove(child_promise)
-
-    def in_incomplete(self, child_promise: Promise[Any]) -> bool:
-        return child_promise in self._incomplete
-
-    def add_to_incomplete(self, child_promise: Promise[Any]) -> None:
-        assert child_promise not in self._incomplete
-        self._incomplete.add(child_promise)
 
     def clear(self) -> None:
         self.available.clear()

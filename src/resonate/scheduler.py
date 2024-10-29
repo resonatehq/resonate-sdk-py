@@ -410,10 +410,7 @@ class Scheduler:
                 parent_promise_id=promise.parent_promise_id(),
             )
         )
-        if self._runnables.in_incomplete(promise):
-            self._runnables.remove_from_incomplete(promise)
-        else:
-            self._emphemeral_promise_memo.pop(promise.promise_id)
+        self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _create_durable_promise_record(
         self,
@@ -910,15 +907,7 @@ class Scheduler:
             self._emphemeral_promise_memo.add(p.promise_id, p)
 
         else:
-            assert self._runnables.in_incomplete(
-                p
-            ), "Child promise in incomplete runnables."
-            assert p.parent_promise is not None
-            assert isinstance(p.action, RFI)
-            assert not isinstance(
-                p.action.exec_unit, Command
-            ), "Can not change action if it is a command"
-            p.action = local_action
+            raise NotImplementedError
 
         self._stg_queue.put_nowait(p)
         self._signal()
@@ -1028,10 +1017,7 @@ class Scheduler:
             and promise.promise_id in self._monitored_tasks
         ):
             self._complete_task_monitoring_promise(promise.promise_id)
-        if self._runnables.in_incomplete(promise):
-            self._runnables.remove_from_incomplete(promise)
-        else:
-            self._emphemeral_promise_memo.pop(promise.promise_id)
+        self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:
         cmd_buffer = self._cmd_buffers.get(cmd_type)
@@ -1153,8 +1139,6 @@ class Scheduler:
                     )
                 else:
                     self._add_coro_to_awaitables(p, runnable.coro, awaiting_for)
-                    if awaiting_for == "remote":
-                        self._runnables.add_to_incomplete(p)
 
         elif isinstance(yieldable_or_final_value, (All, AllSettled, Race)):
             p = self._process_combinator(yieldable_or_final_value, runnable)
@@ -1204,7 +1188,6 @@ class Scheduler:
                     )
                 else:
                     self._add_coro_to_awaitables(p, runnable.coro, "remote")
-                    self._runnables.add_to_incomplete(p)
         else:
             assert_never(yieldable_or_final_value)
 
