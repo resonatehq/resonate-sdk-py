@@ -1,26 +1,64 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Generic, TypeVar
+from collections import deque
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from typing_extensions import assert_never
 
+from resonate.dataclasses import ResonateCoro, Runnable
+
 if TYPE_CHECKING:
+    from resonate.promise import Promise
+    from resonate.result import Result
     from resonate.typing import AwaitingFor
 
 V = TypeVar("V")
 K = TypeVar("K")
 
 
-class Awaiting(Generic[K, V]):
+class Runnables:
     def __init__(self) -> None:
-        self._local: dict[K, list[V]] = {}
-        self._remote: dict[K, list[V]] = {}
+        self.available: deque[tuple[Runnable[Any], bool]] = deque()
+        self.incomplete: deque[Runnable[Any]] = deque()
+
+    def nothing_in_available(self) -> bool:
+        return len(self.available) == 0
+
+    def clear(self) -> None:
+        self.available.clear()
+        self.incomplete.clear()
+
+    def append_left(
+        self,
+        coro: ResonateCoro[Any],
+        next_value: Result[Any, Exception] | None,
+        *,
+        was_awaited: bool,
+    ) -> None:
+        self.available.appendleft((Runnable(coro, next_value), was_awaited))
+
+    def append(
+        self,
+        coro: ResonateCoro[Any],
+        next_value: Result[Any, Exception] | None,
+        *,
+        was_awaited: bool,
+    ) -> None:
+        self.available.append((Runnable(coro, next_value), was_awaited))
+
+
+class Awaiting:
+    def __init__(self) -> None:
+        self._local: dict[Promise[Any], list[ResonateCoro[Any]]] = {}
+        self._remote: dict[Promise[Any], list[ResonateCoro[Any]]] = {}
 
     def clear(self) -> None:
         self._local.clear()
         self._remote.clear()
 
-    def waiting_for(self, key: K, awaiting_for: AwaitingFor | None = None) -> bool:
+    def waiting_for(
+        self, key: Promise[Any], awaiting_for: AwaitingFor | None = None
+    ) -> bool:
         if awaiting_for is None:
             return key in self._local or key in self._remote
         if awaiting_for == "local":
@@ -30,8 +68,10 @@ class Awaiting(Generic[K, V]):
 
         assert_never(awaiting_for)
 
-    def append(self, key: K, value: V, awaiting_for: AwaitingFor) -> None:
-        awaiting: dict[K, list[V]]
+    def append(
+        self, key: Promise[Any], value: ResonateCoro[Any], awaiting_for: AwaitingFor
+    ) -> None:
+        awaiting: dict[Promise[Any], list[ResonateCoro[Any]]]
         if awaiting_for == "local":
             awaiting = self._local
         elif awaiting_for == "remote":
@@ -40,8 +80,10 @@ class Awaiting(Generic[K, V]):
             assert_never(awaiting_for)
         awaiting.setdefault(key, []).append(value)
 
-    def get(self, key: K, awaiting_for: AwaitingFor) -> list[V] | None:
-        awaiting: dict[K, list[V]]
+    def get(
+        self, key: Promise[Any], awaiting_for: AwaitingFor
+    ) -> list[ResonateCoro[Any]] | None:
+        awaiting: dict[Promise[Any], list[ResonateCoro[Any]]]
         if awaiting_for == "local":
             awaiting = self._local
         elif awaiting_for == "remote":
@@ -50,8 +92,10 @@ class Awaiting(Generic[K, V]):
             assert_never(awaiting_for)
         return awaiting.get(key)
 
-    def pop(self, key: K, awaiting_for: AwaitingFor) -> list[V]:
-        awaiting: dict[K, list[V]]
+    def pop(
+        self, key: Promise[Any], awaiting_for: AwaitingFor
+    ) -> list[ResonateCoro[Any]]:
+        awaiting: dict[Promise[Any], list[ResonateCoro[Any]]]
         if awaiting_for == "local":
             awaiting = self._local
         elif awaiting_for == "remote":
