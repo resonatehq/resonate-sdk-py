@@ -30,22 +30,10 @@ class Promise(Generic[T]):
     ) -> None:
         self.promise_id = promise_id
         self.f = Future[T]()
-
         self._num_children = 0
-
         self.parent_promise = parent_promise
-        self.root_promise: Promise[Any] = (
-            self if self.parent_promise is None else self.parent_promise.root_promise
-        )
-
         self.children_promises: list[Promise[Any]] = []
-
-        # Only used for the root promise.
-        self.leaf_promises: set[Promise[Any]] | None
-        if self.parent_promise is None:
-            self.leaf_promises = set()
-        else:
-            self.leaf_promises = None
+        self.leaf_promises = set[Promise[Any]]()
 
         self.action = action
         if isinstance(action, (LFI, All, AllSettled, Race)):
@@ -67,6 +55,12 @@ class Promise(Generic[T]):
                 blocked_on_remote = True
 
         return blocked_on_remote
+
+    def promote_as_root(self) -> None:
+        assert self.parent_promise is not None, "This is already a root promise."
+        self.parent_promise.children_promises.remove(self)
+        self.parent_promise.leaf_promises.discard(self)
+        self.parent_promise = None
 
     def result(self, timeout: float | None = None) -> T:
         return self.f.result(timeout=timeout)
@@ -108,6 +102,15 @@ class Promise(Generic[T]):
             self.parent_promise.promise_id if self.parent_promise is not None else None
         )
 
+    def root_promise(self) -> Promise[Any]:
+        if self.parent_promise is None:
+            return self
+        root = self.parent_promise
+        while True:
+            if root.parent_promise is None:
+                return root
+            root = root.parent_promise
+
     def child_promise(
         self,
         promise_id: str | None,
@@ -116,22 +119,18 @@ class Promise(Generic[T]):
         self._num_children += 1
         if promise_id is None:
             promise_id = f"{self.promise_id}.{self._num_children}"
+
         child = Promise[Any](
             promise_id=promise_id,
             action=action,
             parent_promise=self,
         )
         self.children_promises.append(child)
-
-        if self.parent_promise is None:
-            # The root is creating a child it is a leaf until it creates another promise
-            assert self.leaf_promises is not None
-            self.leaf_promises.add(child)
-        else:
-            # The promise creating a child might no longer be a leaf promise itself
-            assert self.root_promise.leaf_promises is not None
-            self.root_promise.leaf_promises.discard(self)
-            self.root_promise.leaf_promises.add(child)
+        self.leaf_promises.add(child)
+        root_promise = self.root_promise()
+        if root_promise is not None:
+            root_promise.leaf_promises.discard(self)
+            root_promise.leaf_promises.add(child)
 
         return child
 
