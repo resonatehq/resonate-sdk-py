@@ -106,6 +106,14 @@ class Awaiting:
 class EphemeralMemo(Generic[K, V]):
     def __init__(self) -> None:
         self._memo: dict[K, V] = {}
+        self._executing_in_partition: set[V] = set()
+
+    def add_to_partition(self, key: K) -> None:
+        value = self._memo[key]
+        assert (
+            value not in self._executing_in_partition
+        ), f"This value={value} is already executing in partition"
+        self._executing_in_partition.add(value)
 
     def add(self, key: K, value: V) -> None:
         assert key not in self._memo, f"There's already a value for key={key}"
@@ -114,9 +122,13 @@ class EphemeralMemo(Generic[K, V]):
     def get(self, key: K) -> V | None:
         return self._memo.get(key)
 
-    def pop(self, key: K) -> V:
+    def pop_or_remove_from_partition_execution(self, key: K) -> None:
         assert key in self._memo, f"There's not value for key={key}"
-        return self._memo.pop(key)
+        value = self._memo[key]
+        if value in self._executing_in_partition:
+            self._executing_in_partition.remove(value)
+        else:
+            self._memo.pop(key)
 
     def has(self, key: K) -> bool:
         return key in self._memo

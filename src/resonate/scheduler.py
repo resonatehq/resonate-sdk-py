@@ -410,7 +410,9 @@ class Scheduler:
                 parent_promise_id=promise.parent_promise_id(),
             )
         )
-        self._emphemeral_promise_memo.pop(promise.promise_id)
+        self._emphemeral_promise_memo.pop_or_remove_from_partition_execution(
+            promise.promise_id
+        )
 
     def _create_durable_promise_record(
         self,
@@ -906,7 +908,12 @@ class Scheduler:
             self._emphemeral_promise_memo.add(p.promise_id, p)
 
         else:
-            raise NotImplementedError
+            assert p.is_partition_root(), "Invoked promise must be a partition root"
+            assert isinstance(
+                p.action, RFI
+            ), "This promise must have been created with RFI"
+            p.action = local_action
+            self._emphemeral_promise_memo.add_to_partition(p.promise_id)
 
         self._stg_queue.put_nowait(p)
         self._signal()
@@ -1016,7 +1023,10 @@ class Scheduler:
             and promise.promise_id in self._monitored_tasks
         ):
             self._complete_task_monitoring_promise(promise.promise_id)
-        self._emphemeral_promise_memo.pop(promise.promise_id)
+
+        self._emphemeral_promise_memo.pop_or_remove_from_partition_execution(
+            promise.promise_id
+        )
 
     def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:
         cmd_buffer = self._cmd_buffers.get(cmd_type)

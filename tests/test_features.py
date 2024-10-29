@@ -61,7 +61,6 @@ def test_human_in_the_loop() -> None:
     assert p.result() == "Hi Peter with age 50"
 
 
-@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )

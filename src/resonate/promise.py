@@ -97,7 +97,7 @@ class Promise(Generic[T]):
             self.parent_promise.promise_id if self.parent_promise is not None else None
         )
 
-    def is_partition(self) -> bool:
+    def is_partition_root(self) -> bool:
         return self._is_partition_root
 
     def mark_as_partition(self) -> None:
@@ -132,10 +132,10 @@ class Promise(Generic[T]):
             return self
         root = self.parent_promise
         while True:
-            if root.is_partition():
+            if root.is_partition_root():
                 return root
             if root.parent_promise is None:
-                assert root.is_partition()
+                assert root.is_partition_root()
                 return root
 
             root = root.parent_promise
@@ -154,7 +154,7 @@ class Promise(Generic[T]):
             action=action,
             parent_promise=self,
         )
-        assert child.is_partition()
+        assert child.is_partition_root()
 
         self.children_promises.append(child)
         self.leaf_promises.add(child)
