@@ -63,7 +63,7 @@ from resonate.record import Invoke, Resume, TaskRecord
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
 from resonate.shells.long_poller import LongPoller
-from resonate.storage.traits import ICallbackStore, IPromiseStore, ITaskStore
+from resonate.storage.traits import IPromiseStore, ITaskStore
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
@@ -373,8 +373,8 @@ class Scheduler:
     ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
         assert isinstance(
-            self._durable_promise_storage, ICallbackStore
-        ), "Used storage does not support callbacks."
+            self._durable_promise_storage, ITaskStore
+        ), "Used storage does not support tasks."
 
         recv = {"type": "poll", "data": {"group": self.logic_group, "id": self.pid}}
         durable_promise, created_callback = (
@@ -531,7 +531,7 @@ class Scheduler:
                 assert_never(promise.action.exec_unit)
         elif isinstance(promise.action, RFI):
             assert isinstance(
-                self._durable_promise_storage, (ITaskStore, ICallbackStore)
+                self._durable_promise_storage, ITaskStore
             ), "Used storage does not support rfi."
             if isinstance(promise.action.exec_unit, Command):
                 assert isinstance(
@@ -1197,7 +1197,7 @@ class Scheduler:
         self, invocation: RFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
         assert isinstance(
-            self._durable_promise_storage, (ITaskStore, ICallbackStore)
+            self._durable_promise_storage, ITaskStore
         ), "Used storage does not support rfi."
         promise_id: str | None
         if not isinstance(invocation.exec_unit, Command):

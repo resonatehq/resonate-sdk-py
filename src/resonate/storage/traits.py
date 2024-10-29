@@ -25,8 +25,6 @@ class ITaskStore(ABC):
     @abstractmethod
     def heartbeat_tasks(self, *, pid: str) -> int: ...
 
-
-class ICallbackStore(ABC):
     @abstractmethod
     def create_callback(
         self,

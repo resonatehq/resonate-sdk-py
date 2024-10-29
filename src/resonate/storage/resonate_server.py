@@ -12,14 +12,14 @@ from resonate.record import (
     Invoke,
     Resume,
 )
-from resonate.storage.traits import ICallbackStore, IPromiseStore, ITaskStore
+from resonate.storage.traits import IPromiseStore, ITaskStore
 
 if TYPE_CHECKING:
     from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
 
 
 @final
-class RemoteServer(IPromiseStore, ICallbackStore, ITaskStore):
+class RemoteServer(IPromiseStore, ITaskStore):
     def __init__(
         self,
         url: str,
