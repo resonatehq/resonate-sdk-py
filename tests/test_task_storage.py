@@ -67,7 +67,6 @@ def test_case_2_callback_on_resolved_promise() -> None:
     assert callback_record is None
 
 
-@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
@@ -89,6 +88,6 @@ def test_case_3_create_durable_promise_with_task() -> None:
     )
     assert durable_promise.promise_id == "3.0"
     assert task_record is not None
-    assert task_record.counter == 0
+    assert task_record.counter == 1
     store.heartbeat_tasks(pid=pid)
     store.complete_task(task_id=task_record.task_id, counter=task_record.counter)

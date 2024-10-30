@@ -171,4 +171,6 @@ class TaskRecord(Decodable):
     @classmethod
     def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> Self:
         _ = encoder
-        return cls(task_id=data["id"], counter=data["counter"])
+        counter: int = data["counter"]
+        counter = 1 if counter == 0 else counter
+        return cls(task_id=data["id"], counter=counter)
