@@ -507,7 +507,7 @@ class Scheduler:
         self._resolve_promise(p, v)
         return p
 
-    def _promise_to_create_durable_promise_req(  # noqa: PLR0912
+    def _promise_to_create_durable_promise_req(  # noqa: C901, PLR0912
         self, promise: Promise[Any]
     ) -> CreateDurablePromiseReq:
         req: CreateDurablePromiseReq
@@ -541,6 +541,8 @@ class Scheduler:
                     promise.action.exec_unit, CreateDurablePromiseReq
                 ), "This is the only command allowed for rfi"
                 req = promise.action.exec_unit
+                if req.promise_id is None:
+                    req.promise_id = promise.promise_id
             elif isinstance(promise.action.exec_unit, FnOrCoroutine):
                 func_name = self._registered_function.get_from_value(
                     promise.action.exec_unit.exec_unit

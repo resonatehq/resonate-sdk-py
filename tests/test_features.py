@@ -124,7 +124,7 @@ def test_trigger_on_other_node() -> None:
     def workflow(ctx: Context) -> Generator[Yieldable, Any, str]:
         v1: int = yield ctx.rfc(
             CreateDurablePromiseReq(
-                promise_id="foo-in-other-node",
+                promise_id=None,
                 data={"func": "foo", "args": [1], "kwargs": {}},
                 headers=None,
                 tags={"resonate:invoke": "poll://test-trigger-on-other-node-other"},
@@ -132,7 +132,7 @@ def test_trigger_on_other_node() -> None:
         )
         v2: str = yield ctx.rfc(
             CreateDurablePromiseReq(
-                promise_id="bar-in-other-node",
+                promise_id=None,
                 data={"func": "bar", "args": ["Killua"], "kwargs": {}},
                 headers=None,
                 tags={"resonate:invoke": "poll://test-trigger-on-other-node-other"},
