@@ -111,21 +111,25 @@ def test_leaf_promises() -> None:
     )
 
 
-def test_partition_root() -> None:
+def test_partition_logic() -> None:
     action = LFI(exec_unit=FnOrCoroutine(_foo))
-    p2: Promise[Any] = Promise(promise_id="p2", action=action, parent_promise=None)
-    p1 = p2.child_promise(promise_id="p1", action=action)
-    assert p1.root() == p2
-    assert p1.partition_root() == p2
-    p0 = p1.child_promise(promise_id="p0", action=action)
-    assert p0.root() == p2
-    assert p0.partition_root() == p2
-    assert len(p2.leaf_promises.symmetric_difference({p0})) == 0
-    assert p2.children_promises == [p1]
-    assert p1.children_promises == [p0]
-    p1.mark_as_partition()
-    assert p0.root() == p2
-    assert p0.partition_root() == p1
-    assert len(p2.leaf_promises.symmetric_difference({p0})) == 0
-    assert p2.children_promises == [p1]
-    assert p1.children_promises == [p0]
+    f3: Promise[Any] = Promise("f3", action, None)
+    assert f3.is_partition_root()
+    assert f3.partition_root() == f3
+    assert f3.root() == f3
+    f2 = f3.child_promise("f2", action)
+    assert not f2.is_partition_root()
+    assert f2.partition_root() == f3
+    assert f2.root() == f3
+    f1 = f2.child_promise("f1", action)
+    assert not f1.is_partition_root()
+    assert f1.partition_root() == f3
+    assert f1.root() == f3
+    f1.mark_as_partition_root()
+    assert f1.is_partition_root()
+    assert f1.partition_root() == f1
+    assert f1.root() == f3
+    f0 = f1.child_promise("f0", action)
+    assert not f0.is_partition_root()
+    assert f0.partition_root() == f1
+    assert f1.root() == f3

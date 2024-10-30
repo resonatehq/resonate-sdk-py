@@ -34,7 +34,7 @@ class Promise(Generic[T]):
         self.parent_promise = parent_promise
         self.children_promises: list[Promise[Any]] = []
         self.leaf_promises = set[Promise[Any]]()
-        self._is_partition_root: bool = True
+        self._partition_root: bool = True
 
         self.action = action
         if isinstance(action, (LFI, All, AllSettled, Race)):
@@ -43,6 +43,17 @@ class Promise(Generic[T]):
             self.durable = True
         else:
             assert_never(action)
+
+    def is_partition_root(self) -> bool:
+        return self._partition_root
+
+    def unmark_as_partition_root(self) -> None:
+        assert self._partition_root, "Promise is already not a partition root"
+        self._partition_root = False
+
+    def mark_as_partition_root(self) -> None:
+        assert not self._partition_root, "Promise is already a partition root"
+        self._partition_root = True
 
     def is_blocked_on_remote(self) -> bool:
         assert (
@@ -97,48 +108,20 @@ class Promise(Generic[T]):
             self.parent_promise.promise_id if self.parent_promise is not None else None
         )
 
-    def is_partition_root(self) -> bool:
-        return self._is_partition_root
-
-    def mark_as_partition(self) -> None:
-        assert (
-            not self._is_partition_root
-        ), "This promise is alerady flagged as partition"
-        self._is_partition_root = True
-
-    def unmark_as_partition(self) -> None:
-        assert (
-            self._is_partition_root
-        ), "This promise is already not flagged as partition"
-        self._is_partition_root = False
-
     def root(self) -> Promise[Any]:
-        if self.parent_promise is None:
-            assert (
-                self._is_partition_root
-            ), "Local root promise is always a partition root"
-            return self
-        root = self.parent_promise
+        maybe_root = self
         while True:
-            if root.parent_promise is None:
-                return root
-            root = root.parent_promise
+            if maybe_root.parent_promise is None:
+                return maybe_root
+            maybe_root = maybe_root.parent_promise
 
     def partition_root(self) -> Promise[Any]:
-        if self.parent_promise is None:
-            assert (
-                self._is_partition_root
-            ), "Local root promise is always a partition root"
-            return self
-        root = self.parent_promise
+        maybe_root = self
         while True:
-            if root.is_partition_root():
-                return root
-            if root.parent_promise is None:
-                assert root.is_partition_root()
-                return root
-
-            root = root.parent_promise
+            if maybe_root.is_partition_root():
+                return maybe_root
+            assert maybe_root.parent_promise is not None
+            maybe_root = maybe_root.parent_promise
 
     def child_promise(
         self,
@@ -155,6 +138,8 @@ class Promise(Generic[T]):
             parent_promise=self,
         )
         assert child.is_partition_root()
+        child.unmark_as_partition_root()
+        assert not child.is_partition_root()
 
         self.children_promises.append(child)
         self.leaf_promises.add(child)
@@ -163,8 +148,6 @@ class Promise(Generic[T]):
             root_promise.leaf_promises.discard(self)
             root_promise.leaf_promises.add(child)
 
-        if not isinstance(action, RFI):
-            child.unmark_as_partition()
         return child
 
 

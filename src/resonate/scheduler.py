@@ -727,6 +727,7 @@ class Scheduler:
     def _run(self) -> None:  # noqa: C901, PLR0912, PLR0915
         while self._worker_continue.wait():
             self._worker_continue.clear()
+            logger.warning("claimed=%s at the start", self._claimed_tasks)
 
             delay_es = self._delay_queue.dequeue_all()
             for delay_e in delay_es:
@@ -833,6 +834,7 @@ class Scheduler:
             assert (
                 self._runnables.nothing_in_available()
             ), "Runnables should have been all exhausted"
+            logger.warning("claimed=%s at the end", self._claimed_tasks)
 
     def _all_non_completed_leafs_are_in_awaiting(
         self, root_promise: Promise[Any]
@@ -856,6 +858,8 @@ class Scheduler:
         assert (
             leaf_promise is not None
         ), "If the root is there, we expect the leaf is also there."
+        if leaf_promise.is_partition_root():
+            leaf_promise.unmark_as_partition_root()
 
         root_promise_id = leaf_promise.partition_root().promise_id
         assert (
@@ -913,7 +917,7 @@ class Scheduler:
             self._emphemeral_promise_memo.add(p.promise_id, p)
 
         else:
-            assert p.is_partition_root(), "Invoked promise must be a partition root"
+            p.mark_as_partition_root()
             assert isinstance(
                 p.action, RFI
             ), "This promise must have been created with RFI"
@@ -954,22 +958,22 @@ class Scheduler:
             ), "This command is reserved for rfi."
             self._send_pending_commands_to_processor(type(p.action.exec_unit))
 
-        promise_id = coro.route_info.promise.promise_id
+        promise = coro.route_info.promise
         self._tracing_adapter.process_event(
             ExecutionAwaited(
-                promise_id=promise_id,
+                promise_id=promise.promise_id,
                 tick=now(),
-                parent_promise_id=coro.route_info.promise.parent_promise_id(),
+                parent_promise_id=promise.parent_promise_id(),
             )
         )
-        if awaiting_for == "remote" and promise_id in self._claimed_tasks:
-            root_promise = self._emphemeral_promise_memo.get(promise_id)
+        if awaiting_for == "remote" and promise.promise_id in self._claimed_tasks:
+            root_promise = self._emphemeral_promise_memo.get(promise.promise_id)
             assert root_promise is not None, "Root promise was expected to be in memo"
             if (
                 root_promise.is_blocked_on_remote()
                 and self._all_non_completed_leafs_are_in_awaiting(root_promise)
             ):
-                self._complete_task_monitoring_promise(promise_id)
+                self._complete_task_monitoring_promise(promise_id=promise.promise_id)
 
     def _add_coro_to_runnables(
         self,
