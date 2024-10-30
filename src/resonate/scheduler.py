@@ -378,7 +378,7 @@ class Scheduler:
             self._durable_promise_storage, ITaskStore
         ), "Used storage does not support tasks."
 
-        recv = {"type": "poll", "data": {"group": self.logic_group, "id": self.pid}}
+        recv = utils.recv_url(group=self.logic_group, pid=self.pid)
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 promise_id=promise.promise_id,
