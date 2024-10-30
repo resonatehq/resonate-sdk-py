@@ -274,7 +274,7 @@ class Scheduler:
 
         self._runnables = Runnables()
         self._awaiting = Awaiting()
-        self._monitored_tasks: dict[str, TaskRecord] = {}
+        self._claimed_tasks: dict[str, TaskRecord] = {}
 
         self._processor = _Processor(
             processor_threads,
@@ -770,7 +770,7 @@ class Scheduler:
                     "Message arrived %s on woker %s/%s", msg, self.logic_group, self.pid
                 )
                 assert (
-                    msg.root_promise_store.promise_id not in self._monitored_tasks
+                    msg.root_promise_store.promise_id not in self._claimed_tasks
                 ), "Only one task at a time for a given promise."
 
                 if isinstance(msg, Invoke):
@@ -862,9 +862,9 @@ class Scheduler:
             self._emphemeral_promise_memo.get(root_promise_id) is not None
         ), "Root promise must be tracked on memo"
         assert (
-            root_promise_id not in self._monitored_tasks
+            root_promise_id not in self._claimed_tasks
         ), f"{root_promise_id} is already monitored by a task."
-        self._monitored_tasks[root_promise_id] = record
+        self._claimed_tasks[root_promise_id] = record
         if not leaf_promise.done():
             v = self._get_value_from_durable_promise(durable_promise_record)
             leaf_promise.set_result(v)
@@ -886,9 +886,9 @@ class Scheduler:
     ) -> None:
         promise_id = durable_promise_record.promise_id
         assert (
-            promise_id not in self._monitored_tasks
+            promise_id not in self._claimed_tasks
         ), f"{promise_id} is already monitored by a task"
-        self._monitored_tasks[promise_id] = record
+        self._claimed_tasks[promise_id] = record
 
         invoke_info = durable_promise_record.invoke_info()
         func_name = invoke_info["func_name"]
@@ -925,7 +925,7 @@ class Scheduler:
         self._signal()
 
     def _complete_task_monitoring_promise(self, promise_id: str) -> None:
-        record = self._monitored_tasks.pop(promise_id)
+        record = self._claimed_tasks.pop(promise_id)
         assert isinstance(self._durable_promise_storage, ITaskStore)
         self._durable_promise_storage.complete_task(
             task_id=record.task_id, counter=record.counter
@@ -962,7 +962,7 @@ class Scheduler:
                 parent_promise_id=coro.route_info.promise.parent_promise_id(),
             )
         )
-        if awaiting_for == "remote" and promise_id in self._monitored_tasks:
+        if awaiting_for == "remote" and promise_id in self._claimed_tasks:
             root_promise = self._emphemeral_promise_memo.get(promise_id)
             assert root_promise is not None, "Root promise was expected to be in memo"
             if (
@@ -1026,7 +1026,7 @@ class Scheduler:
         )
         if (
             isinstance(self._durable_promise_storage, ITaskStore)
-            and promise.promise_id in self._monitored_tasks
+            and promise.promise_id in self._claimed_tasks
         ):
             self._complete_task_monitoring_promise(promise.promise_id)
 
