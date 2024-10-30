@@ -414,6 +414,9 @@ class Scheduler:
         )
         self._pop_from_memo_or_finish_partition_execution(promise=promise)
 
+    def wait_for_ever(self) -> None:
+        Event().wait()
+
     def _create_durable_promise_record(
         self,
         req: CreateDurablePromiseReq,
