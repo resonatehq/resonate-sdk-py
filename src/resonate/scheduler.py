@@ -274,7 +274,6 @@ class Scheduler:
 
         self._runnables = Runnables()
         self._awaiting = Awaiting()
-        self._claimed_tasks: dict[str, TaskRecord] = {}
 
         self._processor = _Processor(
             processor_threads,
@@ -285,11 +284,11 @@ class Scheduler:
         self._durable_promise_storage = durable_promise_storage
 
         self._heartbeating_thread: Thread | None = None
-        self._executing_in_partition: set[Promise[Any]] | None = None
+        self._claimed_tasks: dict[str, TaskRecord] | None = None
         self._claim_task_while_creating_top_level: bool = False
         if isinstance(self._durable_promise_storage, ITaskStore):
             self._claim_task_while_creating_top_level = True
-            self._executing_in_partition = set()
+            self._claimed_tasks = {}
             self._heartbeating_thread = Thread(target=self._heartbeat, daemon=True)
             self._heartbeating_thread.start()
             if with_long_polling is None or with_long_polling:
@@ -441,6 +440,7 @@ class Scheduler:
                 tags=req.tags,
             )
         assert isinstance(self._durable_promise_storage, ITaskStore)
+
         dp_record, task_record = self._durable_promise_storage.create_with_task(
             promise_id=req.promise_id,
             ikey=ikey,
@@ -455,6 +455,7 @@ class Scheduler:
         )
         if task_record is None:
             return dp_record
+        assert self._claimed_tasks is not None
         assert dp_record.promise_id not in self._claimed_tasks
         self._claimed_tasks[dp_record.promise_id] = task_record
         return dp_record
@@ -587,7 +588,6 @@ class Scheduler:
                     target_url = f"poll://{promise.action.opts.target}"
                 else:
                     target_url = f"poll://{self.logic_group}"
-                logger.error("Adding resonate invoke to %s", promise.promise_id)
                 final_tags["resonate:invoke"] = target_url
 
                 req = promise.action.exec_unit.to_req(
@@ -758,7 +758,6 @@ class Scheduler:
     def _run(self) -> None:  # noqa: C901, PLR0912, PLR0915
         while self._worker_continue.wait():
             self._worker_continue.clear()
-            logger.warning("claimed=%s at the start", self._claimed_tasks)
 
             delay_es = self._delay_queue.dequeue_all()
             for delay_e in delay_es:
@@ -801,6 +800,7 @@ class Scheduler:
                 logger.info(
                     "Message arrived %s on woker %s/%s", msg, self.logic_group, self.pid
                 )
+                assert self._claimed_tasks is not None
                 assert (
                     msg.root_promise_store.promise_id not in self._claimed_tasks
                 ), "Only one task at a time for a given promise."
@@ -865,7 +865,6 @@ class Scheduler:
             assert (
                 self._runnables.nothing_in_available()
             ), "Runnables should have been all exhausted"
-            logger.warning("claimed=%s at the end", self._claimed_tasks)
 
     def _all_non_completed_leafs_are_remote_and_in_awaiting(
         self, root_promise: Promise[Any]
@@ -894,6 +893,9 @@ class Scheduler:
             self._emphemeral_promise_memo.get(root_promise_id) is not None
         ), "Root promise must be tracked on memo"
         assert (
+            self._claimed_tasks is not None
+        ), "You can ony handle resumes if using a storage that supports tasks."
+        assert (
             root_promise_id not in self._claimed_tasks
         ), f"{root_promise_id} is already monitored by a task."
         self._claimed_tasks[root_promise_id] = record
@@ -917,6 +919,9 @@ class Scheduler:
         self, durable_promise_record: DurablePromiseRecord, record: TaskRecord
     ) -> None:
         promise_id = durable_promise_record.promise_id
+        assert (
+            self._claimed_tasks is not None
+        ), "You can only handle invokes if using a storage that supports tasks."
         assert (
             promise_id not in self._claimed_tasks
         ), f"{promise_id} is already monitored by a task"
@@ -949,14 +954,15 @@ class Scheduler:
                 p.action, RFI
             ), "This promise must have been created with RFI"
             p.action = local_action
-            assert self._executing_in_partition is not None
-            self._executing_in_partition.add(p)
             p.mark_as_partition_root()
 
         self._stg_queue.put_nowait(p)
         self._signal()
 
     def _complete_task_monitoring_promise(self, promise_id: str) -> None:
+        assert (
+            self._claimed_tasks is not None
+        ), "Can only complete tasks if using a storage that supports tasks."
         record = self._claimed_tasks.pop(promise_id)
         assert isinstance(self._durable_promise_storage, ITaskStore)
         self._durable_promise_storage.complete_task(
@@ -1054,22 +1060,17 @@ class Scheduler:
                 parent_promise_id=promise.parent_promise_id(),
             )
         )
-        if (
-            isinstance(self._durable_promise_storage, ITaskStore)
-            and promise.promise_id in self._claimed_tasks
-        ):
-            self._complete_task_monitoring_promise(promise.promise_id)
+        if isinstance(self._durable_promise_storage, ITaskStore):
+            assert self._claimed_tasks is not None
+            if promise.promise_id in self._claimed_tasks:
+                self._complete_task_monitoring_promise(promise.promise_id)
 
         self._pop_from_memo_or_finish_partition_execution(promise=promise)
 
     def _pop_from_memo_or_finish_partition_execution(
         self, promise: Promise[Any]
     ) -> None:
-        if (
-            self._executing_in_partition is not None
-            and promise in self._executing_in_partition
-        ):
-            self._executing_in_partition.remove(promise)
+        if promise.is_partition_root():
             promise.unmark_as_partition_root()
         else:
             self._emphemeral_promise_memo.pop(promise.promise_id)

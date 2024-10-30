@@ -55,19 +55,6 @@ class Promise(Generic[T]):
         assert not self._partition_root, "Promise is already a partition root"
         self._partition_root = True
 
-    def is_blocked_on_remote(self) -> bool:
-        assert (
-            self.leaf_promises is not None
-        ), "This method is only meant to be called on root promises."
-        blocked_on_remote = False
-        for p in self.leaf_promises:
-            if not p.done() and isinstance(p.action, LFI):
-                return False
-            if not p.done() and isinstance(p.action, RFI):
-                blocked_on_remote = True
-
-        return blocked_on_remote
-
     def result(self, timeout: float | None = None) -> T:
         return self.f.result(timeout=timeout)
 

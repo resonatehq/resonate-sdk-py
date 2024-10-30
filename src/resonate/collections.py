@@ -50,6 +50,13 @@ class Awaiting:
         self._local: dict[Promise[Any], list[ResonateCoro[Any]]] = {}
         self._remote: dict[Promise[Any], list[ResonateCoro[Any]]] = {}
 
+    def is_empty(self, awaiting_for: AwaitingFor) -> bool:
+        if awaiting_for == "local":
+            return len(self._local) == 0
+        if awaiting_for == "remote":
+            return len(self._remote) == 0
+        assert_never(awaiting_for)
+
     def clear(self) -> None:
         self._local.clear()
         self._remote.clear()
