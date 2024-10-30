@@ -155,3 +155,33 @@ def test_trigger_on_other_node() -> None:
     s2.register(_bar, retry_policy=never(), name="bar")
     p: Promise[str] = s1.run("test-trigger-on-other-node", workflow)
     assert p.result() == "Killua is 1"
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_factorial_mechanics() -> None:
+    node_group = "test-factorial-mechanics"
+
+    def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 0:
+            return 1
+        promise_id = f"factorial-mechanics-{n-1}"
+        v: int
+        if n % 7 == 0:
+            v = yield ctx.rfc(factorial, n - 1).with_options(
+                promise_id=promise_id, target=node_group
+            )
+        else:
+            v = yield ctx.lfc(factorial, n - 1).with_options(
+                promise_id=promise_id, retry_policy=never()
+            )
+
+        return n * v
+
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    s = Scheduler(store, logic_group=node_group)
+    s.register(factorial)
+    n = 23
+    p: Promise[int] = s.run(f"factorial-mechanics-{n}", factorial, n)
+    assert p.result() == 25852016738884976640000  # noqa: PLR2004
