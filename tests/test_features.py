@@ -168,7 +168,7 @@ def test_factorial_mechanics() -> None:
             return 1
         promise_id = f"factorial-mechanics-{n-1}"
         v: int
-        if n % 7 == 0:
+        if n % 3 == 0:
             v = yield ctx.rfc(factorial, n - 1).with_options(
                 promise_id=promise_id, target=node_group
             )
@@ -177,11 +177,11 @@ def test_factorial_mechanics() -> None:
                 promise_id=promise_id, retry_policy=never()
             )
 
-        return n * v
+        return n + v
 
     store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
     s = Scheduler(store, logic_group=node_group)
     s.register(factorial)
-    n = 23
+    n = 13
     p: Promise[int] = s.run(f"factorial-mechanics-{n}", factorial, n)
-    assert p.result() == 25852016738884976640000  # noqa: PLR2004
+    assert p.result() == 92  # noqa: PLR2004
