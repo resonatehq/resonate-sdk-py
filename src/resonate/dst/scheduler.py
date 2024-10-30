@@ -473,9 +473,7 @@ class DSTScheduler:
                 parent_promise_id=promise.parent_promise_id(),
             )
         )
-        self._emphemeral_promise_memo.pop_or_remove_from_partition_execution(
-            promise.promise_id
-        )
+        self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _maybe_fail(self) -> None:
         if (

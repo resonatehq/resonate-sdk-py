@@ -285,7 +285,9 @@ class Scheduler:
         self._durable_promise_storage = durable_promise_storage
 
         self._heartbeating_thread: Thread | None = None
+        self._executing_in_partition: set[Promise[Any]] | None = None
         if isinstance(self._durable_promise_storage, ITaskStore):
+            self._executing_in_partition = set()
             self._heartbeating_thread = Thread(target=self._heartbeat, daemon=True)
             self._heartbeating_thread.start()
             if with_long_polling is None or with_long_polling:
@@ -410,9 +412,7 @@ class Scheduler:
                 parent_promise_id=promise.parent_promise_id(),
             )
         )
-        self._emphemeral_promise_memo.pop_or_remove_from_partition_execution(
-            promise.promise_id
-        )
+        self._pop_from_memo_or_finish_partition_execution(promise=promise)
 
     def _create_durable_promise_record(
         self,
@@ -913,7 +913,8 @@ class Scheduler:
                 p.action, RFI
             ), "This promise must have been created with RFI"
             p.action = local_action
-            self._emphemeral_promise_memo.add_to_partition(p.promise_id)
+            assert self._executing_in_partition is not None
+            self._executing_in_partition.add(p)
 
         self._stg_queue.put_nowait(p)
         self._signal()
@@ -1024,9 +1025,18 @@ class Scheduler:
         ):
             self._complete_task_monitoring_promise(promise.promise_id)
 
-        self._emphemeral_promise_memo.pop_or_remove_from_partition_execution(
-            promise.promise_id
-        )
+        self._pop_from_memo_or_finish_partition_execution(promise=promise)
+
+    def _pop_from_memo_or_finish_partition_execution(
+        self, promise: Promise[Any]
+    ) -> None:
+        if (
+            self._executing_in_partition is not None
+            and promise in self._executing_in_partition
+        ):
+            self._executing_in_partition.remove(promise)
+        else:
+            self._emphemeral_promise_memo.pop(promise.promise_id)
 
     def _send_pending_commands_to_processor(self, cmd_type: type[Command]) -> None:
         cmd_buffer = self._cmd_buffers.get(cmd_type)
