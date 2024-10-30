@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from resonate.commands import CreateDurablePromiseReq
+from resonate.promise import Promise
 from resonate.retry_policy import never
 from resonate.scheduler import Scheduler
 from resonate.storage.resonate_server import RemoteServer
@@ -114,3 +115,43 @@ def test_factorial_multi_node() -> None:
     n = 5
     p: Promise[int] = s1.run(f"factorial-multi-node-{n}", factorial_node_1, n)
     assert p.result() == 120  # noqa: PLR2004
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_trigger_on_other_node() -> None:
+    def workflow(ctx: Context) -> Generator[Yieldable, Any, str]:
+        v1: int = yield ctx.rfc(
+            CreateDurablePromiseReq(
+                promise_id="foo-in-other-node",
+                data={"func": "foo", "args": [1], "kwargs": {}},
+                headers=None,
+                tags={"resonate:invoke": "poll://test-trigger-on-other-node-other"},
+            )
+        )
+        v2: str = yield ctx.rfc(
+            CreateDurablePromiseReq(
+                promise_id="bar-in-other-node",
+                data={"func": "bar", "args": ["Killua"], "kwargs": {}},
+                headers=None,
+                tags={"resonate:invoke": "poll://test-trigger-on-other-node-other"},
+            )
+        )
+        return f"{v2} is {v1}"
+
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    s1 = Scheduler(store, logic_group="test-trigger-on-other-node")
+    s1.register(workflow, retry_policy=never())
+
+    def _foo(ctx: Context, n: int) -> int:  # noqa: ARG001
+        return n
+
+    def _bar(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    s2 = Scheduler(store, logic_group="test-trigger-on-other-node-other")
+    s2.register(_foo, retry_policy=never(), name="foo")
+    s2.register(_bar, retry_policy=never(), name="bar")
+    p: Promise[str] = s1.run("test-trigger-on-other-node", workflow)
+    assert p.result() == "Killua is 1"
