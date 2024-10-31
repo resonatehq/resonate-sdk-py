@@ -218,11 +218,14 @@ def test_serverless_mechanics() -> None:
         time.sleep(0.5)  # This is not recommended. Just for testing.
         return n * (yield ctx.rfc(factorial, n - 1))
 
+    node_delations: int = 0
     while not p.done():
         serverless_node = Scheduler(store, logic_group=lambda_node_group)
         serverless_node.register(factorial)
-        serverless_node.wait_until_blocked(timeout=1)
+        serverless_node.wait_until_blocked(timeout=0.1)
         del serverless_node
+        node_delations += 1
 
     assert p.done()
     assert p.result() == 120  # noqa: PLR2004
+    assert node_delations > 1
