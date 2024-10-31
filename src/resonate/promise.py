@@ -34,7 +34,8 @@ class Promise(Generic[T]):
         self.parent_promise = parent_promise
         self.children_promises: list[Promise[Any]] = []
         self.leaf_promises = set[Promise[Any]]()
-        self._partition_root: bool = True
+        self._is_partition_root = self.parent_promise is None
+        self._marked_as_partition_root = False
 
         self.action = action
         if isinstance(action, (LFI, All, AllSettled, Race)):
@@ -45,15 +46,23 @@ class Promise(Generic[T]):
             assert_never(action)
 
     def is_partition_root(self) -> bool:
-        return self._partition_root
+        return self._is_partition_root or self._marked_as_partition_root
+
+    def is_marked_as_partition_root(self) -> bool:
+        return self._marked_as_partition_root
 
     def unmark_as_partition_root(self) -> None:
-        assert self._partition_root, "Promise is already not a partition root"
-        self._partition_root = False
+        assert (
+            self._marked_as_partition_root
+        ), "Promise is already marked as partition root"
+        self._marked_as_partition_root = not self._marked_as_partition_root
 
     def mark_as_partition_root(self) -> None:
-        assert not self._partition_root, "Promise is already a partition root"
-        self._partition_root = True
+        assert not self._is_partition_root, "Promise is already a partition root"
+        assert (
+            not self._marked_as_partition_root
+        ), "Promise is already marked as partition root"
+        self._marked_as_partition_root = not self._marked_as_partition_root
 
     def result(self, timeout: float | None = None) -> T:
         return self.f.result(timeout=timeout)
@@ -124,9 +133,6 @@ class Promise(Generic[T]):
             action=action,
             parent_promise=self,
         )
-        assert child.is_partition_root()
-        child.unmark_as_partition_root()
-        assert not child.is_partition_root()
 
         self.children_promises.append(child)
         self.leaf_promises.add(child)

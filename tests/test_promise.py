@@ -127,9 +127,15 @@ def test_partition_logic() -> None:
     assert f1.root() == f3
     f1.mark_as_partition_root()
     assert f1.is_partition_root()
+    assert f1.is_marked_as_partition_root()
     assert f1.partition_root() == f1
     assert f1.root() == f3
     f0 = f1.child_promise("f0", action)
     assert not f0.is_partition_root()
     assert f0.partition_root() == f1
+    assert f1.root() == f3
+    f1.unmark_as_partition_root()
+    assert not f1.is_partition_root()
+    assert not f1.is_marked_as_partition_root()
+    assert f1.partition_root() == f3
     assert f1.root() == f3

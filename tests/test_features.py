@@ -82,6 +82,8 @@ def test_factorial_same_node() -> None:
     s.register(factorial)
     n = 5
     p: Promise[int] = s.run(f"factorial-same-node-{n}", factorial, n)
+    s.wait_until_blocked()
+    assert not p.done()
     assert p.result() == 120  # noqa: PLR2004
 
 
@@ -185,3 +187,42 @@ def test_factorial_mechanics() -> None:
     n = 13
     p: Promise[int] = s.run(f"factorial-mechanics-{n}", factorial, n)
     assert p.result() == 92  # noqa: PLR2004
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_serverless_mechanics() -> None:
+    node_group = "test-serverless-mechanics"
+    lambda_node_group = "test-serverless-mechanics-lambda"
+
+    def workflow(ctx: Context) -> Generator[Yieldable, Any, int]:
+        v: int = yield ctx.rfc(
+            CreateDurablePromiseReq(
+                promise_id=None,
+                data={"func": "factorial", "args": [5], "kwargs": {}},
+                headers=None,
+                tags={"resonate:invoke": "poll://test-serverless-mechanics-lambda"},
+            )
+        )
+        return v
+
+    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    main_node = Scheduler(store, logic_group=node_group)
+    main_node.register(workflow, retry_policy=never())
+    p: Promise[int] = main_node.run("test-serverless-mechanics", workflow)
+
+    def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 0:
+            return 1
+        time.sleep(0.5)  # This is not recommended. Just for testing.
+        return n * (yield ctx.rfc(factorial, n - 1))
+
+    while not p.done():
+        serverless_node = Scheduler(store, logic_group=lambda_node_group)
+        serverless_node.register(factorial)
+        serverless_node.wait_until_blocked(timeout=1)
+        del serverless_node
+
+    assert p.done()
+    assert p.result() == 120  # noqa: PLR2004

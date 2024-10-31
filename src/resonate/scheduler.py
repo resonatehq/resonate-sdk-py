@@ -259,6 +259,7 @@ class Scheduler:
         self._task_record_queue = Queue[TaskRecord]()
 
         self._worker_continue = Event()
+        self._blocked = Event()
 
         self._delay_queue = DelayQueue[Union[RouteInfo, _BatchSQE]](
             caller_event=self._worker_continue
@@ -350,6 +351,7 @@ class Scheduler:
         self._signal()
 
     def _signal(self) -> None:
+        self._blocked.clear()
         self._worker_continue.set()
 
     def _complete_durable_promise_record(
@@ -419,6 +421,9 @@ class Scheduler:
 
     def wait_for_ever(self) -> None:
         Event().wait()
+
+    def wait_until_blocked(self, timeout: float | None = None) -> None:
+        self._blocked.wait(timeout)
 
     def _create_durable_promise_record(
         self, req: CreateDurablePromiseReq, *, claiming_task: bool
@@ -512,6 +517,7 @@ class Scheduler:
                     parent_promise_id=p.parent_promise_id(),
                 )
             )
+
             return p
 
         create_command = self._promise_to_create_durable_promise_req(p)
@@ -525,6 +531,7 @@ class Scheduler:
                 parent_promise_id=p.parent_promise_id(),
             )
         )
+
         if durable_promise_record.is_pending():
             return p
 
@@ -865,6 +872,12 @@ class Scheduler:
                 self._advance_runnable_span(runnable=runnable, was_awaited=was_awaited)
 
             assert len(self._runnables) == 0, "Runnables should have been all exhausted"
+            if isinstance(self._durable_promise_storage, ITaskStore):
+                assert self._claimed_tasks is not None
+                if len(self._claimed_tasks) == 0:
+                    self._blocked.set()
+            elif self._emphemeral_promise_memo.is_empty():
+                self._blocked.set()
 
     def _all_non_completed_leafs_are_remote_and_in_awaiting(
         self, root_promise: Promise[Any]
@@ -910,6 +923,8 @@ class Scheduler:
                     parent_promise_id=leaf_promise.parent_promise_id(),
                 )
             )
+
+        self._pop_from_memo_or_finish_partition_execution(promise=leaf_promise)
         assert self._awaiting.waiting_for(
             leaf_promise, "remote"
         ), f"There must be something waiting for {leaf_promise.promise_id}"
@@ -1070,8 +1085,9 @@ class Scheduler:
     def _pop_from_memo_or_finish_partition_execution(
         self, promise: Promise[Any]
     ) -> None:
-        if promise.is_partition_root():
+        if promise.is_marked_as_partition_root():
             promise.unmark_as_partition_root()
+
         else:
             self._emphemeral_promise_memo.pop(promise.promise_id)
 

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import os
 import time
-from concurrent.futures import TimeoutError
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
@@ -72,10 +70,14 @@ def test_scheduler(store: IPromiseStore) -> None:
     s.register(foo, "foo-function", retry_policy=never())
 
     promise: Promise[str] = s.run("baz-1", baz, name="A", sleep_time=0.02)
-    assert promise.result(timeout=4) == "A"
+    s.wait_until_blocked()
+    assert promise.done()
+    assert promise.result() == "A"
 
     promise = s.run("foo-1", foo, name="B", sleep_time=0.02)
-    assert promise.result(timeout=4) == "B"
+    s.wait_until_blocked()
+    assert promise.done()
+    assert promise.result() == "B"
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -106,7 +108,10 @@ def test_multithreading_capabilities(store: IPromiseStore) -> None:
         name="C",
         sleep_time=time_per_process,
     )
-
+    s.wait_until_blocked()
+    assert p1.done()
+    assert p2.done()
+    assert p2.done()
     assert p1.result() == "A"
     assert p2.result() == "B"
     assert p3.result() == "C"
@@ -138,6 +143,8 @@ def test_retry(store: IPromiseStore) -> None:
     s.register(coro, "coro-func", retry_policy=never())
 
     p: Promise[None] = s.run("retry-coro", coro, dataclasses.asdict(policy))
+    s.wait_until_blocked()
+    assert p.done()
     with pytest.raises(RuntimeError):
         assert p.result()
     assert tries == 3  # noqa: PLR2004
@@ -167,6 +174,8 @@ def test_structure_concurrency(store: IPromiseStore) -> None:
         "structure-concurrency",
         coro_that_triggers_structure_concurrency,
     )
+    s.wait_until_blocked()
+    assert p.done()
     assert p.result()
     assert child_p is not None
     assert child_p.done()
@@ -200,6 +209,8 @@ def test_structure_concurrency_with_failure(store: IPromiseStore) -> None:
         "structure-concurrency-with-failure",
         coro_that_triggers_structure_concurrency_and_fails,
     )
+    s.wait_until_blocked()
+    assert p.done()
     with pytest.raises(RuntimeError):
         p.result()
 
@@ -233,6 +244,8 @@ def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> N
         "structure-concurrency-with-many-failure",
         coro_that_trigger_structure_concurrency_and_multiple_errors,
     )
+    s.wait_until_blocked()
+    assert p.done()
     with pytest.raises(TypeError):
         p.result()
 
@@ -256,11 +269,14 @@ def test_deferred_invoke(store: IPromiseStore) -> None:
     s.register(foo, "foo")
 
     p: Promise[int] = s.run("test-deferred-invoke", coro_with_deferred_invoke)
+    s.wait_until_blocked()
+    assert p.done()
     assert p.result() == 1
     assert deferred_p is not None
-    assert not deferred_p.done()
+    assert deferred_p.done()
 
     def_p = s.run("deferred-invoke", foo, name="B", sleep_time=120)
+    assert def_p.done()
     assert def_p.result() == "A"
 
 
@@ -328,32 +344,41 @@ def test_all_combinator(store: IPromiseStore) -> None:
     p_all: Promise[list[str]] = s.run(
         "all-coro-0", all_coro, waits_results=waits_results
     )
+    s.wait_until_blocked()
+    assert p_all.done()
     assert p_all.result() == expected
 
     # Test case 2
     waits_results = [(0.05, "A"), (0.04, "B"), (0.03, "C"), (0.02, "D"), (0.01, "E")]
     expected = ["A", "B", "C", "D", "E"]
     p_all = s.run("all-coro-1", all_coro, waits_results=waits_results)
+    s.wait_until_blocked()
+    assert p_all.done()
     assert p_all.result() == expected
 
     # Test case 3
     waits_results = [(0.01, "A"), (0.01, "B"), (0.01, "C")]
     expected = ["A", "B", "C"]
     p_all = s.run("all-coro-2", all_coro, waits_results=waits_results)
+    s.wait_until_blocked()
+    assert p_all.done()
     assert p_all.result() == expected
 
     # Test case 4
     waits_results = [(0.1, "A")]
     expected = ["A"]
     p_all = s.run("all-coro-3", all_coro, waits_results=waits_results)
+    s.wait_until_blocked()
+    assert p_all.done()
     assert p_all.result() == expected
 
     # Test case - empty list
     waits_results = []
     expected = []
     p_all = s.run("all-coro-4", all_coro, waits_results=waits_results)
-    # failure of this test will most likely appear as a timeout
-    assert p_all.result(timeout=1) == expected
+    s.wait_until_blocked()
+    assert p_all.done()
+    assert p_all.result() == expected
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -366,12 +391,16 @@ def test_all_settled_combinator(store: IPromiseStore) -> None:
     p_all_settled: Promise[list[Any]] = s.run(
         "all-settled-coro-0", all_settled_coro, vals=vals
     )
+    s.wait_until_blocked()
+    assert p_all_settled.done()
     assert p_all_settled.result() == expected
 
     # Test case 2
     vals = ["A"]
     expected = ["A"]
     p_all_settled = s.run("all-settled-coro-1", all_settled_coro, vals=vals)
+    s.wait_until_blocked()
+    assert p_all_settled.done()
     assert p_all_settled.result() == expected
 
     # Test case 3
@@ -388,8 +417,9 @@ def test_all_settled_combinator(store: IPromiseStore) -> None:
     vals = []
     expected = []
     p_all_settled = s.run("all-settled-coro-3", all_settled_coro, vals=vals)
-    # failure of this test will most likely appear as a timeout
-    assert p_all_settled.result(timeout=1) == expected
+    s.wait_until_blocked()
+    assert p_all_settled.done()
+    assert p_all_settled.result() == expected
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -401,29 +431,39 @@ def test_race_combinator(store: IPromiseStore) -> None:
     expected = "C"
     s.register(race_coro, "race-coro", retry_policy=never())
     p_race: Promise[str] = s.run("race-coro-0", race_coro, waits_results=waits_results)
+    s.wait_until_blocked()
+    assert p_race.done()
     assert p_race.result() == expected
 
     # Test case 2
     waits_results = [(0.1, "A"), (0.1, "B"), (0.1, "C"), (0.1, "D"), (0.01, "E")]
     expected = "E"
     p_race = s.run("race-coro-1", race_coro, waits_results=waits_results)
+    s.wait_until_blocked()
+    assert p_race.done()
     assert p_race.result() == expected
 
     # # Test case 3
     waits_results = [(0.01, "A"), (0.1, "B"), (0.1, "C")]
     expected = "A"
     p_race = s.run("race-coro-2", race_coro, waits_results=waits_results)
+    s.wait_until_blocked()
+    assert p_race.done()
     assert p_race.result() == expected
 
     # Test case 4
     waits_results = [(0.1, "A")]
     expected = "A"
     p_race = s.run("race-coro-3", race_coro, waits_results=waits_results)
+    s.wait_until_blocked()
+    assert p_race.done()
     assert p_race.result() == expected
 
     # Test case 5
     waits_results = []
     p_race = s.run("race-coro-4", race_coro, waits_results=waits_results)
+    s.wait_until_blocked()
+    assert p_race.done()
     with pytest.raises(AssertionError):
         p_race.result()
 
@@ -442,6 +482,8 @@ def test_coro_retry(store: IPromiseStore) -> None:
 
     s.register(_coro_to_retry, "coro-to-retry", constant(delay=0, max_retries=3))
     p: Promise[int] = s.run("coro-to-retry.1", _coro_to_retry)
+    s.wait_until_blocked()
+    assert p.done()
     with pytest.raises(ValueError):  # noqa: PT011
         p.result()
 
@@ -470,8 +512,8 @@ def test_rfc_raw() -> None:
     s = scheduler.Scheduler(durable_promise_storage=store)
     s.register(_raw_rfc)
     p: Promise[None] = s.run("test-raw-rfc", _raw_rfc)
-    with contextlib.suppress(TimeoutError):
-        p.result(timeout=0.2)
+    s.wait_until_blocked()
+    assert not p.done()
 
     child_promise_record = store.get(promise_id="abc")
     assert child_promise_record.promise_id == "abc"
@@ -495,9 +537,10 @@ def test_dedup(store: IPromiseStore) -> None:
     n = 5
     p1: Promise[int] = s.run(f"factorial-dedup-{n}", factorial, n)
     p2: Promise[int] = s.run(f"factorial-dedup-{n}", factorial, n)
+    s.wait_until_blocked()
+    assert p1.done()
     assert p1 == p2
     assert p2.result() == 120  # noqa: PLR2004
-    assert p1.done()
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -545,7 +588,10 @@ def test_batching(store: IPromiseStore) -> None:
         p: Promise[str] = s.run(f"test-batching-greet-{name}", greet, name)
         promises.append(p)
 
+    s.wait_until_blocked()
+
     for p, name in zip(promises, characters):
+        assert p.done()
         assert p.result() == name
 
 
@@ -577,8 +623,10 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
     for n in range(10):
         p: Promise[str] = s.run(f"do-something-{n}", do_something, n)
         promises.append(p)
+    s.wait_until_blocked()
 
     for p in promises:
+        assert p.done()
         with pytest.raises(RuntimeError):
             p.result()
 
@@ -605,8 +653,10 @@ def test_batching_with_no_result(store: IPromiseStore) -> None:
     for n in range(10):
         p: Promise[str] = s.run(f"do-something-with-no-result-{n}", do_something, n)
         promises.append(p)
+    s.wait_until_blocked()
 
     for p in promises:
+        assert p.done()
         assert p.result() is None
 
 
@@ -634,8 +684,11 @@ def test_batching_with_single_result(store: IPromiseStore) -> None:
         p: Promise[str] = s.run(f"do-something-with-single-result-{n}", do_something, n)
         promises.append(p)
 
-        for p in promises:
-            assert p.result() == "Ok"
+    s.wait_until_blocked()
+
+    for p in promises:
+        assert p.done()
+        assert p.result() == "Ok"
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -669,6 +722,8 @@ def test_batching_with_failing_func_and_retries(store: IPromiseStore) -> None:
 
     n = 1
     p: Promise[str] = s.run(f"test-batch-retries{n}", do_something, n)
+    s.wait_until_blocked()
+    assert p.done()
 
     with pytest.raises(RuntimeError):
         p.result()
@@ -713,9 +768,12 @@ def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
     for i in range(10):
         promises.append(s.run(f"test-batch-element-level-failure{i}", do_something, i))  # noqa: PERF401
 
+    s.wait_until_blocked()
+
     successes = 0
     failures = 0
     for p in promises:
+        assert p.done()
         result = p.safe_result()
         if isinstance(result, Ok):
             successes += 1
@@ -742,6 +800,8 @@ def test_remote_call_same_node() -> None:
     s.register(_remotely, retry_policy=never())
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-call-same-node", _remotely)
+    s.wait_until_blocked()
+    assert not p.done()
     assert p.result() == 1
 
 
@@ -765,6 +825,8 @@ def test_remote_invocation_same_node() -> None:
     s.register(_remotely, retry_policy=never())
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-invocation-same-node", _remotely)
+    s.wait_until_blocked()
+    assert not p.done()
     assert p.result() == 1
 
 
@@ -793,4 +855,6 @@ def test_remote_invocation_other_node() -> None:
     s_other.register(_number_from_other_node, retry_policy=never())
 
     p: Promise[int] = s.run("test-remote-invocation-other-node", _remotely)
+    s.wait_until_blocked()
+    assert not p.done()
     assert p.result() == 1

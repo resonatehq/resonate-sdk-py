@@ -99,6 +99,9 @@ class EphemeralMemo(Generic[K, V]):
     def clear(self) -> None:
         self._memo.clear()
 
+    def is_empty(self) -> bool:
+        return len(self._memo) == 0
+
 
 class DoubleDict(Generic[K, V]):
     def __init__(self, data: dict[K, V] | None = None) -> None:
