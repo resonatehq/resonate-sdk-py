@@ -30,7 +30,7 @@ class Promise(Generic[T]):
     ) -> None:
         self.promise_id = promise_id
         self.f = Future[T]()
-        self._num_children = 0
+        self._next_child_num = 1
         self.parent_promise = parent_promise
         self.children_promises: list[Promise[Any]] = []
         self.leaf_promises = set[Promise[Any]]()
@@ -120,17 +120,13 @@ class Promise(Generic[T]):
             maybe_root = maybe_root.parent_promise
 
     def child_name(self) -> str:
-        return f"{self.promise_id}.{self._num_children}"
+        return f"{self.promise_id}.{self._next_child_num}"
 
     def child_promise(
         self,
-        promise_id: str | None,
+        promise_id: str,
         action: PromiseActions,
     ) -> Promise[Any]:
-        self._num_children += 1
-        if promise_id is None:
-            promise_id = self.child_name()
-
         child = Promise[Any](
             promise_id=promise_id,
             action=action,
@@ -144,6 +140,7 @@ class Promise(Generic[T]):
             root_promise.leaf_promises.discard(self)
             root_promise.leaf_promises.add(child)
 
+        self._next_child_num += 1
         return child
 
 

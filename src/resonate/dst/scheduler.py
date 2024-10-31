@@ -306,7 +306,7 @@ class DSTScheduler:
     def _create_promise(
         self,
         parent_promise: Promise[Any] | None,
-        promise_id: str | None,
+        promise_id: str,
         action: PromiseActions,
     ) -> Promise[Any]:
         if parent_promise is not None:
@@ -579,14 +579,19 @@ class DSTScheduler:
     def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        if invocation.opts.promise_id is not None:
-            p = self._emphemeral_promise_memo.get(invocation.opts.promise_id)
-            if p is not None:
-                return p
+        promise_id = (
+            invocation.opts.promise_id
+            if invocation.opts.promise_id is not None
+            else runnable.coro.route_info.promise.child_name()
+        )
+
+        p = self._emphemeral_promise_memo.get(promise_id)
+        if p is not None:
+            return p
 
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
-            promise_id=invocation.opts.promise_id,
+            promise_id=promise_id,
             action=invocation,
         )
         if isinstance(invocation.exec_unit, Command):

@@ -495,7 +495,7 @@ class Scheduler:
     def _create_promise(
         self,
         parent_promise: Promise[Any] | None,
-        promise_id: str | None,
+        promise_id: str,
         action: PromiseActions,
         *,
         claiming_task: bool,
@@ -1279,6 +1279,8 @@ class Scheduler:
         else:
             assert isinstance(invocation.exec_unit, CreateDurablePromiseReq)
             promise_id = invocation.exec_unit.promise_id
+        if promise_id is None:
+            promise_id = runnable.coro.route_info.promise.child_name()
 
         if promise_id is not None:
             p = self._emphemeral_promise_memo.get(promise_id)
@@ -1294,14 +1296,19 @@ class Scheduler:
     def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        if invocation.opts.promise_id is not None:
-            p = self._emphemeral_promise_memo.get(invocation.opts.promise_id)
-            if p is not None:
-                return p
+        promise_id = (
+            invocation.opts.promise_id
+            if invocation.opts.promise_id is not None
+            else runnable.coro.route_info.promise.child_name()
+        )
+
+        p = self._emphemeral_promise_memo.get(promise_id)
+        if p is not None:
+            return p
 
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
-            promise_id=invocation.opts.promise_id,
+            promise_id=promise_id,
             action=invocation,
             claiming_task=False,
         )
@@ -1335,14 +1342,19 @@ class Scheduler:
     def _process_combinator(
         self, combinator: Combinator, runnable: Runnable[Any]
     ) -> Promise[Any]:
-        if combinator.opts.promise_id is not None:
-            p = self._emphemeral_promise_memo.get(combinator.opts.promise_id)
-            if p is not None:
-                return p
+        promise_id = (
+            combinator.opts.promise_id
+            if combinator.opts.promise_id is not None
+            else runnable.coro.route_info.promise.child_name()
+        )
+
+        p = self._emphemeral_promise_memo.get(promise_id)
+        if p is not None:
+            return p
 
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
-            promise_id=combinator.opts.promise_id,
+            promise_id=promise_id,
             action=combinator,
             claiming_task=False,
         )
