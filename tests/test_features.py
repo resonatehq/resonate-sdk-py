@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from random import randint
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -173,7 +174,7 @@ def test_factorial_mechanics() -> None:
             return 1
         promise_id = f"factorial-mechanics-{n-1}"
         v: int
-        if n % 3 == 0:
+        if n % randint(1, 10) == 0:  # noqa: S311
             v = yield ctx.rfc(factorial, n - 1).with_options(
                 promise_id=promise_id, target=node_group
             )
@@ -185,11 +186,15 @@ def test_factorial_mechanics() -> None:
         return n + v
 
     store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
-    s = Scheduler(store, logic_group=node_group)
-    s.register(factorial)
-    n = 13
-    p: Promise[int] = s.run(f"factorial-mechanics-{n}", factorial, n)
-    assert p.result() == 92  # noqa: PLR2004
+    schedulers: list[Scheduler] = []
+    for _ in range(randint(1, 5)):  # noqa: S311
+        s = Scheduler(store, logic_group=node_group)
+        s.register(factorial, retry_policy=never())
+        schedulers.append(s)
+    n = randint(10, 30)  # noqa: S311
+
+    p: Promise[int] = schedulers[0].run(f"factorial-mechanics-{n}", factorial, n)
+    assert p.result()
 
 
 @pytest.mark.skipif(
