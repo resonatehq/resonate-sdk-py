@@ -350,6 +350,10 @@ class Scheduler:
         self._combinators_queue.put_nowait((combinator, promise))
         self._signal()
 
+    def wait_for_next_task(self) -> None:
+        assert self._blocked.is_set(), "Scheduler must be blocked to use this method."
+        self._blocked.clear()
+
     def _signal(self) -> None:
         self._blocked.clear()
         self._worker_continue.set()

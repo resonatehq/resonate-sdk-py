@@ -42,8 +42,7 @@ def test_human_in_the_loop() -> None:
     s = Scheduler(store)
     s.register(human_in_the_loop, retry_policy=never())
     p: Promise[str] = s.run("test-feature-human-in-the-loop", human_in_the_loop)
-    assert not p.done()
-    time.sleep(2)
+    s.wait_until_blocked()
     store.resolve(
         promise_id="test-human-in-loop-question-to-answer-1",
         ikey=None,
@@ -51,7 +50,8 @@ def test_human_in_the_loop() -> None:
         headers=None,
         data=json.dumps("Peter"),
     )
-    time.sleep(2)
+    s.wait_for_next_task()
+    s.wait_until_blocked()
     store.resolve(
         promise_id="test-human-in-loop-question-to-answer-2",
         ikey=None,
@@ -59,6 +59,9 @@ def test_human_in_the_loop() -> None:
         headers=None,
         data=json.dumps(50),
     )
+    s.wait_for_next_task()
+    s.wait_until_blocked()
+    assert p.done()
     assert p.result() == "Hi Peter with age 50"
 
 
