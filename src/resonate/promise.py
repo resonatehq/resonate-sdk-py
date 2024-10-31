@@ -119,6 +119,9 @@ class Promise(Generic[T]):
             assert maybe_root.parent_promise is not None
             maybe_root = maybe_root.parent_promise
 
+    def child_name(self) -> str:
+        return f"{self.promise_id}.{self._num_children}"
+
     def child_promise(
         self,
         promise_id: str | None,
@@ -126,7 +129,7 @@ class Promise(Generic[T]):
     ) -> Promise[Any]:
         self._num_children += 1
         if promise_id is None:
-            promise_id = f"{self.promise_id}.{self._num_children}"
+            promise_id = self.child_name()
 
         child = Promise[Any](
             promise_id=promise_id,

@@ -1280,6 +1280,10 @@ class Scheduler:
             assert isinstance(invocation.exec_unit, CreateDurablePromiseReq)
             promise_id = invocation.exec_unit.promise_id
 
+        if promise_id is not None:
+            p = self._emphemeral_promise_memo.get(promise_id)
+            if p is not None:
+                return p
         return self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=promise_id,
@@ -1290,6 +1294,11 @@ class Scheduler:
     def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
+        if invocation.opts.promise_id is not None:
+            p = self._emphemeral_promise_memo.get(invocation.opts.promise_id)
+            if p is not None:
+                return p
+
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=invocation.opts.promise_id,
@@ -1326,6 +1335,11 @@ class Scheduler:
     def _process_combinator(
         self, combinator: Combinator, runnable: Runnable[Any]
     ) -> Promise[Any]:
+        if combinator.opts.promise_id is not None:
+            p = self._emphemeral_promise_memo.get(combinator.opts.promise_id)
+            if p is not None:
+                return p
+
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=combinator.opts.promise_id,

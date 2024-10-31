@@ -387,6 +387,11 @@ class DSTScheduler:
         self, top_lvl: LFI, promise_id: str
     ) -> Promise[Any]:
         assert isinstance(top_lvl.exec_unit, FnOrCoroutine)
+        if promise_id is not None:
+            p = self._emphemeral_promise_memo.get(promise_id)
+            if p is not None:
+                return p
+
         p = self._create_promise(
             parent_promise=None,
             promise_id=promise_id,
@@ -574,6 +579,11 @@ class DSTScheduler:
     def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
     ) -> Promise[Any]:
+        if invocation.opts.promise_id is not None:
+            p = self._emphemeral_promise_memo.get(invocation.opts.promise_id)
+            if p is not None:
+                return p
+
         p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=invocation.opts.promise_id,

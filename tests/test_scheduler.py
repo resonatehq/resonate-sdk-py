@@ -151,6 +151,29 @@ def test_retry(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
+def test_async_fibonacci(store: IPromiseStore) -> None:
+    def fibonacci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+        p1: Promise[Any] = yield ctx.lfi(fibonacci, n - 1).with_options(
+            promise_id=f"async-fibonacci-{n-1}"
+        )
+        p2: Promise[Any] = yield ctx.lfi(fibonacci, n - 2).with_options(
+            promise_id=f"async-fibonacci-{n-2}"
+        )
+        v2 = yield p2
+        v1 = yield p1
+        return v1 + v2
+
+    s = scheduler.Scheduler(durable_promise_storage=store)
+    s.register(fibonacci, "async-fibonacci")
+    n = 40
+    p: Promise[int] = s.run(f"async-fibonacci-{n}", fibonacci, n)
+    s.wait_until_blocked()
+    assert p.result() == 102334155  # noqa: PLR2004
+
+
+@pytest.mark.parametrize("store", _promise_storages())
 def test_structure_concurrency(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(durable_promise_storage=store)
 
