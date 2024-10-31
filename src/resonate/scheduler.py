@@ -350,7 +350,7 @@ class Scheduler:
         self._combinators_queue.put_nowait((combinator, promise))
         self._signal()
 
-    def wait_for_next_task(self) -> None:
+    def clear_blocked_flag(self) -> None:
         assert self._blocked.is_set(), "Scheduler must be blocked to use this method."
         self._blocked.clear()
 
@@ -876,6 +876,7 @@ class Scheduler:
                 self._advance_runnable_span(runnable=runnable, was_awaited=was_awaited)
 
             assert len(self._runnables) == 0, "Runnables should have been all exhausted"
+
             if isinstance(self._durable_promise_storage, ITaskStore):
                 assert self._claimed_tasks is not None
                 if len(self._claimed_tasks) == 0:
@@ -1019,12 +1020,12 @@ class Scheduler:
                 parent_promise_id=promise.parent_promise_id(),
             )
         )
-        if awaiting_for == "remote":
-            partition_root = promise.partition_root()
-            if self._all_non_completed_leafs_are_remote_and_in_awaiting(partition_root):
-                self._complete_task_monitoring_promise(
-                    promise_id=partition_root.promise_id
-                )
+        if awaiting_for == "local":
+            return
+
+        partition_root = promise.partition_root()
+        if self._all_non_completed_leafs_are_remote_and_in_awaiting(partition_root):
+            self._complete_task_monitoring_promise(promise_id=partition_root.promise_id)
 
     def _add_coro_to_runnables(
         self,
@@ -1091,7 +1092,6 @@ class Scheduler:
     ) -> None:
         if promise.is_marked_as_partition_root():
             promise.unmark_as_partition_root()
-
         else:
             self._emphemeral_promise_memo.pop(promise.promise_id)
 

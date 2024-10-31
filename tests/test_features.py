@@ -51,7 +51,7 @@ def test_human_in_the_loop() -> None:
         headers=None,
         data=json.dumps("Peter"),
     )
-    s.wait_for_next_task()
+    s.clear_blocked_flag()
     s.wait_until_blocked()
     store.resolve(
         promise_id="test-human-in-loop-question-to-answer-2",
@@ -60,7 +60,7 @@ def test_human_in_the_loop() -> None:
         headers=None,
         data=json.dumps(50),
     )
-    s.wait_for_next_task()
+    s.clear_blocked_flag()
     s.wait_until_blocked()
     assert p.done()
     assert p.result() == "Hi Peter with age 50"
@@ -160,6 +160,8 @@ def test_trigger_on_other_node() -> None:
     s2.register(_foo, retry_policy=never(), name="foo")
     s2.register(_bar, retry_policy=never(), name="bar")
     p: Promise[str] = s1.run("test-trigger-on-other-node", workflow)
+    s1.wait_until_blocked()
+    assert not p.done()
     assert p.result() == "Killua is 1"
 
 
