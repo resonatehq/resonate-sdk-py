@@ -333,10 +333,10 @@ def test_fibonnaci_mechanics_no_awaiting() -> None:
         s = Scheduler(store, logic_group=node_group)
         s.register(fibonnaci, retry_policy=never())
         schedulers.append(s)
-    n = 5
+    n = 8
 
     p: Promise[int] = schedulers[0].run(
         f"fibonnaci-mechanics-no-awaiting-{n}", fibonnaci, n
     )
 
-    assert p.result() == 3
+    assert p.result() == 13  # noqa: PLR2004
