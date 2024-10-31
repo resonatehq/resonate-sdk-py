@@ -246,10 +246,8 @@ def test_fibonnaci_mechanics_awaiting() -> None:
     node_group = "test-fibonnaci-mechanics-awaiting"
 
     def fibonnaci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
-        if n == 1:
-            return 0
-        if n == 2:  # noqa: PLR2004
-            return 1
+        if n <= 1:
+            return n
 
         promise_id_n1 = f"fibonnaci-mechanics-awaiting-{n-1}"
         n1: int
@@ -296,10 +294,8 @@ def test_fibonnaci_mechanics_no_awaiting() -> None:
     node_group = "test-fibonnaci-mechanics-no-awaiting"
 
     def fibonnaci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
-        if n == 1:
-            return 0
-        if n == 2:  # noqa: PLR2004
-            return 1
+        if n <= 1:
+            return n
 
         promise_id_n1 = f"fibonnaci-mechanics-no-awaiting-{n-1}"
         pn1: Promise[int]
