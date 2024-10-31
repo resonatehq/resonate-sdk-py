@@ -20,7 +20,7 @@ from resonate.actions import (
     Race,
 )
 from resonate.batching import CmdBuffer
-from resonate.collections import Awaiting, EphemeralMemo, Runnables
+from resonate.collections import Awaiting, EphemeralMemo
 from resonate.commands import Command
 from resonate.contants import CWD
 from resonate.context import (
@@ -66,6 +66,7 @@ if TYPE_CHECKING:
         DurableFn,
         MockFn,
         PromiseActions,
+        Runnables,
     )
 
 
@@ -114,7 +115,7 @@ class DSTScheduler:
         durable_promise_storage: IPromiseStore,
     ) -> None:
         self._stg_queue: list[tuple[LFI, str]] = []
-        self._runnable_coros = Runnables()
+        self._runnable_coros: Runnables = deque()
         self._awaiting = Awaiting()
         self._runnable_functions: RunnableFunctions = deque()
 
@@ -250,11 +251,7 @@ class DSTScheduler:
         *,
         was_awaited: bool,
     ) -> None:
-        self._runnable_coros.append(
-            coro,
-            value_to_yield_back,
-            was_awaited=was_awaited,
-        )
+        self._runnable_coros.append((Runnable(coro, value_to_yield_back), was_awaited))
 
     def _add_function_to_runnables(
         self,
@@ -490,7 +487,7 @@ class DSTScheduler:
             if self._assert_always is not None:
                 self._assert_always(self.deps, self.seed, self.tick)
 
-            if not self._runnable_functions and not self._runnable_coros.available:
+            if not self._runnable_functions and not self._runnable_coros:
                 cmds_to_be_executed = self._cmds_waiting_to_be_executed()
                 if len(cmds_to_be_executed) == 0:
                     break
@@ -531,7 +528,7 @@ class DSTScheduler:
 
             elif next_step == "coroutines":
                 runnable, was_awaited = self._get_random_element(
-                    array=self._runnable_coros.available,
+                    array=self._runnable_coros,
                 )
                 self._advance_runnable_span(runnable=runnable, was_awaited=was_awaited)
             else:
@@ -711,11 +708,9 @@ class DSTScheduler:
 
         elif not self._runnable_functions:
             next_step = "coroutines"
-            assert (
-                self._runnable_coros.available
-            ), "There should something in runnable coroutines"
+            assert self._runnable_coros, "There should something in runnable coroutines"
 
-        elif not self._runnable_coros.available:
+        elif not self._runnable_coros:
             next_step = "functions"
             assert (
                 self._runnable_functions

@@ -1,48 +1,16 @@
 from __future__ import annotations
 
-from collections import deque
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from typing_extensions import assert_never
 
-from resonate.dataclasses import ResonateCoro, Runnable
-
 if TYPE_CHECKING:
+    from resonate.dataclasses import ResonateCoro
     from resonate.promise import Promise
-    from resonate.result import Result
     from resonate.typing import AwaitingFor
 
 V = TypeVar("V")
 K = TypeVar("K")
-
-
-class Runnables:
-    def __init__(self) -> None:
-        self.available = deque[tuple[Runnable[Any], bool]]()
-
-    def nothing_in_available(self) -> bool:
-        return len(self.available) == 0
-
-    def clear(self) -> None:
-        self.available.clear()
-
-    def appendleft(
-        self,
-        coro: ResonateCoro[Any],
-        next_value: Result[Any, Exception] | None,
-        *,
-        was_awaited: bool,
-    ) -> None:
-        self.available.appendleft((Runnable(coro, next_value), was_awaited))
-
-    def append(
-        self,
-        coro: ResonateCoro[Any],
-        next_value: Result[Any, Exception] | None,
-        *,
-        was_awaited: bool,
-    ) -> None:
-        self.available.append((Runnable(coro, next_value), was_awaited))
 
 
 class Awaiting:

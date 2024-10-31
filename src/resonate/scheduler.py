@@ -5,6 +5,7 @@ import sys
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections import deque
 from inspect import isgeneratorfunction
 from threading import Event, Thread
 from typing import (
@@ -30,7 +31,7 @@ from resonate.actions import (
     Race,
 )
 from resonate.batching import CommandBuffer
-from resonate.collections import Awaiting, DoubleDict, EphemeralMemo, Runnables
+from resonate.collections import Awaiting, DoubleDict, EphemeralMemo
 from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.context import Context
 from resonate.dataclasses import (
@@ -83,6 +84,7 @@ if TYPE_CHECKING:
         DurableCoro,
         DurableFn,
         PromiseActions,
+        Runnables,
     )
 
 T = TypeVar("T")
@@ -272,7 +274,7 @@ class Scheduler:
             tracing_adapter if tracing_adapter is not None else StdOutAdapter()
         )
 
-        self._runnables = Runnables()
+        self._runnables: Runnables = deque()
         self._awaiting = Awaiting()
 
         self._processor = _Processor(
@@ -858,13 +860,11 @@ class Scheduler:
                 else:
                     self._enqueue_combinator(combinator, p)
 
-            while self._runnables.available:
-                runnable, was_awaited = self._runnables.available.pop()
+            while self._runnables:
+                runnable, was_awaited = self._runnables.pop()
                 self._advance_runnable_span(runnable=runnable, was_awaited=was_awaited)
 
-            assert (
-                self._runnables.nothing_in_available()
-            ), "Runnables should have been all exhausted"
+            assert len(self._runnables) == 0, "Runnables should have been all exhausted"
 
     def _all_non_completed_leafs_are_remote_and_in_awaiting(
         self, root_promise: Promise[Any]
@@ -1014,7 +1014,7 @@ class Scheduler:
         *,
         was_awaited: bool,
     ) -> None:
-        self._runnables.appendleft(coro, value_to_yield_back, was_awaited=was_awaited)
+        self._runnables.appendleft((Runnable(coro, value_to_yield_back), was_awaited))
 
     def _unblock_coros_waiting_on_promise(
         self,
