@@ -423,7 +423,7 @@ class Scheduler:
         )
         self._pop_from_memo_or_finish_partition_execution(promise=promise)
 
-    def wait_for_ever(self) -> None:
+    def wait_forever(self) -> None:
         Event().wait()
 
     def wait_until_blocked(self, timeout: float | None = None) -> None:
