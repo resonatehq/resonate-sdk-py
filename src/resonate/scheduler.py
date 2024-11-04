@@ -408,20 +408,8 @@ class Scheduler:
             durable_promise.is_completed()
         ), "Callback won't be created only if durable promise has been completed."
         v = self._get_value_from_durable_promise(durable_promise_record=durable_promise)
-        promise.set_result(v)
-        assert self._emphemeral_promise_memo.has(
-            promise.promise_id
-        ), "Ephemeral process must have been registered in the memo."
-
-        self._tracing_adapter.process_event(
-            PromiseCompleted(
-                promise_id=promise.promise_id,
-                tick=now(),
-                value=v,
-                parent_promise_id=promise.parent_promise_id(),
-            )
-        )
-        self._pop_from_memo_or_finish_partition_execution(promise=promise)
+        self._resolve_promise(promise, v)
+        self._pop_from_memo_or_finish_partition_execution(promise)
 
     def wait_forever(self) -> None:
         Event().wait()
@@ -492,18 +480,17 @@ class Scheduler:
                 v = Ok(self._json_encoder.decode(durable_promise_record.value.data))
         return v
 
-    def _create_promise_or_dedup(
+    def _dedup_promise(self, promise_id: str) -> Promise[Any] | None:
+        return self._emphemeral_promise_memo.get(promise_id)
+
+    def _create_promise(
         self,
         parent_promise: Promise[Any] | None,
         promise_id: str,
         action: PromiseActions,
         *,
         claiming_task: bool,
-    ) -> tuple[Promise[Any], bool]:
-        p = self._emphemeral_promise_memo.get(promise_id)
-        if p is not None:
-            return p, True
-
+    ) -> Promise[Any]:
         if parent_promise is not None:
             p = parent_promise.child_promise(promise_id=promise_id, action=action)
 
@@ -526,7 +513,7 @@ class Scheduler:
                 )
             )
 
-            return p, False
+            return p
 
         create_command = self._promise_to_create_durable_promise_req(p)
         durable_promise_record = self._create_durable_promise_record(
@@ -541,7 +528,7 @@ class Scheduler:
         )
 
         if durable_promise_record.is_pending():
-            return p, False
+            return p
 
         assert (
             durable_promise_record.value.data is not None
@@ -551,8 +538,9 @@ class Scheduler:
             durable_promise_record=durable_promise_record
         )
 
-        self._resolve_promise(p, v, on_server=False)
-        return p, False
+        self._resolve_promise(p, v)
+        self._pop_from_memo_or_finish_partition_execution(p)
+        return p
 
     def _promise_to_create_durable_promise_req(  # noqa: C901, PLR0912
         self, promise: Promise[Any]
@@ -680,8 +668,10 @@ class Scheduler:
         attached_options = self._attached_options_to_top_lvl[function_name]
 
         assert attached_options.durable, "All top level invocation must be durable."
-
-        p, deduped = self._create_promise_or_dedup(
+        p = self._dedup_promise(promise_id)
+        if p is not None:
+            return p
+        p = self._create_promise(
             promise_id=promise_id,
             parent_promise=None,
             action=LFI(
@@ -690,9 +680,6 @@ class Scheduler:
             ),
             claiming_task=self._claim_task_while_creating_top_level,
         )
-        if deduped:
-            return p
-
         self._stg_queue.put_nowait(p)
         self._signal()
         return p
@@ -743,19 +730,20 @@ class Scheduler:
     def _resolve_promise_with_cqe(self, cqe: _CQE) -> None:
         awaiting_for: AwaitingFor = "local"
         if isinstance(cqe, _FnCQE):
+            promise = cqe.sqe.route_info.promise
             self._tracing_adapter.process_event(
                 ExecutionTerminated(
-                    promise_id=cqe.sqe.route_info.promise.promise_id,
-                    parent_promise_id=cqe.sqe.route_info.promise.parent_promise_id(),
+                    promise_id=promise.promise_id,
+                    parent_promise_id=promise.parent_promise_id(),
                     tick=now(),
                 )
             )
-            self._resolve_promise(
-                cqe.sqe.route_info.promise, value=cqe.fn_result, on_server=True
-            )
-            self._unblock_coros_waiting_on_promise(
-                cqe.sqe.route_info.promise, awaiting_for
-            )
+            value = cqe.fn_result
+            if promise.durable:
+                value = self._resolve_durable_promise(promise, value)
+            self._resolve_promise(promise, value=value)
+            self._unblock_coros_waiting_on_promise(promise, awaiting_for)
+            self._pop_from_memo_or_finish_partition_execution(promise)
 
         elif isinstance(cqe, _BatchCQE):
             if isinstance(cqe.result, Ok) and isinstance(cqe.result.unwrap(), list):
@@ -773,11 +761,12 @@ class Scheduler:
                             tick=now(),
                         )
                     )
-                    if isinstance(res, Exception):
-                        self._resolve_promise(p, Err(res), on_server=True)
-                    else:
-                        self._resolve_promise(p, Ok(res), on_server=True)
+                    value = Err(res) if isinstance(res, Exception) else Ok(res)
+                    if p.durable:
+                        value = self._resolve_durable_promise(p, value)
+                    self._resolve_promise(p, value)
                     self._unblock_coros_waiting_on_promise(p, awaiting_for)
+                    self._pop_from_memo_or_finish_partition_execution(p)
             else:
                 for p in cqe.sqe.promises:
                     self._tracing_adapter.process_event(
@@ -787,8 +776,12 @@ class Scheduler:
                             tick=now(),
                         )
                     )
-                    self._resolve_promise(p, cqe.result, on_server=True)
+                    value = cqe.result
+                    if p.durable:
+                        value = self._resolve_durable_promise(p, value)
+                    self._resolve_promise(p, value)
                     self._unblock_coros_waiting_on_promise(p, awaiting_for)
+                    self._pop_from_memo_or_finish_partition_execution(p)
 
         else:
             assert_never(cqe)
@@ -891,10 +884,12 @@ class Scheduler:
                     "already the combinator should not be in the combinators queue"
                 )
                 if self._combinator_done(combinator):
-                    self._resolve_promise(
-                        p, self._combinator_result(combinator), on_server=True
-                    )
+                    value = self._combinator_result(combinator)
+                    if p.durable:
+                        value = self._resolve_durable_promise(p, value)
+                    self._resolve_promise(p, value)
                     self._unblock_coros_waiting_on_promise(p, "local")
+                    self._pop_from_memo_or_finish_partition_execution(p)
                 else:
                     self._enqueue_combinator(combinator, p)
 
@@ -946,15 +941,7 @@ class Scheduler:
         self._claimed_tasks[root_promise_id] = record
         if not leaf_promise.done():
             v = self._get_value_from_durable_promise(durable_promise_record)
-            leaf_promise.set_result(v)
-            self._tracing_adapter.process_event(
-                PromiseCompleted(
-                    promise_id=leaf_promise.promise_id,
-                    tick=now(),
-                    value=v,
-                    parent_promise_id=leaf_promise.parent_promise_id(),
-                )
-            )
+            self._resolve_promise(leaf_promise, v)
 
         self._pop_from_memo_or_finish_partition_execution(promise=leaf_promise)
         assert self._awaiting.waiting_for(
@@ -1093,11 +1080,8 @@ class Scheduler:
         return self._get_value_from_durable_promise(completed_record)
 
     def _resolve_promise(
-        self, promise: Promise[T], value: Result[T, Exception], *, on_server: bool
+        self, promise: Promise[T], value: Result[T, Exception]
     ) -> None:
-        if on_server and promise.durable:
-            value = self._resolve_durable_promise(promise, value)
-
         promise.set_result(value)
 
         assert self._emphemeral_promise_memo.has(
@@ -1116,8 +1100,6 @@ class Scheduler:
             assert self._claimed_tasks is not None
             if promise.promise_id in self._claimed_tasks:
                 self._complete_task_monitoring_promise(promise.promise_id)
-
-        self._pop_from_memo_or_finish_partition_execution(promise=promise)
 
     def _pop_from_memo_or_finish_partition_execution(
         self, promise: Promise[Any]
@@ -1185,19 +1167,20 @@ class Scheduler:
                 )
 
             else:
+                promise = runnable.coro.route_info.promise
                 self._tracing_adapter.process_event(
                     ExecutionTerminated(
-                        promise_id=runnable.coro.route_info.promise.promise_id,
+                        promise_id=promise.promise_id,
                         tick=now(),
-                        parent_promise_id=runnable.coro.route_info.promise.parent_promise_id(),
+                        parent_promise_id=promise.parent_promise_id(),
                     )
                 )
-                self._resolve_promise(
-                    runnable.coro.route_info.promise, final_value, on_server=True
-                )
-                self._unblock_coros_waiting_on_promise(
-                    runnable.coro.route_info.promise, "local"
-                )
+                value = final_value
+                if promise.durable:
+                    value = self._resolve_durable_promise(promise, value)
+                self._resolve_promise(promise, value)
+                self._unblock_coros_waiting_on_promise(promise, "local")
+                self._pop_from_memo_or_finish_partition_execution(promise)
 
         elif isinstance(yieldable_or_final_value, LFC):
             p = self._process_local_invocation(
@@ -1316,13 +1299,16 @@ class Scheduler:
         if promise_id is None:
             promise_id = runnable.coro.route_info.promise.child_name()
 
-        p, _ = self._create_promise_or_dedup(
+        p = self._dedup_promise(promise_id)
+        if p is not None:
+            return p
+
+        return self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=promise_id,
             action=invocation,
             claiming_task=False,
         )
-        return p
 
     def _process_local_invocation(
         self, invocation: LFI, runnable: Runnable[Any]
@@ -1332,15 +1318,16 @@ class Scheduler:
             if invocation.opts.promise_id is not None
             else runnable.coro.route_info.promise.child_name()
         )
+        p = self._dedup_promise(promise_id)
+        if p is not None:
+            return p
 
-        p, deduped = self._create_promise_or_dedup(
+        p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=promise_id,
             action=invocation,
             claiming_task=False,
         )
-        if deduped:
-            return p
 
         if isinstance(invocation.exec_unit, Command):
             assert not isinstance(
@@ -1376,15 +1363,16 @@ class Scheduler:
             if combinator.opts.promise_id is not None
             else runnable.coro.route_info.promise.child_name()
         )
+        p = self._dedup_promise(promise_id)
+        if p is not None:
+            return p
 
-        p, deduped = self._create_promise_or_dedup(
+        p = self._create_promise(
             parent_promise=runnable.coro.route_info.promise,
             promise_id=promise_id,
             action=combinator,
             claiming_task=False,
         )
-        if deduped:
-            return p
 
         if p.done():
             self._unblock_coros_waiting_on_promise(p, "local")
