@@ -750,8 +750,8 @@ class Scheduler:
             if promise.durable:
                 value = self._resolve_durable_promise(promise, value)
             self._resolve_promise(promise, value=value)
-            self._unblock_coros_waiting_on_promise(promise, awaiting_for)
             self._pop_from_memo_or_finish_partition_execution(promise)
+            self._unblock_coros_waiting_on_promise(promise, awaiting_for)
 
         elif isinstance(cqe, _BatchCQE):
             if isinstance(cqe.result, Ok) and isinstance(cqe.result.unwrap(), list):
@@ -773,8 +773,8 @@ class Scheduler:
                     if p.durable:
                         value = self._resolve_durable_promise(p, value)
                     self._resolve_promise(p, value)
-                    self._unblock_coros_waiting_on_promise(p, awaiting_for)
                     self._pop_from_memo_or_finish_partition_execution(p)
+                    self._unblock_coros_waiting_on_promise(p, awaiting_for)
             else:
                 for p in cqe.sqe.promises:
                     self._tracing_adapter.process_event(
@@ -788,8 +788,8 @@ class Scheduler:
                     if p.durable:
                         value = self._resolve_durable_promise(p, value)
                     self._resolve_promise(p, value)
-                    self._unblock_coros_waiting_on_promise(p, awaiting_for)
                     self._pop_from_memo_or_finish_partition_execution(p)
+                    self._unblock_coros_waiting_on_promise(p, awaiting_for)
 
         else:
             assert_never(cqe)
@@ -896,8 +896,8 @@ class Scheduler:
                     if p.durable:
                         value = self._resolve_durable_promise(p, value)
                     self._resolve_promise(p, value)
-                    self._unblock_coros_waiting_on_promise(p, "local")
                     self._pop_from_memo_or_finish_partition_execution(p)
+                    self._unblock_coros_waiting_on_promise(p, "local")
                 else:
                     self._enqueue_combinator(combinator, p)
 
@@ -1187,8 +1187,8 @@ class Scheduler:
                 if promise.durable:
                     value = self._resolve_durable_promise(promise, value)
                 self._resolve_promise(promise, value)
-                self._unblock_coros_waiting_on_promise(promise, "local")
                 self._pop_from_memo_or_finish_partition_execution(promise)
+                self._unblock_coros_waiting_on_promise(promise, "local")
 
         elif isinstance(yieldable_or_final_value, LFC):
             p = self._process_local_invocation(
