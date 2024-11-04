@@ -547,7 +547,7 @@ class Scheduler:
             durable_promise_record=durable_promise_record
         )
 
-        self._resolve_promise(p, v)
+        self._resolve_promise(p, v, on_server=False)
         return p
 
     def _promise_to_create_durable_promise_req(  # noqa: C901, PLR0912
@@ -727,7 +727,9 @@ class Scheduler:
                     tick=now(),
                 )
             )
-            self._resolve_promise(cqe.sqe.route_info.promise, value=cqe.fn_result)
+            self._resolve_promise(
+                cqe.sqe.route_info.promise, value=cqe.fn_result, on_server=True
+            )
             self._unblock_coros_waiting_on_promise(
                 cqe.sqe.route_info.promise, awaiting_for
             )
@@ -749,9 +751,9 @@ class Scheduler:
                         )
                     )
                     if isinstance(res, Exception):
-                        self._resolve_promise(p, Err(res))
+                        self._resolve_promise(p, Err(res), on_server=True)
                     else:
-                        self._resolve_promise(p, Ok(res))
+                        self._resolve_promise(p, Ok(res), on_server=True)
                     self._unblock_coros_waiting_on_promise(p, awaiting_for)
             else:
                 for p in cqe.sqe.promises:
@@ -762,7 +764,7 @@ class Scheduler:
                             tick=now(),
                         )
                     )
-                    self._resolve_promise(p, cqe.result)
+                    self._resolve_promise(p, cqe.result, on_server=True)
                     self._unblock_coros_waiting_on_promise(p, awaiting_for)
 
         else:
@@ -866,7 +868,9 @@ class Scheduler:
                     "already the combinator should not be in the combinators queue"
                 )
                 if self._combinator_done(combinator):
-                    self._resolve_promise(p, self._combinator_result(combinator))
+                    self._resolve_promise(
+                        p, self._combinator_result(combinator), on_server=True
+                    )
                     self._unblock_coros_waiting_on_promise(p, "local")
                 else:
                     self._enqueue_combinator(combinator, p)
@@ -1053,9 +1057,9 @@ class Scheduler:
             )
 
     def _resolve_promise(
-        self, promise: Promise[T], value: Result[T, Exception]
+        self, promise: Promise[T], value: Result[T, Exception], *, on_server: bool
     ) -> None:
-        if promise.durable:
+        if on_server and promise.durable:
             completed_record = self._complete_durable_promise_record(
                 promise_id=promise.promise_id,
                 value=value,
@@ -1160,7 +1164,9 @@ class Scheduler:
                         parent_promise_id=runnable.coro.route_info.promise.parent_promise_id(),
                     )
                 )
-                self._resolve_promise(runnable.coro.route_info.promise, final_value)
+                self._resolve_promise(
+                    runnable.coro.route_info.promise, final_value, on_server=True
+                )
                 self._unblock_coros_waiting_on_promise(
                     runnable.coro.route_info.promise, "local"
                 )
