@@ -83,7 +83,6 @@ if TYPE_CHECKING:
         CmdHandlerResult,
         DurableCoro,
         DurableFn,
-        Invokable,
         PromiseActions,
         Runnables,
     )
@@ -643,32 +642,14 @@ class Scheduler:
     ) -> Promise[T]:
         return self.lfi(promise_id, coro, *args, **kwargs)
 
-    def rfc(
-        self,
-        invokable: Invokable[P, T],
-        /,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> T:
-        return self.rfi(invokable, *args, **kwargs).result()
+    def rfc(self, invokable: CreateDurablePromiseReq) -> Any:  # noqa: ANN401
+        return self.rfi(invokable).result()
 
-    def rfi(
-        self,
-        invokable: Invokable[P, T],
-        /,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> Promise[T]:
+    def rfi(self, invokable: CreateDurablePromiseReq) -> Promise[Any]:
         raise NotImplementedError
 
-    def trigger(
-        self,
-        invokable: Invokable[P, T],
-        /,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> Promise[T]:
-        return self.rfi(invokable, *args, **kwargs)
+    def trigger(self, invokable: CreateDurablePromiseReq) -> Promise[Any]:
+        return self.rfi(invokable)
 
     def lfc(
         self,
