@@ -652,6 +652,27 @@ class Scheduler:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Promise[T]:
+        return self.lfi(promise_id, coro, *args, **kwargs)
+
+    def lfc(
+        self,
+        promise_id: str,
+        coro: DurableCoro[P, T] | DurableFn[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> T:
+        p = self.lfi(promise_id, coro, *args, **kwargs)
+        return p.result()
+
+    def lfi(
+        self,
+        promise_id: str,
+        coro: DurableCoro[P, T] | DurableFn[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> Promise[T]:
         function_name = self._registered_function.get_from_value(coro)
         assert (
             function_name is not None
@@ -1234,7 +1255,7 @@ class Scheduler:
             self._add_coro_to_runnables(runnable.coro, Ok(p), was_awaited=False)
 
         elif isinstance(yieldable_or_final_value, DeferredInvocation):
-            deferred_p: Promise[Any] = self.run(
+            deferred_p: Promise[Any] = self.lfi(
                 yieldable_or_final_value.promise_id,
                 yieldable_or_final_value.coro.exec_unit,
                 *yieldable_or_final_value.coro.args,
