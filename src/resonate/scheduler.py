@@ -423,8 +423,8 @@ class Scheduler:
         *,
         claiming_task: bool,
         registering_callback: bool,
-        root_promise_id: str,
-        recv: str | dict[str, Any],
+        root_promise_id: str | None,
+        recv: str | dict[str, Any] | None,
     ) -> DurablePromiseRecord:
         if claiming_task or registering_callback:
             assert (
@@ -547,12 +547,18 @@ class Scheduler:
             return p
 
         create_command = self._promise_to_create_durable_promise_req(p)
+        recv: dict[str, Any] | None = None
+        root_promise_id: str | None = None
+        if registering_callback:
+            recv = utils.recv_url(group=self.logic_group, pid=self.pid)
+            root_promise_id = p.partition_root().promise_id
+
         durable_promise_record = self._create_durable_promise_record(
             req=create_command,
             claiming_task=claiming_task,
             registering_callback=registering_callback,
-            recv=utils.recv_url(group=self.logic_group, pid=self.pid),
-            root_promise_id=p.partition_root().promise_id,
+            recv=recv,
+            root_promise_id=root_promise_id,
         )
         self._tracing_adapter.process_event(
             PromiseCreated(
