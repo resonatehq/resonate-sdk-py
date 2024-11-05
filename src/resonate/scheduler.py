@@ -32,7 +32,7 @@ from resonate.actions import (
 )
 from resonate.batching import CommandBuffer
 from resonate.collections import Awaiting, DoubleDict, EphemeralMemo
-from resonate.commands import Command, CreateDurablePromiseReq
+from resonate.commands import Command, CreateDurablePromiseReq, remote_function
 from resonate.context import Context
 from resonate.dataclasses import (
     FnOrCoroutine,
@@ -677,14 +677,35 @@ class Scheduler:
     ) -> Promise[T]:
         return self.lfi(promise_id, coro, *args, **kwargs)
 
-    def rfc(self, invokable: CreateDurablePromiseReq) -> Any:  # noqa: ANN401
-        return self.rfi(invokable).result()
+    def rfc(
+        self, promise_id: str, func_name: str, args: list[Any], *, target: str
+    ) -> Any:  # noqa: ANN401
+        return self.rfi(promise_id, func_name, args, target=target).result()
 
-    def rfi(self, invokable: CreateDurablePromiseReq) -> Promise[Any]:
-        raise NotImplementedError
+    def rfi(
+        self, promise_id: str, func_name: str, args: list[Any], *, target: str
+    ) -> Promise[Any]:
+        p = self._dedup_promise(promise_id)
+        if p is not None:
+            return p
 
-    def trigger(self, invokable: CreateDurablePromiseReq) -> Promise[Any]:
-        return self.rfi(invokable)
+        invokable = remote_function(
+            func_name, args, target=target, promise_id=promise_id
+        )
+        p = self._create_promise(
+            parent_promise=None,
+            promise_id=promise_id,
+            action=RFI(invokable),
+            claiming_task=False,
+            registering_callback=True,
+        )
+        self._awaiting.append(p, value=None, awaiting_for="remote")
+        return p
+
+    def trigger(
+        self, promise_id: str, func_name: str, args: list[Any], *, target: str
+    ) -> Promise[Any]:
+        return self.rfi(promise_id, func_name, args, target=target)
 
     def lfc(
         self,
