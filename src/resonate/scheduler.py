@@ -669,6 +669,10 @@ class Scheduler:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Promise[T]:
+        p = self._dedup_promise(promise_id)
+        if p is not None:
+            return p
+
         function_name = self._registered_function.get_from_value(coro)
         assert (
             function_name is not None
@@ -676,9 +680,7 @@ class Scheduler:
         attached_options = self._attached_options_to_top_lvl[function_name]
 
         assert attached_options.durable, "All top level invocation must be durable."
-        p = self._dedup_promise(promise_id)
-        if p is not None:
-            return p
+
         p = self._create_promise(
             promise_id=promise_id,
             parent_promise=None,
