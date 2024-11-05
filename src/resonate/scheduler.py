@@ -408,7 +408,7 @@ class Scheduler:
             durable_promise.is_completed()
         ), "Callback won't be created only if durable promise has been completed."
         v = self._get_value_from_durable_promise(durable_promise_record=durable_promise)
-        self._resolve_promise(promise, v)
+        self._resolve_ephemeral_promise(promise, v)
         self._pop_from_memo_or_finish_partition_execution(promise)
 
     def wait_forever(self) -> None:
@@ -538,7 +538,7 @@ class Scheduler:
             durable_promise_record=durable_promise_record
         )
 
-        self._resolve_promise(p, v)
+        self._resolve_ephemeral_promise(p, v)
         self._pop_from_memo_or_finish_partition_execution(p)
         return p
 
@@ -749,7 +749,7 @@ class Scheduler:
             value = cqe.fn_result
             if promise.durable:
                 value = self._resolve_durable_promise(promise, value)
-            self._resolve_promise(promise, value=value)
+            self._resolve_ephemeral_promise(promise, value=value)
             self._pop_from_memo_or_finish_partition_execution(promise)
             self._unblock_coros_waiting_on_promise(promise, awaiting_for)
 
@@ -772,7 +772,7 @@ class Scheduler:
                     value = Err(res) if isinstance(res, Exception) else Ok(res)
                     if p.durable:
                         value = self._resolve_durable_promise(p, value)
-                    self._resolve_promise(p, value)
+                    self._resolve_ephemeral_promise(p, value)
                     self._pop_from_memo_or_finish_partition_execution(p)
                     self._unblock_coros_waiting_on_promise(p, awaiting_for)
             else:
@@ -787,7 +787,7 @@ class Scheduler:
                     value = cqe.result
                     if p.durable:
                         value = self._resolve_durable_promise(p, value)
-                    self._resolve_promise(p, value)
+                    self._resolve_ephemeral_promise(p, value)
                     self._pop_from_memo_or_finish_partition_execution(p)
                     self._unblock_coros_waiting_on_promise(p, awaiting_for)
 
@@ -895,7 +895,7 @@ class Scheduler:
                     value = self._combinator_result(combinator)
                     if p.durable:
                         value = self._resolve_durable_promise(p, value)
-                    self._resolve_promise(p, value)
+                    self._resolve_ephemeral_promise(p, value)
                     self._pop_from_memo_or_finish_partition_execution(p)
                     self._unblock_coros_waiting_on_promise(p, "local")
                 else:
@@ -949,7 +949,7 @@ class Scheduler:
         self._claimed_tasks[root_promise_id] = record
         if not leaf_promise.done():
             v = self._get_value_from_durable_promise(durable_promise_record)
-            self._resolve_promise(leaf_promise, v)
+            self._resolve_ephemeral_promise(leaf_promise, v)
 
         self._pop_from_memo_or_finish_partition_execution(promise=leaf_promise)
         assert self._awaiting.waiting_for(
@@ -1087,7 +1087,7 @@ class Scheduler:
         ), "Durable promise record must be completed by this point."
         return self._get_value_from_durable_promise(completed_record)
 
-    def _resolve_promise(
+    def _resolve_ephemeral_promise(
         self, promise: Promise[T], value: Result[T, Exception]
     ) -> None:
         promise.set_result(value)
@@ -1186,7 +1186,7 @@ class Scheduler:
                 value = final_value
                 if promise.durable:
                     value = self._resolve_durable_promise(promise, value)
-                self._resolve_promise(promise, value)
+                self._resolve_ephemeral_promise(promise, value)
                 self._pop_from_memo_or_finish_partition_execution(promise)
                 self._unblock_coros_waiting_on_promise(promise, "local")
 
