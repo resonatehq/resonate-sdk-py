@@ -113,6 +113,9 @@ class RemoteServer(IPromiseStore, ITaskStore):
 
         return Resume.decode(data=promises, encoder=self._encoder)
 
+    def create_with_callback(
+        self,
+    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
     def complete_task(self, *, task_id: str, counter: int) -> None:
         response = requests.post(
             url=f"{self.url}/tasks/complete",

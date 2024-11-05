@@ -52,6 +52,11 @@ class ITaskStore(ABC):
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, TaskRecord | None]: ...
 
+    @abstractmethod
+    def create_with_callback(
+        self,
+    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
+
 
 class IPromiseStore(ABC):
     @abstractmethod
