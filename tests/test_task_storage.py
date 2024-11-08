@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from resonate.stores.resonate_server import (
+from resonate.stores.remote import (
     RemoteStore,
 )
 
@@ -89,8 +89,8 @@ def test_case_3_create_durable_promise_with_task() -> None:
     assert durable_promise.id == "3.0"
     assert task_record is not None
     assert task_record.counter == 1
-    store.heartbeat_tasks(pid=pid)
-    store.complete_task(task_id=task_record.task_id, counter=task_record.counter)
+    store.heartbeat(pid=pid)
+    store.complete(task_id=task_record.task_id, counter=task_record.counter)
 
 
 @pytest.mark.skipif(

@@ -1,71 +1,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from resonate.record import (
-        CallbackRecord,
         DurablePromiseRecord,
-        Invoke,
-        Resume,
-        TaskRecord,
     )
     from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
-
-
-class ITaskStore(ABC):
-    @abstractmethod
-    def claim_task(
-        self, *, task_id: str, counter: int, pid: str, ttl: int
-    ) -> Invoke | Resume: ...
-
-    @abstractmethod
-    def complete_task(self, *, task_id: str, counter: int) -> None: ...
-
-    @abstractmethod
-    def heartbeat_tasks(self, *, pid: str) -> int: ...
-
-    @abstractmethod
-    def create_callback(
-        self,
-        *,
-        id: str,
-        root_id: str,
-        timeout: int,
-        recv: str | dict[str, Any],
-    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
-
-    @abstractmethod
-    def create_with_task(  # noqa: PLR0913
-        self,
-        *,
-        id: str,
-        ikey: IdempotencyKey,
-        strict: bool,
-        headers: Headers,
-        data: Data,
-        timeout: int,
-        tags: Tags,
-        pid: str,
-        ttl: int,
-        recv: str | dict[str, Any],
-    ) -> tuple[DurablePromiseRecord, TaskRecord | None]: ...
-
-    @abstractmethod
-    def create_with_callback(  # noqa: PLR0913
-        self,
-        *,
-        id: str,
-        ikey: str | None,
-        strict: bool,
-        timeout: int,
-        headers: dict[str, str] | None,
-        data: str | None,
-        tags: dict[str, str] | None,
-        root_id: str,
-        recv: str | dict[str, Any],
-    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
 
 
 class IPromiseStore(ABC):

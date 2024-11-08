@@ -64,7 +64,7 @@ from resonate.record import Invoke, Resume, TaskRecord
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
 from resonate.shells.poller import LongPoller
-from resonate.stores.traits import IPromiseStore, ITaskStore
+from resonate.stores.remote import RemoteStore
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (
@@ -77,6 +77,7 @@ if TYPE_CHECKING:
 
     from resonate.record import DurablePromiseRecord
     from resonate.result import Result
+    from resonate.stores.traits import IPromiseStore
     from resonate.tracing import IAdapter
     from resonate.typing import (
         AwaitingFor,
@@ -289,7 +290,7 @@ class Scheduler:
         self._heartbeating_thread: Thread | None = None
         self._claimed_tasks: dict[str, TaskRecord] | None = None
         self._claim_task_while_creating_top_level: bool = False
-        if isinstance(self._durable_promise_storage, ITaskStore):
+        if isinstance(self._durable_promise_storage, RemoteStore):
             self._claim_task_while_creating_top_level = True
             self._claimed_tasks = {}
             self._heartbeating_thread = Thread(target=self._heartbeat, daemon=True)
@@ -307,8 +308,8 @@ class Scheduler:
 
     def _heartbeat(self) -> None:
         while True:
-            assert isinstance(self._durable_promise_storage, ITaskStore)
-            affected = self._durable_promise_storage.heartbeat_tasks(pid=self.pid)
+            assert isinstance(self._durable_promise_storage, RemoteStore)
+            affected = self._durable_promise_storage.heartbeat(pid=self.pid)
             logger.debug("Heatbeat affected %s tasks", affected)
             time.sleep(2)
 
@@ -384,7 +385,7 @@ class Scheduler:
     ) -> None:
         assert isinstance(promise.action, RFI), "We only register callbacks for rfi"
         assert isinstance(
-            self._durable_promise_storage, ITaskStore
+            self._durable_promise_storage, RemoteStore
         ), "Used storage does not support tasks."
 
         recv = utils.recv_url(group=self.logic_group, pid=self.pid)
@@ -442,7 +443,7 @@ class Scheduler:
 
         dp_record: DurablePromiseRecord
         if claiming_task:
-            assert isinstance(self._durable_promise_storage, ITaskStore)
+            assert isinstance(self._durable_promise_storage, RemoteStore)
             dp_record, task_record = self._durable_promise_storage.create_with_task(
                 id=req.id,
                 ikey=ikey,
@@ -461,7 +462,7 @@ class Scheduler:
                 self._claimed_tasks[dp_record.id] = task_record
 
         elif registering_callback:
-            assert isinstance(self._durable_promise_storage, ITaskStore)
+            assert isinstance(self._durable_promise_storage, RemoteStore)
             assert root_id is not None
             assert recv is not None
             dp_record = self._durable_promise_storage.create_with_callback(
@@ -608,7 +609,7 @@ class Scheduler:
                 assert_never(promise.action.exec_unit)
         elif isinstance(promise.action, RFI):
             assert isinstance(
-                self._durable_promise_storage, ITaskStore
+                self._durable_promise_storage, RemoteStore
             ), "Used storage does not support rfi."
             if isinstance(promise.action.exec_unit, Command):
                 assert isinstance(
@@ -886,9 +887,9 @@ class Scheduler:
             task_records = self._task_record_queue.dequeue_all()
             for record in task_records:
                 assert isinstance(
-                    self._durable_promise_storage, ITaskStore
+                    self._durable_promise_storage, RemoteStore
                 ), "We should only be receiving tasks messages if using an storage with tasks support"  # noqa: E501
-                msg = self._durable_promise_storage.claim_task(
+                msg = self._durable_promise_storage.claim(
                     task_id=record.task_id,
                     counter=record.counter,
                     pid=self.pid,
@@ -966,7 +967,7 @@ class Scheduler:
 
             assert len(self._runnables) == 0, "Runnables should have been all exhausted"
 
-            if isinstance(self._durable_promise_storage, ITaskStore):
+            if isinstance(self._durable_promise_storage, RemoteStore):
                 assert self._claimed_tasks is not None
                 if len(self._claimed_tasks) == 0:
                     self._blocked.set()
@@ -1061,8 +1062,8 @@ class Scheduler:
             self._claimed_tasks is not None
         ), "Can only complete tasks if using a storage that supports tasks."
         record = self._claimed_tasks.pop(id)
-        assert isinstance(self._durable_promise_storage, ITaskStore)
-        self._durable_promise_storage.complete_task(
+        assert isinstance(self._durable_promise_storage, RemoteStore)
+        self._durable_promise_storage.complete(
             task_id=record.task_id, counter=record.counter
         )
         logger.info(
@@ -1159,7 +1160,7 @@ class Scheduler:
                 parent_id=promise.parent_id(),
             )
         )
-        if isinstance(self._durable_promise_storage, ITaskStore):
+        if isinstance(self._durable_promise_storage, RemoteStore):
             assert self._claimed_tasks is not None
             if promise.id in self._claimed_tasks:
                 self._complete_task_monitoring_promise(promise.id)
@@ -1349,7 +1350,7 @@ class Scheduler:
         self, invocation: RFI, runnable: Runnable[Any], *, registering_callback: bool
     ) -> Promise[Any]:
         assert isinstance(
-            self._durable_promise_storage, ITaskStore
+            self._durable_promise_storage, RemoteStore
         ), "Used storage does not support rfi."
         id: str | None
         if not isinstance(invocation.exec_unit, Command):

@@ -16,11 +16,11 @@ from resonate.retry_policy import (
     constant,
     never,
 )
-from resonate.stores.local_store import (
+from resonate.stores.local import (
     LocalStore,
     MemoryStorage,
 )
-from resonate.stores.resonate_server import RemoteStore
+from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator

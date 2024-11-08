@@ -8,7 +8,7 @@ from typing_extensions import ParamSpec, assert_never
 from resonate import random
 from resonate.contants import ENV_VARIABLE_PIN_SEED
 from resonate.dst.scheduler import DSTScheduler, Mode
-from resonate.stores.local_store import LocalStore
+from resonate.stores.local import LocalStore
 
 if TYPE_CHECKING:
     from resonate.dependency_injection import Dependencies

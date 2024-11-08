@@ -13,14 +13,14 @@ from resonate.record import (
     Resume,
     TaskRecord,
 )
-from resonate.stores.traits import IPromiseStore, ITaskStore
+from resonate.stores.traits import IPromiseStore
 
 if TYPE_CHECKING:
     from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
 
 
 @final
-class RemoteStore(IPromiseStore, ITaskStore):
+class RemoteStore(IPromiseStore):
     def __init__(
         self,
         url: str,
@@ -87,7 +87,7 @@ class RemoteStore(IPromiseStore, ITaskStore):
             return durable_promise, None
         return durable_promise, TaskRecord.decode(task_data, encoder=self._encoder)
 
-    def claim_task(
+    def claim(
         self, *, task_id: str, counter: int, pid: str, ttl: int
     ) -> Invoke | Resume:
         response = requests.post(
@@ -159,7 +159,7 @@ class RemoteStore(IPromiseStore, ITaskStore):
             callback_data, encoder=self._encoder
         )
 
-    def complete_task(self, *, task_id: str, counter: int) -> None:
+    def complete(self, *, task_id: str, counter: int) -> None:
         response = requests.post(
             url=f"{self.url}/tasks/complete",
             headers={},
@@ -171,7 +171,7 @@ class RemoteStore(IPromiseStore, ITaskStore):
         )
         _ensure_success(response)
 
-    def heartbeat_tasks(self, *, pid: str) -> int:
+    def heartbeat(self, *, pid: str) -> int:
         response = requests.post(
             url=f"{self.url}/tasks/heartbeat",
             headers={},
