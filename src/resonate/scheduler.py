@@ -64,6 +64,7 @@ from resonate.record import Invoke, Resume, TaskRecord
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
 from resonate.shells.poller import LongPoller
+from resonate.stores.local import LocalStore
 from resonate.stores.remote import RemoteStore
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
@@ -241,7 +242,7 @@ class _Processor:
 class Scheduler:
     def __init__(
         self,
-        store: IPromiseStore,
+        store: IPromiseStore | None = None,
         *,
         group: str = "default",
         adapter: IAdapter | None = None,
@@ -283,7 +284,7 @@ class Scheduler:
             self,
         )
 
-        self._durable_promise_storage = store
+        self._durable_promise_storage = store if store is not None else LocalStore()
 
         self._heartbeating_thread: Thread | None = None
         self._claimed_tasks: dict[str, TaskRecord] | None = None
