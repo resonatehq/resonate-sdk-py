@@ -245,7 +245,7 @@ class Scheduler:
         *,
         group: str = "default",
         adapter: IAdapter | None = None,
-        processor_threads: int | None = None,
+        workers: int | None = None,
         with_long_polling: bool | None = None,
     ) -> None:
         self.group: str = group
@@ -278,7 +278,7 @@ class Scheduler:
         self._awaiting = Awaiting()
 
         self._processor = _Processor(
-            processor_threads,
+            workers,
             self._submission_queue,
             self,
         )

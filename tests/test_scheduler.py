@@ -83,7 +83,7 @@ def test_scheduler(store: IPromiseStore) -> None:
 @pytest.mark.parametrize("store", _promise_storages())
 def test_multithreading_capabilities(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(
-        processor_threads=3,
+        workers=3,
         store=store,
     )
     s.register(baz, "baz")
@@ -447,7 +447,7 @@ def test_all_settled_combinator(store: IPromiseStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_race_combinator(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(store=store, processor_threads=16)
+    s = scheduler.Scheduler(store=store, workers=16)
 
     # Test case 1
     waits_results = [(0.1, "A"), (0.1, "B"), (0.01, "C"), (0.1, "D"), (0.1, "E")]
