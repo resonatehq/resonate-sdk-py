@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 @final
-class RemoteServer(IPromiseStore, ITaskStore):
+class RemoteStore(IPromiseStore, ITaskStore):
     def __init__(
         self,
         url: str,

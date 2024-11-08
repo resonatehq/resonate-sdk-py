@@ -20,7 +20,7 @@ from resonate.stores.local_store import (
     LocalStore,
     MemoryStorage,
 )
-from resonate.stores.resonate_server import RemoteServer
+from resonate.stores.resonate_server import RemoteStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -56,7 +56,7 @@ def bar(
 def _promise_storages() -> list[IPromiseStore]:
     stores: list[IPromiseStore] = [LocalStore(MemoryStorage())]
     if os.getenv("RESONATE_STORE_URL") is not None:
-        stores.append(RemoteServer(url=os.environ["RESONATE_STORE_URL"]))
+        stores.append(RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     return stores
 
 
@@ -530,7 +530,7 @@ def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_rfc_raw() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
 
     s = scheduler.Scheduler(durable_promise_storage=store)
     s.register(_raw_rfc)
@@ -810,7 +810,7 @@ def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_remote_call_same_node() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
 
     def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
         return 1
@@ -832,7 +832,7 @@ def test_remote_call_same_node() -> None:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_remote_invocation_same_node() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
 
     def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
         return 1
@@ -857,7 +857,7 @@ def test_remote_invocation_same_node() -> None:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_remote_invocation_other_node() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
 
     def _number_from_other_node(ctx: Context) -> int:  # noqa: ARG001
         return 1

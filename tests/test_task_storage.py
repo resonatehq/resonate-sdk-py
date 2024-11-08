@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from resonate.stores.resonate_server import (
-    RemoteServer,
+    RemoteStore,
 )
 
 
@@ -15,7 +15,7 @@ from resonate.stores.resonate_server import (
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_case_0_callback_on_existing_promise() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     store.create(
         id="0.0",
         ikey=None,
@@ -38,7 +38,7 @@ def test_case_0_callback_on_existing_promise() -> None:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_case_1_callback_on_non_existing_promise() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     with pytest.raises(Exception):  # noqa: B017, PT011
         store.create_callback(
             id="1.1", root_id="1.0", timeout=sys.maxsize, recv="default"
@@ -49,7 +49,7 @@ def test_case_1_callback_on_non_existing_promise() -> None:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_case_2_callback_on_resolved_promise() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     store.create(
         id="2.0",
         ikey=None,
@@ -71,7 +71,7 @@ def test_case_2_callback_on_resolved_promise() -> None:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_case_3_create_durable_promise_with_task() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     pid = uuid.uuid4().hex
     ttl = 5 * 1000
     durable_promise, task_record = store.create_with_task(
@@ -97,7 +97,7 @@ def test_case_3_create_durable_promise_with_task() -> None:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_case_3_create_durable_promise_with_callback() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     pid = uuid.uuid4().hex
     durable_promise, callback_record = store.create_with_callback(
         id="4.0",
@@ -120,7 +120,7 @@ def test_case_3_create_durable_promise_with_callback() -> None:
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_case_4_create_with_callback_dedup() -> None:
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     store.create(
         id="5.0",
         ikey="5.0",

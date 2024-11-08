@@ -12,7 +12,7 @@ from resonate.commands import manual_completion, remote_function
 from resonate.promise import Promise
 from resonate.retry_policy import never
 from resonate.scheduler import Scheduler
-from resonate.stores.resonate_server import RemoteServer
+from resonate.stores.resonate_server import RemoteStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -35,7 +35,7 @@ def test_human_in_the_loop() -> None:
         )
         return f"Hi {name} with age {age}"
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     s = Scheduler(store)
     s.register(human_in_the_loop, retry_policy=never())
     p: Promise[str] = s.run("test-feature-human-in-the-loop", human_in_the_loop)
@@ -77,7 +77,7 @@ def test_factorial_same_node() -> None:
             )
         )
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     s = Scheduler(store, logic_group=node_group)
     s.register(factorial)
     n = 5
@@ -109,7 +109,7 @@ def test_factorial_multi_node() -> None:
             )
         )
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     s1 = Scheduler(store, logic_group="test-factorial-multi-node-1")
     s1.register(factorial_node_1, name="factorial")
     s2 = Scheduler(store, logic_group="test-factorial-multi-node-2")
@@ -140,7 +140,7 @@ def test_trigger_on_other_node() -> None:
         )
         return f"{v2} is {v1}"
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     s1 = Scheduler(store, logic_group="test-trigger-on-other-node")
     s1.register(workflow, retry_policy=never())
 
@@ -179,7 +179,7 @@ def test_factorial_mechanics() -> None:
 
         return n + v
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     schedulers: list[Scheduler] = []
     for _ in range(randint(1, 5)):  # noqa: S311
         s = Scheduler(store, logic_group=node_group)
@@ -210,7 +210,7 @@ def test_serverless_mechanics() -> None:
 
         return v
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     main_node = Scheduler(store, logic_group=node_group)
     main_node.register(workflow, retry_policy=never())
     p: Promise[int] = main_node.run("test-serverless-mechanics", workflow)
@@ -267,7 +267,7 @@ def test_fibonnaci_mechanics_awaiting() -> None:
             )
         return n1 + n2
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     schedulers: list[Scheduler] = []
     for _ in range(randint(1, 5)):  # noqa: S311
         s = Scheduler(store, logic_group=node_group)
@@ -318,7 +318,7 @@ def test_fibonnaci_mechanics_no_awaiting() -> None:
         n2 = yield pn2
         return n1 + n2
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     schedulers: list[Scheduler] = []
     for _ in range(randint(1, 5)):  # noqa: S311
         s = Scheduler(store, logic_group=node_group)
@@ -339,7 +339,7 @@ def test_fibonnaci_mechanics_no_awaiting() -> None:
 def test_trigger_on_other_process() -> None:
     node_group = "test-trigger-on-other-process"
 
-    store = RemoteServer(url=os.environ["RESONATE_STORE_URL"])
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
 
     def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         if n == 0:

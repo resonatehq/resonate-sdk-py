@@ -12,7 +12,7 @@ from resonate.stores.local_store import (
     LocalStore,
     MemoryStorage,
 )
-from resonate.stores.resonate_server import RemoteServer
+from resonate.stores.resonate_server import RemoteStore
 
 if TYPE_CHECKING:
     from resonate.stores.traits import IPromiseStore
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 def _promise_storages() -> list[IPromiseStore]:
     stores: list[IPromiseStore] = [LocalStore(MemoryStorage())]
     if os.getenv("RESONATE_STORE_URL") is not None:
-        stores.append(RemoteServer(url=os.environ["RESONATE_STORE_URL"]))
+        stores.append(RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     return stores
 
 
