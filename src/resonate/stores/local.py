@@ -65,9 +65,9 @@ class MemoryStorage(IStorage):
 
 
 @final
-class LocalStore(IPromiseStore):
-    def __init__(self, storage: IStorage | None = None) -> None:
-        self._storage = storage or MemoryStorage()
+class LocalPromiseStore(IPromiseStore):
+    def __init__(self, storage: IStorage) -> None:
+        self._storage = storage
 
     def create(  # noqa: PLR0913
         self,
@@ -245,3 +245,10 @@ class LocalStore(IPromiseStore):
             return promise_record
 
         return self._storage.rmw(id=id, fn=_get)
+
+
+@final
+class LocalStore:
+    def __init__(self, storage: IStorage | None = None) -> None:
+        self._storage = storage or MemoryStorage()
+        self.promises = LocalPromiseStore(storage=self._storage)

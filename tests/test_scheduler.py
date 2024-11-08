@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
     from resonate.context import Context
     from resonate.promise import Promise
-    from resonate.stores.traits import IPromiseStore
     from resonate.typing import Yieldable
 
 
@@ -53,15 +52,15 @@ def bar(
 
 
 @cache
-def _promise_storages() -> list[IPromiseStore]:
-    stores: list[IPromiseStore] = [LocalStore(MemoryStorage())]
+def _promise_storages() -> list[LocalStore | RemoteStore]:
+    stores: list[LocalStore | RemoteStore] = [LocalStore(MemoryStorage())]
     if os.getenv("RESONATE_STORE_URL") is not None:
         stores.append(RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     return stores
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_scheduler(store: IPromiseStore) -> None:
+def test_scheduler(store: LocalStore | RemoteStore) -> None:
     s = scheduler.Scheduler(
         store=store,
     )
@@ -81,7 +80,7 @@ def test_scheduler(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_multithreading_capabilities(store: IPromiseStore) -> None:
+def test_multithreading_capabilities(store: LocalStore | RemoteStore) -> None:
     s = scheduler.Scheduler(
         workers=3,
         store=store,
@@ -119,7 +118,7 @@ def test_multithreading_capabilities(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_retry(store: IPromiseStore) -> None:
+def test_retry(store: LocalStore | RemoteStore) -> None:
     tries = 0
 
     def _failing(ctx: Context, error: type[Exception]) -> None:  # noqa: ARG001, RUF100
@@ -151,7 +150,7 @@ def test_retry(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_async_fibonacci(store: IPromiseStore) -> None:
+def test_async_fibonacci(store: LocalStore | RemoteStore) -> None:
     def fibonacci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         if n <= 1:
             return n
@@ -174,7 +173,7 @@ def test_async_fibonacci(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_structure_concurrency(store: IPromiseStore) -> None:
+def test_structure_concurrency(store: LocalStore | RemoteStore) -> None:
     s = scheduler.Scheduler(store=store)
 
     child_p: Promise[str] | None = None
@@ -205,7 +204,7 @@ def test_structure_concurrency(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_structure_concurrency_with_failure(store: IPromiseStore) -> None:
+def test_structure_concurrency_with_failure(store: LocalStore | RemoteStore) -> None:
     tries = 0
 
     def _failing(ctx: Context, error: type[Exception]) -> None:  # noqa: ARG001, RUF100
@@ -241,7 +240,9 @@ def test_structure_concurrency_with_failure(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> None:
+def test_structure_concurrency_with_multiple_failures(
+    store: LocalStore | RemoteStore,
+) -> None:
     def _failing(ctx: Context, error: type[Exception]) -> None:  # noqa: ARG001, RUF100
         raise error
 
@@ -274,7 +275,7 @@ def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> N
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_deferred_invoke(store: IPromiseStore) -> None:
+def test_deferred_invoke(store: LocalStore | RemoteStore) -> None:
     s = scheduler.Scheduler(store=store)
 
     deferred_p: Promise[str] | None = None
@@ -358,7 +359,7 @@ def all_settled_coro(
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_all_combinator(store: IPromiseStore) -> None:
+def test_all_combinator(store: LocalStore | RemoteStore) -> None:
     s = scheduler.Scheduler(store=store)
     # Test case 1
     waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "E")]
@@ -405,7 +406,7 @@ def test_all_combinator(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_all_settled_combinator(store: IPromiseStore) -> None:
+def test_all_settled_combinator(store: LocalStore | RemoteStore) -> None:
     s = scheduler.Scheduler(store=store)
     # Test case 1
     vals = ["A", "B", "C", "D", "E"]
@@ -446,7 +447,7 @@ def test_all_settled_combinator(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_race_combinator(store: IPromiseStore) -> None:
+def test_race_combinator(store: LocalStore | RemoteStore) -> None:
     s = scheduler.Scheduler(store=store, workers=16)
 
     # Test case 1
@@ -492,7 +493,7 @@ def test_race_combinator(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_coro_retry(store: IPromiseStore) -> None:
+def test_coro_retry(store: LocalStore | RemoteStore) -> None:
     s = scheduler.Scheduler(store=store)
 
     tries = 0
@@ -538,14 +539,14 @@ def test_rfc_raw() -> None:
     s.wait_until_blocked()
     assert not p.done()
 
-    child_promise_record = store.get(id="abc")
+    child_promise_record = store.promises.get(id="abc")
     assert child_promise_record.id == "abc"
     assert child_promise_record.state == "PENDING"
     assert child_promise_record.tags == {"demo": "test"}
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_dedup(store: IPromiseStore) -> None:
+def test_dedup(store: LocalStore | RemoteStore) -> None:
     def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         if n <= 1:
             return 1
@@ -567,7 +568,7 @@ def test_dedup(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_batching(store: IPromiseStore) -> None:
+def test_batching(store: LocalStore | RemoteStore) -> None:
     @dataclasses.dataclass(frozen=True)
     class GreetCommand(Command):
         name: str
@@ -619,7 +620,7 @@ def test_batching(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_batching_with_failing_func(store: IPromiseStore) -> None:
+def test_batching_with_failing_func(store: LocalStore | RemoteStore) -> None:
     @dataclasses.dataclass(frozen=True)
     class ACommand(Command):
         n: int
@@ -655,7 +656,7 @@ def test_batching_with_failing_func(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_batching_with_no_result(store: IPromiseStore) -> None:
+def test_batching_with_no_result(store: LocalStore | RemoteStore) -> None:
     @dataclasses.dataclass(frozen=True)
     class ACommand(Command):
         n: int
@@ -684,7 +685,7 @@ def test_batching_with_no_result(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_batching_with_single_result(store: IPromiseStore) -> None:
+def test_batching_with_single_result(store: LocalStore | RemoteStore) -> None:
     @dataclasses.dataclass(frozen=True)
     class ACommand(Command):
         n: int
@@ -715,7 +716,9 @@ def test_batching_with_single_result(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_batching_with_failing_func_and_retries(store: IPromiseStore) -> None:
+def test_batching_with_failing_func_and_retries(
+    store: LocalStore | RemoteStore,
+) -> None:
     @dataclasses.dataclass(frozen=True)
     class ACommand(Command):
         n: int
@@ -755,7 +758,7 @@ def test_batching_with_failing_func_and_retries(store: IPromiseStore) -> None:
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_batching_with_element_level_exception(store: IPromiseStore) -> None:
+def test_batching_with_element_level_exception(store: LocalStore | RemoteStore) -> None:
     @dataclasses.dataclass(frozen=True)
     class ACommand(Command):
         n: int

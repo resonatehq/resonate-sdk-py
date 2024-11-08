@@ -40,7 +40,7 @@ def test_human_in_the_loop() -> None:
     s.register(human_in_the_loop, retry_policy=never())
     p: Promise[str] = s.run("test-feature-human-in-the-loop", human_in_the_loop)
     s.wait_until_blocked()
-    store.resolve(
+    store.promises.resolve(
         id="test-human-in-loop-question-to-answer-1",
         ikey=None,
         strict=False,
@@ -49,7 +49,7 @@ def test_human_in_the_loop() -> None:
     )
     s.clear_blocked_flag()
     s.wait_until_blocked()
-    store.resolve(
+    store.promises.resolve(
         id="test-human-in-loop-question-to-answer-2",
         ikey=None,
         strict=False,

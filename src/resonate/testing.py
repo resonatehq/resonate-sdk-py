@@ -12,7 +12,7 @@ from resonate.stores.local import LocalStore
 
 if TYPE_CHECKING:
     from resonate.dependency_injection import Dependencies
-    from resonate.stores.traits import IPromiseStore
+    from resonate.stores.remote import RemoteStore
     from resonate.typing import DurableCoro, DurableFn, MockFn
 
 P = ParamSpec("P")
@@ -28,7 +28,7 @@ def dst(  # noqa: PLR0913
     probe: Callable[[Dependencies, int], Any] | None = None,
     assert_always: Callable[[Dependencies, int, int], Any] | None = None,
     assert_eventually: Callable[[Dependencies, int], Any] | None = None,
-    store: IPromiseStore | None = None,
+    store: LocalStore | RemoteStore | None = None,
 ) -> list[DSTScheduler]:
     def _new_dst_scheduler(seed: int) -> DSTScheduler:
         return DSTScheduler(

@@ -57,7 +57,8 @@ if TYPE_CHECKING:
     )
     from resonate.options import LOptions
     from resonate.record import DurablePromiseRecord
-    from resonate.stores.traits import IPromiseStore
+    from resonate.stores.local import LocalStore
+    from resonate.stores.remote import RemoteStore
     from resonate.typing import (
         AwaitingFor,
         CommandHandlerQueues,
@@ -112,7 +113,7 @@ class DSTScheduler:
             MockFn[Any],
         ]
         | None,
-        store: IPromiseStore,
+        store: LocalStore | RemoteStore,
     ) -> None:
         self._stg_queue: list[tuple[LFI, str]] = []
         self._runnable_coros: Runnables = deque()
@@ -545,7 +546,7 @@ class DSTScheduler:
         self, id: str, value: Result[Any, Exception]
     ) -> DurablePromiseRecord:
         if isinstance(value, Ok):
-            return self._store.resolve(
+            return self._store.promises.resolve(
                 id=id,
                 ikey=utils.string_to_ikey(id),
                 strict=False,
@@ -553,7 +554,7 @@ class DSTScheduler:
                 data=self._json_encoder.encode(value.unwrap()),
             )
         if isinstance(value, Err):
-            return self._store.reject(
+            return self._store.promises.reject(
                 id=id,
                 ikey=utils.string_to_ikey(id),
                 strict=False,
@@ -565,7 +566,7 @@ class DSTScheduler:
     def _create_durable_promise_record(
         self, id: str, data: dict[str, Any] | None
     ) -> DurablePromiseRecord:
-        return self._store.create(
+        return self._store.promises.create(
             id=id,
             ikey=utils.string_to_ikey(id),
             strict=False,

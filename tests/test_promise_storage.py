@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import sys
 from functools import cache
-from typing import TYPE_CHECKING
 
 import pytest
 
@@ -14,13 +13,10 @@ from resonate.stores.local import (
 )
 from resonate.stores.remote import RemoteStore
 
-if TYPE_CHECKING:
-    from resonate.stores.traits import IPromiseStore
-
 
 @cache
-def _promise_storages() -> list[IPromiseStore]:
-    stores: list[IPromiseStore] = [LocalStore(MemoryStorage())]
+def _promise_storages() -> list[LocalStore | RemoteStore]:
+    stores: list[LocalStore | RemoteStore] = [LocalStore(MemoryStorage())]
     if os.getenv("RESONATE_STORE_URL") is not None:
         stores.append(RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     return stores
@@ -28,9 +24,9 @@ def _promise_storages() -> list[IPromiseStore]:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_0_transition_from_init_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    promise_record = store.create(
+    promise_record = store.promises.create(
         id="id0",
         ikey=None,
         strict=True,
@@ -47,9 +43,9 @@ def test_case_0_transition_from_init_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_1_transition_from_init_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    promise_record = store.create(
+    promise_record = store.promises.create(
         id="id1",
         ikey=None,
         strict=False,
@@ -66,9 +62,9 @@ def test_case_1_transition_from_init_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_2_transition_from_init_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    promise_record = store.create(
+    promise_record = store.promises.create(
         id="id2",
         ikey="ikc",
         strict=True,
@@ -85,9 +81,9 @@ def test_case_2_transition_from_init_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_3_transition_from_init_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    promise_record = store.create(
+    promise_record = store.promises.create(
         id="id3",
         ikey="ikc",
         strict=False,
@@ -103,82 +99,128 @@ def test_case_3_transition_from_init_to_pending_via_create(
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_4_transition_from_init_to_init_via_resolve(store: IPromiseStore) -> None:
+def test_case_4_transition_from_init_to_init_via_resolve(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id4", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id4", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_5_transition_from_init_to_init_via_resolve(store: IPromiseStore) -> None:
+def test_case_5_transition_from_init_to_init_via_resolve(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id5", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id5", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_6_transition_from_init_to_init_via_resolve(store: IPromiseStore) -> None:
+def test_case_6_transition_from_init_to_init_via_resolve(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id6", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id6", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_7_transition_from_init_to_init_via_resolve(store: IPromiseStore) -> None:
+def test_case_7_transition_from_init_to_init_via_resolve(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id7", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id7", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_8_transition_from_init_to_init_via_reject(store: IPromiseStore) -> None:
+def test_case_8_transition_from_init_to_init_via_reject(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id8", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(id="id8", ikey=None, strict=True, headers=None, data=None)
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_9_transition_from_init_to_init_via_reject(store: IPromiseStore) -> None:
+def test_case_9_transition_from_init_to_init_via_reject(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id9", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id9", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_10_transition_from_init_to_init_via_reject(store: IPromiseStore) -> None:
+def test_case_10_transition_from_init_to_init_via_reject(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id10", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id10", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_11_transition_from_init_to_init_via_reject(store: IPromiseStore) -> None:
+def test_case_11_transition_from_init_to_init_via_reject(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id11", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id11", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_12_transition_from_init_to_init_via_cancel(store: IPromiseStore) -> None:
+def test_case_12_transition_from_init_to_init_via_cancel(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id12", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id12", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_13_transition_from_init_to_init_via_cancel(store: IPromiseStore) -> None:
+def test_case_13_transition_from_init_to_init_via_cancel(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id13", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id13", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_14_transition_from_init_to_init_via_cancel(store: IPromiseStore) -> None:
+def test_case_14_transition_from_init_to_init_via_cancel(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id14", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id14", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
-def test_case_15_transition_from_init_to_init_via_cancel(store: IPromiseStore) -> None:
+def test_case_15_transition_from_init_to_init_via_cancel(
+    store: LocalStore | RemoteStore,
+) -> None:
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id15", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id15", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_16_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id16",
         ikey=None,
         strict=False,
@@ -188,7 +230,7 @@ def test_case_16_transition_from_pending_to_pending_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id16",
             ikey=None,
             strict=True,
@@ -201,9 +243,9 @@ def test_case_16_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_17_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id17",
         ikey=None,
         strict=False,
@@ -213,7 +255,7 @@ def test_case_17_transition_from_pending_to_pending_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id17",
             ikey=None,
             strict=False,
@@ -226,9 +268,9 @@ def test_case_17_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_18_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id18",
         ikey=None,
         strict=False,
@@ -238,7 +280,7 @@ def test_case_18_transition_from_pending_to_pending_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id18",
             ikey="ikc",
             strict=True,
@@ -251,9 +293,9 @@ def test_case_18_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_19_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id19",
         ikey=None,
         strict=False,
@@ -263,7 +305,7 @@ def test_case_19_transition_from_pending_to_pending_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id19",
             ikey="ikc",
             strict=False,
@@ -276,9 +318,9 @@ def test_case_19_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_20_transition_from_pending_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id20",
         ikey=None,
         strict=False,
@@ -287,7 +329,7 @@ def test_case_20_transition_from_pending_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id20", ikey=None, strict=True, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -298,9 +340,9 @@ def test_case_20_transition_from_pending_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_21_transition_from_pending_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id21",
         ikey=None,
         strict=False,
@@ -309,7 +351,7 @@ def test_case_21_transition_from_pending_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id21", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -320,9 +362,9 @@ def test_case_21_transition_from_pending_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_22_transition_from_pending_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id22",
         ikey=None,
         strict=False,
@@ -331,7 +373,7 @@ def test_case_22_transition_from_pending_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id22", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -342,9 +384,9 @@ def test_case_22_transition_from_pending_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_23_transition_from_pending_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id23",
         ikey=None,
         strict=False,
@@ -353,7 +395,7 @@ def test_case_23_transition_from_pending_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id23", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -364,9 +406,9 @@ def test_case_23_transition_from_pending_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_24_transition_from_pending_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id24",
         ikey=None,
         strict=False,
@@ -375,7 +417,7 @@ def test_case_24_transition_from_pending_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id24", ikey=None, strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -386,9 +428,9 @@ def test_case_24_transition_from_pending_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_25_transition_from_pending_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id25",
         ikey=None,
         strict=False,
@@ -397,7 +439,7 @@ def test_case_25_transition_from_pending_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id25", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -408,9 +450,9 @@ def test_case_25_transition_from_pending_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_26_transition_from_pending_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id26",
         ikey=None,
         strict=False,
@@ -419,7 +461,7 @@ def test_case_26_transition_from_pending_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id26", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -430,9 +472,9 @@ def test_case_26_transition_from_pending_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_27_transition_from_pending_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id27",
         ikey=None,
         strict=False,
@@ -441,7 +483,7 @@ def test_case_27_transition_from_pending_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id27", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -452,9 +494,9 @@ def test_case_27_transition_from_pending_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_28_transition_from_pending_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id28",
         ikey=None,
         strict=False,
@@ -463,7 +505,7 @@ def test_case_28_transition_from_pending_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id28", ikey=None, strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -474,9 +516,9 @@ def test_case_28_transition_from_pending_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_29_transition_from_pending_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id29",
         ikey=None,
         strict=False,
@@ -485,7 +527,7 @@ def test_case_29_transition_from_pending_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id29", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -496,9 +538,9 @@ def test_case_29_transition_from_pending_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_30_transition_from_pending_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id30",
         ikey=None,
         strict=False,
@@ -507,7 +549,7 @@ def test_case_30_transition_from_pending_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id30", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -518,9 +560,9 @@ def test_case_30_transition_from_pending_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_31_transition_from_pending_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id31",
         ikey=None,
         strict=False,
@@ -529,7 +571,7 @@ def test_case_31_transition_from_pending_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id31", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -540,9 +582,9 @@ def test_case_31_transition_from_pending_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_32_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id32",
         ikey="ikc",
         strict=False,
@@ -552,7 +594,7 @@ def test_case_32_transition_from_pending_to_pending_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id32",
             ikey=None,
             strict=True,
@@ -565,9 +607,9 @@ def test_case_32_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_33_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id33",
         ikey="ikc",
         strict=False,
@@ -577,7 +619,7 @@ def test_case_33_transition_from_pending_to_pending_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id33",
             ikey=None,
             strict=False,
@@ -590,9 +632,9 @@ def test_case_33_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_34_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id34",
         ikey="ikc",
         strict=False,
@@ -601,7 +643,7 @@ def test_case_34_transition_from_pending_to_pending_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.create(
+    promise_record = store.promises.create(
         id="id34",
         ikey="ikc",
         strict=True,
@@ -618,9 +660,9 @@ def test_case_34_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_35_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id35",
         ikey="ikc",
         strict=False,
@@ -629,7 +671,7 @@ def test_case_35_transition_from_pending_to_pending_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.create(
+    promise_record = store.promises.create(
         id="id35",
         ikey="ikc",
         strict=False,
@@ -646,9 +688,9 @@ def test_case_35_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_36_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id36",
         ikey="ikc",
         strict=False,
@@ -658,7 +700,7 @@ def test_case_36_transition_from_pending_to_pending_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id36",
             ikey="ikc*",
             strict=True,
@@ -671,9 +713,9 @@ def test_case_36_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_37_transition_from_pending_to_pending_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id37",
         ikey="ikc",
         strict=False,
@@ -683,7 +725,7 @@ def test_case_37_transition_from_pending_to_pending_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id37",
             ikey="ikc*",
             strict=False,
@@ -696,9 +738,9 @@ def test_case_37_transition_from_pending_to_pending_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_38_transition_from_pending_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id38",
         ikey="ikc",
         strict=False,
@@ -707,7 +749,7 @@ def test_case_38_transition_from_pending_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id38", ikey=None, strict=True, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -718,9 +760,9 @@ def test_case_38_transition_from_pending_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_39_transition_from_pending_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id39",
         ikey="ikc",
         strict=False,
@@ -729,7 +771,7 @@ def test_case_39_transition_from_pending_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id39", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -740,9 +782,9 @@ def test_case_39_transition_from_pending_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_40_transition_from_pending_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id40",
         ikey="ikc",
         strict=False,
@@ -751,7 +793,7 @@ def test_case_40_transition_from_pending_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id40", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -762,9 +804,9 @@ def test_case_40_transition_from_pending_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_41_transition_from_pending_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id41",
         ikey="ikc",
         strict=False,
@@ -773,7 +815,7 @@ def test_case_41_transition_from_pending_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id41", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -784,9 +826,9 @@ def test_case_41_transition_from_pending_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_42_transition_from_pending_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id42",
         ikey="ikc",
         strict=False,
@@ -795,7 +837,7 @@ def test_case_42_transition_from_pending_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id42", ikey=None, strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -806,9 +848,9 @@ def test_case_42_transition_from_pending_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_43_transition_from_pending_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id43",
         ikey="ikc",
         strict=False,
@@ -817,7 +859,7 @@ def test_case_43_transition_from_pending_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id43", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -828,9 +870,9 @@ def test_case_43_transition_from_pending_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_44_transition_from_pending_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id44",
         ikey="ikc",
         strict=False,
@@ -839,7 +881,7 @@ def test_case_44_transition_from_pending_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id44", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -850,9 +892,9 @@ def test_case_44_transition_from_pending_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_45_transition_from_pending_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id45",
         ikey="ikc",
         strict=False,
@@ -861,7 +903,7 @@ def test_case_45_transition_from_pending_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id45", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -872,9 +914,9 @@ def test_case_45_transition_from_pending_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_46_transition_from_pending_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id46",
         ikey="ikc",
         strict=False,
@@ -883,7 +925,7 @@ def test_case_46_transition_from_pending_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id46", ikey=None, strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -894,9 +936,9 @@ def test_case_46_transition_from_pending_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_47_transition_from_pending_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id47",
         ikey="ikc",
         strict=False,
@@ -905,7 +947,7 @@ def test_case_47_transition_from_pending_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id47", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -916,9 +958,9 @@ def test_case_47_transition_from_pending_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_48_transition_from_pending_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id48",
         ikey="ikc",
         strict=False,
@@ -927,7 +969,7 @@ def test_case_48_transition_from_pending_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id48", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -938,9 +980,9 @@ def test_case_48_transition_from_pending_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_49_transition_from_pending_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id49",
         ikey="ikc",
         strict=False,
@@ -949,7 +991,7 @@ def test_case_49_transition_from_pending_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id49", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -960,9 +1002,9 @@ def test_case_49_transition_from_pending_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_50_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id50",
         ikey=None,
         strict=False,
@@ -971,9 +1013,9 @@ def test_case_50_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id50", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id50", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id50",
             ikey=None,
             strict=True,
@@ -986,9 +1028,9 @@ def test_case_50_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_51_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id51",
         ikey=None,
         strict=False,
@@ -997,9 +1039,9 @@ def test_case_51_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id51", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id51", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id51",
             ikey=None,
             strict=False,
@@ -1012,9 +1054,9 @@ def test_case_51_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_52_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id52",
         ikey=None,
         strict=False,
@@ -1023,9 +1065,9 @@ def test_case_52_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id52", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id52", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id52",
             ikey="ikc",
             strict=True,
@@ -1038,9 +1080,9 @@ def test_case_52_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_53_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id53",
         ikey=None,
         strict=False,
@@ -1049,9 +1091,9 @@ def test_case_53_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id53", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id53", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id53",
             ikey="ikc",
             strict=False,
@@ -1064,9 +1106,9 @@ def test_case_53_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_54_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id54",
         ikey=None,
         strict=False,
@@ -1075,16 +1117,18 @@ def test_case_54_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id54", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id54", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id54", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id54", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_55_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id55",
         ikey=None,
         strict=False,
@@ -1093,16 +1137,18 @@ def test_case_55_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id55", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id55", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id55", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id55", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_56_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id56",
         ikey=None,
         strict=False,
@@ -1111,16 +1157,18 @@ def test_case_56_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id56", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id56", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id56", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id56", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_57_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id57",
         ikey=None,
         strict=False,
@@ -1129,16 +1177,18 @@ def test_case_57_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id57", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id57", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id57", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id57", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_58_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id58",
         ikey=None,
         strict=False,
@@ -1147,16 +1197,18 @@ def test_case_58_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id58", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id58", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id58", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id58", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_59_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id59",
         ikey=None,
         strict=False,
@@ -1165,16 +1217,18 @@ def test_case_59_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id59", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id59", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id59", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id59", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_60_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id60",
         ikey=None,
         strict=False,
@@ -1183,16 +1237,18 @@ def test_case_60_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id60", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id60", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id60", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id60", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_61_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id61",
         ikey=None,
         strict=False,
@@ -1201,16 +1257,18 @@ def test_case_61_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id61", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id61", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id61", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id61", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_62_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id62",
         ikey=None,
         strict=False,
@@ -1219,16 +1277,18 @@ def test_case_62_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id62", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id62", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id62", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id62", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_63_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id63",
         ikey=None,
         strict=False,
@@ -1237,16 +1297,18 @@ def test_case_63_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id63", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id63", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id63", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id63", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_64_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id64",
         ikey=None,
         strict=False,
@@ -1255,16 +1317,18 @@ def test_case_64_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id64", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id64", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id64", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id64", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_65_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id65",
         ikey=None,
         strict=False,
@@ -1273,16 +1337,18 @@ def test_case_65_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id65", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id65", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id65", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id65", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_66_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id66",
         ikey=None,
         strict=False,
@@ -1291,9 +1357,9 @@ def test_case_66_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id66", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id66", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id66",
             ikey=None,
             strict=True,
@@ -1306,9 +1372,9 @@ def test_case_66_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_67_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id67",
         ikey=None,
         strict=False,
@@ -1317,9 +1383,9 @@ def test_case_67_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id67", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id67", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id67",
             ikey=None,
             strict=False,
@@ -1332,9 +1398,9 @@ def test_case_67_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_68_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id68",
         ikey=None,
         strict=False,
@@ -1343,9 +1409,9 @@ def test_case_68_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id68", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id68", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id68",
             ikey="ikc",
             strict=True,
@@ -1358,9 +1424,9 @@ def test_case_68_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_69_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id69",
         ikey=None,
         strict=False,
@@ -1369,9 +1435,9 @@ def test_case_69_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id69", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id69", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id69",
             ikey="ikc",
             strict=False,
@@ -1384,9 +1450,9 @@ def test_case_69_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_70_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id70",
         ikey=None,
         strict=False,
@@ -1395,16 +1461,18 @@ def test_case_70_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id70", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id70", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id70", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id70", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_71_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id71",
         ikey=None,
         strict=False,
@@ -1413,16 +1481,18 @@ def test_case_71_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id71", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id71", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id71", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id71", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_72_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id72",
         ikey=None,
         strict=False,
@@ -1431,8 +1501,8 @@ def test_case_72_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id72", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.resolve(
+    store.promises.resolve(id="id72", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.resolve(
         id="id72", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -1443,9 +1513,9 @@ def test_case_72_transition_from_resolved_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_73_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id73",
         ikey=None,
         strict=False,
@@ -1454,8 +1524,8 @@ def test_case_73_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id73", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.resolve(
+    store.promises.resolve(id="id73", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.resolve(
         id="id73", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -1466,9 +1536,9 @@ def test_case_73_transition_from_resolved_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_74_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id74",
         ikey=None,
         strict=False,
@@ -1477,16 +1547,18 @@ def test_case_74_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id74", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id74", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id74", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id74", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_75_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id75",
         ikey=None,
         strict=False,
@@ -1495,16 +1567,18 @@ def test_case_75_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id75", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id75", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id75", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id75", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_76_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id76",
         ikey=None,
         strict=False,
@@ -1513,16 +1587,18 @@ def test_case_76_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id76", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id76", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id76", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id76", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_77_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id77",
         ikey=None,
         strict=False,
@@ -1531,16 +1607,18 @@ def test_case_77_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id77", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id77", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id77", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id77", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_78_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id78",
         ikey=None,
         strict=False,
@@ -1549,16 +1627,18 @@ def test_case_78_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id78", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id78", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id78", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id78", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_79_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id79",
         ikey=None,
         strict=False,
@@ -1567,8 +1647,8 @@ def test_case_79_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id79", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.reject(
+    store.promises.resolve(id="id79", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.reject(
         id="id79", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -1579,9 +1659,9 @@ def test_case_79_transition_from_resolved_to_resolved_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_80_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id80",
         ikey=None,
         strict=False,
@@ -1590,16 +1670,18 @@ def test_case_80_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id80", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id80", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id80", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id80", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_81_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id81",
         ikey=None,
         strict=False,
@@ -1608,16 +1690,18 @@ def test_case_81_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id81", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id81", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id81", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id81", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_82_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id82",
         ikey=None,
         strict=False,
@@ -1626,16 +1710,18 @@ def test_case_82_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id82", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id82", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id82", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id82", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_83_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id83",
         ikey=None,
         strict=False,
@@ -1644,16 +1730,18 @@ def test_case_83_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id83", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id83", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id83", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id83", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_84_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id84",
         ikey=None,
         strict=False,
@@ -1662,16 +1750,18 @@ def test_case_84_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id84", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id84", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id84", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id84", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_85_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id85",
         ikey=None,
         strict=False,
@@ -1680,8 +1770,8 @@ def test_case_85_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id85", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.cancel(
+    store.promises.resolve(id="id85", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.cancel(
         id="id85", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -1692,9 +1782,9 @@ def test_case_85_transition_from_resolved_to_resolved_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_86_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id86",
         ikey=None,
         strict=False,
@@ -1703,16 +1793,18 @@ def test_case_86_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id86", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id86", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id86", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id86", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_87_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id87",
         ikey=None,
         strict=False,
@@ -1721,16 +1813,18 @@ def test_case_87_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id87", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(id="id87", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id87", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id87", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_88_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id88",
         ikey="ikc",
         strict=False,
@@ -1739,9 +1833,9 @@ def test_case_88_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id88", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id88", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id88",
             ikey=None,
             strict=True,
@@ -1754,9 +1848,9 @@ def test_case_88_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_89_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id89",
         ikey="ikc",
         strict=False,
@@ -1765,9 +1859,9 @@ def test_case_89_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id89", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id89", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id89",
             ikey=None,
             strict=False,
@@ -1780,9 +1874,9 @@ def test_case_89_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_90_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id90",
         ikey="ikc",
         strict=False,
@@ -1791,9 +1885,9 @@ def test_case_90_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id90", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id90", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id90",
             ikey="ikc",
             strict=True,
@@ -1806,9 +1900,9 @@ def test_case_90_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_91_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id91",
         ikey="ikc",
         strict=False,
@@ -1817,8 +1911,8 @@ def test_case_91_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id91", ikey=None, strict=False, headers=None, data=None)
-    promise_record = store.create(
+    store.promises.resolve(id="id91", ikey=None, strict=False, headers=None, data=None)
+    promise_record = store.promises.create(
         id="id91",
         ikey="ikc",
         strict=False,
@@ -1835,9 +1929,9 @@ def test_case_91_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_92_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id92",
         ikey="ikc",
         strict=False,
@@ -1846,9 +1940,9 @@ def test_case_92_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id92", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id92", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id92",
             ikey="ikc*",
             strict=True,
@@ -1861,9 +1955,9 @@ def test_case_92_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_93_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id93",
         ikey="ikc",
         strict=False,
@@ -1872,9 +1966,9 @@ def test_case_93_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id93", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id93", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id93",
             ikey="ikc*",
             strict=False,
@@ -1887,9 +1981,9 @@ def test_case_93_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_94_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id94",
         ikey="ikc",
         strict=False,
@@ -1898,16 +1992,18 @@ def test_case_94_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id94", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id94", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id94", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id94", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_95_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id95",
         ikey="ikc",
         strict=False,
@@ -1916,16 +2012,18 @@ def test_case_95_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id95", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id95", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id95", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id95", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_96_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id96",
         ikey="ikc",
         strict=False,
@@ -1934,16 +2032,18 @@ def test_case_96_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id96", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id96", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id96", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id96", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_97_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id97",
         ikey="ikc",
         strict=False,
@@ -1952,16 +2052,18 @@ def test_case_97_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id97", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id97", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id97", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id97", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_98_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id98",
         ikey="ikc",
         strict=False,
@@ -1970,16 +2072,18 @@ def test_case_98_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id98", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id98", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id98", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id98", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_99_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id99",
         ikey="ikc",
         strict=False,
@@ -1988,16 +2092,18 @@ def test_case_99_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id99", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id99", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id99", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id99", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_100_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id100",
         ikey="ikc",
         strict=False,
@@ -2006,16 +2112,18 @@ def test_case_100_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id100", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id100", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id100", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id100", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_101_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id101",
         ikey="ikc",
         strict=False,
@@ -2024,16 +2132,18 @@ def test_case_101_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id101", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id101", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id101", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id101", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_102_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id102",
         ikey="ikc",
         strict=False,
@@ -2042,16 +2152,18 @@ def test_case_102_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id102", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id102", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id102", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id102", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_103_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id103",
         ikey="ikc",
         strict=False,
@@ -2060,16 +2172,18 @@ def test_case_103_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id103", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id103", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id103", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id103", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_104_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id104",
         ikey="ikc",
         strict=False,
@@ -2078,16 +2192,18 @@ def test_case_104_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id104", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id104", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id104", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id104", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_105_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id105",
         ikey="ikc",
         strict=False,
@@ -2096,16 +2212,18 @@ def test_case_105_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id105", ikey=None, strict=False, headers=None, data=None)
+    store.promises.resolve(id="id105", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id105", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id105", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_106_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id106",
         ikey="ikc",
         strict=False,
@@ -2114,9 +2232,11 @@ def test_case_106_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id106", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id106", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id106",
             ikey=None,
             strict=True,
@@ -2129,9 +2249,9 @@ def test_case_106_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_107_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id107",
         ikey="ikc",
         strict=False,
@@ -2140,9 +2260,11 @@ def test_case_107_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id107", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id107", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id107",
             ikey=None,
             strict=False,
@@ -2155,9 +2277,9 @@ def test_case_107_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_108_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id108",
         ikey="ikc",
         strict=False,
@@ -2166,9 +2288,11 @@ def test_case_108_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id108", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id108", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id108",
             ikey="ikc",
             strict=True,
@@ -2181,9 +2305,9 @@ def test_case_108_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_109_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id109",
         ikey="ikc",
         strict=False,
@@ -2192,8 +2316,10 @@ def test_case_109_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id109", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.create(
+    store.promises.resolve(
+        id="id109", ikey="iku", strict=False, headers=None, data=None
+    )
+    promise_record = store.promises.create(
         id="id109",
         ikey="ikc",
         strict=False,
@@ -2210,9 +2336,9 @@ def test_case_109_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_110_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id110",
         ikey="ikc",
         strict=False,
@@ -2221,9 +2347,11 @@ def test_case_110_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id110", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id110", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id110",
             ikey="ikc*",
             strict=True,
@@ -2236,9 +2364,9 @@ def test_case_110_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_111_transition_from_resolved_to_resolved_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id111",
         ikey="ikc",
         strict=False,
@@ -2247,9 +2375,11 @@ def test_case_111_transition_from_resolved_to_resolved_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id111", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id111", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id111",
             ikey="ikc*",
             strict=False,
@@ -2262,9 +2392,9 @@ def test_case_111_transition_from_resolved_to_resolved_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_112_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id112",
         ikey="ikc",
         strict=False,
@@ -2273,16 +2403,20 @@ def test_case_112_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id112", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id112", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id112", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id112", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_113_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id113",
         ikey="ikc",
         strict=False,
@@ -2291,16 +2425,20 @@ def test_case_113_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id113", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id113", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id113", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id113", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_114_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id114",
         ikey="ikc",
         strict=False,
@@ -2309,8 +2447,10 @@ def test_case_114_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id114", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.resolve(
+    store.promises.resolve(
+        id="id114", ikey="iku", strict=False, headers=None, data=None
+    )
+    promise_record = store.promises.resolve(
         id="id114", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -2321,9 +2461,9 @@ def test_case_114_transition_from_resolved_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_115_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id115",
         ikey="ikc",
         strict=False,
@@ -2332,8 +2472,10 @@ def test_case_115_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id115", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.resolve(
+    store.promises.resolve(
+        id="id115", ikey="iku", strict=False, headers=None, data=None
+    )
+    promise_record = store.promises.resolve(
         id="id115", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -2344,9 +2486,9 @@ def test_case_115_transition_from_resolved_to_resolved_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_116_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id116",
         ikey="ikc",
         strict=False,
@@ -2355,16 +2497,20 @@ def test_case_116_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id116", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id116", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id116", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id116", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_117_transition_from_resolved_to_resolved_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id117",
         ikey="ikc",
         strict=False,
@@ -2373,16 +2519,20 @@ def test_case_117_transition_from_resolved_to_resolved_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id117", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id117", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id117", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id117", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_118_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id118",
         ikey="ikc",
         strict=False,
@@ -2391,16 +2541,20 @@ def test_case_118_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id118", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id118", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id118", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id118", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_119_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id119",
         ikey="ikc",
         strict=False,
@@ -2409,16 +2563,20 @@ def test_case_119_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id119", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id119", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id119", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id119", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_120_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id120",
         ikey="ikc",
         strict=False,
@@ -2427,16 +2585,20 @@ def test_case_120_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id120", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id120", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id120", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id120", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_121_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id121",
         ikey="ikc",
         strict=False,
@@ -2445,8 +2607,10 @@ def test_case_121_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id121", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.reject(
+    store.promises.resolve(
+        id="id121", ikey="iku", strict=False, headers=None, data=None
+    )
+    promise_record = store.promises.reject(
         id="id121", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -2457,9 +2621,9 @@ def test_case_121_transition_from_resolved_to_resolved_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_122_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id122",
         ikey="ikc",
         strict=False,
@@ -2468,16 +2632,20 @@ def test_case_122_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id122", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id122", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id122", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id122", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_123_transition_from_resolved_to_resolved_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id123",
         ikey="ikc",
         strict=False,
@@ -2486,16 +2654,20 @@ def test_case_123_transition_from_resolved_to_resolved_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id123", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id123", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id123", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id123", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_124_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id124",
         ikey="ikc",
         strict=False,
@@ -2504,16 +2676,20 @@ def test_case_124_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id124", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id124", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id124", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id124", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_125_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id125",
         ikey="ikc",
         strict=False,
@@ -2522,16 +2698,20 @@ def test_case_125_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id125", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id125", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id125", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id125", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_126_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id126",
         ikey="ikc",
         strict=False,
@@ -2540,16 +2720,20 @@ def test_case_126_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id126", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id126", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id126", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id126", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_127_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id127",
         ikey="ikc",
         strict=False,
@@ -2558,8 +2742,10 @@ def test_case_127_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id127", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.cancel(
+    store.promises.resolve(
+        id="id127", ikey="iku", strict=False, headers=None, data=None
+    )
+    promise_record = store.promises.cancel(
         id="id127", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "RESOLVED"
@@ -2570,9 +2756,9 @@ def test_case_127_transition_from_resolved_to_resolved_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_128_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id128",
         ikey="ikc",
         strict=False,
@@ -2581,16 +2767,20 @@ def test_case_128_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id128", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id128", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id128", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id128", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_129_transition_from_resolved_to_resolved_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id129",
         ikey="ikc",
         strict=False,
@@ -2599,16 +2789,20 @@ def test_case_129_transition_from_resolved_to_resolved_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.resolve(id="id129", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.resolve(
+        id="id129", ikey="iku", strict=False, headers=None, data=None
+    )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id129", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id129", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_130_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id130",
         ikey=None,
         strict=False,
@@ -2617,9 +2811,9 @@ def test_case_130_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id130", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id130", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id130",
             ikey=None,
             strict=True,
@@ -2632,9 +2826,9 @@ def test_case_130_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_131_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id131",
         ikey=None,
         strict=False,
@@ -2643,9 +2837,9 @@ def test_case_131_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id131", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id131", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id131",
             ikey=None,
             strict=False,
@@ -2658,9 +2852,9 @@ def test_case_131_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_132_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id132",
         ikey=None,
         strict=False,
@@ -2669,9 +2863,9 @@ def test_case_132_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id132", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id132", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id132",
             ikey="ikc",
             strict=True,
@@ -2684,9 +2878,9 @@ def test_case_132_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_133_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id133",
         ikey=None,
         strict=False,
@@ -2695,9 +2889,9 @@ def test_case_133_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id133", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id133", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id133",
             ikey="ikc",
             strict=False,
@@ -2710,9 +2904,9 @@ def test_case_133_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_134_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id134",
         ikey=None,
         strict=False,
@@ -2721,16 +2915,18 @@ def test_case_134_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id134", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id134", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id134", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id134", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_135_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id135",
         ikey=None,
         strict=False,
@@ -2739,16 +2935,18 @@ def test_case_135_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id135", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id135", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id135", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id135", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_136_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id136",
         ikey=None,
         strict=False,
@@ -2757,16 +2955,18 @@ def test_case_136_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id136", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id136", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id136", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id136", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_137_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id137",
         ikey=None,
         strict=False,
@@ -2775,16 +2975,18 @@ def test_case_137_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id137", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id137", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id137", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id137", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_138_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id138",
         ikey=None,
         strict=False,
@@ -2793,16 +2995,18 @@ def test_case_138_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id138", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id138", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id138", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id138", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_139_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id139",
         ikey=None,
         strict=False,
@@ -2811,16 +3015,18 @@ def test_case_139_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id139", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id139", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id139", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id139", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_140_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id140",
         ikey=None,
         strict=False,
@@ -2829,16 +3035,18 @@ def test_case_140_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id140", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id140", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id140", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id140", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_141_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id141",
         ikey=None,
         strict=False,
@@ -2847,16 +3055,18 @@ def test_case_141_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id141", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id141", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id141", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id141", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_142_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id142",
         ikey=None,
         strict=False,
@@ -2865,16 +3075,18 @@ def test_case_142_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id142", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id142", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id142", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id142", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_143_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id143",
         ikey=None,
         strict=False,
@@ -2883,16 +3095,18 @@ def test_case_143_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id143", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id143", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id143", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id143", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_144_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id144",
         ikey=None,
         strict=False,
@@ -2901,16 +3115,18 @@ def test_case_144_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id144", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id144", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id144", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id144", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_145_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id145",
         ikey=None,
         strict=False,
@@ -2919,16 +3135,18 @@ def test_case_145_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id145", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id145", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id145", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id145", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_146_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id146",
         ikey=None,
         strict=False,
@@ -2937,9 +3155,9 @@ def test_case_146_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id146", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id146", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id146",
             ikey=None,
             strict=True,
@@ -2952,9 +3170,9 @@ def test_case_146_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_147_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id147",
         ikey=None,
         strict=False,
@@ -2963,9 +3181,9 @@ def test_case_147_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id147", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id147", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id147",
             ikey=None,
             strict=False,
@@ -2978,9 +3196,9 @@ def test_case_147_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_148_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id148",
         ikey=None,
         strict=False,
@@ -2989,9 +3207,9 @@ def test_case_148_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id148", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id148", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id148",
             ikey="ikc",
             strict=True,
@@ -3004,9 +3222,9 @@ def test_case_148_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_149_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id149",
         ikey=None,
         strict=False,
@@ -3015,9 +3233,9 @@ def test_case_149_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id149", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id149", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id149",
             ikey="ikc",
             strict=False,
@@ -3030,9 +3248,9 @@ def test_case_149_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_150_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id150",
         ikey=None,
         strict=False,
@@ -3041,16 +3259,18 @@ def test_case_150_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id150", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id150", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id150", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id150", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_151_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id151",
         ikey=None,
         strict=False,
@@ -3059,16 +3279,18 @@ def test_case_151_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id151", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id151", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id151", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id151", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_152_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id152",
         ikey=None,
         strict=False,
@@ -3077,16 +3299,18 @@ def test_case_152_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id152", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id152", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id152", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id152", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_153_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id153",
         ikey=None,
         strict=False,
@@ -3095,8 +3319,8 @@ def test_case_153_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id153", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.resolve(
+    store.promises.reject(id="id153", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.resolve(
         id="id153", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -3107,9 +3331,9 @@ def test_case_153_transition_from_rejected_to_rejected_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_154_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id154",
         ikey=None,
         strict=False,
@@ -3118,16 +3342,18 @@ def test_case_154_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id154", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id154", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id154", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id154", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_155_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id155",
         ikey=None,
         strict=False,
@@ -3136,16 +3362,18 @@ def test_case_155_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id155", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id155", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id155", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id155", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_156_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id156",
         ikey=None,
         strict=False,
@@ -3154,16 +3382,18 @@ def test_case_156_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id156", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id156", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id156", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id156", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_157_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id157",
         ikey=None,
         strict=False,
@@ -3172,16 +3402,18 @@ def test_case_157_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id157", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id157", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id157", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id157", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_158_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id158",
         ikey=None,
         strict=False,
@@ -3190,8 +3422,8 @@ def test_case_158_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id158", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.reject(
+    store.promises.reject(id="id158", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.reject(
         id="id158", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -3202,9 +3434,9 @@ def test_case_158_transition_from_rejected_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_159_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id159",
         ikey=None,
         strict=False,
@@ -3213,8 +3445,8 @@ def test_case_159_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id159", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.reject(
+    store.promises.reject(id="id159", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.reject(
         id="id159", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -3225,9 +3457,9 @@ def test_case_159_transition_from_rejected_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_160_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id160",
         ikey=None,
         strict=False,
@@ -3236,16 +3468,18 @@ def test_case_160_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id160", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id160", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id160", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id160", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_161_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id161",
         ikey=None,
         strict=False,
@@ -3254,16 +3488,18 @@ def test_case_161_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id161", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id161", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id161", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id161", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_162_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id162",
         ikey=None,
         strict=False,
@@ -3272,16 +3508,18 @@ def test_case_162_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id162", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id162", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id162", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id162", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_163_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id163",
         ikey=None,
         strict=False,
@@ -3290,16 +3528,18 @@ def test_case_163_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id163", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id163", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id163", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id163", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_164_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id164",
         ikey=None,
         strict=False,
@@ -3308,16 +3548,18 @@ def test_case_164_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id164", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id164", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id164", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id164", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_165_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id165",
         ikey=None,
         strict=False,
@@ -3326,8 +3568,8 @@ def test_case_165_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id165", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.cancel(
+    store.promises.reject(id="id165", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.cancel(
         id="id165", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -3338,9 +3580,9 @@ def test_case_165_transition_from_rejected_to_rejected_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_166_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id166",
         ikey=None,
         strict=False,
@@ -3349,16 +3591,18 @@ def test_case_166_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id166", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id166", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id166", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id166", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_167_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id167",
         ikey=None,
         strict=False,
@@ -3367,16 +3611,18 @@ def test_case_167_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id167", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id167", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id167", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id167", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_168_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id168",
         ikey="ikc",
         strict=False,
@@ -3385,9 +3631,9 @@ def test_case_168_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id168", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id168", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id168",
             ikey=None,
             strict=True,
@@ -3400,9 +3646,9 @@ def test_case_168_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_169_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id169",
         ikey="ikc",
         strict=False,
@@ -3411,9 +3657,9 @@ def test_case_169_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id169", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id169", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id169",
             ikey=None,
             strict=False,
@@ -3426,9 +3672,9 @@ def test_case_169_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_170_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id170",
         ikey="ikc",
         strict=False,
@@ -3437,9 +3683,9 @@ def test_case_170_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id170", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id170", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id170",
             ikey="ikc",
             strict=True,
@@ -3452,9 +3698,9 @@ def test_case_170_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_171_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id171",
         ikey="ikc",
         strict=False,
@@ -3463,8 +3709,8 @@ def test_case_171_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id171", ikey=None, strict=False, headers=None, data=None)
-    promise_record = store.create(
+    store.promises.reject(id="id171", ikey=None, strict=False, headers=None, data=None)
+    promise_record = store.promises.create(
         id="id171",
         ikey="ikc",
         strict=False,
@@ -3481,9 +3727,9 @@ def test_case_171_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_172_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id172",
         ikey="ikc",
         strict=False,
@@ -3492,9 +3738,9 @@ def test_case_172_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id172", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id172", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id172",
             ikey="ikc*",
             strict=True,
@@ -3507,9 +3753,9 @@ def test_case_172_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_173_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id173",
         ikey="ikc",
         strict=False,
@@ -3518,9 +3764,9 @@ def test_case_173_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id173", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id173", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id173",
             ikey="ikc*",
             strict=False,
@@ -3533,9 +3779,9 @@ def test_case_173_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_174_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id174",
         ikey="ikc",
         strict=False,
@@ -3544,16 +3790,18 @@ def test_case_174_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id174", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id174", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id174", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id174", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_175_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id175",
         ikey="ikc",
         strict=False,
@@ -3562,16 +3810,18 @@ def test_case_175_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id175", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id175", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id175", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id175", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_176_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id176",
         ikey="ikc",
         strict=False,
@@ -3580,16 +3830,18 @@ def test_case_176_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id176", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id176", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id176", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id176", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_177_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id177",
         ikey="ikc",
         strict=False,
@@ -3598,16 +3850,18 @@ def test_case_177_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id177", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id177", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id177", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id177", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_178_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id178",
         ikey="ikc",
         strict=False,
@@ -3616,16 +3870,18 @@ def test_case_178_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id178", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id178", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id178", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id178", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_179_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id179",
         ikey="ikc",
         strict=False,
@@ -3634,16 +3890,18 @@ def test_case_179_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id179", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id179", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id179", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id179", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_180_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id180",
         ikey="ikc",
         strict=False,
@@ -3652,16 +3910,18 @@ def test_case_180_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id180", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id180", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id180", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id180", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_181_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id181",
         ikey="ikc",
         strict=False,
@@ -3670,16 +3930,18 @@ def test_case_181_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id181", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id181", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id181", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id181", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_182_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id182",
         ikey="ikc",
         strict=False,
@@ -3688,16 +3950,18 @@ def test_case_182_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id182", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id182", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id182", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id182", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_183_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id183",
         ikey="ikc",
         strict=False,
@@ -3706,16 +3970,18 @@ def test_case_183_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id183", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id183", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id183", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id183", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_184_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id184",
         ikey="ikc",
         strict=False,
@@ -3724,16 +3990,18 @@ def test_case_184_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id184", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id184", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id184", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id184", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_185_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id185",
         ikey="ikc",
         strict=False,
@@ -3742,16 +4010,18 @@ def test_case_185_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id185", ikey=None, strict=False, headers=None, data=None)
+    store.promises.reject(id="id185", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id185", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id185", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_186_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id186",
         ikey="ikc",
         strict=False,
@@ -3760,9 +4030,9 @@ def test_case_186_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id186", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id186", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id186",
             ikey=None,
             strict=True,
@@ -3775,9 +4045,9 @@ def test_case_186_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_187_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id187",
         ikey="ikc",
         strict=False,
@@ -3786,9 +4056,9 @@ def test_case_187_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id187", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id187", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id187",
             ikey=None,
             strict=False,
@@ -3801,9 +4071,9 @@ def test_case_187_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_188_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id188",
         ikey="ikc",
         strict=False,
@@ -3812,9 +4082,9 @@ def test_case_188_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id188", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id188", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id188",
             ikey="ikc",
             strict=True,
@@ -3827,9 +4097,9 @@ def test_case_188_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_189_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id189",
         ikey="ikc",
         strict=False,
@@ -3838,8 +4108,8 @@ def test_case_189_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id189", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.create(
+    store.promises.reject(id="id189", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.create(
         id="id189",
         ikey="ikc",
         strict=False,
@@ -3856,9 +4126,9 @@ def test_case_189_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_190_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id190",
         ikey="ikc",
         strict=False,
@@ -3867,9 +4137,9 @@ def test_case_190_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id190", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id190", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id190",
             ikey="ikc*",
             strict=True,
@@ -3882,9 +4152,9 @@ def test_case_190_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_191_transition_from_rejected_to_rejected_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id191",
         ikey="ikc",
         strict=False,
@@ -3893,9 +4163,9 @@ def test_case_191_transition_from_rejected_to_rejected_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id191", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id191", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id191",
             ikey="ikc*",
             strict=False,
@@ -3908,9 +4178,9 @@ def test_case_191_transition_from_rejected_to_rejected_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_192_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id192",
         ikey="ikc",
         strict=False,
@@ -3919,16 +4189,18 @@ def test_case_192_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id192", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id192", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id192", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id192", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_193_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id193",
         ikey="ikc",
         strict=False,
@@ -3937,16 +4209,18 @@ def test_case_193_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id193", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id193", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id193", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id193", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_194_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id194",
         ikey="ikc",
         strict=False,
@@ -3955,16 +4229,18 @@ def test_case_194_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id194", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id194", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id194", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id194", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_195_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id195",
         ikey="ikc",
         strict=False,
@@ -3973,8 +4249,8 @@ def test_case_195_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id195", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.resolve(
+    store.promises.reject(id="id195", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.resolve(
         id="id195", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -3985,9 +4261,9 @@ def test_case_195_transition_from_rejected_to_rejected_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_196_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id196",
         ikey="ikc",
         strict=False,
@@ -3996,16 +4272,18 @@ def test_case_196_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id196", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id196", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id196", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id196", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_197_transition_from_rejected_to_rejected_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id197",
         ikey="ikc",
         strict=False,
@@ -4014,16 +4292,18 @@ def test_case_197_transition_from_rejected_to_rejected_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id197", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id197", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id197", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id197", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_198_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id198",
         ikey="ikc",
         strict=False,
@@ -4032,16 +4312,18 @@ def test_case_198_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id198", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id198", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id198", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id198", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_199_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id199",
         ikey="ikc",
         strict=False,
@@ -4050,16 +4332,18 @@ def test_case_199_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id199", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id199", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id199", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id199", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_200_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id200",
         ikey="ikc",
         strict=False,
@@ -4068,8 +4352,8 @@ def test_case_200_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id200", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.reject(
+    store.promises.reject(id="id200", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.reject(
         id="id200", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -4080,9 +4364,9 @@ def test_case_200_transition_from_rejected_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_201_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id201",
         ikey="ikc",
         strict=False,
@@ -4091,8 +4375,8 @@ def test_case_201_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id201", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.reject(
+    store.promises.reject(id="id201", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.reject(
         id="id201", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -4103,9 +4387,9 @@ def test_case_201_transition_from_rejected_to_rejected_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_202_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id202",
         ikey="ikc",
         strict=False,
@@ -4114,16 +4398,18 @@ def test_case_202_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id202", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id202", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id202", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id202", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_203_transition_from_rejected_to_rejected_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id203",
         ikey="ikc",
         strict=False,
@@ -4132,16 +4418,18 @@ def test_case_203_transition_from_rejected_to_rejected_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id203", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id203", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id203", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id203", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_204_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id204",
         ikey="ikc",
         strict=False,
@@ -4150,16 +4438,18 @@ def test_case_204_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id204", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id204", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id204", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id204", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_205_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id205",
         ikey="ikc",
         strict=False,
@@ -4168,16 +4458,18 @@ def test_case_205_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id205", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id205", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id205", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id205", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_206_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id206",
         ikey="ikc",
         strict=False,
@@ -4186,16 +4478,18 @@ def test_case_206_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id206", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id206", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id206", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id206", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_207_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id207",
         ikey="ikc",
         strict=False,
@@ -4204,8 +4498,8 @@ def test_case_207_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id207", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.cancel(
+    store.promises.reject(id="id207", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.cancel(
         id="id207", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED"
@@ -4216,9 +4510,9 @@ def test_case_207_transition_from_rejected_to_rejected_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_208_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id208",
         ikey="ikc",
         strict=False,
@@ -4227,16 +4521,18 @@ def test_case_208_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id208", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id208", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id208", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id208", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_209_transition_from_rejected_to_rejected_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id209",
         ikey="ikc",
         strict=False,
@@ -4245,16 +4541,18 @@ def test_case_209_transition_from_rejected_to_rejected_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.reject(id="id209", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.reject(id="id209", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id209", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id209", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_210_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id210",
         ikey=None,
         strict=False,
@@ -4263,9 +4561,9 @@ def test_case_210_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id210", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id210", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id210",
             ikey=None,
             strict=True,
@@ -4278,9 +4576,9 @@ def test_case_210_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_211_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id211",
         ikey=None,
         strict=False,
@@ -4289,9 +4587,9 @@ def test_case_211_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id211", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id211", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id211",
             ikey=None,
             strict=False,
@@ -4304,9 +4602,9 @@ def test_case_211_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_212_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id212",
         ikey=None,
         strict=False,
@@ -4315,9 +4613,9 @@ def test_case_212_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id212", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id212", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id212",
             ikey="ikc",
             strict=True,
@@ -4330,9 +4628,9 @@ def test_case_212_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_213_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id213",
         ikey=None,
         strict=False,
@@ -4341,9 +4639,9 @@ def test_case_213_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id213", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id213", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id213",
             ikey="ikc",
             strict=False,
@@ -4356,9 +4654,9 @@ def test_case_213_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_214_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id214",
         ikey=None,
         strict=False,
@@ -4367,16 +4665,18 @@ def test_case_214_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id214", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id214", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id214", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id214", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_215_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id215",
         ikey=None,
         strict=False,
@@ -4385,16 +4685,18 @@ def test_case_215_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id215", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id215", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id215", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id215", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_216_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id216",
         ikey=None,
         strict=False,
@@ -4403,16 +4705,18 @@ def test_case_216_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id216", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id216", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id216", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id216", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_217_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id217",
         ikey=None,
         strict=False,
@@ -4421,16 +4725,18 @@ def test_case_217_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id217", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id217", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id217", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id217", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_218_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id218",
         ikey=None,
         strict=False,
@@ -4439,16 +4745,18 @@ def test_case_218_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id218", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id218", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id218", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id218", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_219_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id219",
         ikey=None,
         strict=False,
@@ -4457,16 +4765,18 @@ def test_case_219_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id219", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id219", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id219", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id219", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_220_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id220",
         ikey=None,
         strict=False,
@@ -4475,16 +4785,18 @@ def test_case_220_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id220", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id220", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id220", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id220", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_221_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id221",
         ikey=None,
         strict=False,
@@ -4493,16 +4805,18 @@ def test_case_221_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id221", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id221", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id221", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id221", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_222_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id222",
         ikey=None,
         strict=False,
@@ -4511,16 +4825,18 @@ def test_case_222_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id222", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id222", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id222", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id222", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_223_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id223",
         ikey=None,
         strict=False,
@@ -4529,16 +4845,18 @@ def test_case_223_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id223", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id223", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id223", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id223", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_224_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id224",
         ikey=None,
         strict=False,
@@ -4547,16 +4865,18 @@ def test_case_224_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id224", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id224", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id224", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id224", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_225_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id225",
         ikey=None,
         strict=False,
@@ -4565,16 +4885,18 @@ def test_case_225_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id225", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id225", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id225", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id225", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_226_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id226",
         ikey=None,
         strict=False,
@@ -4583,9 +4905,9 @@ def test_case_226_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id226", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id226", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id226",
             ikey=None,
             strict=True,
@@ -4598,9 +4920,9 @@ def test_case_226_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_227_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id227",
         ikey=None,
         strict=False,
@@ -4609,9 +4931,9 @@ def test_case_227_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id227", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id227", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id227",
             ikey=None,
             strict=False,
@@ -4624,9 +4946,9 @@ def test_case_227_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_228_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id228",
         ikey=None,
         strict=False,
@@ -4635,9 +4957,9 @@ def test_case_228_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id228", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id228", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id228",
             ikey="ikc",
             strict=True,
@@ -4650,9 +4972,9 @@ def test_case_228_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_229_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id229",
         ikey=None,
         strict=False,
@@ -4661,9 +4983,9 @@ def test_case_229_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id229", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id229", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id229",
             ikey="ikc",
             strict=False,
@@ -4676,9 +4998,9 @@ def test_case_229_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_230_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id230",
         ikey=None,
         strict=False,
@@ -4687,16 +5009,18 @@ def test_case_230_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id230", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id230", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id230", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id230", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_231_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id231",
         ikey=None,
         strict=False,
@@ -4705,16 +5029,18 @@ def test_case_231_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id231", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id231", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id231", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id231", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_232_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id232",
         ikey=None,
         strict=False,
@@ -4723,16 +5049,18 @@ def test_case_232_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id232", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id232", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id232", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id232", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_233_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id233",
         ikey=None,
         strict=False,
@@ -4741,8 +5069,8 @@ def test_case_233_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id233", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.resolve(
+    store.promises.cancel(id="id233", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.resolve(
         id="id233", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -4753,9 +5081,9 @@ def test_case_233_transition_from_canceled_to_canceled_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_234_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id234",
         ikey=None,
         strict=False,
@@ -4764,16 +5092,18 @@ def test_case_234_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id234", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id234", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id234", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id234", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_235_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id235",
         ikey=None,
         strict=False,
@@ -4782,16 +5112,18 @@ def test_case_235_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id235", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id235", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id235", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id235", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_236_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id236",
         ikey=None,
         strict=False,
@@ -4800,16 +5132,18 @@ def test_case_236_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id236", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id236", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id236", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id236", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_237_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id237",
         ikey=None,
         strict=False,
@@ -4818,16 +5152,18 @@ def test_case_237_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id237", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id237", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id237", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id237", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_238_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id238",
         ikey=None,
         strict=False,
@@ -4836,16 +5172,18 @@ def test_case_238_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id238", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id238", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id238", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id238", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_239_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id239",
         ikey=None,
         strict=False,
@@ -4854,8 +5192,8 @@ def test_case_239_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id239", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.reject(
+    store.promises.cancel(id="id239", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.reject(
         id="id239", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -4866,9 +5204,9 @@ def test_case_239_transition_from_canceled_to_canceled_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_240_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id240",
         ikey=None,
         strict=False,
@@ -4877,16 +5215,18 @@ def test_case_240_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id240", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id240", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id240", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id240", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_241_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id241",
         ikey=None,
         strict=False,
@@ -4895,16 +5235,18 @@ def test_case_241_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id241", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id241", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id241", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id241", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_242_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id242",
         ikey=None,
         strict=False,
@@ -4913,16 +5255,18 @@ def test_case_242_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id242", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id242", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id242", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id242", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_243_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id243",
         ikey=None,
         strict=False,
@@ -4931,16 +5275,18 @@ def test_case_243_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id243", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id243", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id243", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id243", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_244_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id244",
         ikey=None,
         strict=False,
@@ -4949,8 +5295,8 @@ def test_case_244_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id244", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.cancel(
+    store.promises.cancel(id="id244", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.cancel(
         id="id244", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -4961,9 +5307,9 @@ def test_case_244_transition_from_canceled_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_245_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id245",
         ikey=None,
         strict=False,
@@ -4972,8 +5318,8 @@ def test_case_245_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id245", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.cancel(
+    store.promises.cancel(id="id245", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.cancel(
         id="id245", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -4984,9 +5330,9 @@ def test_case_245_transition_from_canceled_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_246_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id246",
         ikey=None,
         strict=False,
@@ -4995,16 +5341,18 @@ def test_case_246_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id246", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id246", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id246", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id246", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_247_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id247",
         ikey=None,
         strict=False,
@@ -5013,16 +5361,18 @@ def test_case_247_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id247", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id247", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id247", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id247", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_248_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id248",
         ikey="ikc",
         strict=False,
@@ -5031,9 +5381,9 @@ def test_case_248_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id248", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id248", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id248",
             ikey=None,
             strict=True,
@@ -5046,9 +5396,9 @@ def test_case_248_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_249_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id249",
         ikey="ikc",
         strict=False,
@@ -5057,9 +5407,9 @@ def test_case_249_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id249", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id249", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id249",
             ikey=None,
             strict=False,
@@ -5072,9 +5422,9 @@ def test_case_249_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_250_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id250",
         ikey="ikc",
         strict=False,
@@ -5083,9 +5433,9 @@ def test_case_250_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id250", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id250", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id250",
             ikey="ikc",
             strict=True,
@@ -5098,9 +5448,9 @@ def test_case_250_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_251_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id251",
         ikey="ikc",
         strict=False,
@@ -5109,8 +5459,8 @@ def test_case_251_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id251", ikey=None, strict=False, headers=None, data=None)
-    promise_record = store.create(
+    store.promises.cancel(id="id251", ikey=None, strict=False, headers=None, data=None)
+    promise_record = store.promises.create(
         id="id251",
         ikey="ikc",
         strict=False,
@@ -5127,9 +5477,9 @@ def test_case_251_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_252_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id252",
         ikey="ikc",
         strict=False,
@@ -5138,9 +5488,9 @@ def test_case_252_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id252", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id252", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id252",
             ikey="ikc*",
             strict=True,
@@ -5153,9 +5503,9 @@ def test_case_252_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_253_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id253",
         ikey="ikc",
         strict=False,
@@ -5164,9 +5514,9 @@ def test_case_253_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id253", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id253", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id253",
             ikey="ikc*",
             strict=False,
@@ -5179,9 +5529,9 @@ def test_case_253_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_254_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id254",
         ikey="ikc",
         strict=False,
@@ -5190,16 +5540,18 @@ def test_case_254_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id254", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id254", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id254", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id254", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_255_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id255",
         ikey="ikc",
         strict=False,
@@ -5208,16 +5560,18 @@ def test_case_255_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id255", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id255", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id255", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id255", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_256_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id256",
         ikey="ikc",
         strict=False,
@@ -5226,16 +5580,18 @@ def test_case_256_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id256", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id256", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id256", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id256", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_257_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id257",
         ikey="ikc",
         strict=False,
@@ -5244,16 +5600,18 @@ def test_case_257_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id257", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id257", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id257", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id257", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_258_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id258",
         ikey="ikc",
         strict=False,
@@ -5262,16 +5620,18 @@ def test_case_258_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id258", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id258", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id258", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id258", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_259_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id259",
         ikey="ikc",
         strict=False,
@@ -5280,16 +5640,18 @@ def test_case_259_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id259", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id259", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id259", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id259", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_260_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id260",
         ikey="ikc",
         strict=False,
@@ -5298,16 +5660,18 @@ def test_case_260_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id260", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id260", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id260", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id260", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_261_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id261",
         ikey="ikc",
         strict=False,
@@ -5316,16 +5680,18 @@ def test_case_261_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id261", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id261", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id261", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id261", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_262_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id262",
         ikey="ikc",
         strict=False,
@@ -5334,16 +5700,18 @@ def test_case_262_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id262", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id262", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id262", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id262", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_263_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id263",
         ikey="ikc",
         strict=False,
@@ -5352,16 +5720,18 @@ def test_case_263_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id263", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id263", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id263", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id263", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_264_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id264",
         ikey="ikc",
         strict=False,
@@ -5370,16 +5740,18 @@ def test_case_264_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id264", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id264", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id264", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id264", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_265_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id265",
         ikey="ikc",
         strict=False,
@@ -5388,16 +5760,18 @@ def test_case_265_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id265", ikey=None, strict=False, headers=None, data=None)
+    store.promises.cancel(id="id265", ikey=None, strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id265", ikey="iku", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id265", ikey="iku", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_266_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id266",
         ikey="ikc",
         strict=False,
@@ -5406,9 +5780,9 @@ def test_case_266_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id266", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id266", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id266",
             ikey=None,
             strict=True,
@@ -5421,9 +5795,9 @@ def test_case_266_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_267_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id267",
         ikey="ikc",
         strict=False,
@@ -5432,9 +5806,9 @@ def test_case_267_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id267", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id267", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id267",
             ikey=None,
             strict=False,
@@ -5447,9 +5821,9 @@ def test_case_267_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_268_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id268",
         ikey="ikc",
         strict=False,
@@ -5458,9 +5832,9 @@ def test_case_268_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id268", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id268", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id268",
             ikey="ikc",
             strict=True,
@@ -5473,9 +5847,9 @@ def test_case_268_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_269_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id269",
         ikey="ikc",
         strict=False,
@@ -5484,8 +5858,8 @@ def test_case_269_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id269", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.create(
+    store.promises.cancel(id="id269", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.create(
         id="id269",
         ikey="ikc",
         strict=False,
@@ -5502,9 +5876,9 @@ def test_case_269_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_270_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id270",
         ikey="ikc",
         strict=False,
@@ -5513,9 +5887,9 @@ def test_case_270_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id270", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id270", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id270",
             ikey="ikc*",
             strict=True,
@@ -5528,9 +5902,9 @@ def test_case_270_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_271_transition_from_canceled_to_canceled_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id271",
         ikey="ikc",
         strict=False,
@@ -5539,9 +5913,9 @@ def test_case_271_transition_from_canceled_to_canceled_via_create(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id271", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id271", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id271",
             ikey="ikc*",
             strict=False,
@@ -5554,9 +5928,9 @@ def test_case_271_transition_from_canceled_to_canceled_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_272_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id272",
         ikey="ikc",
         strict=False,
@@ -5565,16 +5939,18 @@ def test_case_272_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id272", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id272", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id272", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id272", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_273_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id273",
         ikey="ikc",
         strict=False,
@@ -5583,16 +5959,18 @@ def test_case_273_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id273", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id273", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id273", ikey=None, strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id273", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_274_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id274",
         ikey="ikc",
         strict=False,
@@ -5601,16 +5979,18 @@ def test_case_274_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id274", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id274", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id274", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id274", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_275_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id275",
         ikey="ikc",
         strict=False,
@@ -5619,8 +5999,8 @@ def test_case_275_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id275", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.resolve(
+    store.promises.cancel(id="id275", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.resolve(
         id="id275", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -5631,9 +6011,9 @@ def test_case_275_transition_from_canceled_to_canceled_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_276_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id276",
         ikey="ikc",
         strict=False,
@@ -5642,16 +6022,18 @@ def test_case_276_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id276", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id276", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id276", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id276", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_277_transition_from_canceled_to_canceled_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id277",
         ikey="ikc",
         strict=False,
@@ -5660,16 +6042,18 @@ def test_case_277_transition_from_canceled_to_canceled_via_resolve(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id277", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id277", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id277", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.resolve(
+            id="id277", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_278_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id278",
         ikey="ikc",
         strict=False,
@@ -5678,16 +6062,18 @@ def test_case_278_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id278", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id278", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id278", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id278", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_279_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id279",
         ikey="ikc",
         strict=False,
@@ -5696,16 +6082,18 @@ def test_case_279_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id279", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id279", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id279", ikey=None, strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id279", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_280_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id280",
         ikey="ikc",
         strict=False,
@@ -5714,16 +6102,18 @@ def test_case_280_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id280", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id280", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id280", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id280", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_281_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id281",
         ikey="ikc",
         strict=False,
@@ -5732,8 +6122,8 @@ def test_case_281_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id281", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.reject(
+    store.promises.cancel(id="id281", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.reject(
         id="id281", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -5744,9 +6134,9 @@ def test_case_281_transition_from_canceled_to_canceled_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_282_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id282",
         ikey="ikc",
         strict=False,
@@ -5755,16 +6145,18 @@ def test_case_282_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id282", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id282", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id282", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id282", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_283_transition_from_canceled_to_canceled_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id283",
         ikey="ikc",
         strict=False,
@@ -5773,16 +6165,18 @@ def test_case_283_transition_from_canceled_to_canceled_via_reject(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id283", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id283", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id283", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.reject(
+            id="id283", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_284_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id284",
         ikey="ikc",
         strict=False,
@@ -5791,16 +6185,18 @@ def test_case_284_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id284", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id284", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id284", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id284", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_285_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id285",
         ikey="ikc",
         strict=False,
@@ -5809,16 +6205,18 @@ def test_case_285_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id285", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id285", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id285", ikey=None, strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id285", ikey=None, strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_286_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id286",
         ikey="ikc",
         strict=False,
@@ -5827,8 +6225,8 @@ def test_case_286_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id286", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.cancel(
+    store.promises.cancel(id="id286", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.cancel(
         id="id286", ikey="iku", strict=True, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -5839,9 +6237,9 @@ def test_case_286_transition_from_canceled_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_287_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id287",
         ikey="ikc",
         strict=False,
@@ -5850,8 +6248,8 @@ def test_case_287_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id287", ikey="iku", strict=False, headers=None, data=None)
-    promise_record = store.cancel(
+    store.promises.cancel(id="id287", ikey="iku", strict=False, headers=None, data=None)
+    promise_record = store.promises.cancel(
         id="id287", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_CANCELED"
@@ -5862,9 +6260,9 @@ def test_case_287_transition_from_canceled_to_canceled_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_288_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id288",
         ikey="ikc",
         strict=False,
@@ -5873,16 +6271,18 @@ def test_case_288_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id288", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id288", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id288", ikey="iku*", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id288", ikey="iku*", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_289_transition_from_canceled_to_canceled_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id289",
         ikey="ikc",
         strict=False,
@@ -5891,16 +6291,18 @@ def test_case_289_transition_from_canceled_to_canceled_via_cancel(
         timeout=sys.maxsize,
         tags=None,
     )
-    store.cancel(id="id289", ikey="iku", strict=False, headers=None, data=None)
+    store.promises.cancel(id="id289", ikey="iku", strict=False, headers=None, data=None)
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id289", ikey="iku*", strict=False, headers=None, data=None)
+        store.promises.cancel(
+            id="id289", ikey="iku*", strict=False, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_290_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id290",
         ikey=None,
         strict=False,
@@ -5910,7 +6312,7 @@ def test_case_290_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id290",
             ikey=None,
             strict=True,
@@ -5923,9 +6325,9 @@ def test_case_290_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_291_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id291",
         ikey=None,
         strict=False,
@@ -5935,7 +6337,7 @@ def test_case_291_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id291",
             ikey=None,
             strict=False,
@@ -5948,9 +6350,9 @@ def test_case_291_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_292_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id292",
         ikey=None,
         strict=False,
@@ -5960,7 +6362,7 @@ def test_case_292_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id292",
             ikey="ikc",
             strict=True,
@@ -5973,9 +6375,9 @@ def test_case_292_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_293_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id293",
         ikey=None,
         strict=False,
@@ -5985,7 +6387,7 @@ def test_case_293_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id293",
             ikey="ikc",
             strict=False,
@@ -5998,9 +6400,9 @@ def test_case_293_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_294_transition_from_timedout_to_timedout_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id294",
         ikey=None,
         strict=False,
@@ -6010,14 +6412,16 @@ def test_case_294_transition_from_timedout_to_timedout_via_resolve(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id294", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id294", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_295_transition_from_timedout_to_timedout_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id295",
         ikey=None,
         strict=False,
@@ -6026,7 +6430,7 @@ def test_case_295_transition_from_timedout_to_timedout_via_resolve(
         timeout=0,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id295", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6037,9 +6441,9 @@ def test_case_295_transition_from_timedout_to_timedout_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_296_transition_from_timedout_to_timedout_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id296",
         ikey=None,
         strict=False,
@@ -6049,14 +6453,16 @@ def test_case_296_transition_from_timedout_to_timedout_via_resolve(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id296", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id296", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_297_transition_from_timedout_to_timedout_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id297",
         ikey=None,
         strict=False,
@@ -6065,7 +6471,7 @@ def test_case_297_transition_from_timedout_to_timedout_via_resolve(
         timeout=0,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id297", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6076,9 +6482,9 @@ def test_case_297_transition_from_timedout_to_timedout_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_298_transition_from_timedout_to_timedout_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id298",
         ikey=None,
         strict=False,
@@ -6088,14 +6494,16 @@ def test_case_298_transition_from_timedout_to_timedout_via_reject(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id298", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id298", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_299_transition_from_timedout_to_timedout_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id299",
         ikey=None,
         strict=False,
@@ -6104,7 +6512,7 @@ def test_case_299_transition_from_timedout_to_timedout_via_reject(
         timeout=0,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id299", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6115,9 +6523,9 @@ def test_case_299_transition_from_timedout_to_timedout_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_300_transition_from_timedout_to_timedout_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id300",
         ikey=None,
         strict=False,
@@ -6127,14 +6535,16 @@ def test_case_300_transition_from_timedout_to_timedout_via_reject(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id300", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id300", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_301_transition_from_timedout_to_timedout_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id301",
         ikey=None,
         strict=False,
@@ -6143,7 +6553,7 @@ def test_case_301_transition_from_timedout_to_timedout_via_reject(
         timeout=0,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id301", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6154,9 +6564,9 @@ def test_case_301_transition_from_timedout_to_timedout_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_302_transition_from_timedout_to_timedout_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id302",
         ikey=None,
         strict=False,
@@ -6166,14 +6576,16 @@ def test_case_302_transition_from_timedout_to_timedout_via_cancel(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id302", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id302", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_303_transition_from_timedout_to_timedout_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id303",
         ikey=None,
         strict=False,
@@ -6182,7 +6594,7 @@ def test_case_303_transition_from_timedout_to_timedout_via_cancel(
         timeout=0,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id303", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6193,9 +6605,9 @@ def test_case_303_transition_from_timedout_to_timedout_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_304_transition_from_timedout_to_timedout_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id304",
         ikey=None,
         strict=False,
@@ -6205,14 +6617,16 @@ def test_case_304_transition_from_timedout_to_timedout_via_cancel(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id304", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id304", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_305_transition_from_timedout_to_timedout_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id305",
         ikey=None,
         strict=False,
@@ -6221,7 +6635,7 @@ def test_case_305_transition_from_timedout_to_timedout_via_cancel(
         timeout=0,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id305", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6232,9 +6646,9 @@ def test_case_305_transition_from_timedout_to_timedout_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_306_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id306",
         ikey="ikc",
         strict=False,
@@ -6244,7 +6658,7 @@ def test_case_306_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id306",
             ikey=None,
             strict=True,
@@ -6257,9 +6671,9 @@ def test_case_306_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_307_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id307",
         ikey="ikc",
         strict=False,
@@ -6269,7 +6683,7 @@ def test_case_307_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id307",
             ikey=None,
             strict=False,
@@ -6282,9 +6696,9 @@ def test_case_307_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_308_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id308",
         ikey="ikc",
         strict=False,
@@ -6294,7 +6708,7 @@ def test_case_308_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id308",
             ikey="ikc",
             strict=True,
@@ -6307,9 +6721,9 @@ def test_case_308_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_309_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id309",
         ikey="ikc",
         strict=False,
@@ -6318,7 +6732,7 @@ def test_case_309_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    promise_record = store.create(
+    promise_record = store.promises.create(
         id="id309",
         ikey="ikc",
         strict=False,
@@ -6335,9 +6749,9 @@ def test_case_309_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_310_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id310",
         ikey="ikc",
         strict=False,
@@ -6347,7 +6761,7 @@ def test_case_310_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id310",
             ikey="ikc*",
             strict=True,
@@ -6360,9 +6774,9 @@ def test_case_310_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_311_transition_from_timedout_to_timedout_via_create(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id311",
         ikey="ikc",
         strict=False,
@@ -6372,7 +6786,7 @@ def test_case_311_transition_from_timedout_to_timedout_via_create(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.create(
+        store.promises.create(
             id="id311",
             ikey="ikc*",
             strict=False,
@@ -6385,9 +6799,9 @@ def test_case_311_transition_from_timedout_to_timedout_via_create(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_312_transition_from_timedout_to_timedout_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id312",
         ikey="ikc",
         strict=False,
@@ -6397,14 +6811,16 @@ def test_case_312_transition_from_timedout_to_timedout_via_resolve(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id312", ikey=None, strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id312", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_313_transition_from_timedout_to_timedout_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id313",
         ikey="ikc",
         strict=False,
@@ -6413,7 +6829,7 @@ def test_case_313_transition_from_timedout_to_timedout_via_resolve(
         timeout=0,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id313", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6424,9 +6840,9 @@ def test_case_313_transition_from_timedout_to_timedout_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_314_transition_from_timedout_to_timedout_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id314",
         ikey="ikc",
         strict=False,
@@ -6436,14 +6852,16 @@ def test_case_314_transition_from_timedout_to_timedout_via_resolve(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.resolve(id="id314", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.resolve(
+            id="id314", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_315_transition_from_timedout_to_timedout_via_resolve(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id315",
         ikey="ikc",
         strict=False,
@@ -6452,7 +6870,7 @@ def test_case_315_transition_from_timedout_to_timedout_via_resolve(
         timeout=0,
         tags=None,
     )
-    promise_record = store.resolve(
+    promise_record = store.promises.resolve(
         id="id315", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6463,9 +6881,9 @@ def test_case_315_transition_from_timedout_to_timedout_via_resolve(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_316_transition_from_timedout_to_timedout_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id316",
         ikey="ikc",
         strict=False,
@@ -6475,14 +6893,16 @@ def test_case_316_transition_from_timedout_to_timedout_via_reject(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id316", ikey=None, strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id316", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_317_transition_from_timedout_to_timedout_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id317",
         ikey="ikc",
         strict=False,
@@ -6491,7 +6911,7 @@ def test_case_317_transition_from_timedout_to_timedout_via_reject(
         timeout=0,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id317", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6502,9 +6922,9 @@ def test_case_317_transition_from_timedout_to_timedout_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_318_transition_from_timedout_to_timedout_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id318",
         ikey="ikc",
         strict=False,
@@ -6514,14 +6934,16 @@ def test_case_318_transition_from_timedout_to_timedout_via_reject(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.reject(id="id318", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.reject(
+            id="id318", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_319_transition_from_timedout_to_timedout_via_reject(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id319",
         ikey="ikc",
         strict=False,
@@ -6530,7 +6952,7 @@ def test_case_319_transition_from_timedout_to_timedout_via_reject(
         timeout=0,
         tags=None,
     )
-    promise_record = store.reject(
+    promise_record = store.promises.reject(
         id="id319", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6541,9 +6963,9 @@ def test_case_319_transition_from_timedout_to_timedout_via_reject(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_320_transition_from_timedout_to_timedout_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id320",
         ikey="ikc",
         strict=False,
@@ -6553,14 +6975,16 @@ def test_case_320_transition_from_timedout_to_timedout_via_cancel(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id320", ikey=None, strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id320", ikey=None, strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_321_transition_from_timedout_to_timedout_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id321",
         ikey="ikc",
         strict=False,
@@ -6569,7 +6993,7 @@ def test_case_321_transition_from_timedout_to_timedout_via_cancel(
         timeout=0,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id321", ikey=None, strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"
@@ -6580,9 +7004,9 @@ def test_case_321_transition_from_timedout_to_timedout_via_cancel(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_322_transition_from_timedout_to_timedout_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id322",
         ikey="ikc",
         strict=False,
@@ -6592,14 +7016,16 @@ def test_case_322_transition_from_timedout_to_timedout_via_cancel(
         tags=None,
     )
     with pytest.raises(Exception):  # noqa: B017, PT011:
-        store.cancel(id="id322", ikey="iku", strict=True, headers=None, data=None)
+        store.promises.cancel(
+            id="id322", ikey="iku", strict=True, headers=None, data=None
+        )
 
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_case_323_transition_from_timedout_to_timedout_via_cancel(
-    store: IPromiseStore,
+    store: LocalStore | RemoteStore,
 ) -> None:
-    store.create(
+    store.promises.create(
         id="id323",
         ikey="ikc",
         strict=False,
@@ -6608,7 +7034,7 @@ def test_case_323_transition_from_timedout_to_timedout_via_cancel(
         timeout=0,
         tags=None,
     )
-    promise_record = store.cancel(
+    promise_record = store.promises.cancel(
         id="id323", ikey="iku", strict=False, headers=None, data=None
     )
     assert promise_record.state == "REJECTED_TIMEDOUT"

@@ -78,7 +78,6 @@ if TYPE_CHECKING:
 
     from resonate.record import DurablePromiseRecord
     from resonate.result import Result
-    from resonate.stores.traits import IPromiseStore
     from resonate.tracing import IAdapter
     from resonate.typing import (
         AwaitingFor,
@@ -242,7 +241,7 @@ class _Processor:
 class Scheduler:
     def __init__(
         self,
-        store: IPromiseStore | None = None,
+        store: LocalStore | RemoteStore | None = None,
         *,
         group: str = "default",
         adapter: IAdapter | None = None,
@@ -362,7 +361,7 @@ class Scheduler:
         self, id: str, value: Result[Any, Exception]
     ) -> DurablePromiseRecord:
         if isinstance(value, Ok):
-            return self._store.resolve(
+            return self._store.promises.resolve(
                 id=id,
                 ikey=utils.string_to_ikey(id),
                 strict=False,
@@ -370,7 +369,7 @@ class Scheduler:
                 data=self._json_encoder.encode(value.unwrap()),
             )
         if isinstance(value, Err):
-            return self._store.reject(
+            return self._store.promises.reject(
                 id=id,
                 ikey=utils.string_to_ikey(id),
                 strict=False,
@@ -388,7 +387,7 @@ class Scheduler:
         ), "Used storage does not support tasks."
 
         recv = utils.recv_url(group=self.group, pid=self.pid)
-        durable_promise, created_callback = self._store.create_callback(
+        durable_promise, created_callback = self._store.callbacks.create_callback(
             id=promise.id,
             root_id=promise.partition_root().id,
             timeout=sys.maxsize,
@@ -441,7 +440,7 @@ class Scheduler:
         dp_record: DurablePromiseRecord
         if claiming_task:
             assert isinstance(self._store, RemoteStore)
-            dp_record, task_record = self._store.create_with_task(
+            dp_record, task_record = self._store.promises.create_with_task(
                 id=req.id,
                 ikey=ikey,
                 strict=strict,
@@ -462,7 +461,7 @@ class Scheduler:
             assert isinstance(self._store, RemoteStore)
             assert root_id is not None
             assert recv is not None
-            dp_record = self._store.create_with_callback(
+            dp_record = self._store.promises.create_with_callback(
                 id=req.id,
                 ikey=ikey,
                 strict=strict,
@@ -476,7 +475,7 @@ class Scheduler:
         else:
             assert not claiming_task
             assert not registering_callback
-            dp_record = self._store.create(
+            dp_record = self._store.promises.create(
                 id=req.id,
                 ikey=ikey,
                 strict=strict,
