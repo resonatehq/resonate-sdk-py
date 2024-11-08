@@ -64,7 +64,7 @@ from resonate.record import Invoke, Resume, TaskRecord
 from resonate.result import Err, Ok
 from resonate.retry_policy import Never, RetryPolicy, default_policy
 from resonate.shells.long_poller import LongPoller
-from resonate.storage.traits import IPromiseStore, ITaskStore
+from resonate.stores.traits import IPromiseStore, ITaskStore
 from resonate.time import now
 from resonate.tracing.stdout import StdOutAdapter
 from resonate.typing import (

@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     )
     from resonate.options import LOptions
     from resonate.record import DurablePromiseRecord
-    from resonate.storage.traits import IPromiseStore
+    from resonate.stores.traits import IPromiseStore
     from resonate.typing import (
         AwaitingFor,
         CommandHandlerQueues,

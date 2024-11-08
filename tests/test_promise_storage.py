@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.storage.local_store import (
+from resonate.stores.local_store import (
     LocalStore,
     MemoryStorage,
 )
-from resonate.storage.resonate_server import RemoteServer
+from resonate.stores.resonate_server import RemoteServer
 
 if TYPE_CHECKING:
-    from resonate.storage.traits import IPromiseStore
+    from resonate.stores.traits import IPromiseStore
 
 
 @cache

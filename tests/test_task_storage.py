@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from resonate.storage.resonate_server import (
+from resonate.stores.resonate_server import (
     RemoteServer,
 )
 

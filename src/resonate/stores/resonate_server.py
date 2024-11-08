@@ -13,7 +13,7 @@ from resonate.record import (
     Resume,
     TaskRecord,
 )
-from resonate.storage.traits import IPromiseStore, ITaskStore
+from resonate.stores.traits import IPromiseStore, ITaskStore
 
 if TYPE_CHECKING:
     from resonate.typing import Data, Headers, IdempotencyKey, State, Tags

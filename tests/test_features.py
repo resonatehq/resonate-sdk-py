@@ -12,7 +12,7 @@ from resonate.commands import manual_completion, remote_function
 from resonate.promise import Promise
 from resonate.retry_policy import never
 from resonate.scheduler import Scheduler
-from resonate.storage.resonate_server import RemoteServer
+from resonate.stores.resonate_server import RemoteServer
 
 if TYPE_CHECKING:
     from collections.abc import Generator

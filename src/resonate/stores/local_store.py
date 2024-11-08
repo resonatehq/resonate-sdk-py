@@ -9,7 +9,7 @@ from resonate.record import (
     Param,
     Value,
 )
-from resonate.storage.traits import IPromiseStore
+from resonate.stores.traits import IPromiseStore
 from resonate.time import now
 
 if TYPE_CHECKING:
