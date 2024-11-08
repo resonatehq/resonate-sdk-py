@@ -40,7 +40,7 @@ def _timeout(promise_record: DurablePromiseRecord) -> DurablePromiseRecord:
 
 class IStorage(ABC):
     @abstractmethod
-    def rmw_durable_promise(
+    def rmw(
         self,
         id: str,
         fn: Callable[[DurablePromiseRecord | None], DurablePromiseRecord],
@@ -51,7 +51,7 @@ class MemoryStorage(IStorage):
     def __init__(self) -> None:
         self._durable_promises: dict[str, DurablePromiseRecord] = {}
 
-    def rmw_durable_promise(
+    def rmw(
         self,
         id: str,
         fn: Callable[[DurablePromiseRecord | None], DurablePromiseRecord],
@@ -110,7 +110,7 @@ class LocalStore(IPromiseStore):
                 raise ResonateError(msg, "STORE_FORBIDDEN")
             return promise_record
 
-        return self._storage.rmw_durable_promise(id=id, fn=_create)
+        return self._storage.rmw(id=id, fn=_create)
 
     def reject(
         self,
@@ -151,7 +151,7 @@ class LocalStore(IPromiseStore):
                 raise ResonateError(msg, "STORE_FORBIDDEN")
             return promise_record
 
-        return self._storage.rmw_durable_promise(id=id, fn=_reject)
+        return self._storage.rmw(id=id, fn=_reject)
 
     def cancel(
         self,
@@ -192,7 +192,7 @@ class LocalStore(IPromiseStore):
                 raise ResonateError(msg, "STORE_FORBIDDEN")
             return promise_record
 
-        return self._storage.rmw_durable_promise(id=id, fn=_cancel)
+        return self._storage.rmw(id=id, fn=_cancel)
 
     def resolve(
         self,
@@ -233,7 +233,7 @@ class LocalStore(IPromiseStore):
                 raise ResonateError(msg, "STORE_FORBIDDEN")
             return promise_record
 
-        return self._storage.rmw_durable_promise(id=id, fn=_resolve)
+        return self._storage.rmw(id=id, fn=_resolve)
 
     def get(self, *, id: str) -> DurablePromiseRecord:
         def _get(
@@ -244,7 +244,7 @@ class LocalStore(IPromiseStore):
 
             return promise_record
 
-        return self._storage.rmw_durable_promise(id=id, fn=_get)
+        return self._storage.rmw(id=id, fn=_get)
 
     def search(
         self,
