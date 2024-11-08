@@ -243,12 +243,12 @@ class Scheduler:
         self,
         store: IPromiseStore,
         *,
-        logic_group: str = "default",
+        group: str = "default",
         tracing_adapter: IAdapter | None = None,
         processor_threads: int | None = None,
         with_long_polling: bool | None = None,
     ) -> None:
-        self.logic_group: str = logic_group
+        self.group: str = group
         self.pid = uuid.uuid4().hex
         self._registered_function = DoubleDict[str, Any]()
         self._attached_options_to_top_lvl: dict[str, LOptions] = {}
@@ -388,7 +388,7 @@ class Scheduler:
             self._durable_promise_storage, RemoteStore
         ), "Used storage does not support tasks."
 
-        recv = utils.recv_url(group=self.logic_group, pid=self.pid)
+        recv = utils.recv_url(group=self.group, pid=self.pid)
         durable_promise, created_callback = (
             self._durable_promise_storage.create_callback(
                 id=promise.id,
@@ -454,7 +454,7 @@ class Scheduler:
                 tags=req.tags,
                 pid=self.pid,
                 ttl=5 * 1_000,
-                recv=utils.recv_url(self.logic_group, pid=self.pid),
+                recv=utils.recv_url(self.group, pid=self.pid),
             )
             if task_record is not None:
                 assert self._claimed_tasks is not None
@@ -549,7 +549,7 @@ class Scheduler:
         recv: dict[str, Any] | None = None
         root_id: str | None = None
         if registering_callback:
-            recv = utils.recv_url(group=self.logic_group, pid=self.pid)
+            recv = utils.recv_url(group=self.group, pid=self.pid)
             root_id = p.partition_root().id
 
         durable_promise_record = self._create_durable_promise_record(
@@ -632,7 +632,7 @@ class Scheduler:
                 if promise.action.opts.target is not None:
                     target_url = f"poll://{promise.action.opts.target}"
                 else:
-                    target_url = f"poll://{self.logic_group}"
+                    target_url = f"poll://{self.group}"
                 final_tags["resonate:invoke"] = target_url
 
                 req = promise.action.exec_unit.to_req(
@@ -897,7 +897,7 @@ class Scheduler:
                 )
 
                 logger.info(
-                    "Message arrived %s on woker %s/%s", msg, self.logic_group, self.pid
+                    "Message arrived %s on woker %s/%s", msg, self.group, self.pid
                 )
                 assert self._claimed_tasks is not None
                 assert (
@@ -1069,7 +1069,7 @@ class Scheduler:
         logger.info(
             "Task related to promise %s has been completed from worker %s/%s",
             id,
-            self.logic_group,
+            self.group,
             self.pid,
         )
 

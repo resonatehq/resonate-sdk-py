@@ -78,7 +78,7 @@ def test_factorial_same_node() -> None:
         )
 
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
-    s = Scheduler(store, logic_group=node_group)
+    s = Scheduler(store, group=node_group)
     s.register(factorial)
     n = 5
     p: Promise[int] = s.run(f"factorial-same-node-{n}", factorial, n)
@@ -110,9 +110,9 @@ def test_factorial_multi_node() -> None:
         )
 
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
-    s1 = Scheduler(store, logic_group="test-factorial-multi-node-1")
+    s1 = Scheduler(store, group="test-factorial-multi-node-1")
     s1.register(factorial_node_1, name="factorial")
-    s2 = Scheduler(store, logic_group="test-factorial-multi-node-2")
+    s2 = Scheduler(store, group="test-factorial-multi-node-2")
     s2.register(factorial_node_2, name="factorial")
     n = 5
     p: Promise[int] = s1.run(f"factorial-multi-node-{n}", factorial_node_1, n)
@@ -141,7 +141,7 @@ def test_trigger_on_other_node() -> None:
         return f"{v2} is {v1}"
 
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
-    s1 = Scheduler(store, logic_group="test-trigger-on-other-node")
+    s1 = Scheduler(store, group="test-trigger-on-other-node")
     s1.register(workflow, retry_policy=never())
 
     def _foo(ctx: Context, n: int) -> int:  # noqa: ARG001
@@ -150,7 +150,7 @@ def test_trigger_on_other_node() -> None:
     def _bar(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
-    s2 = Scheduler(store, logic_group="test-trigger-on-other-node-other")
+    s2 = Scheduler(store, group="test-trigger-on-other-node-other")
     s2.register(_foo, retry_policy=never(), name="foo")
     s2.register(_bar, retry_policy=never(), name="bar")
     p: Promise[str] = s1.run("test-trigger-on-other-node", workflow)
@@ -180,7 +180,7 @@ def test_factorial_mechanics() -> None:
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     schedulers: list[Scheduler] = []
     for _ in range(randint(1, 5)):  # noqa: S311
-        s = Scheduler(store, logic_group=node_group)
+        s = Scheduler(store, group=node_group)
         s.register(factorial, retry_policy=never())
         schedulers.append(s)
     n = randint(10, 30)  # noqa: S311
@@ -209,7 +209,7 @@ def test_serverless_mechanics() -> None:
         return v
 
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
-    main_node = Scheduler(store, logic_group=node_group)
+    main_node = Scheduler(store, group=node_group)
     main_node.register(workflow, retry_policy=never())
     p: Promise[int] = main_node.run("test-serverless-mechanics", workflow)
 
@@ -221,7 +221,7 @@ def test_serverless_mechanics() -> None:
 
     node_delations: int = 0
     while not p.done():
-        serverless_node = Scheduler(store, logic_group=lambda_node_group)
+        serverless_node = Scheduler(store, group=lambda_node_group)
         serverless_node.register(factorial)
         serverless_node.wait_until_blocked(timeout=0.1)
         del serverless_node
@@ -260,7 +260,7 @@ def test_fibonnaci_mechanics_awaiting() -> None:
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     schedulers: list[Scheduler] = []
     for _ in range(randint(1, 5)):  # noqa: S311
-        s = Scheduler(store, logic_group=node_group)
+        s = Scheduler(store, group=node_group)
         s.register(fibonnaci, retry_policy=never())
         schedulers.append(s)
     n = randint(10, 30)  # noqa: S311
@@ -307,7 +307,7 @@ def test_fibonnaci_mechanics_no_awaiting() -> None:
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     schedulers: list[Scheduler] = []
     for _ in range(randint(1, 5)):  # noqa: S311
-        s = Scheduler(store, logic_group=node_group)
+        s = Scheduler(store, group=node_group)
         s.register(fibonnaci, retry_policy=never())
         schedulers.append(s)
     n = 8
@@ -332,8 +332,8 @@ def test_trigger_on_other_process() -> None:
             return 1
         return n * (yield ctx.rfc(factorial, n - 1))
 
-    this_scheduler = Scheduler(store, logic_group=node_group)
-    other_scheduler = Scheduler(store, logic_group=f"{node_group}-other")
+    this_scheduler = Scheduler(store, group=node_group)
+    other_scheduler = Scheduler(store, group=f"{node_group}-other")
     other_scheduler.register(factorial)
     p: Promise[int] = this_scheduler.trigger(
         f"{node_group}-factorial", "factorial", [5], target=f"{node_group}-other"

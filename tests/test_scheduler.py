@@ -819,7 +819,7 @@ def test_remote_call_same_node() -> None:
         n = yield ctx.rfc(_number_from_other_node).options(target="call-same-node")
         return n
 
-    s = scheduler.Scheduler(store, logic_group="call-same-node")
+    s = scheduler.Scheduler(store, group="call-same-node")
     s.register(_remotely, retry_policy=never())
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-call-same-node", _remotely)
@@ -844,7 +844,7 @@ def test_remote_invocation_same_node() -> None:
         n = yield p
         return n
 
-    s = scheduler.Scheduler(store, logic_group="invocation-same-node")
+    s = scheduler.Scheduler(store, group="invocation-same-node")
     s.register(_remotely, retry_policy=never())
     s.register(_number_from_other_node, retry_policy=never())
     p: Promise[int] = s.run("test-remote-invocation-same-node", _remotely)
@@ -869,11 +869,11 @@ def test_remote_invocation_other_node() -> None:
         n = yield p
         return n
 
-    s = scheduler.Scheduler(store, logic_group="invocation-this-node")
+    s = scheduler.Scheduler(store, group="invocation-this-node")
     s.register(_remotely, retry_policy=never())
     s.register(_number_from_other_node, retry_policy=never())
 
-    s_other = scheduler.Scheduler(store, logic_group="invocation-other-node")
+    s_other = scheduler.Scheduler(store, group="invocation-other-node")
     s_other.register(_remotely, retry_policy=never())
     s_other.register(_number_from_other_node, retry_policy=never())
 
