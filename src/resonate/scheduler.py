@@ -246,7 +246,7 @@ class Scheduler:
         group: str = "default",
         adapter: IAdapter | None = None,
         workers: int | None = None,
-        with_long_polling: bool | None = None,
+        polling: bool | None = None,
     ) -> None:
         self.group: str = group
         self.pid = uuid.uuid4().hex
@@ -293,8 +293,8 @@ class Scheduler:
             self._claimed_tasks = {}
             self._heartbeating_thread = Thread(target=self._heartbeat, daemon=True)
             self._heartbeating_thread.start()
-            if with_long_polling is None or with_long_polling:
-                self._long_poller = LongPoller(self)
+            if polling is None or polling:
+                self._poller = LongPoller(self)
 
         self._emphemeral_promise_memo = EphemeralMemo[str, Promise[Any]]()
 
