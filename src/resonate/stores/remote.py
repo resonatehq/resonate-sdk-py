@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from resonate.typing import Data, Headers, IdempotencyKey
 
 
+@final
 class RemoteTaskStore:
     def __init__(
         self,
