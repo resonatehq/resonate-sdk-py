@@ -244,7 +244,7 @@ class Scheduler:
         store: IPromiseStore,
         *,
         group: str = "default",
-        tracing_adapter: IAdapter | None = None,
+        adapter: IAdapter | None = None,
         processor_threads: int | None = None,
         with_long_polling: bool | None = None,
     ) -> None:
@@ -272,9 +272,7 @@ class Scheduler:
             deps=self._deps,
         )
         self._json_encoder = JsonEncoder()
-        self._tracing_adapter: IAdapter = (
-            tracing_adapter if tracing_adapter is not None else StdOutAdapter()
-        )
+        self._adapter: IAdapter = adapter if adapter is not None else StdOutAdapter()
 
         self._runnables: Runnables = deque()
         self._awaiting = Awaiting()
@@ -535,7 +533,7 @@ class Scheduler:
         self._emphemeral_promise_memo.add(p.id, p)
 
         if not p.durable:
-            self._tracing_adapter.process_event(
+            self._adapter.process_event(
                 PromiseCreated(
                     id=p.id,
                     tick=now(),
@@ -559,7 +557,7 @@ class Scheduler:
             recv=recv,
             root_id=root_id,
         )
-        self._tracing_adapter.process_event(
+        self._adapter.process_event(
             PromiseCreated(
                 id=p.id,
                 tick=now(),
@@ -784,7 +782,7 @@ class Scheduler:
                 )
             )
         if route_info.retry_attempt == 0:
-            self._tracing_adapter.process_event(
+            self._adapter.process_event(
                 ExecutionInvoked(
                     route_info.promise.id,
                     route_info.promise.parent_id(),
@@ -799,7 +797,7 @@ class Scheduler:
         awaiting_for: AwaitingFor = "local"
         if isinstance(cqe, _FnCQE):
             promise = cqe.sqe.route_info.promise
-            self._tracing_adapter.process_event(
+            self._adapter.process_event(
                 ExecutionTerminated(
                     id=promise.id,
                     parent_id=promise.parent_id(),
@@ -822,7 +820,7 @@ class Scheduler:
                 ), "Need equal amount for results and promises."
 
                 for res, p in zip(result, cqe.sqe.promises):
-                    self._tracing_adapter.process_event(
+                    self._adapter.process_event(
                         ExecutionTerminated(
                             id=p.id,
                             parent_id=p.parent_id(),
@@ -837,7 +835,7 @@ class Scheduler:
                     self._unblock_coros_waiting_on_promise(p, awaiting_for)
             else:
                 for p in cqe.sqe.promises:
-                    self._tracing_adapter.process_event(
+                    self._adapter.process_event(
                         ExecutionTerminated(
                             id=p.id,
                             parent_id=p.parent_id(),
@@ -1091,7 +1089,7 @@ class Scheduler:
             self._send_pending_commands_to_processor(type(p.action.exec_unit))
 
         promise = coro.route_info.promise
-        self._tracing_adapter.process_event(
+        self._adapter.process_event(
             ExecutionAwaited(
                 id=promise.id,
                 tick=now(),
@@ -1152,7 +1150,7 @@ class Scheduler:
             promise.id
         ), "Ephemeral process must have been registered in the memo."
 
-        self._tracing_adapter.process_event(
+        self._adapter.process_event(
             PromiseCompleted(
                 id=promise.id,
                 tick=now(),
@@ -1205,7 +1203,7 @@ class Scheduler:
         yieldable_or_final_value = iterate_coro(runnable=runnable)
 
         if was_awaited:
-            self._tracing_adapter.process_event(
+            self._adapter.process_event(
                 ExecutionResumed(
                     id=runnable.coro.route_info.promise.id,
                     tick=now(),
@@ -1232,7 +1230,7 @@ class Scheduler:
 
             else:
                 promise = runnable.coro.route_info.promise
-                self._tracing_adapter.process_event(
+                self._adapter.process_event(
                     ExecutionTerminated(
                         id=promise.id,
                         tick=now(),
