@@ -502,59 +502,57 @@ def test_sequential_retry(store: IPromiseStore) -> None:
     promises = seq_scheduler.run()
     assert [p.result() for p in promises] == [1]
     assert seq_scheduler.get_events() == [
-        PromiseCreated(
-            promise_id="execution-seq-with-retry", parent_promise_id=None, tick=0
-        ),
+        PromiseCreated(id="execution-seq-with-retry", parent_id=None, tick=0),
         ExecutionInvoked(
-            promise_id="execution-seq-with-retry",
-            parent_promise_id=None,
+            id="execution-seq-with-retry",
+            parent_id=None,
             tick=0,
             fn_name="only_call",
             args=(),
             kwargs={"n": 1},
         ),
         PromiseCreated(
-            promise_id="execution-seq-with-retry.1",
-            parent_promise_id="execution-seq-with-retry",
+            id="execution-seq-with-retry.1",
+            parent_id="execution-seq-with-retry",
             tick=1,
         ),
         ExecutionInvoked(
-            promise_id="execution-seq-with-retry.1",
-            parent_promise_id="execution-seq-with-retry",
+            id="execution-seq-with-retry.1",
+            parent_id="execution-seq-with-retry",
             tick=1,
             fn_name="number",
             args=(),
             kwargs={"n": 1},
         ),
         ExecutionAwaited(
-            promise_id="execution-seq-with-retry",
-            parent_promise_id=None,
+            id="execution-seq-with-retry",
+            parent_id=None,
             tick=1,
         ),
         ExecutionTerminated(
-            promise_id="execution-seq-with-retry.1",
-            parent_promise_id="execution-seq-with-retry",
+            id="execution-seq-with-retry.1",
+            parent_id="execution-seq-with-retry",
             tick=2,
         ),
         PromiseCompleted(
-            promise_id="execution-seq-with-retry.1",
-            parent_promise_id="execution-seq-with-retry",
+            id="execution-seq-with-retry.1",
+            parent_id="execution-seq-with-retry",
             tick=2,
             value=Ok(1),
         ),
         ExecutionResumed(
-            promise_id="execution-seq-with-retry",
-            parent_promise_id=None,
+            id="execution-seq-with-retry",
+            parent_id=None,
             tick=3,
         ),
         ExecutionTerminated(
-            promise_id="execution-seq-with-retry",
-            parent_promise_id=None,
+            id="execution-seq-with-retry",
+            parent_id=None,
             tick=3,
         ),
         PromiseCompleted(
-            promise_id="execution-seq-with-retry",
-            parent_promise_id=None,
+            id="execution-seq-with-retry",
+            parent_id=None,
             tick=3,
             value=Ok(1),
         ),
@@ -563,12 +561,10 @@ def test_sequential_retry(store: IPromiseStore) -> None:
     promises = seq_scheduler.run()
     assert [p.result() for p in promises] == [1]
     assert seq_scheduler.get_events() == [
-        PromiseCreated(
-            promise_id="execution-seq-with-retry", parent_promise_id=None, tick=0
-        ),
+        PromiseCreated(id="execution-seq-with-retry", parent_id=None, tick=0),
         PromiseCompleted(
-            promise_id="execution-seq-with-retry",
-            parent_promise_id=None,
+            id="execution-seq-with-retry",
+            parent_id=None,
             tick=0,
             value=Ok(1),
         ),
@@ -707,115 +703,91 @@ def test_events_logic(store: IPromiseStore) -> None:
     s.add("foo-events-1", LOptions(durable=True, retry_policy=never()), foo)
     s.run()
     assert s.get_events() == [
-        PromiseCreated(promise_id="foo-events-1", parent_promise_id=None, tick=0),
+        PromiseCreated(id="foo-events-1", parent_id=None, tick=0),
         ExecutionInvoked(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
+            id="foo-events-1",
+            parent_id=None,
             tick=0,
             fn_name="foo",
             args=(),
             kwargs={},
         ),
-        PromiseCreated(
-            promise_id="foo-events-1.1", parent_promise_id="foo-events-1", tick=1
-        ),
+        PromiseCreated(id="foo-events-1.1", parent_id="foo-events-1", tick=1),
         ExecutionInvoked(
-            promise_id="foo-events-1.1",
-            parent_promise_id="foo-events-1",
+            id="foo-events-1.1",
+            parent_id="foo-events-1",
             tick=1,
             fn_name="bar",
             args=(),
             kwargs={},
         ),
-        PromiseCreated(
-            promise_id="foo-events-1.1.1", parent_promise_id="foo-events-1.1", tick=2
-        ),
+        PromiseCreated(id="foo-events-1.1.1", parent_id="foo-events-1.1", tick=2),
         ExecutionInvoked(
-            promise_id="foo-events-1.1.1",
-            parent_promise_id="foo-events-1.1",
+            id="foo-events-1.1.1",
+            parent_id="foo-events-1.1",
             tick=2,
             fn_name="baz",
             args=(),
             kwargs={},
         ),
-        ExecutionAwaited(
-            promise_id="foo-events-1.1", parent_promise_id="foo-events-1", tick=2
-        ),
-        PromiseCreated(
-            promise_id="foo-events-1.2", parent_promise_id="foo-events-1", tick=3
-        ),
+        ExecutionAwaited(id="foo-events-1.1", parent_id="foo-events-1", tick=2),
+        PromiseCreated(id="foo-events-1.2", parent_id="foo-events-1", tick=3),
         ExecutionInvoked(
-            promise_id="foo-events-1.2",
-            parent_promise_id="foo-events-1",
+            id="foo-events-1.2",
+            parent_id="foo-events-1",
             tick=3,
             fn_name="bar",
             args=(),
             kwargs={},
         ),
-        ExecutionAwaited(promise_id="foo-events-1", parent_promise_id=None, tick=4),
-        PromiseCreated(
-            promise_id="foo-events-1.2.1", parent_promise_id="foo-events-1.2", tick=5
-        ),
+        ExecutionAwaited(id="foo-events-1", parent_id=None, tick=4),
+        PromiseCreated(id="foo-events-1.2.1", parent_id="foo-events-1.2", tick=5),
         ExecutionInvoked(
-            promise_id="foo-events-1.2.1",
-            parent_promise_id="foo-events-1.2",
+            id="foo-events-1.2.1",
+            parent_id="foo-events-1.2",
             tick=5,
             fn_name="baz",
             args=(),
             kwargs={},
         ),
-        ExecutionAwaited(
-            promise_id="foo-events-1.2", parent_promise_id="foo-events-1", tick=5
-        ),
-        ExecutionTerminated(
-            promise_id="foo-events-1.1.1", parent_promise_id="foo-events-1.1", tick=6
-        ),
+        ExecutionAwaited(id="foo-events-1.2", parent_id="foo-events-1", tick=5),
+        ExecutionTerminated(id="foo-events-1.1.1", parent_id="foo-events-1.1", tick=6),
         PromiseCompleted(
-            promise_id="foo-events-1.1.1",
-            parent_promise_id="foo-events-1.1",
+            id="foo-events-1.1.1",
+            parent_id="foo-events-1.1",
             tick=6,
             value=Ok(None),
         ),
-        ExecutionTerminated(
-            promise_id="foo-events-1.2.1", parent_promise_id="foo-events-1.2", tick=7
-        ),
+        ExecutionTerminated(id="foo-events-1.2.1", parent_id="foo-events-1.2", tick=7),
         PromiseCompleted(
-            promise_id="foo-events-1.2.1",
-            parent_promise_id="foo-events-1.2",
+            id="foo-events-1.2.1",
+            parent_id="foo-events-1.2",
             tick=7,
             value=Ok(None),
         ),
-        ExecutionResumed(
-            promise_id="foo-events-1.1", parent_promise_id="foo-events-1", tick=8
-        ),
-        ExecutionTerminated(
-            promise_id="foo-events-1.1", parent_promise_id="foo-events-1", tick=8
-        ),
+        ExecutionResumed(id="foo-events-1.1", parent_id="foo-events-1", tick=8),
+        ExecutionTerminated(id="foo-events-1.1", parent_id="foo-events-1", tick=8),
         PromiseCompleted(
-            promise_id="foo-events-1.1",
-            parent_promise_id="foo-events-1",
+            id="foo-events-1.1",
+            parent_id="foo-events-1",
             tick=8,
             value=Ok("Done"),
         ),
-        ExecutionResumed(promise_id="foo-events-1", parent_promise_id=None, tick=9),
-        ExecutionAwaited(promise_id="foo-events-1", parent_promise_id=None, tick=9),
-        ExecutionResumed(
-            promise_id="foo-events-1.2", parent_promise_id="foo-events-1", tick=10
-        ),
-        ExecutionTerminated(
-            promise_id="foo-events-1.2", parent_promise_id="foo-events-1", tick=10
-        ),
+        ExecutionResumed(id="foo-events-1", parent_id=None, tick=9),
+        ExecutionAwaited(id="foo-events-1", parent_id=None, tick=9),
+        ExecutionResumed(id="foo-events-1.2", parent_id="foo-events-1", tick=10),
+        ExecutionTerminated(id="foo-events-1.2", parent_id="foo-events-1", tick=10),
         PromiseCompleted(
-            promise_id="foo-events-1.2",
-            parent_promise_id="foo-events-1",
+            id="foo-events-1.2",
+            parent_id="foo-events-1",
             tick=10,
             value=Ok("Done"),
         ),
-        ExecutionResumed(promise_id="foo-events-1", parent_promise_id=None, tick=11),
-        ExecutionTerminated(promise_id="foo-events-1", parent_promise_id=None, tick=11),
+        ExecutionResumed(id="foo-events-1", parent_id=None, tick=11),
+        ExecutionTerminated(id="foo-events-1", parent_id=None, tick=11),
         PromiseCompleted(
-            promise_id="foo-events-1",
-            parent_promise_id=None,
+            id="foo-events-1",
+            parent_id=None,
             tick=11,
             value=Ok(["Done", "Done"]),
         ),

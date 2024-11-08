@@ -43,7 +43,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
     def create_with_task(  # noqa: PLR0913
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: str | None,
         strict: bool,
         headers: dict[str, str] | None,
@@ -60,7 +60,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
             headers=request_headers,
             json={
                 "promise": {
-                    "id": promise_id,
+                    "id": id,
                     "param": {
                         "headers": headers,
                         "data": self._encode_data(data),
@@ -116,14 +116,14 @@ class RemoteServer(IPromiseStore, ITaskStore):
     def create_with_callback(  # noqa: PLR0913
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: str | None,
         strict: bool,
         timeout: int,
         headers: dict[str, str] | None,
         data: str | None,
         tags: dict[str, str] | None,
-        root_promise_id: str,
+        root_id: str,
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
@@ -133,13 +133,13 @@ class RemoteServer(IPromiseStore, ITaskStore):
             headers=request_headers,
             json={
                 "promise": {
-                    "id": promise_id,
+                    "id": id,
                     "timeout": timeout,
                     "param": {"headers": headers, "data": self._encode_data(data)},
                     "tags": tags,
                 },
                 "callback": {
-                    "rootPromiseId": root_promise_id,
+                    "rootPromiseId": root_id,
                     "timeout": timeout,
                     "recv": recv,
                 },
@@ -184,16 +184,16 @@ class RemoteServer(IPromiseStore, ITaskStore):
     def create_callback(
         self,
         *,
-        promise_id: str,
-        root_promise_id: str,
+        id: str,
+        root_id: str,
         timeout: int,
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         response = requests.post(
             url=f"{self.url}/callbacks",
             json={
-                "promiseId": promise_id,
-                "rootPromiseId": root_promise_id,
+                "promiseId": id,
+                "rootPromiseId": root_id,
                 "timeout": timeout,
                 "recv": recv,
             },
@@ -216,7 +216,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
     def create(  # noqa: PLR0913
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: str | None,
         strict: bool,
         headers: dict[str, str] | None,
@@ -230,7 +230,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
             url=f"{self.url}/promises",
             headers=request_headers,
             json={
-                "id": promise_id,
+                "id": id,
                 "param": {
                     "headers": headers,
                     "data": self._encode_data(data),
@@ -248,7 +248,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
     def cancel(
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: IdempotencyKey,
         strict: bool,
         headers: Headers,
@@ -256,7 +256,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
         response = requests.patch(
-            url=f"{self.url}/promises/{promise_id}",
+            url=f"{self.url}/promises/{id}",
             headers=request_headers,
             json={
                 "state": "REJECTED_CANCELED",
@@ -270,7 +270,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
     def resolve(
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: IdempotencyKey,
         strict: bool,
         headers: Headers,
@@ -279,7 +279,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
         response = requests.patch(
-            f"{self.url}/promises/{promise_id}",
+            f"{self.url}/promises/{id}",
             headers=request_headers,
             json={
                 "state": "RESOLVED",
@@ -293,7 +293,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
     def reject(
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: IdempotencyKey,
         strict: bool,
         headers: Headers,
@@ -302,7 +302,7 @@ class RemoteServer(IPromiseStore, ITaskStore):
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
         response = requests.patch(
-            f"{self.url}/promises/{promise_id}",
+            f"{self.url}/promises/{id}",
             headers=request_headers,
             json={
                 "state": "REJECTED",
@@ -313,15 +313,15 @@ class RemoteServer(IPromiseStore, ITaskStore):
         _ensure_success(response)
         return DurablePromiseRecord.decode(data=response.json(), encoder=self._encoder)
 
-    def get(self, *, promise_id: str) -> DurablePromiseRecord:
+    def get(self, *, id: str) -> DurablePromiseRecord:
         response = requests.get(
-            f"{self.url}/promises/{promise_id}", timeout=self._request_timeout
+            f"{self.url}/promises/{id}", timeout=self._request_timeout
         )
         _ensure_success(response)
         return DurablePromiseRecord.decode(data=response.json(), encoder=self._encoder)
 
     def search(
-        self, *, promise_id: str, state: State, tags: Tags, limit: int | None = None
+        self, *, id: str, state: State, tags: Tags, limit: int | None = None
     ) -> list[DurablePromiseRecord]:
         raise NotImplementedError
 

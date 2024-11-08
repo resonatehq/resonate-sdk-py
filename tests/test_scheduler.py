@@ -156,10 +156,10 @@ def test_async_fibonacci(store: IPromiseStore) -> None:
         if n <= 1:
             return n
         p1: Promise[Any] = yield ctx.lfi(fibonacci, n - 1).with_options(
-            promise_id=f"async-fibonacci-{n-1}"
+            id=f"async-fibonacci-{n-1}"
         )
         p2: Promise[Any] = yield ctx.lfi(fibonacci, n - 2).with_options(
-            promise_id=f"async-fibonacci-{n-2}"
+            id=f"async-fibonacci-{n-2}"
         )
         v2 = yield p2
         v1 = yield p1
@@ -516,7 +516,7 @@ def test_coro_retry(store: IPromiseStore) -> None:
 def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
     yield ctx.rfc(
         CreateDurablePromiseReq(
-            promise_id="abc",
+            id="abc",
             data={
                 "func": "func",
                 "args": (1, 2),
@@ -538,8 +538,8 @@ def test_rfc_raw() -> None:
     s.wait_until_blocked()
     assert not p.done()
 
-    child_promise_record = store.get(promise_id="abc")
-    assert child_promise_record.promise_id == "abc"
+    child_promise_record = store.get(id="abc")
+    assert child_promise_record.id == "abc"
     assert child_promise_record.state == "PENDING"
     assert child_promise_record.tags == {"demo": "test"}
 
@@ -551,7 +551,7 @@ def test_dedup(store: IPromiseStore) -> None:
             return 1
 
         p: Promise[int] = yield ctx.lfi(factorial, n - 1).with_options(
-            promise_id=f"factorial-dedup-{n-1}", retry_policy=never()
+            id=f"factorial-dedup-{n-1}", retry_policy=never()
         )
         return n * (yield p)
 

@@ -31,7 +31,7 @@ def test_human_in_the_loop() -> None:
             manual_completion("test-human-in-loop-question-to-answer-1")
         )
         age: int = yield ctx.rfc(
-            manual_completion(promise_id="test-human-in-loop-question-to-answer-2")
+            manual_completion(id="test-human-in-loop-question-to-answer-2")
         )
         return f"Hi {name} with age {age}"
 
@@ -41,7 +41,7 @@ def test_human_in_the_loop() -> None:
     p: Promise[str] = s.run("test-feature-human-in-the-loop", human_in_the_loop)
     s.wait_until_blocked()
     store.resolve(
-        promise_id="test-human-in-loop-question-to-answer-1",
+        id="test-human-in-loop-question-to-answer-1",
         ikey=None,
         strict=False,
         headers=None,
@@ -50,7 +50,7 @@ def test_human_in_the_loop() -> None:
     s.clear_blocked_flag()
     s.wait_until_blocked()
     store.resolve(
-        promise_id="test-human-in-loop-question-to-answer-2",
+        id="test-human-in-loop-question-to-answer-2",
         ikey=None,
         strict=False,
         headers=None,
@@ -168,15 +168,13 @@ def test_factorial_mechanics() -> None:
     def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         if n == 0:
             return 1
-        promise_id = f"factorial-mechanics-{n-1}"
+        id = f"factorial-mechanics-{n-1}"
         v: int
         if n % randint(1, 10) == 0:  # noqa: S311
-            v = yield ctx.rfc(factorial, n - 1).with_options(
-                promise_id=promise_id, target=node_group
-            )
+            v = yield ctx.rfc(factorial, n - 1).with_options(id=id, target=node_group)
         else:
             v = yield ctx.lfc(factorial, n - 1).with_options(
-                promise_id=promise_id, retry_policy=never()
+                id=id, retry_policy=never()
             )
 
         return n + v
@@ -203,7 +201,7 @@ def test_serverless_mechanics() -> None:
     def workflow(ctx: Context) -> Generator[Yieldable, Any, int]:
         v: int = yield ctx.rfc(
             remote_function(
-                promise_id=None,
+                id=None,
                 func_name="factorial",
                 args=[5],
                 target="test-serverless-mechanics-lambda",
@@ -246,26 +244,26 @@ def test_fibonnaci_mechanics_awaiting() -> None:
         if n <= 1:
             return n
 
-        promise_id_n1 = f"fibonnaci-mechanics-awaiting-{n-1}"
+        id_n1 = f"fibonnaci-mechanics-awaiting-{n-1}"
         n1: int
         if n % randint(1, 10) == 0:  # noqa: S311
             n1 = yield ctx.rfc(fibonnaci, n - 1).with_options(
-                promise_id=promise_id_n1, target=node_group
+                id=id_n1, target=node_group
             )
         else:
             n1 = yield ctx.lfc(fibonnaci, n - 1).with_options(
-                promise_id=promise_id_n1, retry_policy=never()
+                id=id_n1, retry_policy=never()
             )
 
-        promise_id_n2 = f"fibonnaci-mechanics-awaiting-{n-2}"
+        id_n2 = f"fibonnaci-mechanics-awaiting-{n-2}"
         n2: int
         if n % randint(1, 10) == 0:  # noqa: S311
             n2 = yield ctx.rfc(fibonnaci, n - 2).with_options(
-                promise_id=promise_id_n2, target=node_group
+                id=id_n2, target=node_group
             )
         else:
             n2 = yield ctx.lfc(fibonnaci, n - 2).with_options(
-                promise_id=promise_id_n2, retry_policy=never()
+                id=id_n2, retry_policy=never()
             )
         return n1 + n2
 
@@ -294,26 +292,26 @@ def test_fibonnaci_mechanics_no_awaiting() -> None:
         if n <= 1:
             return n
 
-        promise_id_n1 = f"fibonnaci-mechanics-no-awaiting-{n-1}"
+        id_n1 = f"fibonnaci-mechanics-no-awaiting-{n-1}"
         pn1: Promise[int]
         if n % randint(1, 10) == 0:  # noqa: S311
             pn1 = yield ctx.rfi(fibonnaci, n - 1).with_options(
-                promise_id=promise_id_n1, target=node_group
+                id=id_n1, target=node_group
             )
         else:
             pn1 = yield ctx.lfi(fibonnaci, n - 1).with_options(
-                promise_id=promise_id_n1, retry_policy=never()
+                id=id_n1, retry_policy=never()
             )
 
-        promise_id_n2 = f"fibonnaci-mechanics-no-awaiting-{n-2}"
+        id_n2 = f"fibonnaci-mechanics-no-awaiting-{n-2}"
         pn2: Promise[int]
         if n % randint(1, 10) == 0:  # noqa: S311
             pn2 = yield ctx.rfi(fibonnaci, n - 2).with_options(
-                promise_id=promise_id_n1, target=node_group
+                id=id_n1, target=node_group
             )
         else:
             pn2 = yield ctx.lfi(fibonnaci, n - 2).with_options(
-                promise_id=promise_id_n2, retry_policy=never()
+                id=id_n2, retry_policy=never()
             )
 
         n1 = yield pn1

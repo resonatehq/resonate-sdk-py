@@ -124,7 +124,7 @@ class Context:
 
     def deferred(
         self,
-        promise_id: str,
+        id: str,
         coro: DurableCoro[P, T] | DurableFn[P, T],
         /,
         *args: P.args,
@@ -136,9 +136,7 @@ class Context:
         Invoke as a root invocation. Is equivalent to do `Scheduler.run(...)`
         invoked execution will be retried and managed from the server.
         """
-        return DeferredInvocation(
-            promise_id=promise_id, coro=FnOrCoroutine(coro, *args, **kwargs)
-        )
+        return DeferredInvocation(id=id, coro=FnOrCoroutine(coro, *args, **kwargs))
 
     def all(self, promises: list[Promise[Any]]) -> All:
         """Aggregates multiple promises into a single Promise that resolves when

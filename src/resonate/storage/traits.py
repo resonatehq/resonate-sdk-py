@@ -30,8 +30,8 @@ class ITaskStore(ABC):
     def create_callback(
         self,
         *,
-        promise_id: str,
-        root_promise_id: str,
+        id: str,
+        root_id: str,
         timeout: int,
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
@@ -40,7 +40,7 @@ class ITaskStore(ABC):
     def create_with_task(  # noqa: PLR0913
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: IdempotencyKey,
         strict: bool,
         headers: Headers,
@@ -56,14 +56,14 @@ class ITaskStore(ABC):
     def create_with_callback(  # noqa: PLR0913
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: str | None,
         strict: bool,
         timeout: int,
         headers: dict[str, str] | None,
         data: str | None,
         tags: dict[str, str] | None,
-        root_promise_id: str,
+        root_id: str,
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]: ...
 
@@ -73,7 +73,7 @@ class IPromiseStore(ABC):
     def create(  # noqa: PLR0913
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: IdempotencyKey,
         strict: bool,
         headers: Headers,
@@ -86,7 +86,7 @@ class IPromiseStore(ABC):
     def cancel(
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: IdempotencyKey,
         strict: bool,
         headers: Headers,
@@ -97,7 +97,7 @@ class IPromiseStore(ABC):
     def resolve(
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: IdempotencyKey,
         strict: bool,
         headers: Headers,
@@ -108,7 +108,7 @@ class IPromiseStore(ABC):
     def reject(
         self,
         *,
-        promise_id: str,
+        id: str,
         ikey: IdempotencyKey,
         strict: bool,
         headers: Headers,
@@ -116,9 +116,9 @@ class IPromiseStore(ABC):
     ) -> DurablePromiseRecord: ...
 
     @abstractmethod
-    def get(self, *, promise_id: str) -> DurablePromiseRecord: ...
+    def get(self, *, id: str) -> DurablePromiseRecord: ...
 
     @abstractmethod
     def search(
-        self, *, promise_id: str, state: State, tags: Tags, limit: int | None = None
+        self, *, id: str, state: State, tags: Tags, limit: int | None = None
     ) -> list[DurablePromiseRecord]: ...
