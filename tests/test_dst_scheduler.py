@@ -57,11 +57,11 @@ def failing_function(ctx: Context) -> None:  # noqa: ARG001
 
 
 def coro_that_fails_call(ctx: Context) -> Generator[Yieldable, Any, None]:
-    return (yield ctx.lfc(failing_function).with_options(retry_policy=never()))
+    return (yield ctx.lfc(failing_function).options(retry_policy=never()))
 
 
 def coro_that_fails_invoke(ctx: Context) -> Generator[Yieldable, Any, None]:
-    return (yield (yield ctx.lfi(failing_function).with_options(retry_policy=never())))
+    return (yield (yield ctx.lfi(failing_function).options(retry_policy=never())))
 
 
 def raise_inmediately(ctx: Context) -> Generator[Yieldable, Any, int]:  # noqa: ARG001

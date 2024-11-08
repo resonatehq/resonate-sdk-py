@@ -72,7 +72,7 @@ def test_factorial_same_node() -> None:
         if n == 0:
             return 1
         return n * (
-            yield ctx.rfc(factorial, n - 1).with_options(
+            yield ctx.rfc(factorial, n - 1).options(
                 f"factorial-same-node-{n-1}", target=node_group
             )
         )
@@ -95,7 +95,7 @@ def test_factorial_multi_node() -> None:
         if n == 0:
             return 1
         return n * (
-            yield ctx.rfc(factorial_node_1, n - 1).with_options(
+            yield ctx.rfc(factorial_node_1, n - 1).options(
                 f"factorial-multi-node-{n-1}", target="test-factorial-multi-node-2"
             )
         )
@@ -104,7 +104,7 @@ def test_factorial_multi_node() -> None:
         if n == 0:
             return 1
         return n * (
-            yield ctx.rfc(factorial_node_2, n - 1).with_options(
+            yield ctx.rfc(factorial_node_2, n - 1).options(
                 f"factorial-multi-node-{n-1}", target="test-factorial-multi-node-1"
             )
         )
@@ -171,11 +171,9 @@ def test_factorial_mechanics() -> None:
         id = f"factorial-mechanics-{n-1}"
         v: int
         if n % randint(1, 10) == 0:  # noqa: S311
-            v = yield ctx.rfc(factorial, n - 1).with_options(id=id, target=node_group)
+            v = yield ctx.rfc(factorial, n - 1).options(id=id, target=node_group)
         else:
-            v = yield ctx.lfc(factorial, n - 1).with_options(
-                id=id, retry_policy=never()
-            )
+            v = yield ctx.lfc(factorial, n - 1).options(id=id, retry_policy=never())
 
         return n + v
 
@@ -247,24 +245,16 @@ def test_fibonnaci_mechanics_awaiting() -> None:
         id_n1 = f"fibonnaci-mechanics-awaiting-{n-1}"
         n1: int
         if n % randint(1, 10) == 0:  # noqa: S311
-            n1 = yield ctx.rfc(fibonnaci, n - 1).with_options(
-                id=id_n1, target=node_group
-            )
+            n1 = yield ctx.rfc(fibonnaci, n - 1).options(id=id_n1, target=node_group)
         else:
-            n1 = yield ctx.lfc(fibonnaci, n - 1).with_options(
-                id=id_n1, retry_policy=never()
-            )
+            n1 = yield ctx.lfc(fibonnaci, n - 1).options(id=id_n1, retry_policy=never())
 
         id_n2 = f"fibonnaci-mechanics-awaiting-{n-2}"
         n2: int
         if n % randint(1, 10) == 0:  # noqa: S311
-            n2 = yield ctx.rfc(fibonnaci, n - 2).with_options(
-                id=id_n2, target=node_group
-            )
+            n2 = yield ctx.rfc(fibonnaci, n - 2).options(id=id_n2, target=node_group)
         else:
-            n2 = yield ctx.lfc(fibonnaci, n - 2).with_options(
-                id=id_n2, retry_policy=never()
-            )
+            n2 = yield ctx.lfc(fibonnaci, n - 2).options(id=id_n2, retry_policy=never())
         return n1 + n2
 
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
@@ -295,22 +285,18 @@ def test_fibonnaci_mechanics_no_awaiting() -> None:
         id_n1 = f"fibonnaci-mechanics-no-awaiting-{n-1}"
         pn1: Promise[int]
         if n % randint(1, 10) == 0:  # noqa: S311
-            pn1 = yield ctx.rfi(fibonnaci, n - 1).with_options(
-                id=id_n1, target=node_group
-            )
+            pn1 = yield ctx.rfi(fibonnaci, n - 1).options(id=id_n1, target=node_group)
         else:
-            pn1 = yield ctx.lfi(fibonnaci, n - 1).with_options(
+            pn1 = yield ctx.lfi(fibonnaci, n - 1).options(
                 id=id_n1, retry_policy=never()
             )
 
         id_n2 = f"fibonnaci-mechanics-no-awaiting-{n-2}"
         pn2: Promise[int]
         if n % randint(1, 10) == 0:  # noqa: S311
-            pn2 = yield ctx.rfi(fibonnaci, n - 2).with_options(
-                id=id_n1, target=node_group
-            )
+            pn2 = yield ctx.rfi(fibonnaci, n - 2).options(id=id_n1, target=node_group)
         else:
-            pn2 = yield ctx.lfi(fibonnaci, n - 2).with_options(
+            pn2 = yield ctx.lfi(fibonnaci, n - 2).options(
                 id=id_n2, retry_policy=never()
             )
 

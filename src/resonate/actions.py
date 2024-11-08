@@ -26,7 +26,7 @@ class RFI:
     exec_unit: ExecutionUnit
     opts: ROptions = field(default=ROptions())
 
-    def with_options(self, id: str | None = None, target: str | None = None) -> Self:
+    def options(self, id: str | None = None, target: str | None = None) -> Self:
         assert not isinstance(
             self.exec_unit, Command
         ), "Options must be set on the command."
@@ -40,7 +40,7 @@ class RFC:
     exec_unit: ExecutionUnit
     opts: ROptions = field(default=ROptions())
 
-    def with_options(self, id: str | None = None, target: str | None = None) -> Self:
+    def options(self, id: str | None = None, target: str | None = None) -> Self:
         assert not isinstance(
             self.exec_unit, Command
         ), "Options must be set on the command."
@@ -57,7 +57,7 @@ class LFC:
     exec_unit: ExecutionUnit
     opts: LOptions = field(default=LOptions())
 
-    def with_options(
+    def options(
         self,
         id: str | None = None,
         retry_policy: RetryPolicy | None = None,
@@ -87,7 +87,7 @@ class DeferredInvocation:
     coro: FnOrCoroutine
     opts: LOptions = field(default=LOptions())
 
-    def with_options(self, *, retry_policy: RetryPolicy | None = None) -> Self:
+    def options(self, *, retry_policy: RetryPolicy | None = None) -> Self:
         self.opts = LOptions(durable=True, id=self.id, retry_policy=retry_policy)
         return self
 
@@ -98,7 +98,7 @@ class LFI:
     exec_unit: ExecutionUnit
     opts: LOptions = field(default=LOptions())
 
-    def with_options(
+    def options(
         self,
         id: str | None = None,
         retry_policy: RetryPolicy | None = None,
@@ -125,7 +125,7 @@ class All:
         self.opts = LOptions(retry_policy=never())
         self.promises = promises
 
-    def with_options(
+    def options(
         self,
         *,
         durable: bool = True,
@@ -162,7 +162,7 @@ class AllSettled:
         self.opts = LOptions(retry_policy=never())
         self.promises = promises
 
-    def with_options(
+    def options(
         self,
         *,
         durable: bool = True,
@@ -201,7 +201,7 @@ class Race:
         self.opts = LOptions(retry_policy=never())
         self.promises = promises
 
-    def with_options(
+    def options(
         self,
         *,
         durable: bool = True,

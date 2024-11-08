@@ -37,7 +37,7 @@ def foo(ctx: Context, name: str, sleep_time: float) -> str:  # noqa: ARG001
 
 
 def baz(ctx: Context, name: str, sleep_time: float) -> Generator[Yieldable, Any, str]:
-    p = yield ctx.lfi(foo, name=name, sleep_time=sleep_time).with_options(
+    p = yield ctx.lfi(foo, name=name, sleep_time=sleep_time).options(
         retry_policy=never()
     )
     return (yield p)
@@ -46,7 +46,7 @@ def baz(ctx: Context, name: str, sleep_time: float) -> Generator[Yieldable, Any,
 def bar(
     ctx: Context, name: str, sleep_time: float
 ) -> Generator[Yieldable, Any, Promise[str]]:
-    p: Promise[str] = yield ctx.lfi(foo, name=name, sleep_time=sleep_time).with_options(
+    p: Promise[str] = yield ctx.lfi(foo, name=name, sleep_time=sleep_time).options(
         retry_policy=never()
     )
     return p
@@ -133,7 +133,7 @@ def test_retry(store: IPromiseStore) -> None:
         policy = Linear(
             delay=policy_info["delay"], max_retries=policy_info["max_retries"]
         )
-        yield ctx.lfc(_failing, error=RuntimeError).with_options(
+        yield ctx.lfc(_failing, error=RuntimeError).options(
             durable=False, retry_policy=policy
         )
 
@@ -155,10 +155,10 @@ def test_async_fibonacci(store: IPromiseStore) -> None:
     def fibonacci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         if n <= 1:
             return n
-        p1: Promise[Any] = yield ctx.lfi(fibonacci, n - 1).with_options(
+        p1: Promise[Any] = yield ctx.lfi(fibonacci, n - 1).options(
             id=f"async-fibonacci-{n-1}"
         )
-        p2: Promise[Any] = yield ctx.lfi(fibonacci, n - 2).with_options(
+        p2: Promise[Any] = yield ctx.lfi(fibonacci, n - 2).options(
             id=f"async-fibonacci-{n-2}"
         )
         v2 = yield p2
@@ -216,7 +216,7 @@ def test_structure_concurrency_with_failure(store: IPromiseStore) -> None:
     def coro_that_triggers_structure_concurrency_and_fails(
         ctx: Context,
     ) -> Generator[Yieldable, Any, int]:
-        yield ctx.lfi(_failing, error=RuntimeError).with_options(
+        yield ctx.lfi(_failing, error=RuntimeError).options(
             retry_policy=constant(delay=0.03, max_retries=2), durable=False
         )
         return 1
@@ -248,10 +248,10 @@ def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> N
     def coro_that_trigger_structure_concurrency_and_multiple_errors(
         ctx: Context,
     ) -> Generator[Yieldable, Any, int]:
-        yield ctx.lfi(_failing, error=TypeError).with_options(
+        yield ctx.lfi(_failing, error=TypeError).options(
             retry_policy=never(), durable=False
         )
-        yield ctx.lfi(_failing, error=RuntimeError).with_options(
+        yield ctx.lfi(_failing, error=RuntimeError).options(
             durable=False, retry_policy=never()
         )
         return 1
@@ -348,7 +348,7 @@ def all_settled_coro(
 ) -> Generator[Yieldable, Any, list[str]]:
     ps = []
     for val in vals:
-        p = yield ctx.lfi(_fn_raise_or_ret, val=val).with_options(retry_policy=never())
+        p = yield ctx.lfi(_fn_raise_or_ret, val=val).options(retry_policy=never())
         ps.append(p)
 
     p_all_settled = yield ctx.all_settled(ps)
@@ -550,7 +550,7 @@ def test_dedup(store: IPromiseStore) -> None:
         if n <= 1:
             return 1
 
-        p: Promise[int] = yield ctx.lfi(factorial, n - 1).with_options(
+        p: Promise[int] = yield ctx.lfi(factorial, n - 1).options(
             id=f"factorial-dedup-{n-1}", retry_policy=never()
         )
         return n * (yield p)
@@ -816,7 +816,7 @@ def test_remote_call_same_node() -> None:
         return 1
 
     def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
-        n = yield ctx.rfc(_number_from_other_node).with_options(target="call-same-node")
+        n = yield ctx.rfc(_number_from_other_node).options(target="call-same-node")
         return n
 
     s = scheduler.Scheduler(store, logic_group="call-same-node")
@@ -838,7 +838,7 @@ def test_remote_invocation_same_node() -> None:
         return 1
 
     def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
-        p = yield ctx.rfi(_number_from_other_node).with_options(
+        p = yield ctx.rfi(_number_from_other_node).options(
             target="invocation-same-node"
         )
         n = yield p
@@ -863,7 +863,7 @@ def test_remote_invocation_other_node() -> None:
         return 1
 
     def _remotely(ctx: Context) -> Generator[Yieldable, Any, int]:
-        p = yield ctx.rfi(_number_from_other_node).with_options(
+        p = yield ctx.rfi(_number_from_other_node).options(
             target="invocation-other-node"
         )
         n = yield p
