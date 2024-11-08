@@ -63,7 +63,7 @@ def _promise_storages() -> list[IPromiseStore]:
 @pytest.mark.parametrize("store", _promise_storages())
 def test_scheduler(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(
-        durable_promise_storage=store,
+        store=store,
     )
 
     s.register(baz, "baz-function", retry_policy=never())
@@ -84,7 +84,7 @@ def test_scheduler(store: IPromiseStore) -> None:
 def test_multithreading_capabilities(store: IPromiseStore) -> None:
     s = scheduler.Scheduler(
         processor_threads=3,
-        durable_promise_storage=store,
+        store=store,
     )
     s.register(baz, "baz")
 
@@ -137,7 +137,7 @@ def test_retry(store: IPromiseStore) -> None:
             durable=False, retry_policy=policy
         )
 
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
     policy = Linear(delay=0, max_retries=2)
 
     s.register(coro, "coro-func", retry_policy=never())
@@ -165,7 +165,7 @@ def test_async_fibonacci(store: IPromiseStore) -> None:
         v1 = yield p1
         return v1 + v2
 
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
     s.register(fibonacci, "async-fibonacci")
     n = 40
     p: Promise[int] = s.run(f"async-fibonacci-{n}", fibonacci, n)
@@ -175,7 +175,7 @@ def test_async_fibonacci(store: IPromiseStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_structure_concurrency(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
 
     child_p: Promise[str] | None = None
 
@@ -221,7 +221,7 @@ def test_structure_concurrency_with_failure(store: IPromiseStore) -> None:
         )
         return 1
 
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
 
     s.register(
         coro_that_triggers_structure_concurrency_and_fails,
@@ -256,7 +256,7 @@ def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> N
         )
         return 1
 
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
 
     s.register(
         coro_that_trigger_structure_concurrency_and_multiple_errors,
@@ -275,7 +275,7 @@ def test_structure_concurrency_with_multiple_failures(store: IPromiseStore) -> N
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_deferred_invoke(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
 
     deferred_p: Promise[str] | None = None
 
@@ -359,7 +359,7 @@ def all_settled_coro(
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_all_combinator(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
     # Test case 1
     waits_results = [(0.02, "A"), (0.03, "B"), (0.01, "C"), (0.02, "D"), (0.02, "E")]
     expected = ["A", "B", "C", "D", "E"]
@@ -406,7 +406,7 @@ def test_all_combinator(store: IPromiseStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_all_settled_combinator(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
     # Test case 1
     vals = ["A", "B", "C", "D", "E"]
     expected = ["A", "B", "C", "D", "E"]
@@ -447,7 +447,7 @@ def test_all_settled_combinator(store: IPromiseStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_race_combinator(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(durable_promise_storage=store, processor_threads=16)
+    s = scheduler.Scheduler(store=store, processor_threads=16)
 
     # Test case 1
     waits_results = [(0.1, "A"), (0.1, "B"), (0.01, "C"), (0.1, "D"), (0.1, "E")]
@@ -493,7 +493,7 @@ def test_race_combinator(store: IPromiseStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_coro_retry(store: IPromiseStore) -> None:
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
 
     tries = 0
 
@@ -532,7 +532,7 @@ def _raw_rfc(ctx: Context) -> Generator[Yieldable, Any, None]:
 def test_rfc_raw() -> None:
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
 
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
     s.register(_raw_rfc)
     p: Promise[None] = s.run("test-raw-rfc", _raw_rfc)
     s.wait_until_blocked()
@@ -555,7 +555,7 @@ def test_dedup(store: IPromiseStore) -> None:
         )
         return n * (yield p)
 
-    s = scheduler.Scheduler(durable_promise_storage=store)
+    s = scheduler.Scheduler(store=store)
     s.register(factorial, retry_policy=never())
     n = 5
     p1: Promise[int] = s.run(f"factorial-dedup-{n}", factorial, n)

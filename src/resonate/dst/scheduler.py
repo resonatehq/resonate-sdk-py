@@ -112,7 +112,7 @@ class DSTScheduler:
             MockFn[Any],
         ]
         | None,
-        durable_promise_storage: IPromiseStore,
+        store: IPromiseStore,
     ) -> None:
         self._stg_queue: list[tuple[LFI, str]] = []
         self._runnable_coros: Runnables = deque()
@@ -150,7 +150,7 @@ class DSTScheduler:
         self._handlers: CommandHandlers = {}
         self._handler_queues: CommandHandlerQueues = {}
 
-        self._durable_promise_storage = durable_promise_storage
+        self._durable_promise_storage = store
         self._json_encoder = JsonEncoder()
         self._emphemeral_promise_memo = EphemeralMemo[str, Promise[Any]]()
 

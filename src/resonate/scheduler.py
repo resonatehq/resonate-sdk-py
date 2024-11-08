@@ -241,7 +241,7 @@ class _Processor:
 class Scheduler:
     def __init__(
         self,
-        durable_promise_storage: IPromiseStore,
+        store: IPromiseStore,
         *,
         logic_group: str = "default",
         tracing_adapter: IAdapter | None = None,
@@ -285,7 +285,7 @@ class Scheduler:
             self,
         )
 
-        self._durable_promise_storage = durable_promise_storage
+        self._durable_promise_storage = store
 
         self._heartbeating_thread: Thread | None = None
         self._claimed_tasks: dict[str, TaskRecord] | None = None

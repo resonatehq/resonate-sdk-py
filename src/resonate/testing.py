@@ -28,7 +28,7 @@ def dst(  # noqa: PLR0913
     probe: Callable[[Dependencies, int], Any] | None = None,
     assert_always: Callable[[Dependencies, int, int], Any] | None = None,
     assert_eventually: Callable[[Dependencies, int], Any] | None = None,
-    durable_promise_storage: IPromiseStore | None = None,
+    store: IPromiseStore | None = None,
 ) -> list[DSTScheduler]:
     def _new_dst_scheduler(seed: int) -> DSTScheduler:
         return DSTScheduler(
@@ -41,9 +41,7 @@ def dst(  # noqa: PLR0913
             probe=probe,
             assert_always=assert_always,
             assert_eventually=assert_eventually,
-            durable_promise_storage=durable_promise_storage
-            if durable_promise_storage
-            else LocalStore(),
+            store=store if store else LocalStore(),
         )
 
     schedulers: list[DSTScheduler] = []
