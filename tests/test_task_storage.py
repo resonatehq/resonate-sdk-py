@@ -89,8 +89,8 @@ def test_case_3_create_durable_promise_with_task() -> None:
     assert durable_promise.id == "3.0"
     assert task_record is not None
     assert task_record.counter == 1
-    store.heartbeat(pid=pid)
-    store.complete(task_id=task_record.task_id, counter=task_record.counter)
+    store.tasks.heartbeat(pid=pid)
+    store.tasks.complete(task_id=task_record.task_id, counter=task_record.counter)
 
 
 @pytest.mark.skipif(

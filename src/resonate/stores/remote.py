@@ -16,7 +16,67 @@ from resonate.record import (
 from resonate.stores.traits import IPromiseStore
 
 if TYPE_CHECKING:
-    from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
+    from resonate.typing import Data, Headers, IdempotencyKey
+
+
+class RemoteTaskStore:
+    def __init__(
+        self,
+        url: str,
+        request_timeout: int = 10,
+        encoder: IEncoder[str, str] | None = None,
+    ) -> None:
+        self.url = url
+        self._request_timeout = request_timeout
+        self._encoder = encoder or Base64Encoder()
+
+    def claim(
+        self, *, task_id: str, counter: int, pid: str, ttl: int
+    ) -> Invoke | Resume:
+        response = requests.post(
+            url=f"{self.url}/tasks/claim",
+            headers={},
+            json={
+                "id": task_id,
+                "counter": counter,
+                "processId": pid,
+                "ttl": ttl,
+            },
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+
+        data = response.json()
+        kind: Literal["resume", "invoke"] = data["type"]
+        assert kind in ("resume", "invoke")
+
+        promises: dict[str, Any] = data["promises"]
+        if promises.get("leaf") is None:
+            return Invoke.decode(data=promises["root"]["data"], encoder=self._encoder)
+
+        return Resume.decode(data=promises, encoder=self._encoder)
+
+    def complete(self, *, task_id: str, counter: int) -> None:
+        response = requests.post(
+            url=f"{self.url}/tasks/complete",
+            headers={},
+            json={
+                "id": task_id,
+                "counter": counter,
+            },
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+
+    def heartbeat(self, *, pid: str) -> int:
+        response = requests.post(
+            url=f"{self.url}/tasks/heartbeat",
+            headers={},
+            json={"processId": pid},
+            timeout=self._request_timeout,
+        )
+        _ensure_success(response)
+        return response.json()["tasksAffected"]
 
 
 @final
@@ -30,6 +90,9 @@ class RemoteStore(IPromiseStore):
         self.url = url
         self._request_timeout = request_timeout
         self._encoder = encoder or Base64Encoder()
+        self.tasks = RemoteTaskStore(
+            url=self.url, request_timeout=self._request_timeout, encoder=self._encoder
+        )
 
     def _initialize_headers(
         self, *, strict: bool, ikey: IdempotencyKey
@@ -87,32 +150,6 @@ class RemoteStore(IPromiseStore):
             return durable_promise, None
         return durable_promise, TaskRecord.decode(task_data, encoder=self._encoder)
 
-    def claim(
-        self, *, task_id: str, counter: int, pid: str, ttl: int
-    ) -> Invoke | Resume:
-        response = requests.post(
-            url=f"{self.url}/tasks/claim",
-            headers={},
-            json={
-                "id": task_id,
-                "counter": counter,
-                "processId": pid,
-                "ttl": ttl,
-            },
-            timeout=self._request_timeout,
-        )
-        _ensure_success(response)
-
-        data = response.json()
-        kind: Literal["resume", "invoke"] = data["type"]
-        assert kind in ("resume", "invoke")
-
-        promises: dict[str, Any] = data["promises"]
-        if promises.get("leaf") is None:
-            return Invoke.decode(data=promises["root"]["data"], encoder=self._encoder)
-
-        return Resume.decode(data=promises, encoder=self._encoder)
-
     def create_with_callback(  # noqa: PLR0913
         self,
         *,
@@ -158,28 +195,6 @@ class RemoteStore(IPromiseStore):
         return durable_promise, CallbackRecord.decode(
             callback_data, encoder=self._encoder
         )
-
-    def complete(self, *, task_id: str, counter: int) -> None:
-        response = requests.post(
-            url=f"{self.url}/tasks/complete",
-            headers={},
-            json={
-                "id": task_id,
-                "counter": counter,
-            },
-            timeout=self._request_timeout,
-        )
-        _ensure_success(response)
-
-    def heartbeat(self, *, pid: str) -> int:
-        response = requests.post(
-            url=f"{self.url}/tasks/heartbeat",
-            headers={},
-            json={"processId": pid},
-            timeout=self._request_timeout,
-        )
-        _ensure_success(response)
-        return response.json()["tasksAffected"]
 
     def create_callback(
         self,
@@ -319,11 +334,6 @@ class RemoteStore(IPromiseStore):
         )
         _ensure_success(response)
         return DurablePromiseRecord.decode(data=response.json(), encoder=self._encoder)
-
-    def search(
-        self, *, id: str, state: State, tags: Tags, limit: int | None = None
-    ) -> list[DurablePromiseRecord]:
-        raise NotImplementedError
 
     def _encode_data(self, data: str | None) -> str | None:
         if data is None:

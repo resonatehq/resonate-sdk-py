@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from resonate.record import (
         DurablePromiseRecord,
     )
-    from resonate.typing import Data, Headers, IdempotencyKey, State, Tags
+    from resonate.typing import Data, Headers, IdempotencyKey, Tags
 
 
 class IPromiseStore(ABC):
@@ -59,8 +59,3 @@ class IPromiseStore(ABC):
 
     @abstractmethod
     def get(self, *, id: str) -> DurablePromiseRecord: ...
-
-    @abstractmethod
-    def search(
-        self, *, id: str, state: State, tags: Tags, limit: int | None = None
-    ) -> list[DurablePromiseRecord]: ...

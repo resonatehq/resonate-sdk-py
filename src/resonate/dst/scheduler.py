@@ -150,7 +150,7 @@ class DSTScheduler:
         self._handlers: CommandHandlers = {}
         self._handler_queues: CommandHandlerQueues = {}
 
-        self._durable_promise_storage = store
+        self._store = store
         self._json_encoder = JsonEncoder()
         self._emphemeral_promise_memo = EphemeralMemo[str, Promise[Any]]()
 
@@ -545,7 +545,7 @@ class DSTScheduler:
         self, id: str, value: Result[Any, Exception]
     ) -> DurablePromiseRecord:
         if isinstance(value, Ok):
-            return self._durable_promise_storage.resolve(
+            return self._store.resolve(
                 id=id,
                 ikey=utils.string_to_ikey(id),
                 strict=False,
@@ -553,7 +553,7 @@ class DSTScheduler:
                 data=self._json_encoder.encode(value.unwrap()),
             )
         if isinstance(value, Err):
-            return self._durable_promise_storage.reject(
+            return self._store.reject(
                 id=id,
                 ikey=utils.string_to_ikey(id),
                 strict=False,
@@ -565,7 +565,7 @@ class DSTScheduler:
     def _create_durable_promise_record(
         self, id: str, data: dict[str, Any] | None
     ) -> DurablePromiseRecord:
-        return self._durable_promise_storage.create(
+        return self._store.create(
             id=id,
             ikey=utils.string_to_ikey(id),
             strict=False,

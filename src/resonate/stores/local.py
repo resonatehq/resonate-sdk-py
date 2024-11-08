@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Callable, Literal, final
+from typing import TYPE_CHECKING, Callable, final
 
 from resonate.errors import ResonateError
 from resonate.record import (
@@ -245,15 +245,3 @@ class LocalStore(IPromiseStore):
             return promise_record
 
         return self._storage.rmw(id=id, fn=_get)
-
-    def search(
-        self,
-        *,
-        id: str,
-        state: Literal[
-            "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
-        ],
-        tags: dict[str, str] | None,
-        limit: int | None = None,
-    ) -> list[DurablePromiseRecord]:
-        raise NotImplementedError
