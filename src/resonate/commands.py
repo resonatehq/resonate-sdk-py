@@ -1,20 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from resonate.context import Context
+from typing import Any
 
 
-class Command:
-    def __call__(self, ctx: Context) -> None:
-        # This is not meant to be call. We are making the type system happy.
-        _ = ctx
-        msg = "You should never be here!"
-        raise AssertionError(msg)
+class Command: ...
 
 
-class CreateDurablePromiseReq(Command):
+class CreateDurablePromiseReq:
     def __init__(
         self,
         id: str | None,

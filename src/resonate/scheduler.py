@@ -584,9 +584,6 @@ class Scheduler:
         req: CreateDurablePromiseReq
         if isinstance(promise.action, LFI):
             if isinstance(promise.action.exec_unit, Command):
-                assert not isinstance(
-                    promise.action.exec_unit, CreateDurablePromiseReq
-                ), "This command is not allowed for lfi"
                 req = CreateDurablePromiseReq(id=promise.id)
             elif isinstance(promise.action.exec_unit, FnOrCoroutine):
                 func_name = self._registered_function.get_from_value(
@@ -607,10 +604,7 @@ class Scheduler:
             assert isinstance(
                 self._store, RemoteStore
             ), "Used storage does not support rfi."
-            if isinstance(promise.action.exec_unit, Command):
-                assert isinstance(
-                    promise.action.exec_unit, CreateDurablePromiseReq
-                ), "This is the only command allowed for rfi"
+            if isinstance(promise.action.exec_unit, CreateDurablePromiseReq):
                 req = promise.action.exec_unit
                 if req.id is None:
                     req.id = promise.id
@@ -1090,9 +1084,6 @@ class Scheduler:
         self._awaiting.append(p, coro, awaiting_for)
 
         if isinstance(p.action, LFI) and isinstance(p.action.exec_unit, Command):
-            assert not isinstance(
-                p.action.exec_unit, CreateDurablePromiseReq
-            ), "This command is reserved for rfi."
             self._send_pending_commands_to_processor(type(p.action.exec_unit))
 
         promise = coro.route_info.promise
@@ -1358,11 +1349,11 @@ class Scheduler:
             self._store, RemoteStore
         ), "Used storage does not support rfi."
         id: str | None
-        if not isinstance(invocation.exec_unit, Command):
-            id = invocation.opts.id
-        else:
-            assert isinstance(invocation.exec_unit, CreateDurablePromiseReq)
+        if isinstance(invocation.exec_unit, CreateDurablePromiseReq):
             id = invocation.exec_unit.id
+        else:
+            id = invocation.opts.id
+
         if id is None:
             id = runnable.coro.route_info.promise.child_name()
 
@@ -1399,10 +1390,6 @@ class Scheduler:
         )
 
         if isinstance(invocation.exec_unit, Command):
-            assert not isinstance(
-                invocation.exec_unit, CreateDurablePromiseReq
-            ), "This command is reserved only for rfi."
-
             cmd_type = type(invocation.exec_unit)
             cmd_queue = self._cmd_buffers[cmd_type]
             cmd_queue.add(invocation.exec_unit, p)

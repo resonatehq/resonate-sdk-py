@@ -19,14 +19,12 @@ from resonate.actions import (
 from resonate.batching import CmdBuffer
 from resonate.commands import Command
 from resonate.context import Context
-from resonate.dataclasses import FnOrCoroutine, Runnable
+from resonate.dataclasses import Runnable
 from resonate.promise import Promise
 
 T = TypeVar("T")
 P = ParamSpec("P")
 
-
-ExecutionUnit: TypeAlias = Union[Command, FnOrCoroutine]
 
 Combinator: TypeAlias = Union[All, AllSettled, Race]
 

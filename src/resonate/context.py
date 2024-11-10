@@ -23,23 +23,11 @@ if TYPE_CHECKING:
     from resonate.typing import (
         DurableCoro,
         DurableFn,
-        ExecutionUnit,
         Promise,
     )
 
 P = ParamSpec("P")
 T = TypeVar("T")
-
-
-def _wrap_into_execution_unit(
-    invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
-    /,
-    *args: P.args,
-    **kwargs: P.kwargs,
-) -> ExecutionUnit:
-    if isinstance(invokable, Command):
-        return invokable
-    return FnOrCoroutine(invokable, *args, **kwargs)
 
 
 @final
@@ -63,49 +51,73 @@ class Context:
     @overload
     def rfc(self, invokable: str, /, *args: Any, **kwargs: Any) -> RFC: ...  # noqa: ANN401
     @overload
+    def rfc(self, invokable: CreateDurablePromiseReq, /) -> RFC: ...
+    @overload
     def rfc(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC: ...
     def rfc(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command | str,
+        invokable: DurableCoro[P, Any]
+        | DurableFn[P, Any]
+        | CreateDurablePromiseReq
+        | str,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC:
-        if isinstance(invokable, Command):
-            assert isinstance(
-                invokable, CreateDurablePromiseReq
-            ), f"The only command allowed for rfc is {CreateDurablePromiseReq.__name__}"
-        if isinstance(invokable, str):
-            return RFC((invokable, args, kwargs))
-        return RFC(
-            _wrap_into_execution_unit(invokable, *args, **kwargs),
+        unit: (
+            FnOrCoroutine
+            | CreateDurablePromiseReq
+            | tuple[str, tuple[Any, ...], dict[str, Any]]
         )
+        if isinstance(invokable, str):
+            unit = (invokable, args, kwargs)
+
+        elif isinstance(invokable, CreateDurablePromiseReq):
+            unit = invokable
+        else:
+            unit = FnOrCoroutine(invokable, *args, **kwargs)
+        return RFC(unit)
 
     @overload
     def rfi(self, invokable: str, /, *args: Any, **kwargs: Any) -> RFI: ...  # noqa: ANN401
     @overload
+    def rfi(self, invokable: CreateDurablePromiseReq, /) -> RFI: ...
+    @overload
     def rfi(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFI: ...
     def rfi(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command | str,
+        invokable: DurableCoro[P, Any]
+        | DurableFn[P, Any]
+        | CreateDurablePromiseReq
+        | str,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFI:
         return self.rfc(invokable, *args, **kwargs).to_invocation()
 
+    @overload
+    def lfi(self, invokable: Command, /) -> LFI: ...
+    @overload
+    def lfi(
+        self,
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFI: ...
     def lfi(
         self,
         invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
@@ -124,6 +136,16 @@ class Context:
         """
         return self.lfc(invokable, *args, **kwargs).to_invocation()
 
+    @overload
+    def lfc(self, invokable: Command, /) -> LFC: ...
+    @overload
+    def lfc(
+        self,
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFC: ...
     def lfc(
         self,
         invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
@@ -137,11 +159,12 @@ class Context:
         LFC and await for the result of the execution. It's syntax
         sugar for `yield (yield ctx.lfi(...))`
         """
+        unit: Command | FnOrCoroutine
         if isinstance(invokable, Command):
-            assert not isinstance(
-                invokable, CreateDurablePromiseReq
-            ), f"Command {CreateDurablePromiseReq.__name__} is reserved for lfc."
-        return LFC(_wrap_into_execution_unit(invokable, *args, **kwargs))
+            unit = invokable
+        else:
+            unit = FnOrCoroutine(invokable, *args, **kwargs)
+        return LFC(unit)
 
     def deferred(
         self,
