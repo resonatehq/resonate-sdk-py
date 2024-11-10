@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeVar, final
+from typing import TYPE_CHECKING, Any, TypeVar, final, overload
 
 from typing_extensions import ParamSpec
 
@@ -60,9 +60,19 @@ class Context:
     def get_dependency(self, key: str) -> Any:  # noqa: ANN401
         return self.deps.get(key)
 
+    @overload
+    def rfc(self, invokable: str, /, *args: Any, **kwargs: Any) -> RFC: ...  # noqa: ANN401
+    @overload
     def rfc(
         self,
         invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> RFC: ...
+    def rfc(
+        self,
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command | str,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -71,13 +81,25 @@ class Context:
             assert isinstance(
                 invokable, CreateDurablePromiseReq
             ), f"The only command allowed for rfc is {CreateDurablePromiseReq.__name__}"
+        if isinstance(invokable, str):
+            return RFC((invokable, args, kwargs))
         return RFC(
             _wrap_into_execution_unit(invokable, *args, **kwargs),
         )
 
+    @overload
+    def rfi(self, invokable: str, /, *args: Any, **kwargs: Any) -> RFI: ...  # noqa: ANN401
+    @overload
     def rfi(
         self,
         invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> RFI: ...
+    def rfi(
+        self,
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command | str,
         /,
         *args: P.args,
         **kwargs: P.kwargs,

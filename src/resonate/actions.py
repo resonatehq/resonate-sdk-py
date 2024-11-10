@@ -23,7 +23,7 @@ T = TypeVar("T")
 @final
 @dataclass
 class RFI:
-    exec_unit: ExecutionUnit
+    exec_unit: ExecutionUnit | tuple[str, tuple[Any, ...], dict[str, Any]]
     opts: ROptions = field(default=ROptions())
 
     def options(self, id: str | None = None, target: str | None = None) -> Self:
@@ -37,7 +37,7 @@ class RFI:
 @final
 @dataclass
 class RFC:
-    exec_unit: ExecutionUnit
+    exec_unit: ExecutionUnit | tuple[str, tuple[Any, ...], dict[str, Any]]
     opts: ROptions = field(default=ROptions())
 
     def options(self, id: str | None = None, target: str | None = None) -> Self:

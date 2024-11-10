@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from resonate.commands import manual_completion, remote_function
+from resonate.commands import manual_completion
 from resonate.promise import Promise
 from resonate.retry_policy import never
 from resonate.scheduler import Scheduler
@@ -124,19 +124,11 @@ def test_factorial_multi_node() -> None:
 )
 def test_trigger_on_other_node() -> None:
     def workflow(ctx: Context) -> Generator[Yieldable, Any, str]:
-        v1: int = yield ctx.rfc(
-            remote_function(
-                func_name="foo",
-                args=[1],
-                target="test-trigger-on-other-node-other",
-            ),
+        v1: int = yield ctx.rfc("foo", 1).options(
+            target="test-trigger-on-other-node-other"
         )
-        v2: int = yield ctx.rfc(
-            remote_function(
-                func_name="bar",
-                args=["Killua"],
-                target="test-trigger-on-other-node-other",
-            )
+        v2: int = yield ctx.rfc("bar", "Killua").options(
+            target="test-trigger-on-other-node-other"
         )
         return f"{v2} is {v1}"
 
@@ -197,13 +189,8 @@ def test_serverless_mechanics() -> None:
     lambda_node_group = "test-serverless-mechanics-lambda"
 
     def workflow(ctx: Context) -> Generator[Yieldable, Any, int]:
-        v: int = yield ctx.rfc(
-            remote_function(
-                id=None,
-                func_name="factorial",
-                args=[5],
-                target="test-serverless-mechanics-lambda",
-            )
+        v: int = yield ctx.rfc("factorial", 5).options(
+            target="test-serverless-mechanics-lambda"
         )
 
         return v
@@ -336,6 +323,6 @@ def test_trigger_on_other_process() -> None:
     other_scheduler = Scheduler(store, group=f"{node_group}-other")
     other_scheduler.register(factorial)
     p: Promise[int] = this_scheduler.trigger(
-        f"{node_group}-factorial", "factorial", [5], target=f"{node_group}-other"
+        f"{node_group}-factorial", "factorial", (5,), target=f"{node_group}-other"
     )
     assert p.result() == 120  # noqa: PLR2004

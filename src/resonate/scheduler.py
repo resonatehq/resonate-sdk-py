@@ -32,7 +32,7 @@ from resonate.actions import (
 )
 from resonate.batching import CommandBuffer
 from resonate.collections import Awaiting, DoubleDict, EphemeralMemo
-from resonate.commands import Command, CreateDurablePromiseReq, remote_function
+from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.context import Context
 from resonate.dataclasses import (
     FnOrCoroutine,
@@ -624,7 +624,6 @@ class Scheduler:
                 attached_options = self._attached_options_to_top_lvl[func_name]
 
                 final_tags = attached_options.tags.copy()
-                target_url: str
                 if promise.action.opts.target is not None:
                     target_url = f"poll://{promise.action.opts.target}"
                 else:
@@ -635,6 +634,16 @@ class Scheduler:
                     promise.id,
                     func_name,
                     tags=final_tags,
+                )
+            elif isinstance(promise.action.exec_unit, tuple):
+                func_name, args, kwargs = promise.action.exec_unit
+                target_url = (
+                    promise.action.opts.target
+                    if promise.action.opts.target is not None
+                    else self.group
+                )
+                req = _remote_function(
+                    func_name, args, kwargs, target=target_url, id=promise.id
                 )
 
             else:
@@ -678,17 +687,19 @@ class Scheduler:
     ) -> Promise[T]:
         return self.lfi(id, coro, *args, **kwargs)
 
-    def rfc(self, id: str, func_name: str, args: list[Any], *, target: str) -> Any:  # noqa: ANN401
+    def rfc(
+        self, id: str, func_name: str, args: tuple[Any, ...], *, target: str
+    ) -> Any:  # noqa: ANN401
         return self.rfi(id, func_name, args, target=target).result()
 
     def rfi(
-        self, id: str, func_name: str, args: list[Any], *, target: str
+        self, id: str, func_name: str, args: tuple[Any, ...], *, target: str
     ) -> Promise[Any]:
         p = self._dedup_promise(id)
         if p is not None:
             return p
 
-        invokable = remote_function(func_name, args, target=target, id=id)
+        invokable = _remote_function(func_name, args, kwargs={}, target=target, id=id)
         p = self._create_promise(
             parent_promise=None,
             id=id,
@@ -700,7 +711,7 @@ class Scheduler:
         return p
 
     def trigger(
-        self, id: str, func_name: str, args: list[Any], *, target: str
+        self, id: str, func_name: str, args: tuple[Any, ...], *, target: str
     ) -> Promise[Any]:
         return self.rfi(id, func_name, args, target=target)
 
@@ -1481,3 +1492,19 @@ class Scheduler:
                 return Err(err)
 
         assert_never(combinator)
+
+
+def _remote_function(
+    func_name: str,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    *,
+    target: str,
+    id: str | None = None,
+) -> CreateDurablePromiseReq:
+    return CreateDurablePromiseReq(
+        id=id,
+        data={"func": func_name, "args": args, "kwargs": kwargs},
+        headers=None,
+        tags={"resonate:invoke": f"poll://{target}"},
+    )
