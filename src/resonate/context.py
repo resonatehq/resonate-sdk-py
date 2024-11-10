@@ -24,7 +24,6 @@ if TYPE_CHECKING:
         DurableCoro,
         DurableFn,
         ExecutionUnit,
-        Invocable,
         Promise,
     )
 
@@ -33,7 +32,7 @@ T = TypeVar("T")
 
 
 def _wrap_into_execution_unit(
-    invokable: Invocable[P],
+    invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
     /,
     *args: P.args,
     **kwargs: P.kwargs,
@@ -63,7 +62,7 @@ class Context:
 
     def rfc(
         self,
-        invokable: Invocable[P],
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -78,7 +77,7 @@ class Context:
 
     def rfi(
         self,
-        invokable: Invocable[P],
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -87,7 +86,7 @@ class Context:
 
     def lfi(
         self,
-        invokable: Invocable[P],
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -105,7 +104,7 @@ class Context:
 
     def lfc(
         self,
-        invokable: Invocable[P],
+        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
