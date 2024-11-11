@@ -127,7 +127,7 @@ def test_trigger_on_other_node() -> None:
         v1: int = yield ctx.rfc("foo", 1).options(
             target="test-trigger-on-other-node-other"
         )
-        v2: int = yield ctx.rfc("bar", "Killua").options(
+        v2: int = yield ctx.rfc("bar", n="Killua").options(
             target="test-trigger-on-other-node-other"
         )
         return f"{v2} is {v1}"
