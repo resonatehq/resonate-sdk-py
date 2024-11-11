@@ -76,6 +76,9 @@ class Promise(Generic[T]):
         return res
 
     def set_result(self, result: Result[T, Exception]) -> None:
+        assert all(
+            p.done() for p in self.children_promises
+        ), "A promise can only be completed if all children promises are completed."
         if isinstance(result, Ok):
             self.f.set_result(result.unwrap())
         elif isinstance(result, Err):
