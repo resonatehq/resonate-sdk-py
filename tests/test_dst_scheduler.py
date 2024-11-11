@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate.context import Context
-    from resonate.dependency_injection import Dependencies
+    from resonate.dependencies import Dependencies
     from resonate.dst.scheduler import DSTScheduler
     from resonate.promise import Promise
     from resonate.typing import Yieldable

@@ -40,7 +40,7 @@ from resonate.dataclasses import (
     RouteInfo,
     Runnable,
 )
-from resonate.dependency_injection import Dependencies
+from resonate.dependencies import Dependencies
 from resonate.encoders import JsonEncoder
 from resonate.events import (
     ExecutionAwaited,
@@ -387,7 +387,7 @@ class Scheduler:
         ), "Used storage does not support tasks."
 
         recv = utils.recv_url(group=self.group, pid=self.pid)
-        durable_promise, created_callback = self._store.callbacks.create_callback(
+        durable_promise, created_callback = self._store.callbacks.create(
             id=promise.id,
             root_id=promise.partition_root().id,
             timeout=sys.maxsize,

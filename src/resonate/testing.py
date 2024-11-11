@@ -11,7 +11,7 @@ from resonate.dst.scheduler import DSTScheduler, Mode
 from resonate.stores.local import LocalStore
 
 if TYPE_CHECKING:
-    from resonate.dependency_injection import Dependencies
+    from resonate.dependencies import Dependencies
     from resonate.stores.remote import RemoteStore
     from resonate.typing import DurableCoro, DurableFn, MockFn
 

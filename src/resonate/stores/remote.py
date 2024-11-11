@@ -31,7 +31,7 @@ class RemoteCallbackStore:
         self._request_timeout = request_timeout
         self._encoder = encoder
 
-    def create_callback(
+    def create(
         self,
         *,
         id: str,
