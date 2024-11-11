@@ -25,7 +25,7 @@ def test_case_0_callback_on_existing_promise() -> None:
         timeout=sys.maxsize,
         tags=None,
     )
-    promise_record, callback_record = store.callbacks.create_callback(
+    promise_record, callback_record = store.callbacks.create(
         id="0.0", root_id="0.0", timeout=sys.maxsize, recv="default"
     )
     assert callback_record is not None
@@ -40,7 +40,7 @@ def test_case_0_callback_on_existing_promise() -> None:
 def test_case_1_callback_on_non_existing_promise() -> None:
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     with pytest.raises(Exception):  # noqa: B017, PT011
-        store.callbacks.create_callback(
+        store.callbacks.create(
             id="1.1", root_id="1.0", timeout=sys.maxsize, recv="default"
         )
 
@@ -60,7 +60,7 @@ def test_case_2_callback_on_resolved_promise() -> None:
         tags=None,
     )
     store.promises.resolve(id="2.0", ikey=None, strict=False, headers=None, data="1")
-    promise_record, callback_record = store.callbacks.create_callback(
+    promise_record, callback_record = store.callbacks.create(
         id="2.0", root_id="2.0", timeout=sys.maxsize, recv="default"
     )
     assert promise_record.is_completed()

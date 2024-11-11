@@ -32,7 +32,7 @@ from resonate.dataclasses import (
     RouteInfo,
     Runnable,
 )
-from resonate.dependency_injection import Dependencies
+from resonate.dependencies import Dependencies
 from resonate.encoders import JsonEncoder
 from resonate.events import (
     ExecutionAwaited,

@@ -16,7 +16,7 @@ from resonate.actions import (
 )
 from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.dataclasses import FnOrCoroutine
-from resonate.dependency_injection import Dependencies
+from resonate.dependencies import Dependencies
 from resonate.promise import Promise
 
 if TYPE_CHECKING:
