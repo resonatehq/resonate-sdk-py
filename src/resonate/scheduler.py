@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import time
@@ -17,6 +18,7 @@ from typing import (
     final,
 )
 
+import requests
 from typing_extensions import ParamSpec, TypeAlias, assert_never
 
 from resonate import utils
@@ -305,10 +307,12 @@ class Scheduler:
         self._worker_thread.start()
 
     def _heartbeat(self) -> None:
+        assert isinstance(self._store, RemoteStore)
         while True:
-            assert isinstance(self._store, RemoteStore)
-            affected = self._store.tasks.heartbeat(pid=self.pid)
-            logger.debug("Heatbeat affected %s tasks", affected)
+            affected: int | None = None
+            with contextlib.suppress(requests.exceptions.ConnectionError):
+                affected = self._store.tasks.heartbeat(pid=self.pid)
+                logger.debug("Heatbeat affected %s tasks", affected)
             time.sleep(2)
 
     def enqueue_task_record(self, task_record: TaskRecord) -> None:
