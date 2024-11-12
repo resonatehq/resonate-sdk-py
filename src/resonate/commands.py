@@ -18,7 +18,3 @@ class CreateDurablePromiseReq:
         self.data = data
         self.headers = headers
         self.tags = tags
-
-
-def manual_completion(id: str | None) -> CreateDurablePromiseReq:
-    return CreateDurablePromiseReq(id=id)

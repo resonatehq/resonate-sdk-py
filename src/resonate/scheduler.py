@@ -55,7 +55,7 @@ from resonate.events import (
 from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
 from resonate.itertools import FinalValue, iterate_coro
 from resonate.logging import logger
-from resonate.options import LOptions
+from resonate.options import LOptions, ROptions
 from resonate.promise import (
     Promise,
     all_promises_are_done,
@@ -696,12 +696,10 @@ class Scheduler:
         p = self._dedup_promise(id)
         if p is not None:
             return p
-
-        invokable = _remote_function(func_name, args, kwargs={}, target=target, id=id)
         p = self._create_promise(
             parent_promise=None,
             id=id,
-            action=RFI(invokable),
+            action=RFI((func_name, args, {}), opts=ROptions(id=id, target=target)),
             claiming_task=False,
             registering_callback=True,
         )

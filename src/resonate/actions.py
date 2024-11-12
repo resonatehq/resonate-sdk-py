@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, final
 
 from typing_extensions import ParamSpec, Self
 
-from resonate.commands import Command, CreateDurablePromiseReq
+from resonate.commands import Command
 from resonate.options import LOptions, ROptions
 from resonate.retry_policy import never
 
@@ -22,17 +22,10 @@ T = TypeVar("T")
 @final
 @dataclass
 class RFI:
-    exec_unit: (
-        FnOrCoroutine
-        | CreateDurablePromiseReq
-        | tuple[str, tuple[Any, ...], dict[str, Any]]
-    )
+    exec_unit: FnOrCoroutine | tuple[str, tuple[Any, ...], dict[str, Any]]
     opts: ROptions = field(default=ROptions())
 
     def options(self, id: str | None = None, target: str | None = None) -> Self:
-        assert not isinstance(
-            self.exec_unit, Command
-        ), "Options must be set on the command."
         self.opts = ROptions(id=id, target=target)
         return self
 
@@ -40,17 +33,10 @@ class RFI:
 @final
 @dataclass
 class RFC:
-    exec_unit: (
-        FnOrCoroutine
-        | CreateDurablePromiseReq
-        | tuple[str, tuple[Any, ...], dict[str, Any]]
-    )
+    exec_unit: FnOrCoroutine | tuple[str, tuple[Any, ...], dict[str, Any]]
     opts: ROptions = field(default=ROptions())
 
     def options(self, id: str | None = None, target: str | None = None) -> Self:
-        assert not isinstance(
-            self.exec_unit, Command
-        ), "Options must be set on the command."
         self.opts = ROptions(id=id, target=target)
         return self
 

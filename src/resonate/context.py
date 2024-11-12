@@ -14,7 +14,7 @@ from resonate.actions import (
     DeferredInvocation,
     Race,
 )
-from resonate.commands import Command, CreateDurablePromiseReq
+from resonate.commands import Command
 from resonate.dataclasses import FnOrCoroutine
 from resonate.dependencies import Dependencies
 from resonate.promise import Promise
@@ -49,78 +49,61 @@ class Context:
         return self.deps.get(key)
 
     @overload
-    def rfc(self, invokable: str, /, *args: Any, **kwargs: Any) -> RFC: ...  # noqa: ANN401
-    @overload
-    def rfc(self, invokable: CreateDurablePromiseReq, /) -> RFC: ...
+    def rfc(self, func: str, /, *args: Any, **kwargs: Any) -> RFC: ...  # noqa: ANN401
     @overload
     def rfc(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, Any] | DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC: ...
     def rfc(
         self,
-        invokable: DurableCoro[P, Any]
-        | DurableFn[P, Any]
-        | CreateDurablePromiseReq
-        | str,
+        func: DurableCoro[P, Any] | DurableFn[P, Any] | str,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC:
-        unit: (
-            FnOrCoroutine
-            | CreateDurablePromiseReq
-            | tuple[str, tuple[Any, ...], dict[str, Any]]
-        )
-        if isinstance(invokable, str):
-            unit = (invokable, args, kwargs)
-
-        elif isinstance(invokable, CreateDurablePromiseReq):
-            unit = invokable
+        unit: FnOrCoroutine | tuple[str, tuple[Any, ...], dict[str, Any]]
+        if isinstance(func, str):
+            unit = (func, args, kwargs)
         else:
-            unit = FnOrCoroutine(invokable, *args, **kwargs)
+            unit = FnOrCoroutine(func, *args, **kwargs)
         return RFC(unit)
 
     @overload
-    def rfi(self, invokable: str, /, *args: Any, **kwargs: Any) -> RFI: ...  # noqa: ANN401
-    @overload
-    def rfi(self, invokable: CreateDurablePromiseReq, /) -> RFI: ...
+    def rfi(self, func: str, /, *args: Any, **kwargs: Any) -> RFI: ...  # noqa: ANN401
     @overload
     def rfi(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, Any] | DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFI: ...
     def rfi(
         self,
-        invokable: DurableCoro[P, Any]
-        | DurableFn[P, Any]
-        | CreateDurablePromiseReq
-        | str,
+        func: DurableCoro[P, Any] | DurableFn[P, Any] | str,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFI:
-        return self.rfc(invokable, *args, **kwargs).to_invocation()
+        return self.rfc(func, *args, **kwargs).to_invocation()
 
     @overload
-    def lfi(self, invokable: Command, /) -> LFI: ...
+    def lfi(self, cmd: Command, /) -> LFI: ...
     @overload
     def lfi(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, Any] | DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI: ...
     def lfi(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        func_or_cmd: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -134,21 +117,21 @@ class Context:
         The `Promise` can be yielded later in the execution to await
         for the result.
         """
-        return self.lfc(invokable, *args, **kwargs).to_invocation()
+        return self.lfc(func_or_cmd, *args, **kwargs).to_invocation()
 
     @overload
-    def lfc(self, invokable: Command, /) -> LFC: ...
+    def lfc(self, func: Command, /) -> LFC: ...
     @overload
     def lfc(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, Any] | DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC: ...
     def lfc(
         self,
-        invokable: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        func_or_cmd: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -160,10 +143,10 @@ class Context:
         sugar for `yield (yield ctx.lfi(...))`
         """
         unit: Command | FnOrCoroutine
-        if isinstance(invokable, Command):
-            unit = invokable
+        if isinstance(func_or_cmd, Command):
+            unit = func_or_cmd
         else:
-            unit = FnOrCoroutine(invokable, *args, **kwargs)
+            unit = FnOrCoroutine(func_or_cmd, *args, **kwargs)
         return LFC(unit)
 
     def deferred(
