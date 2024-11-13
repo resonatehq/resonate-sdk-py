@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeVar, final, overload
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, final, overload
 
-from typing_extensions import ParamSpec
+from typing_extensions import Concatenate, ParamSpec
 
 from resonate.actions import (
     LFC,
@@ -19,11 +19,14 @@ from resonate.dataclasses import FnOrCoroutine
 from resonate.promise import Promise
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine, Generator
+
     from resonate.dependencies import Dependencies
     from resonate.typing import (
         DurableCoro,
         DurableFn,
         Promise,
+        Yieldable,
     )
 
 P = ParamSpec("P")
@@ -48,7 +51,7 @@ class Context:
     @overload
     def rfc(
         self,
-        func: DurableCoro[P, Any],
+        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -56,15 +59,15 @@ class Context:
     @overload
     def rfc(
         self,
-        func: DurableFn[P, Any],
+        func: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC: ...
     def rfc(
         self,
-        func_or_cmd: DurableCoro[P, Any]
-        | DurableFn[P, Any]
+        func_or_cmd: DurableCoro[P, T]
+        | DurableFn[P, T]
         | str
         | CreateDurablePromiseReq,
         /,
@@ -91,7 +94,7 @@ class Context:
     @overload
     def rfi(
         self,
-        func: DurableCoro[P, Any],
+        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -99,15 +102,15 @@ class Context:
     @overload
     def rfi(
         self,
-        func: DurableFn[P, Any],
+        func: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFI: ...
     def rfi(
         self,
-        func_or_cmd: DurableCoro[P, Any]
-        | DurableFn[P, Any]
+        func_or_cmd: DurableCoro[P, T]
+        | DurableFn[P, T]
         | str
         | CreateDurablePromiseReq,
         /,
@@ -121,7 +124,7 @@ class Context:
     @overload
     def lfi(
         self,
-        func: DurableCoro[P, Any],
+        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -129,14 +132,14 @@ class Context:
     @overload
     def lfi(
         self,
-        func: DurableFn[P, Any],
+        func: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI: ...
     def lfi(
         self,
-        func_or_cmd: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -157,7 +160,7 @@ class Context:
     @overload
     def lfc(
         self,
-        func: DurableCoro[P, Any],
+        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -165,14 +168,14 @@ class Context:
     @overload
     def lfc(
         self,
-        func: DurableFn[P, Any],
+        func: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC: ...
     def lfc(
         self,
-        func_or_cmd: DurableCoro[P, Any] | DurableFn[P, Any] | Command,
+        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | Command,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -190,6 +193,24 @@ class Context:
             unit = FnOrCoroutine(func_or_cmd, *args, **kwargs)
         return LFC(unit)
 
+    @overload
+    def deferred(
+        self,
+        id: str,
+        coro: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> DeferredInvocation: ...
+    @overload
+    def deferred(
+        self,
+        id: str,
+        coro: Callable[Concatenate[Context, P], Any | Coroutine[Any, Any, Any]],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> DeferredInvocation: ...
     def deferred(
         self,
         id: str,
