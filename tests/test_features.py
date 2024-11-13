@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from resonate.commands import CreateDurablePromiseReq
 from resonate.promise import Promise
 from resonate.retry_policy import never
 from resonate.scheduler import Scheduler
@@ -21,20 +22,21 @@ if TYPE_CHECKING:
     from resonate.typing import Yieldable
 
 
-@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
 def test_human_in_the_loop() -> None:
+    def manual_completion(id: str) -> CreateDurablePromiseReq:
+        return CreateDurablePromiseReq(id=id)
+
     def human_in_the_loop(ctx: Context) -> Generator[Yieldable, Any, str]:
-        ...
-        # name: str = yield ctx.rfc(
-        #     manual_completion("test-human-in-loop-question-to-answer-1")  # noqa: E501, ERA001
-        # )  # noqa: ERA001, RUF100
-        # age: int = yield ctx.rfc(
-        #     manual_completion(id="test-human-in-loop-question-to-answer-2")  # noqa: E501, ERA001
-        # )  # noqa: ERA001, RUF100
-        # return f"Hi {name} with age {age}"  # noqa: ERA001
+        name: str = yield ctx.rfc(
+            manual_completion("test-human-in-loop-question-to-answer-1")
+        )  # noqa: ERA001, RUF100
+        age: int = yield ctx.rfc(
+            manual_completion(id="test-human-in-loop-question-to-answer-2")
+        )  # noqa: ERA001, RUF100
+        return f"Hi {name} with age {age}"
 
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     s = Scheduler(store)

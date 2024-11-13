@@ -270,7 +270,6 @@ class Scheduler:
 
         self._deps = Dependencies()
         self._ctx = Context(
-            seed=None,
             deps=self._deps,
         )
         self._json_encoder = JsonEncoder()

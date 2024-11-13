@@ -14,12 +14,12 @@ from resonate.actions import (
     DeferredInvocation,
     Race,
 )
-from resonate.commands import Command
+from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.dataclasses import FnOrCoroutine
-from resonate.dependencies import Dependencies
 from resonate.promise import Promise
 
 if TYPE_CHECKING:
+    from resonate.dependencies import Dependencies
     from resonate.typing import (
         DurableCoro,
         DurableFn,
@@ -34,69 +34,102 @@ T = TypeVar("T")
 class Context:
     def __init__(
         self,
-        seed: int | None,
-        deps: Dependencies | None = None,
+        deps: Dependencies,
     ) -> None:
-        self.seed = seed
-        self.deps = deps if deps is not None else Dependencies()
-
-    def assert_statement(self, stmt: bool, msg: str) -> None:  # noqa: FBT001
-        if self.seed is None:
-            return
-        assert stmt, msg
+        self._deps = deps
 
     def get_dependency(self, key: str) -> Any:  # noqa: ANN401
-        return self.deps.get(key)
+        return self._deps.get(key)
 
+    @overload
+    def rfc(self, cmd: CreateDurablePromiseReq, /) -> RFC: ...
     @overload
     def rfc(self, func: str, /, *args: Any, **kwargs: Any) -> RFC: ...  # noqa: ANN401
     @overload
     def rfc(
         self,
-        func: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> RFC: ...
+    @overload
+    def rfc(
+        self,
+        func: DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC: ...
     def rfc(
         self,
-        func: DurableCoro[P, Any] | DurableFn[P, Any] | str,
+        func_or_cmd: DurableCoro[P, Any]
+        | DurableFn[P, Any]
+        | str
+        | CreateDurablePromiseReq,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC:
-        unit: FnOrCoroutine | tuple[str, tuple[Any, ...], dict[str, Any]]
-        if isinstance(func, str):
-            unit = (func, args, kwargs)
+        unit: (
+            FnOrCoroutine
+            | tuple[str, tuple[Any, ...], dict[str, Any]]
+            | CreateDurablePromiseReq
+        )
+        if isinstance(func_or_cmd, str):
+            unit = (func_or_cmd, args, kwargs)
+        elif isinstance(func_or_cmd, CreateDurablePromiseReq):
+            unit = func_or_cmd
         else:
-            unit = FnOrCoroutine(func, *args, **kwargs)
+            unit = FnOrCoroutine(func_or_cmd, *args, **kwargs)
         return RFC(unit)
 
+    @overload
+    def rfi(self, cmd: CreateDurablePromiseReq, /) -> RFI: ...
     @overload
     def rfi(self, func: str, /, *args: Any, **kwargs: Any) -> RFI: ...  # noqa: ANN401
     @overload
     def rfi(
         self,
-        func: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> RFI: ...
+    @overload
+    def rfi(
+        self,
+        func: DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFI: ...
     def rfi(
         self,
-        func: DurableCoro[P, Any] | DurableFn[P, Any] | str,
+        func_or_cmd: DurableCoro[P, Any]
+        | DurableFn[P, Any]
+        | str
+        | CreateDurablePromiseReq,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFI:
-        return self.rfc(func, *args, **kwargs).to_invocation()
+        return self.rfc(func_or_cmd, *args, **kwargs).to_invocation()
 
     @overload
     def lfi(self, cmd: Command, /) -> LFI: ...
     @overload
     def lfi(
         self,
-        func: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFI: ...
+    @overload
+    def lfi(
+        self,
+        func: DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -124,7 +157,15 @@ class Context:
     @overload
     def lfc(
         self,
-        func: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFC: ...
+    @overload
+    def lfc(
+        self,
+        func: DurableFn[P, Any],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
