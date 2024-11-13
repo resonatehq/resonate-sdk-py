@@ -106,7 +106,6 @@ def test_factorial_multi_node() -> None:
     def factorial_node_2(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         if n == 0:
             return 1
-        ctx.rfc("foo", 21, name="tomas").options(target=None, id="hr-to-resolve")
         return n * (
             yield ctx.rfc(factorial_node_2, n - 1).options(
                 id=f"factorial-multi-node-{n-1}", target="test-factorial-multi-node-1"

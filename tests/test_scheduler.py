@@ -42,15 +42,6 @@ def baz(ctx: Context, name: str, sleep_time: float) -> Generator[Yieldable, Any,
     return (yield p)
 
 
-def bar(
-    ctx: Context, name: str, sleep_time: float
-) -> Generator[Yieldable, Any, Promise[str]]:
-    p: Promise[str] = yield ctx.lfi(foo, name=name, sleep_time=sleep_time).options(
-        retry_policy=never()
-    )
-    return p
-
-
 @cache
 def _promise_storages() -> list[LocalStore | RemoteStore]:
     stores: list[LocalStore | RemoteStore] = [LocalStore(MemoryStorage())]

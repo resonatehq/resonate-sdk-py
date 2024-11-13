@@ -151,13 +151,3 @@ def all_promises_are_done(promises: list[Promise[Any]]) -> bool:
 
 def any_promise_is_done(promises: list[Promise[Any]]) -> bool:
     return any(p.done() for p in promises)
-
-
-def get_first_error_if_any(promises: list[Promise[Any]]) -> Err[Exception] | None:
-    for p in promises:
-        if p.success():
-            continue
-        error = p.safe_result()
-        assert isinstance(error, Err)
-        return error
-    return None
