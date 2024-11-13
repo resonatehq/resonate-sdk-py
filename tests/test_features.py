@@ -260,23 +260,22 @@ def test_fibonnaci_mechanics_awaiting() -> None:
     assert p.result()
 
 
-@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
-def test_fibonnaci_mechanics_no_awaiting() -> None:
+def test_fibonnaci_mechanics_no_awaiting_all_local() -> None:
     node_group = "test-fibonnaci-mechanics-no-awaiting"
 
     def fibonnaci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         if n <= 1:
             return n
 
-        pn1: Promise[int] = yield ctx.rfi(fibonnaci, n - 1).options(
-            id=f"fibonnaci-mechanics-no-awaiting-{n-1}"
+        pn1: Promise[int] = yield ctx.lfi(fibonnaci, n - 1).options(
+            id=f"fibonnaci-mechanics-no-awaiting-{n-1}", retry_policy=never()
         )
 
-        pn2: Promise[int] = yield ctx.rfi(fibonnaci, n - 2).options(
-            id=f"fibonnaci-mechanics-no-awaiting-{n-2}"
+        pn2: Promise[int] = yield ctx.lfi(fibonnaci, n - 2).options(
+            id=f"fibonnaci-mechanics-no-awaiting-{n-2}", retry_policy=never()
         )
 
         n1: int = yield pn1
@@ -286,11 +285,12 @@ def test_fibonnaci_mechanics_no_awaiting() -> None:
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     s = Scheduler(store, group=node_group)
     s.register(fibonnaci, retry_policy=never())
-    n = 8
+    n = randint(10, 30)  # noqa: S311
 
     p: Promise[int] = s.run(f"fibonnaci-mechanics-no-awaiting-{n}", fibonnaci, n)
-
-    assert p.result() == 21  # noqa: PLR2004
+    s.wait_until_blocked()
+    assert p.done()
+    assert p.result()
 
 
 @pytest.mark.skipif(
@@ -313,3 +313,152 @@ def test_trigger_on_other_process() -> None:
         f"{node_group}-factorial", "factorial", (5,), target=f"{node_group}-other"
     )
     assert p.result() == 120  # noqa: PLR2004
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_fibonnaci_mechanics_awaiting_all_remote() -> None:
+    node_group = "test-fibonnaci-mechanics-awaiting"
+
+    def fibonnaci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+
+        id_n1 = f"fibonnaci-mechanics-awaiting-{n-1}"
+        n1: int = yield ctx.rfc(fibonnaci, n - 1).options(id=id_n1, target=node_group)
+
+        id_n2 = f"fibonnaci-mechanics-awaiting-{n-2}"
+        n2: int = yield ctx.rfc(fibonnaci, n - 2).options(id=id_n2, target=node_group)
+        return n1 + n2
+
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
+    schedulers: list[Scheduler] = []
+    for _ in range(randint(1, 5)):  # noqa: S311
+        s = Scheduler(store, group=node_group)
+        s.register(fibonnaci, retry_policy=never())
+        schedulers.append(s)
+    n = randint(10, 30)  # noqa: S311
+
+    p: Promise[int] = schedulers[0].run(
+        f"fibonnaci-mechanics-awaiting-{n}", fibonnaci, n
+    )
+    assert p.result()
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_fibonnaci_mechanics_awaiting_all_local() -> None:
+    node_group = "test-fibonnaci-mechanics-awaiting"
+
+    def fibonnaci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+
+        id_n1 = f"fibonnaci-mechanics-awaiting-{n-1}"
+        n1: int = yield ctx.lfc(fibonnaci, n - 1).options(
+            id=id_n1, retry_policy=never()
+        )
+
+        id_n2 = f"fibonnaci-mechanics-awaiting-{n-2}"
+        n2: int = yield ctx.lfc(fibonnaci, n - 2).options(
+            id=id_n2, retry_policy=never()
+        )
+        return n1 + n2
+
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
+    s = Scheduler(store, group=node_group)
+    s.register(fibonnaci, retry_policy=never())
+    n = randint(10, 30)  # noqa: S311
+
+    p: Promise[int] = s.run(f"fibonnaci-mechanics-awaiting-{n}", fibonnaci, n)
+    s.wait_until_blocked()
+    assert p.done()
+    assert p.result()
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_factorial_mechanics_all_remote() -> None:
+    node_group = "test-factorial-mechanics"
+
+    def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 0:
+            return 1
+        id = f"factorial-mechanics-{n-1}"
+        v: int = yield ctx.rfc(factorial, n - 1).options(id=id, target=node_group)
+        return n + v
+
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
+    schedulers: list[Scheduler] = []
+    for _ in range(randint(1, 5)):  # noqa: S311
+        s = Scheduler(store, group=node_group)
+        s.register(factorial, retry_policy=never())
+        schedulers.append(s)
+    n = randint(10, 30)  # noqa: S311
+
+    p: Promise[int] = schedulers[0].run(f"factorial-mechanics-{n}", factorial, n)
+    assert p.result()
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_factorial_mechanics_all_local() -> None:
+    node_group = "test-factorial-mechanics"
+
+    def factorial(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 0:
+            return 1
+        id = f"factorial-mechanics-{n-1}"
+        v: int = yield ctx.lfc(factorial, n - 1).options(id=id, retry_policy=never())
+
+        return n + v
+
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
+    s = Scheduler(store, group=node_group)
+    s.register(factorial, retry_policy=never())
+    n = randint(10, 30)  # noqa: S311
+
+    p: Promise[int] = s.run(f"factorial-mechanics-{n}", factorial, n)
+    s.wait_until_blocked()
+    assert p.done()
+    assert p.result()
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_fibonnaci_mechanics_no_awaiting_all_remote() -> None:
+    node_group = "test-fibonnaci-mechanics-no-awaiting"
+
+    def fibonnaci(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+
+        pn1: Promise[int] = yield ctx.rfi(fibonnaci, n - 1).options(
+            id=f"fibonnaci-mechanics-no-awaiting-{n-1}", target=node_group
+        )
+
+        pn2: Promise[int] = yield ctx.rfi(fibonnaci, n - 2).options(
+            id=f"fibonnaci-mechanics-no-awaiting-{n-2}", target=node_group
+        )
+
+        n1: int = yield pn1
+        n2: int = yield pn2
+        return n1 + n2
+
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
+    schedulers: list[Scheduler] = []
+    for _ in range(randint(1, 5)):  # noqa: S311
+        s = Scheduler(store, group=node_group)
+        s.register(fibonnaci, retry_policy=never())
+        schedulers.append(s)
+    n = randint(10, 30)  # noqa: S311
+
+    p: Promise[int] = schedulers[0].run(
+        f"fibonnaci-mechanics-no-awaiting-{n}", fibonnaci, n
+    )
+    assert p.result()
