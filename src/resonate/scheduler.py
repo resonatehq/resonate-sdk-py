@@ -639,8 +639,11 @@ class Scheduler:
                     if promise.action.opts.target is not None
                     else self.group
                 )
-                req = _remote_function(
-                    func_name, args, kwargs, target=target_url, id=promise.id
+                req = CreateDurablePromiseReq(
+                    id=promise.id,
+                    data={"func": func_name, "args": args, "kwargs": kwargs},
+                    headers=None,
+                    tags={"resonate:invoke": f"poll://{target_url}"},
                 )
 
             else:
@@ -1157,10 +1160,8 @@ class Scheduler:
                 parent_id=promise.parent_id(),
             )
         )
-        if isinstance(self._store, RemoteStore):
-            assert self._claimed_tasks is not None
-            if promise.id in self._claimed_tasks:
-                self._complete_task_monitoring_promise(promise.id)
+        if self._claimed_tasks is not None and promise.id in self._claimed_tasks:
+            self._complete_task_monitoring_promise(promise.id)
 
     def _pop_from_memo_or_finish_partition_execution(
         self, promise: Promise[Any]
@@ -1480,19 +1481,3 @@ class Scheduler:
                 return Err(err)
 
         assert_never(combinator)
-
-
-def _remote_function(
-    func_name: str,
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-    *,
-    target: str,
-    id: str | None = None,
-) -> CreateDurablePromiseReq:
-    return CreateDurablePromiseReq(
-        id=id,
-        data={"func": func_name, "args": args, "kwargs": kwargs},
-        headers=None,
-        tags={"resonate:invoke": f"poll://{target}"},
-    )
