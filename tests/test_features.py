@@ -32,10 +32,10 @@ def test_human_in_the_loop() -> None:
     def human_in_the_loop(ctx: Context) -> Generator[Yieldable, Any, str]:
         name: str = yield ctx.rfc(
             manual_completion("test-human-in-loop-question-to-answer-1")
-        )  # noqa: ERA001, RUF100
+        )
         age: int = yield ctx.rfc(
             manual_completion(id="test-human-in-loop-question-to-answer-2")
-        )  # noqa: ERA001, RUF100
+        )
         return f"Hi {name} with age {age}"
 
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
