@@ -6,7 +6,7 @@ import requests
 
 from resonate.encoders import Base64Encoder, IEncoder
 from resonate.errors import ResonateError
-from resonate.record import (
+from resonate.stores.record import (
     CallbackRecord,
     DurablePromiseRecord,
     Invoke,

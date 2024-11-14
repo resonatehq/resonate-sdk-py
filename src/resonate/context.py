@@ -9,14 +9,10 @@ from resonate.actions import (
     LFI,
     RFC,
     RFI,
-    All,
-    AllSettled,
     DeferredInvocation,
-    Race,
 )
 from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.dataclasses import FnOrCoroutine
-from resonate.promise import Promise
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Generator
@@ -25,7 +21,6 @@ if TYPE_CHECKING:
     from resonate.typing import (
         DurableCoro,
         DurableFn,
-        Promise,
         Yieldable,
     )
 
@@ -226,41 +221,3 @@ class Context:
         invoked execution will be retried and managed from the server.
         """
         return DeferredInvocation(id=id, coro=FnOrCoroutine(coro, *args, **kwargs))
-
-    def all(self, promises: list[Promise[Any]]) -> All:
-        """Aggregates multiple promises into a single Promise that resolves when
-        all of the promises in the input list have resolved.
-
-        Args: promises (list[Promise[Any]]): An iterable of promises to be aggregated.
-
-        Returns: All: A new Promise that resolves with a list of the resolved values
-        from each promise in the input list, or rejects with the reason of the first
-        promise that rejects.
-        """
-        return All(promises)
-
-    def race(self, promises: list[Promise[Any]]) -> Race:
-        """
-        Aggregates multiple promises and returns a new Promise that resolves or rejects
-        as soon as one of the promises in the input list resolves or rejects.
-
-        Args: promises (list[Promise[Any]]): An iterable of promises to be raced.
-
-        Returns: Race: A new Promise that resolves or rejects with the value/reason
-        of the first promise in the list that resolves or rejects.
-        """
-        return Race(promises)
-
-    def all_settled(self, promises: list[Promise[Any]]) -> AllSettled:
-        """
-        Aggregates multiple promises and returns a new Promise that resolves when all of
-        the promises in the input list have either resolved or rejected.
-
-        Args: promises (list[Promise[Any]]): An iterable of promises to be aggregated.
-
-        Returns: AllSettled: A new Promise that resolves with a list of objects,
-        each with a `status` property of either `'fulfilled'` or `'rejected'`,
-        and a `value` or `reason` property depending on the outcome of the
-        corresponding promise.
-        """
-        return AllSettled(promises)

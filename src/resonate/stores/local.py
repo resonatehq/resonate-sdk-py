@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Callable, final
 
 from resonate.errors import ResonateError
-from resonate.record import (
+from resonate.stores.record import (
     DurablePromiseRecord,
     Param,
     Value,
