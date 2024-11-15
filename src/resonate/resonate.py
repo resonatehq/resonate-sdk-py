@@ -7,9 +7,13 @@ from typing_extensions import Concatenate, ParamSpec
 
 from resonate import targets
 from resonate.dependencies import Dependencies
+from resonate.poller import Poller
+from resonate.processor import FnCQE, FnSQE
+from resonate.queue import Queue
+from resonate.record import Record
 from resonate.scheduler import Scheduler
-from resonate.shells.poller import Poller
-from resonate.stores.local import IStorage, LocalStore, MemoryStorage
+from resonate.stores.local import LocalStore, MemoryStorage
+from resonate.stores.record import TaskRecord
 from resonate.stores.remote import RemoteStore
 from resonate.tracing.stdout import StdOutAdapter
 
@@ -29,43 +33,39 @@ T = TypeVar("T")
 class Resonate:
     def __init__(  # noqa: PLR0913
         self,
-        url: str | None = None,
-        polling_url: str | None = None,
-        storage: IStorage | None = None,
         adapter: IAdapter | None = None,
+        store: RemoteStore | LocalStore | None = None,
+        poller_url: str | None = None,
         group: str = "default",
         max_workers: int | None = None,
         distribution_tag: str = "resonate:invoke",
     ) -> None:
         pid = uuid.uuid4().hex
-        store: RemoteStore | LocalStore
-        if url is not None:
-            assert (
-                storage is None
-            ), "Cannot provide a url and a implementation of `IStorage`"
-            store = RemoteStore(url=url)
-
-        else:
-            storage = storage if storage is not None else MemoryStorage()
-            store = LocalStore(storage)
-
-        adapter = adapter if adapter is not None else StdOutAdapter()
-        self.deps = Dependencies()
+        self._deps = Dependencies()
+        store = store if store is not None else LocalStore(MemoryStorage())
         self._scheduler = Scheduler(
             pid=pid,
             store=store,
-            adapter=adapter,
+            adapter=adapter if adapter is not None else StdOutAdapter(),
             group=group,
-            deps=self.deps,
+            deps=self._deps,
             max_workers=max_workers,
             distribution_tag=distribution_tag,
+            stg_queue=Queue[Record[Any]](),
+            task_queue=Queue[TaskRecord](),
+            completion_queue=Queue[FnCQE[Any]](),
+            submission_queue=Queue[FnSQE[Any]](),
         )
         if isinstance(store, RemoteStore):
-            assert polling_url is not None
-            self._poller = Poller(self._scheduler, url=f"{polling_url}/{group}/{pid}")
+            poller_url = (
+                poller_url if poller_url is not None else "http://localhost:8002"
+            )
+            self._poller = Poller(
+                scheduler=self._scheduler, url=f"{poller_url}/{group}/{pid}"
+            )
 
     def set_dependency(self, key: str, obj: Any) -> None:  # noqa: ANN401
-        self.deps.set(key=key, obj=obj)
+        self._deps.set(key=key, obj=obj)
 
     @overload
     def register(

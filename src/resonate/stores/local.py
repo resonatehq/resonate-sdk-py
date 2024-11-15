@@ -298,6 +298,5 @@ class LocalPromiseStore(IPromiseStore):
 
 @final
 class LocalStore:
-    def __init__(self, storage: IStorage | None = None) -> None:
-        self._storage = storage or MemoryStorage()
-        self.promises = LocalPromiseStore(storage=self._storage)
+    def __init__(self, storage: IStorage) -> None:
+        self.promises = LocalPromiseStore(storage=storage)

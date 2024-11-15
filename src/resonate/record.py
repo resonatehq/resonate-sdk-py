@@ -4,10 +4,11 @@ from concurrent.futures import Future
 from inspect import isfunction, isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, final
 
-from typing_extensions import TypeAlias
+from typing_extensions import TypeAlias, assert_never
 
 from resonate.dataclasses import FnOrCoroutine, ResonateCoro
 from resonate.functools import AsyncFnWrapper, FnWrapper, wrap_fn
+from resonate.result import Err, Ok, Result
 
 if TYPE_CHECKING:
     from resonate.context import Context
@@ -72,6 +73,17 @@ class Record(Generic[T]):
                     *fn_or_coro.args,
                     **fn_or_coro.kwargs,
                 )
+
+    def set_result(self, result: Result[Any, Exception]) -> None:
+        assert all(
+            r.done() for r in self.children
+        ), "All children record must be completed."
+        if isinstance(result, Ok):
+            self.f.set_result(result.unwrap())
+        elif isinstance(result, Err):
+            self.f.set_exception(result.err())
+        else:
+            assert_never(result)
 
     def done(self) -> bool:
         return self.f.done()

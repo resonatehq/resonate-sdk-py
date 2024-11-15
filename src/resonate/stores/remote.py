@@ -358,11 +358,10 @@ class RemoteStore:
         self,
         url: str,
         request_timeout: int = 10,
-        encoder: IEncoder[str, str] | None = None,
     ) -> None:
         self.url = url
         self._request_timeout = request_timeout
-        self._encoder = encoder or Base64Encoder()
+        self._encoder = Base64Encoder()
         self.tasks = RemoteTaskStore(
             url=self.url, request_timeout=self._request_timeout, encoder=self._encoder
         )

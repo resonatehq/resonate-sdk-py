@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict, final
@@ -8,6 +7,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, final
 from typing_extensions import Self
 
 from resonate.encoders import IEncoder
+from resonate.result import Err, Ok, Result
 
 if TYPE_CHECKING:
     from resonate.encoders import IEncoder
@@ -73,9 +73,23 @@ class DurablePromiseRecord(Decodable):
     idempotency_key_for_complete: IdempotencyKey
     tags: Tags
 
-    def invoke_info(self) -> _InvokeInfo:
+    def get_value(self, encoder: IEncoder[Any, str]) -> Result[Any, Exception]:
+        assert self.is_completed()
+        v: Result[Any, Exception]
+        if self.is_rejected():
+            assert self.value.data is not None
+            v = Err(encoder.decode(data=self.value.data))
+        else:
+            assert self.is_resolved()
+            if self.value.data is None:
+                v = Ok(None)
+            else:
+                v = Ok(encoder.decode(self.value.data))
+        return v
+
+    def invoke_info(self, encoder: IEncoder[Any, str]) -> _InvokeInfo:
         assert self.param.data is not None
-        data_dict = json.loads(self.param.data)
+        data_dict = encoder.decode(self.param.data)
         return {
             "func_name": data_dict["func"],
             "args": data_dict["args"],
