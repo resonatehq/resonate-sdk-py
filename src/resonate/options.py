@@ -6,14 +6,7 @@ from resonate.retry_policy import RetryPolicy, default_policy
 
 
 @final
-class ROptions:
-    def __init__(self, id: str | None = None, target: str | None = None) -> None:
-        self.id = id
-        self.target = target
-
-
-@final
-class LOptions:
+class Options:
     def __init__(
         self,
         *,
@@ -21,6 +14,7 @@ class LOptions:
         id: str | None = None,
         retry_policy: RetryPolicy | None = None,
         tags: dict[str, str] | None = None,
+        target: str | None = None,
     ) -> None:
         self.durable = durable
         self.id = id
@@ -28,3 +22,4 @@ class LOptions:
             retry_policy if retry_policy is not None else default_policy()
         )
         self.tags = tags or {}
+        self.target = target

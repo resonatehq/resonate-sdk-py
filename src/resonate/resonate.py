@@ -1,135 +1,100 @@
 from __future__ import annotations
 
-import uuid
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from uuid import uuid4
 
 from typing_extensions import Concatenate, ParamSpec
 
-from resonate import targets
+from resonate.collections import FunctionRegistry
 from resonate.dependencies import Dependencies
-from resonate.poller import Poller
-from resonate.processor import FnCQE, FnSQE
-from resonate.queue import Queue
-from resonate.record import Record
-from resonate.scheduler import Scheduler
+from resonate.options import Options
+from resonate.scheduler.scheduler import Scheduler
+from resonate.scheduler.traits import IScheduler
 from resonate.stores.local import LocalStore, MemoryStorage
-from resonate.stores.record import TaskRecord
-from resonate.stores.remote import RemoteStore
-from resonate.tracing.stdout import StdOutAdapter
+from resonate.task_sources.poller import Poller
+from resonate.task_sources.traits import ITaskSource
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Generator
 
     from resonate.context import Context
     from resonate.record import Handle
-    from resonate.retry_policy import RetryPolicy
-    from resonate.tracing import IAdapter
-    from resonate.typing import DurableCoro, DurableFn, Yieldable
+    from resonate.scheduler.traits import IScheduler
+    from resonate.stores.remote import RemoteStore
+    from resonate.task_sources.traits import ITaskSource
+    from resonate.typing import Yieldable
 
 P = ParamSpec("P")
 T = TypeVar("T")
 
 
 class Resonate:
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
-        adapter: IAdapter | None = None,
-        store: RemoteStore | LocalStore | None = None,
-        poller_url: str | None = None,
-        group: str = "default",
-        max_workers: int | None = None,
-        distribution_tag: str = "resonate:invoke",
+        pid: str | None = None,
+        store: LocalStore | RemoteStore | None = None,
+        scheduler: IScheduler | None = None,
+        task_source: ITaskSource | None = None,
     ) -> None:
-        pid = uuid.uuid4().hex
         self._deps = Dependencies()
-        store = store if store is not None else LocalStore(MemoryStorage())
-        self._scheduler = Scheduler(
-            pid=pid,
-            store=store,
-            adapter=adapter if adapter is not None else StdOutAdapter(),
-            group=group,
-            deps=self._deps,
-            max_workers=max_workers,
-            distribution_tag=distribution_tag,
-            stg_queue=Queue[Record[Any]](),
-            task_queue=Queue[TaskRecord](),
-            completion_queue=Queue[FnCQE[Any]](),
-            submission_queue=Queue[FnSQE[Any]](),
+        self._fn_registry = FunctionRegistry()
+        self.pid = pid if pid is not None else uuid4().hex
+        self._scheduler: IScheduler = (
+            scheduler
+            if scheduler is not None
+            else Scheduler(
+                self._deps,
+                self.pid,
+                store if store is not None else LocalStore(MemoryStorage()),
+            )
         )
-        if isinstance(store, RemoteStore):
-            poller_url = (
-                poller_url if poller_url is not None else "http://localhost:8002"
-            )
-            self._poller = Poller(
-                scheduler=self._scheduler, url=f"{poller_url}/{group}/{pid}"
-            )
 
-    def set_dependency(self, key: str, obj: Any) -> None:  # noqa: ANN401
-        self._deps.set(key=key, obj=obj)
+        self._task_source: ITaskSource = (
+            task_source
+            if task_source is not None
+            else Poller(
+                scheduler=self._scheduler, url="http://localhost:8002", group="default"
+            )
+        )
 
-    @overload
+        self._scheduler.set_default_recv(self._task_source.default_recv(pid=self.pid))
+
     def register(
         self,
-        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
+        func: Callable[
+            Concatenate[Context, P],
+            Generator[Yieldable, Any, T],
+        ]
+        | Callable[Concatenate[Context, P], T]
+        | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
+        *,
         name: str | None = None,
-        retry_policy: RetryPolicy | None = None,
-    ) -> None: ...
-    @overload
-    def register(
-        self,
-        func: Callable[Concatenate[Context, P], Coroutine[Any, Any, Any]],
-        name: str | None = None,
-        retry_policy: RetryPolicy | None = None,
-    ) -> None: ...
-    @overload
-    def register(
-        self,
-        func: Callable[Concatenate[Context, P], Any],
-        name: str | None = None,
-        retry_policy: RetryPolicy | None = None,
-    ) -> None: ...
-    def register(
-        self,
-        func: DurableCoro[P, T] | DurableFn[P, T],
-        name: str | None = None,
-        retry_policy: RetryPolicy | None = None,
-        tags: dict[str, str] | None = None,
     ) -> None:
-        return self._scheduler.register(
-            func=func,
-            name=name,
-            retry_policy=retry_policy,
-            tags=tags,
-        )
+        if name is None:
+            name = func.__name__
+        self._fn_registry.add(name, (func, Options(durable=True)))
 
     def lfi(
         self,
         id: str,
-        func: DurableCoro[P, T] | DurableFn[P, T],
+        func: Callable[
+            Concatenate[Context, P],
+            Generator[Yieldable, Any, T],
+        ]
+        | Callable[Concatenate[Context, P], T]
+        | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[T]:
         return self._scheduler.lfi(id, func, *args, **kwargs)
 
-    def lfc(
+    def rfi(
         self,
         id: str,
-        func: DurableCoro[P, T] | DurableFn[P, T],
+        func: str,
         /,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> T:
-        return self.lfi(id, func, *args, **kwargs).result()
-
-    def rfi(
-        self, id: str, func: str, args: tuple[Any, ...], *, target: str | None = None
+        *args: Any,  # noqa: ANN401
+        **kwargs: Any,  # noqa: ANN401
     ) -> Handle[Any]:
-        if target is None:
-            target = targets.poll(target="default")
-        return self._scheduler.rfi(id, func, args, target=target)
-
-    def rfc(
-        self, id: str, func: str, args: tuple[Any, ...], *, target: str | None = None
-    ) -> Any:  # noqa: ANN401
-        return self.rfi(id, func, args, target=target).result()
+        return self._scheduler.rfi(id, func, *args, **kwargs)
