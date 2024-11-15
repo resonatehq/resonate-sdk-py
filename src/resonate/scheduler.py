@@ -12,9 +12,8 @@ from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
 from resonate.context import Context
-from resonate.dataclasses import FnOrCoroutine, ResonateCoro
+from resonate.dataclasses import FnOrCoroutine
 from resonate.encoders import JsonEncoder
-from resonate.events import ExecutionInvoked
 from resonate.options import LOptions
 from resonate.processor import FnCQE, FnSQE, Processor
 from resonate.queue import Queue
@@ -22,9 +21,9 @@ from resonate.record import Record
 from resonate.stores.local import LocalStore
 from resonate.stores.record import Invoke, Resume, TaskRecord
 from resonate.stores.remote import RemoteStore
-from resonate.time import now
 
 if TYPE_CHECKING:
+    from resonate.dataclasses import ResonateCoro
     from resonate.dependencies import Dependencies
     from resonate.record import Handle
     from resonate.result import Result
@@ -117,25 +116,8 @@ class Scheduler:
         while self._worker_continue.wait():
             self._worker_continue.clear()
 
-            for top_lvl in self._stg_queue.dequeue_all():
-                assert not top_lvl.done(), "Newly created top level cannot be done."
-                assert (
-                    top_lvl.durable_promise is not None
-                ), "Newly created top level must be back by a durable promise"
-                assert top_lvl.func is not None
-                if top_lvl.func.is_generator():
-                    resonate_coro = top_lvl.resonate_coro(self._ctx)
-                    self._runnable.appendleft((resonate_coro, None, False))
-                    self._adapter.process_event(
-                        ExecutionInvoked(
-                            id=top_lvl.id,
-                            parent_id=top_lvl.parent_id,
-                            tick=now(),
-                            fn_name=top_lvl.func.exec_unit.__name__,
-                            args=top_lvl.func.args,
-                            kwargs=top_lvl.func.kwargs,
-                        )
-                    )
+            for _top_lvl in self._stg_queue.dequeue_all():
+                raise NotImplementedError
 
             for task in self._task_queue.dequeue_all():
                 assert isinstance(
@@ -216,8 +198,9 @@ class Scheduler:
             id=id,
             durable_promise=durable_promise,
             task=task,
-            func=None,
             parent_id=None,
+            ctx=self._ctx,
+            fn_or_coro=None,
         )
         self._records[id] = record
         self._awaiting_remotely[record] = []
@@ -279,8 +262,9 @@ class Scheduler:
             id=id,
             durable_promise=durable_promise,
             task=task,
-            func=FnOrCoroutine[Any](func, *args, **kwargs),
             parent_id=None,
+            ctx=self._ctx,
+            fn_or_coro=FnOrCoroutine[Any](func, *args, **kwargs),
         )
         self._records[id] = record
         self._stg_queue.put_nowait(record)
