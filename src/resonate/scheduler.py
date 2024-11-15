@@ -23,7 +23,6 @@ from resonate.stores.record import Invoke, Resume, TaskRecord
 from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
-    from resonate.dataclasses import ResonateCoro
     from resonate.dependencies import Dependencies
     from resonate.record import Handle
     from resonate.result import Result
@@ -69,7 +68,7 @@ class Scheduler:
         self._distribution_tag = distribution_tag
 
         self._runnable: deque[
-            tuple[ResonateCoro[Any], Result[Any, Exception] | None, bool]
+            tuple[Record[Any], Result[Any, Exception] | None, bool]
         ] = deque()
         self._awaiting_locally: dict[Record[Any], list[Record[Any]]] = {}
         self._awaiting_remotely: dict[Record[Any], list[Record[Any]]] = {}
