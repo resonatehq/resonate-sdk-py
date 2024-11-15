@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING, Any, Callable, TypeVar, final, overload
 from typing_extensions import Concatenate, ParamSpec
 
 from resonate.actions import (
+    DI,
     LFC,
     LFI,
     RFC,
     RFI,
-    DeferredInvocation,
 )
 from resonate.commands import Command, CreateDurablePromiseReq
-from resonate.dataclasses import FnOrCoroutine
+from resonate.dataclasses import Invocation
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Generator
@@ -70,7 +70,7 @@ class Context:
         **kwargs: P.kwargs,
     ) -> RFC:
         unit: (
-            FnOrCoroutine[Any]
+            Invocation[Any]
             | tuple[str, tuple[Any, ...], dict[str, Any]]
             | CreateDurablePromiseReq
         )
@@ -79,7 +79,7 @@ class Context:
         elif isinstance(func_or_cmd, CreateDurablePromiseReq):
             unit = func_or_cmd
         else:
-            unit = FnOrCoroutine[Any](func_or_cmd, *args, **kwargs)
+            unit = Invocation[Any](func_or_cmd, *args, **kwargs)
         return RFC(unit)
 
     @overload
@@ -181,11 +181,11 @@ class Context:
         LFC and await for the result of the execution. It's syntax
         sugar for `yield (yield ctx.lfi(...))`
         """
-        unit: Command | FnOrCoroutine[Any]
+        unit: Command | Invocation[Any]
         if isinstance(func_or_cmd, Command):
             unit = func_or_cmd
         else:
-            unit = FnOrCoroutine[Any](func_or_cmd, *args, **kwargs)
+            unit = Invocation[Any](func_or_cmd, *args, **kwargs)
         return LFC(unit)
 
     @overload
@@ -196,7 +196,7 @@ class Context:
         /,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> DeferredInvocation: ...
+    ) -> DI: ...
     @overload
     def deferred(
         self,
@@ -205,7 +205,7 @@ class Context:
         /,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> DeferredInvocation: ...
+    ) -> DI: ...
     def deferred(
         self,
         id: str,
@@ -213,11 +213,11 @@ class Context:
         /,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> DeferredInvocation:
+    ) -> DI:
         """
         Deferred invocation.
 
         Invoke as a root invocation. Is equivalent to do `Scheduler.run(...)`
         invoked execution will be retried and managed from the server.
         """
-        return DeferredInvocation(id=id, coro=FnOrCoroutine(coro, *args, **kwargs))
+        return DI(id=id, coro=Invocation(coro, *args, **kwargs))

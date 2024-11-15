@@ -8,6 +8,9 @@ from typing_extensions import TypeAlias, assert_never
 from resonate.result import Err, Ok, Result
 
 if TYPE_CHECKING:
+    from resonate.context import Context
+    from resonate.dataclasses import Invocation
+    from resonate.options import Options
     from resonate.stores.record import DurablePromiseRecord, TaskRecord
 
 T = TypeVar("T")
@@ -33,12 +36,15 @@ class Handle(Generic[T]):
 
 @final
 class Record(Generic[T]):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         id: str,
         parent_id: str | None,
         durable_promise: DurablePromiseRecord | None,
         task: TaskRecord | None,
+        invocation: Invocation[T] | None,
+        opts: Options | None,
+        ctx: Context,
     ) -> None:
         self.id = id
         self.parent_id = parent_id
@@ -48,6 +54,9 @@ class Record(Generic[T]):
         self.handle = Handle[T](id=self.id, future=self.f)
         self.durable_promise = durable_promise
         self.task = task
+        self.invocation = invocation
+        self.opts = opts
+        self.ctx = ctx
 
     def set_result(self, result: Result[Any, Exception]) -> None:
         assert all(

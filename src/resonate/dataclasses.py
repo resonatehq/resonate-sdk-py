@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from inspect import isgenerator
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from typing_extensions import ParamSpec, assert_never
 
@@ -17,6 +17,12 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 
+@final
+@dataclass(frozen=True)
+class FinalValue(Generic[T]):
+    v: Result[T, Exception]
+
+
 class ResonateCoro(Generic[T]):
     def __init__(self, record: Record[T], coro: Generator[Yieldable, Any, T]) -> None:
         self.id = id
@@ -30,11 +36,30 @@ class ResonateCoro(Generic[T]):
     def _pending_children(self) -> list[Record[Any]]:
         return self._record.children[self._next_child_to_yield :]
 
-    def next(self) -> Yieldable:
-        assert self._coro_active
-        return next(self._coro)
+    def advance(
+        self, next_value: Result[Any, Exception] | None
+    ) -> Yieldable | FinalValue[T]:
+        yielded: Yieldable
+        try:
+            if next_value is None:
+                # `None` means to initialize the coroutine
+                assert self._coro_active
+                yielded = next(self._coro)
+            elif isinstance(next_value, Ok):
+                # `Ok[T]` means send a value
+                yielded = self._send(next_value.unwrap())
+            elif isinstance(next_value, Err):
+                # `Err[Exception]` means throw and Exception
+                yielded = self._throw(next_value.err())
+            else:
+                assert_never(next_value)
+        except StopIteration as e:
+            return FinalValue(Ok(e.value))
+        except Exception as e:  # noqa: BLE001
+            return FinalValue(Err(e))
+        return yielded
 
-    def send(self, v: T) -> Yieldable:
+    def _send(self, v: T) -> Yieldable:
         if self._coro_active:
             try:
                 return self._coro.send(v)
@@ -54,7 +79,7 @@ class ResonateCoro(Generic[T]):
         assert isinstance(self._final_value, Ok)
         raise StopIteration(self._final_value.unwrap())
 
-    def throw(self, error: Exception) -> Yieldable:
+    def _throw(self, error: Exception) -> Yieldable:
         if self._coro_active:
             try:
                 return self._coro.throw(error)
@@ -85,17 +110,14 @@ class ResonateCoro(Generic[T]):
         assert_never(self._final_value)
 
 
-class FnOrCoroutine(Generic[T]):
+class Invocation(Generic[T]):
     def __init__(
         self,
-        exec_unit: DurableCoro[P, T] | DurableFn[P, T],
+        unit: DurableCoro[P, T] | DurableFn[P, T] | str,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
-        self.exec_unit = exec_unit
+        self.unit = unit
         self.args = args
         self.kwargs = kwargs
-
-    def is_generator(self) -> bool:
-        return isgenerator(self.exec_unit)

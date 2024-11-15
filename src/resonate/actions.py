@@ -9,8 +9,7 @@ from resonate.commands import Command, CreateDurablePromiseReq
 from resonate.options import Options
 
 if TYPE_CHECKING:
-    from resonate.dataclasses import FnOrCoroutine
-    from resonate.retry_policy import RetryPolicy
+    from resonate.dataclasses import Invocation
 
 
 T = TypeVar("T")
@@ -20,17 +19,17 @@ T = TypeVar("T")
 @dataclass
 class RFI:
     exec_unit: (
-        FnOrCoroutine[Any]
+        Invocation[Any]
         | tuple[str, tuple[Any, ...], dict[str, Any]]
         | CreateDurablePromiseReq
     )
     opts: Options = field(default=Options())
 
-    def options(self, id: str | None = None, target: str | None = None) -> Self:
+    def options(self, id: str | None = None) -> Self:
         assert not isinstance(
             self.exec_unit, CreateDurablePromiseReq
         ), "Options must be set on the cmd."
-        self.opts = Options(id=id, target=target)
+        self.opts = Options(id=id)
         return self
 
 
@@ -38,17 +37,17 @@ class RFI:
 @dataclass
 class RFC:
     exec_unit: (
-        FnOrCoroutine[Any]
+        Invocation[Any]
         | tuple[str, tuple[Any, ...], dict[str, Any]]
         | CreateDurablePromiseReq
     )
     opts: Options = field(default=Options())
 
-    def options(self, id: str | None = None, target: str | None = None) -> Self:
+    def options(self, id: str | None = None) -> Self:
         assert not isinstance(
             self.exec_unit, CreateDurablePromiseReq
         ), "Options must be set on the cmd."
-        self.opts = Options(id=id, target=target)
+        self.opts = Options(id=id)
         return self
 
     def to_invocation(self) -> RFI:
@@ -58,21 +57,16 @@ class RFC:
 @final
 @dataclass
 class LFC:
-    exec_unit: FnOrCoroutine[Any] | Command
+    exec_unit: Invocation[Any] | Command
     opts: Options = field(default=Options())
 
     def options(
         self,
-        id: str | None = None,
-        retry_policy: RetryPolicy | None = None,
         *,
+        id: str | None = None,
         durable: bool = True,
     ) -> Self:
-        if retry_policy is not None:
-            assert not isinstance(
-                self.exec_unit, Command
-            ), "Retry policies on batching are set when registering command handlers."
-        self.opts = Options(durable=durable, id=id, retry_policy=retry_policy)
+        self.opts = Options(durable=durable, id=id)
         return self
 
     def to_invocation(self) -> LFI:
@@ -81,37 +75,32 @@ class LFC:
 
 @final
 @dataclass
-class DeferredInvocation:
+class DI:
     """
     Dataclass that contains all required information to do a
     deferred invocation.
     """
 
     id: str
-    coro: FnOrCoroutine[Any]
+    coro: Invocation[Any]
     opts: Options = field(default=Options())
 
-    def options(self, *, retry_policy: RetryPolicy | None = None) -> Self:
-        self.opts = Options(durable=True, id=self.id, retry_policy=retry_policy)
+    def options(self) -> Self:
+        self.opts = Options(durable=True, id=self.id)
         return self
 
 
 @final
 @dataclass
 class LFI:
-    exec_unit: FnOrCoroutine[Any] | Command
+    exec_unit: Invocation[Any] | Command
     opts: Options = field(default=Options())
 
     def options(
         self,
-        id: str | None = None,
-        retry_policy: RetryPolicy | None = None,
         *,
+        id: str | None = None,
         durable: bool = True,
     ) -> Self:
-        if retry_policy is not None:
-            assert not isinstance(
-                self.exec_unit, Command
-            ), "Retry policies on batching are set when registering command handlers."
-        self.opts = Options(durable=durable, id=id, retry_policy=retry_policy)
+        self.opts = Options(durable=durable, id=id)
         return self

@@ -43,9 +43,10 @@ class Resonate:
             scheduler
             if scheduler is not None
             else Scheduler(
-                self._deps,
-                self.pid,
-                store if store is not None else LocalStore(MemoryStorage()),
+                fn_registry=self._fn_registry,
+                deps=self._deps,
+                pid=self.pid,
+                store=store if store is not None else LocalStore(MemoryStorage()),
             )
         )
 
