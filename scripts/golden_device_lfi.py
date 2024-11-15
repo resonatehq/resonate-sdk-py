@@ -12,7 +12,7 @@ logging.basicConfig(level="DEBUG")
 resonate = Resonate(url="http://localhost:8001", polling_url="http://localhost:8002")
 
 
-def foo(ctx: Context, n: str) -> str:
+def foo(ctx: Context, n: str) -> str:  # noqa: ARG001
     return n
 
 
