@@ -20,7 +20,7 @@ T = TypeVar("T")
 @dataclass
 class RFI:
     exec_unit: (
-        FnOrCoroutine
+        FnOrCoroutine[Any]
         | tuple[str, tuple[Any, ...], dict[str, Any]]
         | CreateDurablePromiseReq
     )
@@ -38,7 +38,7 @@ class RFI:
 @dataclass
 class RFC:
     exec_unit: (
-        FnOrCoroutine
+        FnOrCoroutine[Any]
         | tuple[str, tuple[Any, ...], dict[str, Any]]
         | CreateDurablePromiseReq
     )
@@ -58,7 +58,7 @@ class RFC:
 @final
 @dataclass
 class LFC:
-    exec_unit: FnOrCoroutine | Command
+    exec_unit: FnOrCoroutine[Any] | Command
     opts: LOptions = field(default=LOptions())
 
     def options(
@@ -88,7 +88,7 @@ class DeferredInvocation:
     """
 
     id: str
-    coro: FnOrCoroutine
+    coro: FnOrCoroutine[Any]
     opts: LOptions = field(default=LOptions())
 
     def options(self, *, retry_policy: RetryPolicy | None = None) -> Self:
@@ -99,7 +99,7 @@ class DeferredInvocation:
 @final
 @dataclass
 class LFI:
-    exec_unit: FnOrCoroutine | Command
+    exec_unit: FnOrCoroutine[Any] | Command
     opts: LOptions = field(default=LOptions())
 
     def options(

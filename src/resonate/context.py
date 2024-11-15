@@ -70,7 +70,7 @@ class Context:
         **kwargs: P.kwargs,
     ) -> RFC:
         unit: (
-            FnOrCoroutine
+            FnOrCoroutine[Any]
             | tuple[str, tuple[Any, ...], dict[str, Any]]
             | CreateDurablePromiseReq
         )
@@ -79,7 +79,7 @@ class Context:
         elif isinstance(func_or_cmd, CreateDurablePromiseReq):
             unit = func_or_cmd
         else:
-            unit = FnOrCoroutine(func_or_cmd, *args, **kwargs)
+            unit = FnOrCoroutine[Any](func_or_cmd, *args, **kwargs)
         return RFC(unit)
 
     @overload
@@ -181,11 +181,11 @@ class Context:
         LFC and await for the result of the execution. It's syntax
         sugar for `yield (yield ctx.lfi(...))`
         """
-        unit: Command | FnOrCoroutine
+        unit: Command | FnOrCoroutine[Any]
         if isinstance(func_or_cmd, Command):
             unit = func_or_cmd
         else:
-            unit = FnOrCoroutine(func_or_cmd, *args, **kwargs)
+            unit = FnOrCoroutine[Any](func_or_cmd, *args, **kwargs)
         return LFC(unit)
 
     @overload

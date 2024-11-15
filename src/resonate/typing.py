@@ -13,6 +13,7 @@ from resonate.actions import (
     DeferredInvocation,
 )
 from resonate.context import Context
+from resonate.record import Promise
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -20,7 +21,7 @@ P = ParamSpec("P")
 
 PromiseActions: TypeAlias = Union[LFI, RFI]
 
-Yieldable: TypeAlias = Union[LFC, PromiseActions, DeferredInvocation, RFC]
+Yieldable: TypeAlias = Union[LFC, PromiseActions, DeferredInvocation, RFC, Promise[Any]]
 
 DurableCoro: TypeAlias = Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]]
 DurableSyncFn: TypeAlias = Callable[Concatenate[Context, P], T]

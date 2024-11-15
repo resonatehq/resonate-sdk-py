@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import requests
 
 from resonate.encoders import JsonEncoder
+from resonate.stores.record import TaskRecord
 
 if TYPE_CHECKING:
     from resonate.scheduler import Scheduler
@@ -34,9 +35,9 @@ class Poller:
                         continue
                     stripped: str = line.strip()
                     assert stripped.startswith("data:")
-                    json.loads(stripped[5:])
-                    # self._scheduler.enqueue_task_record(
-                    #     TaskRecord.decode(info["task"], encoder=self._encoder)
-                    # )
+                    info = json.loads(stripped[5:])
+                    self._scheduler.enqueue_task_record(
+                        TaskRecord.decode(info["task"], encoder=self._encoder)
+                    )
         except requests.exceptions.ConnectionError:
             time.sleep(2)

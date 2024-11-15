@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, TypeVar, overload
 from typing_extensions import Concatenate, ParamSpec
 
 from resonate import targets
+from resonate.dependencies import Dependencies
 from resonate.scheduler import Scheduler
 from resonate.shells.poller import Poller
 from resonate.stores.local import IStorage, LocalStore, MemoryStorage
@@ -26,13 +27,15 @@ T = TypeVar("T")
 
 
 class Resonate:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         url: str | None = None,
         polling_url: str | None = None,
         storage: IStorage | None = None,
         adapter: IAdapter | None = None,
         group: str = "default",
+        max_workers: int | None = None,
+        distribution_tag: str = "resonate:invoke",
     ) -> None:
         pid = uuid.uuid4().hex
         store: RemoteStore | LocalStore
@@ -47,10 +50,22 @@ class Resonate:
             store = LocalStore(storage)
 
         adapter = adapter if adapter is not None else StdOutAdapter()
-        self._scheduler = Scheduler(pid=pid, store=store, adapter=adapter, group=group)
+        self.deps = Dependencies()
+        self._scheduler = Scheduler(
+            pid=pid,
+            store=store,
+            adapter=adapter,
+            group=group,
+            deps=self.deps,
+            max_workers=max_workers,
+            distribution_tag=distribution_tag,
+        )
         if isinstance(store, RemoteStore):
             assert polling_url is not None
             self._poller = Poller(self._scheduler, url=f"{polling_url}/{group}/{pid}")
+
+    def set_dependency(self, key: str, obj: Any) -> None:  # noqa: ANN401
+        self.deps.set(key=key, obj=obj)
 
     @overload
     def register(
@@ -78,8 +93,14 @@ class Resonate:
         func: DurableCoro[P, T] | DurableFn[P, T],
         name: str | None = None,
         retry_policy: RetryPolicy | None = None,
+        tags: dict[str, str] | None = None,
     ) -> None:
-        return self._scheduler.register(func=func, name=name, retry_policy=retry_policy)
+        return self._scheduler.register(
+            func=func,
+            name=name,
+            retry_policy=retry_policy,
+            tags=tags,
+        )
 
     def lfi(
         self,
