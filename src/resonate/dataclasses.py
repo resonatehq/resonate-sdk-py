@@ -113,11 +113,11 @@ class ResonateCoro(Generic[T]):
 class Invocation(Generic[T]):
     def __init__(
         self,
-        unit: DurableCoro[P, T] | DurableFn[P, T] | str,
+        fn: DurableCoro[P, T] | DurableFn[P, T] | str,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
-        self.unit = unit
+        self.fn = fn
         self.args = args
         self.kwargs = kwargs

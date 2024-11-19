@@ -15,7 +15,6 @@ from resonate.actions import DI, LFC, LFI, RFC, RFI
 from resonate.context import Context
 from resonate.dataclasses import FinalValue, Invocation, ResonateCoro
 from resonate.encoders import JsonEncoder
-from resonate.logging import logger
 from resonate.options import Options
 from resonate.processor import SQE, Processor
 from resonate.queue import Queue
@@ -245,7 +244,6 @@ class Scheduler(IScheduler):
         elif isinstance(yielded_value, LFI):
             self._process_lfi(record, yielded_value)
         elif isinstance(yielded_value, LFC):
-            # create child record, start execution. Add current record to awaiting local  # noqa: E501
             self._process_lfc(record, yielded_value)
         elif isinstance(yielded_value, RFI):
             # create child record, with distribution tag. Add current record to runnables again  # noqa: E501
@@ -275,9 +273,7 @@ class Scheduler(IScheduler):
     def _unblock_awaiting_locally(self, id: str) -> None:
         record = self._records[id]
         assert record.done()
-        blocked = self._awaiting_lfi.pop(record.id, [])
-        logger.debug("Unblocking %s coros. Which were blocked by %s", len(blocked), id)
-        for blocked_id in blocked:
+        for blocked_id in self._awaiting_lfi.pop(record.id, []):
             assert blocked_id in self._records
             self._to_runnables(blocked_id, next_value=record.safe_result())
 
@@ -285,7 +281,6 @@ class Scheduler(IScheduler):
         self._runnable.appendleft((id, next_value))
 
     def _to_awaiting_locally(self, id: str, blocked: list[str]) -> None:
-        logger.debug("Coro %s will be blocking %s coros", id, len(blocked))
         self._awaiting_lfi.setdefault(id, []).extend(blocked)
 
     def _ingest(self, id: str) -> None:
@@ -293,7 +288,7 @@ class Scheduler(IScheduler):
         assert not record.done()
         assert isinstance(record.invocation.unit, Invocation)
         fn, args, kwargs = (
-            record.invocation.unit.unit,
+            record.invocation.unit.fn,
             record.invocation.unit.args,
             record.invocation.unit.kwargs,
         )
