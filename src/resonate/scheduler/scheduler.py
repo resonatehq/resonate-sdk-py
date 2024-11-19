@@ -404,7 +404,7 @@ class Scheduler(IScheduler):
                 if durable_promise.is_completed():
                     value = durable_promise.get_value(self._encoder)
                     child_record.set_result(value)
-                    self._unblock_awaiting_locally(child_record.id)
+                    self._to_runnables(record.id, child_record.safe_result())
                 else:
                     self._ingest(child_id)
                     self._to_awaiting_locally(id=child_id, blocked=[record.id])
@@ -449,10 +449,9 @@ class Scheduler(IScheduler):
                 if durable_promise.is_completed():
                     value = durable_promise.get_value(self._encoder)
                     child_record.set_result(value)
-                    self._unblock_awaiting_locally(child_record.id)
                 else:
                     self._ingest(child_id)
-                    self._to_runnables(record.id, Ok(child_record.promise))
+                self._to_runnables(record.id, Ok(child_record.promise))
 
             self._processor.enqueue(
                 SQE[DurablePromiseRecord](
