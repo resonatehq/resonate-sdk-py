@@ -214,4 +214,4 @@ class Context:
         Invoke as a root invocation. Is equivalent to do `Scheduler.run(...)`
         invoked execution will be retried and managed from the server.
         """
-        return DI(id=id, coro=Invocation(coro, *args, **kwargs))
+        return DI(id=id, unit=Invocation(coro, *args, **kwargs))

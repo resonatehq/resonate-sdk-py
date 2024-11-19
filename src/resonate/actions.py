@@ -74,7 +74,7 @@ class DI:
     """
 
     id: str
-    coro: Invocation[Any]
+    unit: Invocation[Any]
     opts: Options = field(default=Options())
 
     def options(self) -> Self:

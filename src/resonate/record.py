@@ -6,11 +6,12 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, final
 from typing_extensions import TypeAlias, assert_never
 
 from resonate.result import Err, Ok, Result
+from resonate.stores.record import DurablePromiseRecord, TaskRecord
 
 if TYPE_CHECKING:
+    from resonate.actions import LFI, RFI
     from resonate.context import Context
-    from resonate.dataclasses import Invocation, ResonateCoro
-    from resonate.options import Options
+    from resonate.dataclasses import ResonateCoro
     from resonate.stores.record import DurablePromiseRecord, TaskRecord
 
 T = TypeVar("T")
@@ -36,14 +37,11 @@ class Handle(Generic[T]):
 
 @final
 class Record(Generic[T]):
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         id: str,
         parent: Record[Any] | None,
-        durable_promise: DurablePromiseRecord | None,
-        task: TaskRecord | None,
-        invocation: Invocation[T] | None,
-        opts: Options | None,
+        invocation: LFI | RFI,
         ctx: Context,
     ) -> None:
         self.id = id
@@ -52,10 +50,9 @@ class Record(Generic[T]):
         self.children: list[Record[Any]] = []
         self.promise = Promise[T](id=id)
         self.handle = Handle[T](id=self.id, future=self.f)
-        self.durable_promise = durable_promise
-        self.task = task
+        self.durable_promise: DurablePromiseRecord | None = None
+        self.task: TaskRecord | None = None
         self.invocation = invocation
-        self.opts = opts
         self.ctx = ctx
         self.coro: ResonateCoro[T] | None = None
         self._num_children: int = 0
@@ -63,6 +60,14 @@ class Record(Generic[T]):
     def add_coro(self, coro: ResonateCoro[T]) -> None:
         assert self.coro is None
         self.coro = coro
+
+    def add_durable_promise(self, durable_promise: DurablePromiseRecord) -> None:
+        assert self.durable_promise is None
+        self.durable_promise = durable_promise
+
+    def add_task(self, task: TaskRecord) -> None:
+        assert self.task is None
+        self.task = task
 
     def clear_coro(self) -> None:
         assert self.coro is not None
@@ -92,22 +97,16 @@ class Record(Generic[T]):
     def next_child_name(self) -> str:
         return f"{self.id}.{self._num_children+1}"
 
-    def create_child(  # noqa: PLR0913
+    def create_child(
         self,
         id: str,
-        durable_promise: DurablePromiseRecord | None,
-        task: TaskRecord | None,
-        invocation: Invocation[Any] | None,
-        opts: Options | None,
+        invocation: LFI | RFI,
         ctx: Context,
     ) -> Record[Any]:
         child_record = Record[Any](
             id=id,
             parent=self,
-            durable_promise=durable_promise,
-            task=task,
             invocation=invocation,
-            opts=opts,
             ctx=ctx,
         )
         self.children.append(child_record)

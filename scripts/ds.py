@@ -1,36 +1,15 @@
 from __future__ import annotations
 
-import random
-from functools import partial
+
+def fib(n: int) -> int:
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
 
 
-def bar():
-    return random.randint(1, 10)
-
-
-def foo(n: int):
-    if n == 1:
-        yield partial(bar)
-        return None
-    return None
-
-
-def main(n: int) -> None:
-    coro = foo(n)
-    final_value = None
-    try:
-        v = next(coro)
-        try:
-            while True:
-                coro.send(v())
-        except StopIteration as e:
-            final_value = e.value
-    except StopIteration as e:
-        final_value = e.value
-
-    assert final_value is None
+def main() -> None:
+    print(fib(20))  # noqa: T201
 
 
 if __name__ == "__main__":
-    for _ in range(10000):
-        main(random.randint(0, 1000))
+    main()
