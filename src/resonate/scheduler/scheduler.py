@@ -22,6 +22,7 @@ from resonate.record import Promise, Record
 from resonate.result import Err, Ok
 from resonate.scheduler.traits import IScheduler
 from resonate.stores.record import DurablePromiseRecord, TaskRecord
+from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
     from resonate.collections import FunctionRegistry
@@ -31,7 +32,6 @@ if TYPE_CHECKING:
     from resonate.result import Result
     from resonate.stores.local import LocalStore
     from resonate.stores.record import TaskRecord
-    from resonate.stores.remote import RemoteStore
     from resonate.typing import DurableCoro, DurableFn
 
 T = TypeVar("T")
@@ -226,22 +226,20 @@ class Scheduler(IScheduler):
             # coroutine to collect server commands.
             while self._runnable:
                 id, next_value = self._runnable.pop()
-                record = self._records[id]
-                self._process(record, next_value)
+                self._process(id, next_value)
 
             # send server commands to the processor
 
     def _process(
         self,
-        record: Record[Any],
+        id: str,
         next_value: Result[Any, Exception] | None,
     ) -> None:
+        record = self._records[id]
         assert record.coro
         yielded_value = record.coro.advance(next_value)
 
-        if isinstance(yielded_value, FinalValue):
-            self._process_final_value(record, yielded_value.v)
-        elif isinstance(yielded_value, LFI):
+        if isinstance(yielded_value, LFI):
             self._process_lfi(record, yielded_value)
         elif isinstance(yielded_value, LFC):
             self._process_lfc(record, yielded_value)
@@ -253,6 +251,8 @@ class Scheduler(IScheduler):
             raise NotImplementedError
         elif isinstance(yielded_value, Promise):
             self._process_promise(record, yielded_value)
+        elif isinstance(yielded_value, FinalValue):
+            self._process_final_value(record, yielded_value.v)
         elif isinstance(yielded_value, DI):
             # start execution from the top. Add current record to runnable
             raise NotImplementedError
@@ -265,22 +265,23 @@ class Scheduler(IScheduler):
     def _process_promise(self, record: Record[Any], promise: Promise[Any]) -> None:
         promise_record = self._records[promise.id]
         if promise_record.done():
-            self._unblock_awaiting_locally(promise_record.id)
-            self._to_runnables(record.id, promise_record.safe_result())
+            self._add_to_runnable(record.id, promise_record.safe_result())
         else:
-            self._to_awaiting_locally(promise_record.id, [record.id])
+            self._add_to_awaiting_local(promise_record.id, [record.id])
 
     def _unblock_awaiting_locally(self, id: str) -> None:
         record = self._records[id]
         assert record.done()
         for blocked_id in self._awaiting_lfi.pop(record.id, []):
             assert blocked_id in self._records
-            self._to_runnables(blocked_id, next_value=record.safe_result())
+            self._add_to_runnable(blocked_id, next_value=record.safe_result())
 
-    def _to_runnables(self, id: str, next_value: Result[Any, Exception] | None) -> None:
+    def _add_to_runnable(
+        self, id: str, next_value: Result[Any, Exception] | None
+    ) -> None:
         self._runnable.appendleft((id, next_value))
 
-    def _to_awaiting_locally(self, id: str, blocked: list[str]) -> None:
+    def _add_to_awaiting_local(self, id: str, blocked: list[str]) -> None:
         self._awaiting_lfi.setdefault(id, []).extend(blocked)
 
     def _ingest(self, id: str) -> None:
@@ -303,7 +304,7 @@ class Scheduler(IScheduler):
                     ),
                 )
             )
-            self._to_runnables(record.id, None)
+            self._add_to_runnable(record.id, None)
             return
 
         def continuation(result: Result[Any, Exception]) -> None:
@@ -313,7 +314,25 @@ class Scheduler(IScheduler):
                 assert record.durable_promise is not None
                 result = durable_promise.get_value(self._encoder)
                 record.set_result(result)
-                self._unblock_awaiting_locally(record.id)
+                if record.task is not None:
+
+                    def continuation(result: Result[None, Exception]) -> None:
+                        assert isinstance(result, Ok)
+                        self._unblock_awaiting_locally(record.id)
+
+                    assert isinstance(self._store, RemoteStore)
+                    self._processor.enqueue(
+                        SQE[None](
+                            partial(
+                                self._store.tasks.complete,
+                                task_id=record.task.task_id,
+                                counter=record.task.counter,
+                            ),
+                            continuation,
+                        )
+                    )
+                else:
+                    self._unblock_awaiting_locally(record.id)
 
             if record.invocation.opts.durable:
                 if isinstance(result, Ok):
@@ -384,93 +403,94 @@ class Scheduler(IScheduler):
         child_record = self._records.get(child_id)
         if child_record is not None:
             if child_record.done():
-                self._to_runnables(record.id, child_record.safe_result())
+                self._add_to_runnable(record.id, child_record.safe_result())
             else:
-                self._to_awaiting_locally(id=child_id, blocked=[record.id])
-            return
-        child_record = record.create_child(
-            id=child_id, invocation=lfc.to_invocation(), ctx=record.ctx
-        )
-        self._records[child_id] = child_record
-
-        if lfc.opts.durable:
-
-            def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
-                assert child_id in self._records
-                assert not record.done()
-                assert isinstance(resp, Ok)
-                durable_promise = resp.unwrap()
-                child_record.add_durable_promise(durable_promise)
-                if durable_promise.is_completed():
-                    value = durable_promise.get_value(self._encoder)
-                    child_record.set_result(value)
-                    self._to_runnables(record.id, child_record.safe_result())
-                else:
-                    self._ingest(child_id)
-                    self._to_awaiting_locally(id=child_id, blocked=[record.id])
-
-            self._processor.enqueue(
-                SQE[DurablePromiseRecord](
-                    partial(
-                        self._store.promises.create,
-                        id=child_id,
-                        ikey=utils.string_to_ikey(child_id),
-                        strict=False,
-                        headers=None,
-                        data=None,
-                        timeout=sys.maxsize,
-                        tags=None,
-                    ),
-                    continuation,
-                )
-            )
+                self._add_to_awaiting_local(id=child_id, blocked=[record.id])
         else:
-            self._ingest(child_id)
-            self._to_awaiting_locally(id=child_id, blocked=[record.id])
+            child_record = record.create_child(
+                id=child_id, invocation=lfc.to_lfi(), ctx=record.ctx
+            )
+            self._records[child_id] = child_record
+
+            if lfc.opts.durable:
+
+                def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
+                    assert child_id in self._records
+                    assert not record.done()
+                    assert isinstance(resp, Ok)
+                    durable_promise = resp.unwrap()
+                    child_record.add_durable_promise(durable_promise)
+                    if durable_promise.is_completed():
+                        value = durable_promise.get_value(self._encoder)
+                        child_record.set_result(value)
+                        self._add_to_runnable(record.id, child_record.safe_result())
+                    else:
+                        self._ingest(child_id)
+                        self._add_to_awaiting_local(id=child_id, blocked=[record.id])
+
+                self._processor.enqueue(
+                    SQE[DurablePromiseRecord](
+                        partial(
+                            self._store.promises.create,
+                            id=child_id,
+                            ikey=utils.string_to_ikey(child_id),
+                            strict=False,
+                            headers=None,
+                            data=None,
+                            timeout=sys.maxsize,
+                            tags=None,
+                        ),
+                        continuation,
+                    )
+                )
+            else:
+                self._ingest(child_id)
+                self._add_to_awaiting_local(id=child_id, blocked=[record.id])
 
     def _process_lfi(self, record: Record[Any], lfi: LFI) -> None:
         child_id = lfi.opts.id if lfi.opts.id is not None else record.next_child_name()
         child_record = self._records.get(child_id)
         if child_record is not None:
-            self._to_runnables(record.id, Ok(child_record.promise))
-            return
-
-        child_record = record.create_child(id=child_id, invocation=lfi, ctx=record.ctx)
-        self._records[child_id] = child_record
-
-        if lfi.opts.durable:
-
-            def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
-                assert child_id in self._records
-                assert not record.done()
-                durable_promise = resp.unwrap()
-                child_record.add_durable_promise(durable_promise)
-
-                if durable_promise.is_completed():
-                    value = durable_promise.get_value(self._encoder)
-                    child_record.set_result(value)
-                else:
-                    self._ingest(child_id)
-                self._to_runnables(record.id, Ok(child_record.promise))
-
-            self._processor.enqueue(
-                SQE[DurablePromiseRecord](
-                    partial(
-                        self._store.promises.create,
-                        id=child_id,
-                        ikey=utils.string_to_ikey(child_id),
-                        strict=False,
-                        headers=None,
-                        data=None,
-                        timeout=sys.maxsize,
-                        tags=None,
-                    ),
-                    continuation,
-                )
-            )
+            self._add_to_runnable(record.id, Ok(child_record.promise))
         else:
-            self._ingest(child_id)
-            self._to_runnables(record.id, Ok(child_record.promise))
+            child_record = record.create_child(
+                id=child_id, invocation=lfi, ctx=record.ctx
+            )
+            self._records[child_id] = child_record
+
+            if lfi.opts.durable:
+
+                def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
+                    assert child_id in self._records
+                    assert not record.done()
+                    durable_promise = resp.unwrap()
+                    child_record.add_durable_promise(durable_promise)
+
+                    if durable_promise.is_completed():
+                        value = durable_promise.get_value(self._encoder)
+                        child_record.set_result(value)
+                    else:
+                        self._ingest(child_id)
+                    self._add_to_runnable(record.id, Ok(child_record.promise))
+
+                self._processor.enqueue(
+                    SQE[DurablePromiseRecord](
+                        partial(
+                            self._store.promises.create,
+                            id=child_id,
+                            ikey=utils.string_to_ikey(child_id),
+                            strict=False,
+                            headers=None,
+                            data=None,
+                            timeout=sys.maxsize,
+                            tags=None,
+                        ),
+                        continuation,
+                    )
+                )
+            else:
+                self._ingest(child_id)
+                self._add_to_runnable(record.id, Ok(child_record.promise))
 
     def _process_final_value(
         self, record: Record[Any], final_value: Result[Any, Exception]
@@ -484,7 +504,25 @@ class Scheduler(IScheduler):
                 value = durable_promise.get_value(self._encoder)
                 assert not record.done()
                 record.set_result(value)
-                self._unblock_awaiting_locally(record.id)
+                if record.task is not None:
+
+                    def continuation(result: Result[None, Exception]) -> None:
+                        assert isinstance(result, Ok)
+                        self._unblock_awaiting_locally(record.id)
+
+                    assert isinstance(self._store, RemoteStore)
+                    self._processor.enqueue(
+                        SQE[None](
+                            partial(
+                                self._store.tasks.complete,
+                                task_id=record.task.task_id,
+                                counter=record.task.counter,
+                            ),
+                            continuation,
+                        )
+                    )
+                else:
+                    self._unblock_awaiting_locally(record.id)
 
             if isinstance(final_value, Ok):
                 self._processor.enqueue(

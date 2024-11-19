@@ -142,7 +142,7 @@ class Context:
         The `Promise` can be yielded later in the execution to await
         for the result.
         """
-        return self.lfc(func_or_cmd, *args, **kwargs).to_invocation()
+        return self.lfc(func_or_cmd, *args, **kwargs).to_lfi()
 
     @overload
     def lfc(self, func: Command, /) -> LFC: ...

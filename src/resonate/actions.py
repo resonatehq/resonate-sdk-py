@@ -61,7 +61,7 @@ class LFC:
         self.opts = Options(durable=durable, id=id)
         return self
 
-    def to_invocation(self) -> LFI:
+    def to_lfi(self) -> LFI:
         return LFI(self.unit, opts=self.opts)
 
 
