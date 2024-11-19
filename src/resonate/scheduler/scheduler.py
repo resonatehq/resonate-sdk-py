@@ -241,14 +241,12 @@ class Scheduler(IScheduler):
         yielded_value = record.coro.advance(next_value)
 
         if isinstance(yielded_value, FinalValue):
-            # if is an error check in need to be retry. resolve otherwise
             self._process_final_value(record, yielded_value.v)
         elif isinstance(yielded_value, LFI):
-            # create child record, start execution. Add current record to runnables again  # noqa: E501
             self._process_lfi(record, yielded_value)
         elif isinstance(yielded_value, LFC):
             # create child record, start execution. Add current record to awaiting local  # noqa: E501
-            raise NotImplementedError
+            self._process_lfc(record, yielded_value)
         elif isinstance(yielded_value, RFI):
             # create child record, with distribution tag. Add current record to runnables again  # noqa: E501
             raise NotImplementedError
@@ -256,7 +254,6 @@ class Scheduler(IScheduler):
             # create child record, start execution. Add current record to awaiting remote  # noqa: E501
             raise NotImplementedError
         elif isinstance(yielded_value, Promise):
-            # Add current record to awaiting (local or remote).
             self._process_promise(record, yielded_value)
         elif isinstance(yielded_value, DI):
             # start execution from the top. Add current record to runnable
@@ -387,6 +384,53 @@ class Scheduler(IScheduler):
                 )
             )
 
+    def _process_lfc(self, record: Record[Any], lfc: LFC) -> None:
+        child_id = lfc.opts.id if lfc.opts.id is not None else record.next_child_name()
+        child_record = self._records.get(child_id)
+        if child_record is not None:
+            if child_record.done():
+                self._to_runnables(record.id, child_record.safe_result())
+            else:
+                self._to_awaiting_locally(id=child_id, blocked=[record.id])
+            return
+        child_record = record.create_child(
+            id=child_id, invocation=lfc.to_invocation(), ctx=record.ctx
+        )
+        self._records[child_id] = child_record
+
+        if lfc.opts.durable:
+
+            def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
+                assert isinstance(resp, Ok)
+                durable_promise = resp.unwrap()
+                child_record.add_durable_promise(durable_promise)
+                if durable_promise.is_completed():
+                    value = durable_promise.get_value(self._encoder)
+                    child_record.set_result(value)
+                    self._unblock_awaiting_locally(child_record.id)
+                else:
+                    self._ingest(child_id)
+                    self._to_awaiting_locally(id=child_id, blocked=[record.id])
+
+            self._processor.enqueue(
+                SQE[DurablePromiseRecord](
+                    partial(
+                        self._store.promises.create,
+                        id=child_id,
+                        ikey=utils.string_to_ikey(child_id),
+                        strict=False,
+                        headers=None,
+                        data=None,
+                        timeout=sys.maxsize,
+                        tags=None,
+                    ),
+                    continuation,
+                )
+            )
+        else:
+            self._ingest(child_id)
+            self._to_awaiting_locally(id=child_id, blocked=[record.id])
+
     def _process_lfi(self, record: Record[Any], lfi: LFI) -> None:
         child_id = lfi.opts.id if lfi.opts.id is not None else record.next_child_name()
         child_record = self._records.get(child_id)
@@ -411,7 +455,7 @@ class Scheduler(IScheduler):
                     self._unblock_awaiting_locally(child_record.id)
                 else:
                     self._ingest(child_id)
-                self._to_runnables(record.id, Ok(child_record.promise))
+                    self._to_runnables(record.id, Ok(child_record.promise))
 
             self._processor.enqueue(
                 SQE[DurablePromiseRecord](

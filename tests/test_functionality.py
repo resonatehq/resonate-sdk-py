@@ -97,3 +97,67 @@ def test_fibonacci_preorder_lfi() -> None:
     n = 10
     p: Handle[int] = resonate.lfi(exec_id(n), fib_lfi, n)
     assert p.result() == 55  # noqa: PLR2004
+
+
+def test_golden_device_lfc() -> None:
+    def foo_golden_device_lfc(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        v: str = yield ctx.lfc(bar_golden_device_lfi, n).options(
+            durable=random.choice([True, False])  # noqa: S311
+        )
+        assert isinstance(v, str)
+        return v
+
+    def bar_golden_device_lfi(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    resonate = Resonate()
+    resonate.register(foo_golden_device_lfc)
+    p: Handle[str] = resonate.lfi("test-golden-device-lfc", foo_golden_device_lfc, "hi")
+    assert isinstance(p, Handle)
+    assert p.result() == "hi"
+
+
+def test_factorial_lfc() -> None:
+    def exec_id(n: int) -> str:
+        return f"test-factorial-lfc-{n}"
+
+    def factorial_lfc(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 0:
+            return 1
+
+        return n * (
+            yield ctx.lfc(factorial_lfc, n - 1).options(
+                id=exec_id(n - 1),
+                durable=random.choice([True, False]),  # noqa: S311
+            )
+        )
+
+    resonate = Resonate()
+    resonate.register(factorial_lfc)
+    n = 10
+    p: Handle[int] = resonate.lfi(exec_id(n), factorial_lfc, n)
+    assert p.result() == 3_628_800  # noqa: PLR2004
+
+
+def test_fibonacci_preorder_lfc() -> None:
+    def exec_id(n: int) -> str:
+        return f"test-fib-lfc-{n}"
+
+    def fib_lfc(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+        n1 = yield ctx.lfc(fib_lfc, n - 1).options(
+            id=exec_id(n - 1),
+            durable=random.choice([True, False]),  # noqa: S311
+        )
+        n2 = yield ctx.lfc(fib_lfc, n - 2).options(
+            id=exec_id(n - 2),
+            durable=random.choice([True, False]),  # noqa: S311
+        )
+        return n1 + n2
+
+    resonate = Resonate()
+    resonate.register(fib_lfc)
+    n = 10
+    p: Handle[int] = resonate.lfi(exec_id(n), fib_lfc, n)
+    assert p.result() == 55  # noqa: PLR2004
