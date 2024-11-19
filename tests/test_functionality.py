@@ -68,9 +68,9 @@ def test_factorial_lfi() -> None:
 
     resonate = Resonate()
     resonate.register(factorial_lfi)
-    n = 10
+    n = 30
     p: Handle[int] = resonate.lfi(exec_id(n), factorial_lfi, n)
-    assert p.result() == 3_628_800  # noqa: PLR2004
+    assert p.result() == 265252859812191058636308480000000  # noqa: PLR2004
 
 
 def test_fibonacci_preorder_lfi() -> None:
@@ -94,9 +94,9 @@ def test_fibonacci_preorder_lfi() -> None:
 
     resonate = Resonate()
     resonate.register(fib_lfi)
-    n = 10
+    n = 30
     p: Handle[int] = resonate.lfi(exec_id(n), fib_lfi, n)
-    assert p.result() == 55  # noqa: PLR2004
+    assert p.result() == 832040  # noqa: PLR2004
 
 
 def test_golden_device_lfc() -> None:
@@ -134,9 +134,9 @@ def test_factorial_lfc() -> None:
 
     resonate = Resonate()
     resonate.register(factorial_lfc)
-    n = 10
+    n = 30
     p: Handle[int] = resonate.lfi(exec_id(n), factorial_lfc, n)
-    assert p.result() == 3_628_800  # noqa: PLR2004
+    assert p.result() == 265252859812191058636308480000000  # noqa: PLR2004
 
 
 def test_fibonacci_preorder_lfc() -> None:
@@ -158,6 +158,6 @@ def test_fibonacci_preorder_lfc() -> None:
 
     resonate = Resonate()
     resonate.register(fib_lfc)
-    n = 10
+    n = 30
     p: Handle[int] = resonate.lfi(exec_id(n), fib_lfc, n)
-    assert p.result() == 55  # noqa: PLR2004
+    assert p.result() == 832040  # noqa: PLR2004

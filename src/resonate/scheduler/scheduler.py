@@ -401,6 +401,8 @@ class Scheduler(IScheduler):
         if lfc.opts.durable:
 
             def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
+                assert child_id in self._records
+                assert not record.done()
                 assert isinstance(resp, Ok)
                 durable_promise = resp.unwrap()
                 child_record.add_durable_promise(durable_promise)
