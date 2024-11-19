@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, final
 
 from typing_extensions import Self
 
-from resonate.commands import Command, CreateDurablePromiseReq
+from resonate.commands import Command, DurablePromise
 from resonate.options import Options
 
 if TYPE_CHECKING:
@@ -18,16 +18,12 @@ T = TypeVar("T")
 @final
 @dataclass
 class RFI:
-    exec_unit: (
-        Invocation[Any]
-        | tuple[str, tuple[Any, ...], dict[str, Any]]
-        | CreateDurablePromiseReq
-    )
+    unit: Invocation[Any] | tuple[str, tuple[Any, ...], dict[str, Any]] | DurablePromise
     opts: Options = field(default=Options())
 
     def options(self, id: str | None = None) -> Self:
         assert not isinstance(
-            self.exec_unit, CreateDurablePromiseReq
+            self.unit, DurablePromise
         ), "Options must be set on the cmd."
         self.opts = Options(id=id)
         return self
@@ -36,28 +32,24 @@ class RFI:
 @final
 @dataclass
 class RFC:
-    exec_unit: (
-        Invocation[Any]
-        | tuple[str, tuple[Any, ...], dict[str, Any]]
-        | CreateDurablePromiseReq
-    )
+    unit: Invocation[Any] | tuple[str, tuple[Any, ...], dict[str, Any]] | DurablePromise
     opts: Options = field(default=Options())
 
     def options(self, id: str | None = None) -> Self:
         assert not isinstance(
-            self.exec_unit, CreateDurablePromiseReq
+            self.unit, DurablePromise
         ), "Options must be set on the cmd."
         self.opts = Options(id=id)
         return self
 
     def to_invocation(self) -> RFI:
-        return RFI(self.exec_unit, self.opts)
+        return RFI(self.unit, self.opts)
 
 
 @final
 @dataclass
 class LFC:
-    exec_unit: Invocation[Any] | Command
+    unit: Invocation[Any] | Command
     opts: Options = field(default=Options())
 
     def options(
@@ -70,7 +62,7 @@ class LFC:
         return self
 
     def to_invocation(self) -> LFI:
-        return LFI(self.exec_unit, opts=self.opts)
+        return LFI(self.unit, opts=self.opts)
 
 
 @final
@@ -93,7 +85,7 @@ class DI:
 @final
 @dataclass
 class LFI:
-    exec_unit: Invocation[Any] | Command
+    unit: Invocation[Any] | Command
     opts: Options = field(default=Options())
 
     def options(

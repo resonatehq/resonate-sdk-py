@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, overload
 from uuid import uuid4
 
 from typing_extensions import Concatenate, ParamSpec
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from resonate.scheduler.traits import IScheduler
     from resonate.stores.remote import RemoteStore
     from resonate.task_sources.traits import ITaskSource
-    from resonate.typing import Yieldable
+    from resonate.typing import DurableCoro, DurableFn, Yieldable
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -60,15 +60,30 @@ class Resonate:
 
         self._scheduler.set_default_recv(self._task_source.default_recv(pid=self.pid))
 
+    @overload
     def register(
         self,
         func: Callable[
             Concatenate[Context, P],
-            Generator[Yieldable, Any, T],
-        ]
-        | Callable[Concatenate[Context, P], T]
-        | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
-        *,
+            Generator[Yieldable, Any, Any],
+        ],
+        name: str | None = None,
+    ) -> None: ...
+    @overload
+    def register(
+        self,
+        func: Callable[Concatenate[Context, P], Coroutine[Any, Any, Any]],
+        name: str | None = None,
+    ) -> None: ...
+    @overload
+    def register(
+        self,
+        func: Callable[Concatenate[Context, P], Any],
+        name: str | None = None,
+    ) -> None: ...
+    def register(
+        self,
+        func: DurableCoro[P, Any] | DurableFn[P, Any],
         name: str | None = None,
     ) -> None:
         if name is None:

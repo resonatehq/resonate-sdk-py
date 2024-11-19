@@ -236,10 +236,10 @@ class RemotePromiseStore(IPromiseStore):
         self,
         *,
         id: str,
-        ikey: IdempotencyKey,
+        ikey: str | None,
         strict: bool,
-        headers: Headers,
-        data: Data,
+        headers: dict[str, str] | None,
+        data: str | None,
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 

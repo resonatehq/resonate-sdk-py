@@ -9,7 +9,7 @@ from resonate.result import Err, Ok, Result
 
 if TYPE_CHECKING:
     from resonate.context import Context
-    from resonate.dataclasses import Invocation
+    from resonate.dataclasses import Invocation, ResonateCoro
     from resonate.options import Options
     from resonate.stores.record import DurablePromiseRecord, TaskRecord
 
@@ -39,7 +39,7 @@ class Record(Generic[T]):
     def __init__(  # noqa: PLR0913
         self,
         id: str,
-        parent_id: str | None,
+        parent: Record[Any] | None,
         durable_promise: DurablePromiseRecord | None,
         task: TaskRecord | None,
         invocation: Invocation[T] | None,
@@ -47,7 +47,7 @@ class Record(Generic[T]):
         ctx: Context,
     ) -> None:
         self.id = id
-        self.parent_id = parent_id
+        self.parent = parent
         self.f = Future[T]()
         self.children: list[Record[Any]] = []
         self.promise = Promise[T](id=id)
@@ -57,6 +57,16 @@ class Record(Generic[T]):
         self.invocation = invocation
         self.opts = opts
         self.ctx = ctx
+        self.coro: ResonateCoro[T] | None = None
+        self._num_children: int = 0
+
+    def add_coro(self, coro: ResonateCoro[T]) -> None:
+        assert self.coro is None
+        self.coro = coro
+
+    def clear_coro(self) -> None:
+        assert self.coro is not None
+        self.coro = None
 
     def set_result(self, result: Result[Any, Exception]) -> None:
         assert all(
@@ -69,5 +79,37 @@ class Record(Generic[T]):
         else:
             assert_never(result)
 
+    def safe_result(self) -> Result[Any, Exception]:
+        assert self.done()
+        try:
+            return Ok(self.f.result())
+        except Exception as e:  # noqa: BLE001
+            return Err(e)
+
     def done(self) -> bool:
         return self.f.done()
+
+    def next_child_name(self) -> str:
+        return f"{self.id}.{self._num_children+1}"
+
+    def create_child(  # noqa: PLR0913
+        self,
+        id: str,
+        durable_promise: DurablePromiseRecord | None,
+        task: TaskRecord | None,
+        invocation: Invocation[Any] | None,
+        opts: Options | None,
+        ctx: Context,
+    ) -> Record[Any]:
+        child_record = Record[Any](
+            id=id,
+            parent=self,
+            durable_promise=durable_promise,
+            task=task,
+            invocation=invocation,
+            opts=opts,
+            ctx=ctx,
+        )
+        self.children.append(child_record)
+        self._num_children += 1
+        return child_record

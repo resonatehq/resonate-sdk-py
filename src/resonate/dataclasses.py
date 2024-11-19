@@ -25,7 +25,7 @@ class FinalValue(Generic[T]):
 
 class ResonateCoro(Generic[T]):
     def __init__(self, record: Record[T], coro: Generator[Yieldable, Any, T]) -> None:
-        self.id = id
+        self.id = record.id
         self._coro = coro
         self._coro_active: bool = True
         self._final_value: Result[T, Exception] | None = None

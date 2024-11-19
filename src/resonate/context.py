@@ -11,7 +11,7 @@ from resonate.actions import (
     RFC,
     RFI,
 )
-from resonate.commands import Command, CreateDurablePromiseReq
+from resonate.commands import Command, DurablePromise
 from resonate.dataclasses import Invocation
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ class Context:
         return self._deps.get(key)
 
     @overload
-    def rfc(self, cmd: CreateDurablePromiseReq, /) -> RFC: ...
+    def rfc(self, cmd: DurablePromise, /) -> RFC: ...
     @overload
     def rfc(self, func: str, /, *args: Any, **kwargs: Any) -> RFC: ...  # noqa: ANN401
     @overload
@@ -61,10 +61,7 @@ class Context:
     ) -> RFC: ...
     def rfc(
         self,
-        func_or_cmd: DurableCoro[P, T]
-        | DurableFn[P, T]
-        | str
-        | CreateDurablePromiseReq,
+        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | str | DurablePromise,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -72,18 +69,18 @@ class Context:
         unit: (
             Invocation[Any]
             | tuple[str, tuple[Any, ...], dict[str, Any]]
-            | CreateDurablePromiseReq
+            | DurablePromise
         )
         if isinstance(func_or_cmd, str):
             unit = (func_or_cmd, args, kwargs)
-        elif isinstance(func_or_cmd, CreateDurablePromiseReq):
+        elif isinstance(func_or_cmd, DurablePromise):
             unit = func_or_cmd
         else:
             unit = Invocation[Any](func_or_cmd, *args, **kwargs)
         return RFC(unit)
 
     @overload
-    def rfi(self, cmd: CreateDurablePromiseReq, /) -> RFI: ...
+    def rfi(self, cmd: DurablePromise, /) -> RFI: ...
     @overload
     def rfi(self, func: str, /, *args: Any, **kwargs: Any) -> RFI: ...  # noqa: ANN401
     @overload
@@ -104,10 +101,7 @@ class Context:
     ) -> RFI: ...
     def rfi(
         self,
-        func_or_cmd: DurableCoro[P, T]
-        | DurableFn[P, T]
-        | str
-        | CreateDurablePromiseReq,
+        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | str | DurablePromise,
         /,
         *args: P.args,
         **kwargs: P.kwargs,
