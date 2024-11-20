@@ -38,7 +38,8 @@ class Record(Generic[T]):
     def __init__(
         self,
         id: str,
-        invocation: LFI | RFI,
+        lfi: LFI | None,
+        rfi: RFI | None,
         parent: Record[Any] | None,
         ctx: Context,
     ) -> None:
@@ -46,7 +47,8 @@ class Record(Generic[T]):
         self.parent = parent
         self.f = Future[T]()
         self.children: list[Record[Any]] = []
-        self.invocation = invocation
+        self.lfi = lfi
+        self.rfi = rfi
         self.promise = Promise[T](id=id)
         self.handle = Handle[T](id=self.id, future=self.f)
         self.durable_promise: DurablePromiseRecord | None = None
@@ -101,13 +103,15 @@ class Record(Generic[T]):
     def create_child(
         self,
         id: str,
-        invocation: LFI | RFI,
+        lfi: LFI | None,
+        rfi: RFI | None,
         ctx: Context,
     ) -> Record[Any]:
         child_record = Record[Any](
             id=id,
             parent=self,
-            invocation=invocation,
+            lfi=lfi,
+            rfi=rfi,
             ctx=ctx,
         )
         self.children.append(child_record)

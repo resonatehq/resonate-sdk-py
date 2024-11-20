@@ -97,9 +97,8 @@ class Scheduler(IScheduler):
         record = Record[Any](
             id=id,
             parent=None,
-            invocation=LFI(
-                Invocation(func, *args, **kwargs), Options(durable=True, id=id)
-            ),
+            lfi=LFI(Invocation(func, *args, **kwargs), Options(durable=True, id=id)),
+            rfi=None,
             ctx=Context(self._deps),
         )
         self._records[record.id] = record
@@ -155,9 +154,10 @@ class Scheduler(IScheduler):
         record = Record[Any](
             id=id,
             parent=None,
-            invocation=RFI(
+            rfi=RFI(
                 unit=Invocation(func, args, kwargs), opts=Options(durable=True, id=id)
             ),
+            lfi=None,
             ctx=Context(self._deps),
         )
         self._records[record.id] = record
@@ -287,11 +287,12 @@ class Scheduler(IScheduler):
     def _ingest(self, id: str) -> None:
         record = self._records[id]
         assert not record.done()
-        assert isinstance(record.invocation.unit, Invocation)
+        assert record.lfi
+        assert isinstance(record.lfi.unit, Invocation)
         fn, args, kwargs = (
-            record.invocation.unit.fn,
-            record.invocation.unit.args,
-            record.invocation.unit.kwargs,
+            record.lfi.unit.fn,
+            record.lfi.unit.args,
+            record.lfi.unit.kwargs,
         )
         if isgeneratorfunction(fn):
             record.add_coro(
@@ -334,7 +335,8 @@ class Scheduler(IScheduler):
                 else:
                     self._unblock_awaiting_locally(record.id)
 
-            if record.invocation.opts.durable:
+            assert record.lfi
+            if record.lfi.opts.durable:
                 if isinstance(result, Ok):
                     self._processor.enqueue(
                         SQE[DurablePromiseRecord](
@@ -410,7 +412,7 @@ class Scheduler(IScheduler):
                 self._add_to_awaiting_local(id=child_id, blocked=[record.id])
         else:
             child_record = record.create_child(
-                id=child_id, invocation=lfc.to_lfi(), ctx=record.ctx
+                id=child_id, lfi=lfc.to_lfi(), rfi=None, ctx=record.ctx
             )
             self._records[child_id] = child_record
 
@@ -457,7 +459,7 @@ class Scheduler(IScheduler):
             self._add_to_runnable(record.id, Ok(child_record.promise))
         else:
             child_record = record.create_child(
-                id=child_id, invocation=lfi, ctx=record.ctx
+                id=child_id, lfi=lfi, rfi=None, ctx=record.ctx
             )
             self._records[child_id] = child_record
 
@@ -498,7 +500,8 @@ class Scheduler(IScheduler):
     def _process_final_value(
         self, record: Record[Any], final_value: Result[Any, Exception]
     ) -> None:
-        if record.invocation.opts.durable:
+        assert record.lfi
+        if record.lfi.opts.durable:
 
             def continuation(
                 resp: Result[DurablePromiseRecord, Exception],

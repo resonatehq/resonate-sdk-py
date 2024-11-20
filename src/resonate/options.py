@@ -8,8 +8,10 @@ class Options:
     def __init__(
         self,
         *,
-        durable: bool = True,
         id: str | None = None,
+        durable: bool = True,
+        send_to: str | None = None,
     ) -> None:
         self.durable = durable
         self.id = id
+        self.send_to = send_to

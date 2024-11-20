@@ -21,11 +21,11 @@ class RFI:
     unit: Invocation[Any] | DurablePromise
     opts: Options = field(default=Options())
 
-    def options(self, id: str | None = None) -> Self:
+    def options(self, id: str | None = None, send_to: str | None = None) -> Self:
         assert not isinstance(
             self.unit, DurablePromise
         ), "Options must be set on the cmd."
-        self.opts = Options(id=id)
+        self.opts = Options(id=id, send_to=send_to)
         return self
 
 
@@ -35,11 +35,11 @@ class RFC:
     unit: Invocation[Any] | DurablePromise
     opts: Options = field(default=Options())
 
-    def options(self, id: str | None = None) -> Self:
+    def options(self, id: str | None = None, send_to: str | None = None) -> Self:
         assert not isinstance(
             self.unit, DurablePromise
         ), "Options must be set on the cmd."
-        self.opts = Options(id=id)
+        self.opts = Options(id=id, send_to=send_to)
         return self
 
     def to_invocation(self) -> RFI:
