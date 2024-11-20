@@ -18,7 +18,7 @@ T = TypeVar("T")
 @final
 @dataclass
 class RFI:
-    unit: Invocation[Any] | tuple[str, tuple[Any, ...], dict[str, Any]] | DurablePromise
+    unit: Invocation[Any] | DurablePromise
     opts: Options = field(default=Options())
 
     def options(self, id: str | None = None) -> Self:
@@ -32,7 +32,7 @@ class RFI:
 @final
 @dataclass
 class RFC:
-    unit: Invocation[Any] | tuple[str, tuple[Any, ...], dict[str, Any]] | DurablePromise
+    unit: Invocation[Any] | DurablePromise
     opts: Options = field(default=Options())
 
     def options(self, id: str | None = None) -> Self:

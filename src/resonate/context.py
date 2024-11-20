@@ -66,17 +66,13 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC:
-        unit: (
-            Invocation[Any]
-            | tuple[str, tuple[Any, ...], dict[str, Any]]
-            | DurablePromise
-        )
+        unit: Invocation[Any] | DurablePromise
         if isinstance(func_or_cmd, str):
-            unit = (func_or_cmd, args, kwargs)
+            unit = Invocation(func_or_cmd, args, kwargs)
         elif isinstance(func_or_cmd, DurablePromise):
             unit = func_or_cmd
         else:
-            unit = Invocation[Any](func_or_cmd, *args, **kwargs)
+            unit = Invocation(func_or_cmd, *args, **kwargs)
         return RFC(unit)
 
     @overload
@@ -179,7 +175,7 @@ class Context:
         if isinstance(func_or_cmd, Command):
             unit = func_or_cmd
         else:
-            unit = Invocation[Any](func_or_cmd, *args, **kwargs)
+            unit = Invocation(func_or_cmd, *args, **kwargs)
         return LFC(unit)
 
     @overload

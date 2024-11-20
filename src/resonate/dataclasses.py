@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final, overload
 
 from typing_extensions import ParamSpec, assert_never
 
@@ -111,6 +111,22 @@ class ResonateCoro(Generic[T]):
 
 
 class Invocation(Generic[T]):
+    @overload
+    def __init__(
+        self,
+        fn: str,
+        /,
+        *args: Any,  # noqa: ANN401
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None: ...
+    @overload
+    def __init__(
+        self,
+        fn: DurableCoro[P, T] | DurableFn[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> None: ...
     def __init__(
         self,
         fn: DurableCoro[P, T] | DurableFn[P, T] | str,

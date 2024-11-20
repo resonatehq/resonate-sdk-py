@@ -156,7 +156,7 @@ class Scheduler(IScheduler):
             id=id,
             parent=None,
             invocation=RFI(
-                unit=(func, args, kwargs), opts=Options(durable=True, id=id)
+                unit=Invocation(func, args, kwargs), opts=Options(durable=True, id=id)
             ),
             ctx=Context(self._deps),
         )

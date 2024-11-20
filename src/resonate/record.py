@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, final
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
-from typing_extensions import TypeAlias, assert_never
+from typing_extensions import assert_never
 
 from resonate.result import Err, Ok, Result
 from resonate.stores.record import DurablePromiseRecord, TaskRecord
@@ -16,13 +16,12 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
-ActionCategory: TypeAlias = Literal["local", "remote"]
-
 
 @final
 class Promise(Generic[T]):
-    def __init__(self, id: str) -> None:
+    def __init__(self, id: str, invocation: LFI | RFI) -> None:
         self.id = id
+        self.invocation = invocation
 
 
 @final
@@ -48,11 +47,11 @@ class Record(Generic[T]):
         self.parent = parent
         self.f = Future[T]()
         self.children: list[Record[Any]] = []
-        self.promise = Promise[T](id=id)
+        self.invocation = invocation
+        self.promise = Promise[T](id=id, invocation=invocation)
         self.handle = Handle[T](id=self.id, future=self.f)
         self.durable_promise: DurablePromiseRecord | None = None
         self.task: TaskRecord | None = None
-        self.invocation = invocation
         self.ctx = ctx
         self.coro: ResonateCoro[T] | None = None
         self._num_children: int = 0
