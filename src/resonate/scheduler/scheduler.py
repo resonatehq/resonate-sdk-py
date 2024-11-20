@@ -402,6 +402,8 @@ class Scheduler(IScheduler):
         child_id = lfc.opts.id if lfc.opts.id is not None else record.next_child_name()
         child_record = self._records.get(child_id)
         if child_record is not None:
+            record.add_child(child_record)
+
             if child_record.done():
                 self._add_to_runnable(record.id, child_record.safe_result())
             else:
@@ -451,6 +453,7 @@ class Scheduler(IScheduler):
         child_id = lfi.opts.id if lfi.opts.id is not None else record.next_child_name()
         child_record = self._records.get(child_id)
         if child_record is not None:
+            record.add_child(child_record)
             self._add_to_runnable(record.id, Ok(child_record.promise))
         else:
             child_record = record.create_child(

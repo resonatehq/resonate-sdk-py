@@ -19,9 +19,8 @@ T = TypeVar("T")
 
 @final
 class Promise(Generic[T]):
-    def __init__(self, id: str, invocation: LFI | RFI) -> None:
+    def __init__(self, id: str) -> None:
         self.id = id
-        self.invocation = invocation
 
 
 @final
@@ -39,8 +38,8 @@ class Record(Generic[T]):
     def __init__(
         self,
         id: str,
-        parent: Record[Any] | None,
         invocation: LFI | RFI,
+        parent: Record[Any] | None,
         ctx: Context,
     ) -> None:
         self.id = id
@@ -48,13 +47,16 @@ class Record(Generic[T]):
         self.f = Future[T]()
         self.children: list[Record[Any]] = []
         self.invocation = invocation
-        self.promise = Promise[T](id=id, invocation=invocation)
+        self.promise = Promise[T](id=id)
         self.handle = Handle[T](id=self.id, future=self.f)
         self.durable_promise: DurablePromiseRecord | None = None
         self.task: TaskRecord | None = None
         self.ctx = ctx
         self.coro: ResonateCoro[T] | None = None
         self._num_children: int = 0
+
+    def add_child(self, record: Record[Any]) -> None:
+        self.children.append(record)
 
     def add_coro(self, coro: ResonateCoro[T]) -> None:
         assert self.coro is None
