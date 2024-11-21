@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from typing_extensions import assert_never
 
+from resonate.actions import LFI, RFI
 from resonate.result import Err, Ok, Result
 from resonate.stores.record import DurablePromiseRecord, TaskRecord
 
 if TYPE_CHECKING:
-    from resonate.actions import LFI, RFI
+    from resonate.actions import LFI
     from resonate.context import Context
     from resonate.dataclasses import ResonateCoro
     from resonate.stores.record import DurablePromiseRecord, TaskRecord
@@ -38,27 +39,44 @@ class Record(Generic[T]):
     def __init__(
         self,
         id: str,
-        lfi: LFI | None,
-        rfi: RFI | None,
+        invocation: LFI | RFI,
         parent: Record[Any] | None,
         ctx: Context,
     ) -> None:
-        self.id = id
-        self.parent = parent
-        self.f = Future[T]()
+        self.id: str = id
+        self.parent: Record[Any] | None = parent
+        self.is_root: bool = (
+            True if self.parent is None else isinstance(invocation, RFI)
+        )
+        self._f = Future[T]()
         self.children: list[Record[Any]] = []
-        self.lfi = lfi
-        self.rfi = rfi
+        self.leafs: set[Record[Any]] = set()
+        self.invocation: LFI | RFI = invocation
         self.promise = Promise[T](id=id)
-        self.handle = Handle[T](id=self.id, future=self.f)
+        self.handle = Handle[T](id=self.id, future=self._f)
         self.durable_promise: DurablePromiseRecord | None = None
         self.task: TaskRecord | None = None
         self.ctx = ctx
         self.coro: ResonateCoro[T] | None = None
         self._num_children: int = 0
 
+    def root(self) -> Record[Any]:
+        maybe_is_the_root = self
+        while True:
+            if maybe_is_the_root.is_root:
+                return maybe_is_the_root
+            assert maybe_is_the_root.parent is not None
+            maybe_is_the_root = maybe_is_the_root.parent
+
     def add_child(self, record: Record[Any]) -> None:
         self.children.append(record)
+        self.leafs.add(record)
+        top_root_promise = self.root().parent
+        if top_root_promise:
+            top_root_promise.leafs.discard(self)
+            top_root_promise.leafs.add(record)
+
+        self._num_children += 1
 
     def add_coro(self, coro: ResonateCoro[T]) -> None:
         assert self.coro is None
@@ -81,21 +99,21 @@ class Record(Generic[T]):
             r.done() for r in self.children
         ), "All children record must be completed."
         if isinstance(result, Ok):
-            self.f.set_result(result.unwrap())
+            self._f.set_result(result.unwrap())
         elif isinstance(result, Err):
-            self.f.set_exception(result.err())
+            self._f.set_exception(result.err())
         else:
             assert_never(result)
 
     def safe_result(self) -> Result[Any, Exception]:
         assert self.done()
         try:
-            return Ok(self.f.result())
+            return Ok(self._f.result())
         except Exception as e:  # noqa: BLE001
             return Err(e)
 
     def done(self) -> bool:
-        return self.f.done()
+        return self._f.done()
 
     def next_child_name(self) -> str:
         return f"{self.id}.{self._num_children+1}"
@@ -103,17 +121,13 @@ class Record(Generic[T]):
     def create_child(
         self,
         id: str,
-        lfi: LFI | None,
-        rfi: RFI | None,
-        ctx: Context,
+        invocation: LFI | RFI,
     ) -> Record[Any]:
         child_record = Record[Any](
             id=id,
             parent=self,
-            lfi=lfi,
-            rfi=rfi,
-            ctx=ctx,
+            invocation=invocation,
+            ctx=self.ctx,
         )
-        self.children.append(child_record)
-        self._num_children += 1
+        self.add_child(child_record)
         return child_record

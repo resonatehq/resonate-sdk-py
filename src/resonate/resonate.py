@@ -50,15 +50,14 @@ class Resonate:
             )
         )
 
-        self._task_source: ITaskSource = (
-            task_source
-            if task_source is not None
-            else Poller(
-                scheduler=self._scheduler, url="http://localhost:8002", group="default"
-            )
+        self._task_source: ITaskSource = task_source or Poller(
+            scheduler=self._scheduler,
+            url="http://localhost:8002",
+            group="default",
+            pid=self.pid,
         )
 
-        self._scheduler.set_default_recv(self._task_source.default_recv(pid=self.pid))
+        self._scheduler.set_default_recv(self._task_source.default_recv())
 
     @overload
     def register(

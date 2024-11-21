@@ -97,8 +97,9 @@ class Scheduler(IScheduler):
         record = Record[Any](
             id=id,
             parent=None,
-            lfi=LFI(Invocation(func, *args, **kwargs), Options(durable=True, id=id)),
-            rfi=None,
+            invocation=LFI(
+                Invocation(func, *args, **kwargs), Options(durable=True, id=id)
+            ),
             ctx=Context(self._deps),
         )
         self._records[record.id] = record
@@ -149,47 +150,35 @@ class Scheduler(IScheduler):
         if record is not None:
             return record.handle
 
-        assert self._default_recv is not None
-
         record = Record[Any](
             id=id,
             parent=None,
-            rfi=RFI(
+            invocation=RFI(
                 unit=Invocation(func, args, kwargs), opts=Options(durable=True, id=id)
             ),
-            lfi=None,
             ctx=Context(self._deps),
         )
         self._records[record.id] = record
 
-        # Create durable promise while claiming the task.
-        durable_promise, task = self._store.promises.create_with_task(
+        assert self._default_recv
+        durable_promise, callback = self._store.promises.create_with_callback(
             id=id,
             ikey=utils.string_to_ikey(id),
             strict=False,
             headers=None,
             data=self._encoder.encode({"func": func, "args": args, "kwargs": kwargs}),
             timeout=sys.maxsize,
-            tags={},
-            pid=self._pid,
-            ttl=5 * 1_000,
+            tags={"resonate:invoke": "default"},
+            root_id=id,
             recv=self._default_recv,
         )
         record.add_durable_promise(durable_promise)
-        if durable_promise.is_completed():
+        if callback is None:
+            assert durable_promise.is_completed()
             record.set_result(durable_promise.get_value(self._encoder))
-
-        if task is not None:
-            record.add_task(task)
-
-        if record.done():
-            assert (
-                record.task is None
-            ), "If the durable promise was dedup, there cannot be any task."
             self._records.pop(record.id)
         else:
-            assert record.id not in self._awaiting_rfi
-            self._awaiting_rfi[record.id] = []
+            self._add_to_awaiting_remote(record.id, [])
 
         return record.handle
 
@@ -205,7 +194,7 @@ class Scheduler(IScheduler):
         assert self._default_recv is None
         self._default_recv = recv
 
-    def _loop(self) -> None:
+    def _loop(self) -> None:  # noqa: C901
         while self._event_loop.wait():
             self._event_loop.clear()
 
@@ -226,38 +215,29 @@ class Scheduler(IScheduler):
             # coroutine to collect server commands.
             while self._runnable:
                 id, next_value = self._runnable.pop()
-                self._process(id, next_value)
+                record = self._records[id]
+                assert record.coro
+                yielded_value = record.coro.advance(next_value)
 
-            # send server commands to the processor
-
-    def _process(
-        self,
-        id: str,
-        next_value: Result[Any, Exception] | None,
-    ) -> None:
-        record = self._records[id]
-        assert record.coro
-        yielded_value = record.coro.advance(next_value)
-
-        if isinstance(yielded_value, LFI):
-            self._process_lfi(record, yielded_value)
-        elif isinstance(yielded_value, LFC):
-            self._process_lfc(record, yielded_value)
-        elif isinstance(yielded_value, RFI):
-            # create child record, with distribution tag. Add current record to runnables again  # noqa: E501
-            raise NotImplementedError
-        elif isinstance(yielded_value, RFC):
-            # create child record, start execution. Add current record to awaiting remote  # noqa: E501
-            raise NotImplementedError
-        elif isinstance(yielded_value, Promise):
-            self._process_promise(record, yielded_value)
-        elif isinstance(yielded_value, FinalValue):
-            self._process_final_value(record, yielded_value.v)
-        elif isinstance(yielded_value, DI):
-            # start execution from the top. Add current record to runnable
-            raise NotImplementedError
-        else:
-            assert_never(yielded_value)
+                if isinstance(yielded_value, LFI):
+                    self._process_lfi(record, yielded_value)
+                elif isinstance(yielded_value, LFC):
+                    self._process_lfc(record, yielded_value)
+                elif isinstance(yielded_value, RFI):
+                    # create child record, with distribution tag. Add current record to runnables again  # noqa: E501
+                    raise NotImplementedError
+                elif isinstance(yielded_value, RFC):
+                    # create child record, start execution. Add current record to awaiting remote  # noqa: E501
+                    raise NotImplementedError
+                elif isinstance(yielded_value, Promise):
+                    self._process_promise(record, yielded_value)
+                elif isinstance(yielded_value, FinalValue):
+                    self._process_final_value(record, yielded_value.v)
+                elif isinstance(yielded_value, DI):
+                    # start execution from the top. Add current record to runnable
+                    raise NotImplementedError
+                else:
+                    assert_never(yielded_value)
 
     def _continue(self) -> None:
         self._event_loop.set()
@@ -266,8 +246,12 @@ class Scheduler(IScheduler):
         promise_record = self._records[promise.id]
         if promise_record.done():
             self._add_to_runnable(record.id, promise_record.safe_result())
-        else:
+        elif isinstance(promise_record.invocation, LFI):
             self._add_to_awaiting_local(promise_record.id, [record.id])
+        elif isinstance(promise_record.invocation, RFI):
+            raise NotImplementedError
+        else:
+            assert_never(promise_record.invocation)
 
     def _unblock_awaiting_locally(self, id: str) -> None:
         record = self._records[id]
@@ -284,15 +268,18 @@ class Scheduler(IScheduler):
     def _add_to_awaiting_local(self, id: str, blocked: list[str]) -> None:
         self._awaiting_lfi.setdefault(id, []).extend(blocked)
 
+    def _add_to_awaiting_remote(self, id: str, blocked: list[str]) -> None:
+        self._awaiting_rfi.setdefault(id, []).extend(blocked)
+
     def _ingest(self, id: str) -> None:
         record = self._records[id]
         assert not record.done()
-        assert record.lfi
-        assert isinstance(record.lfi.unit, Invocation)
+        assert isinstance(record.invocation.unit, Invocation)
+        assert not isinstance(record.invocation.unit.fn, str)
         fn, args, kwargs = (
-            record.lfi.unit.fn,
-            record.lfi.unit.args,
-            record.lfi.unit.kwargs,
+            record.invocation.unit.fn,
+            record.invocation.unit.args,
+            record.invocation.unit.kwargs,
         )
         if isgeneratorfunction(fn):
             record.add_coro(
@@ -335,8 +322,7 @@ class Scheduler(IScheduler):
                 else:
                     self._unblock_awaiting_locally(record.id)
 
-            assert record.lfi
-            if record.lfi.opts.durable:
+            if record.invocation.opts.durable:
                 if isinstance(result, Ok):
                     self._processor.enqueue(
                         SQE[DurablePromiseRecord](
@@ -411,9 +397,7 @@ class Scheduler(IScheduler):
             else:
                 self._add_to_awaiting_local(id=child_id, blocked=[record.id])
         else:
-            child_record = record.create_child(
-                id=child_id, lfi=lfc.to_lfi(), rfi=None, ctx=record.ctx
-            )
+            child_record = record.create_child(id=child_id, invocation=lfc.to_lfi())
             self._records[child_id] = child_record
 
             if lfc.opts.durable:
@@ -458,9 +442,7 @@ class Scheduler(IScheduler):
             record.add_child(child_record)
             self._add_to_runnable(record.id, Ok(child_record.promise))
         else:
-            child_record = record.create_child(
-                id=child_id, lfi=lfi, rfi=None, ctx=record.ctx
-            )
+            child_record = record.create_child(id=child_id, invocation=lfi)
             self._records[child_id] = child_record
 
             if lfi.opts.durable:
@@ -500,8 +482,7 @@ class Scheduler(IScheduler):
     def _process_final_value(
         self, record: Record[Any], final_value: Result[Any, Exception]
     ) -> None:
-        assert record.lfi
-        if record.lfi.opts.durable:
+        if record.invocation.opts.durable:
 
             def continuation(
                 resp: Result[DurablePromiseRecord, Exception],

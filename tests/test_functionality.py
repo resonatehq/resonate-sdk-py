@@ -210,3 +210,105 @@ def test_fibonacci_lfc(store: LocalStore | RemoteStore) -> None:
     n = 30
     p: Handle[int] = resonate.lfi(exec_id(n), fib_lfc, n)
     assert p.result() == 832040  # noqa: PLR2004
+
+
+@pytest.mark.skip
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_golden_device_rfi() -> None:
+    def foo_golden_device_rfi(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.rfi(bar_golden_device_rfi, n)
+        assert isinstance(p, Promise)
+        v: str = yield p
+        assert isinstance(v, str)
+        return v
+
+    def bar_golden_device_rfi(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
+    resonate.register(foo_golden_device_rfi)
+    resonate.register(bar_golden_device_rfi)
+    p: Handle[str] = resonate.rfi(
+        "test-golden-device-rfi", "foo_golden_device_rfi", "hi"
+    )
+    assert isinstance(p, Handle)
+    assert p.result() == "hi"
+
+
+@pytest.mark.skip
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_factorial_rfi() -> None:
+    def exec_id(n: int) -> str:
+        return f"test-factorial-rfi-{n}"
+
+    def factorial_rfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 0:
+            return 1
+        p = yield ctx.rfi(factorial_rfi, n - 1).options(
+            id=exec_id(n - 1),
+        )
+        return n * (yield p)
+
+    resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
+    resonate.register(factorial_rfi)
+    n = 3
+    p: Handle[int] = resonate.rfi(exec_id(n), "factorial_rfi", n)
+    assert p.result() == 6  # noqa: PLR2004
+
+
+@pytest.mark.skip
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_fibonacci_preorder_rfi() -> None:
+    def exec_id(n: int) -> str:
+        return f"test-fib-rfi-{n}"
+
+    def fib_rfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+        p1 = yield ctx.rfi(fib_rfi, n - 1).options(
+            id=exec_id(n - 1),
+        )
+        p2 = yield ctx.rfi(fib_rfi, n - 2).options(id=exec_id(n - 2))
+        n1 = yield p1
+        n2 = yield p2
+        return n1 + n2
+
+    resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
+    resonate.register(fib_rfi)
+    n = 30
+    p: Handle[int] = resonate.rfi(exec_id(n), "fib_rfi", n)
+    assert p.result() == 832040  # noqa: PLR2004
+
+
+@pytest.mark.skip
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_fibonacci_postorder_rfi() -> None:
+    def exec_id(n: int) -> str:
+        return f"test-fib-rfi-{n}"
+
+    def fib_rfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+        p1 = yield ctx.rfi(fib_rfi, n - 1).options(
+            id=exec_id(n - 1),
+        )
+        p2 = yield ctx.rfi(fib_rfi, n - 2).options(
+            id=exec_id(n - 2),
+        )
+        n2 = yield p2
+        n1 = yield p1
+        return n1 + n2
+
+    resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
+    resonate.register(fib_rfi)
+    n = 30
+    p: Handle[int] = resonate.rfi(exec_id(n), "fib_rfi", n)
+    assert p.result() == 832040  # noqa: PLR2004
