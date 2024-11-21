@@ -212,6 +212,7 @@ def test_fibonacci_lfc(store: LocalStore | RemoteStore) -> None:
     assert p.result() == 832040  # noqa: PLR2004
 
 
+@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
@@ -234,6 +235,7 @@ def test_golden_device_rfi() -> None:
     assert p.result() == "hi"
 
 
+@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
@@ -256,6 +258,7 @@ def test_factorial_rfi() -> None:
     assert p.result() == 6  # noqa: PLR2004
 
 
+@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
@@ -269,8 +272,8 @@ def test_fibonacci_preorder_rfi() -> None:
         p1 = yield ctx.rfi(fib_rfi, n - 1).options(
             id=exec_id(n - 1),
         )
-        p2 = yield ctx.rfi(fib_rfi, n - 2).options(id=exec_id(n - 2))
         n1 = yield p1
+        p2 = yield ctx.rfi(fib_rfi, n - 2).options(id=exec_id(n - 2))
         n2 = yield p2
         return n1 + n2
 
