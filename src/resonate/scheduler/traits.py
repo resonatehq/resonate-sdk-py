@@ -16,7 +16,7 @@ T = TypeVar("T")
 
 class IScheduler(ABC):
     @abstractmethod
-    def lfi(
+    def run(
         self,
         id: str,
         func: DurableCoro[P, T] | DurableFn[P, T],
@@ -24,16 +24,6 @@ class IScheduler(ABC):
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[T]: ...
-
-    @abstractmethod
-    def rfi(
-        self,
-        id: str,
-        func: str,
-        /,
-        *args: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
-    ) -> Handle[Any]: ...
 
     @abstractmethod
     def add_task(self, task: TaskRecord) -> None: ...

@@ -89,7 +89,7 @@ class Resonate:
             name = func.__name__
         self._fn_registry.add(name, (func, Options(durable=True)))
 
-    def lfi(
+    def run(
         self,
         id: str,
         func: Callable[
@@ -102,14 +102,4 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[T]:
-        return self._scheduler.lfi(id, func, *args, **kwargs)
-
-    def rfi(
-        self,
-        id: str,
-        func: str,
-        /,
-        *args: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
-    ) -> Handle[Any]:
-        return self._scheduler.rfi(id, func, *args, **kwargs)
+        return self._scheduler.run(id, func, *args, **kwargs)

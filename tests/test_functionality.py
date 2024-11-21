@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import random
-import time
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
@@ -35,7 +34,7 @@ def test_calling_only_sync_function(store: LocalStore | RemoteStore) -> None:
 
     resonate = Resonate(store=store)
     resonate.register(foo_sync)
-    p: Handle[str] = resonate.lfi("foo-sync", foo_sync, "hi")
+    p: Handle[str] = resonate.run("foo-sync", foo_sync, "hi")
     assert p.result() == "hi"
 
 
@@ -46,7 +45,7 @@ def test_calling_only_async_function(store: LocalStore | RemoteStore) -> None:
 
     resonate = Resonate(store=store)
     resonate.register(foo_async)
-    p: Handle[str] = resonate.lfi("foo-async", foo_async, "hi")
+    p: Handle[str] = resonate.run("foo-async", foo_async, "hi")
     assert p.result() == "hi"
 
 
@@ -66,7 +65,7 @@ def test_golden_device_lfi(store: LocalStore | RemoteStore) -> None:
 
     resonate = Resonate(store=store)
     resonate.register(foo_golden_device_lfi)
-    p: Handle[str] = resonate.lfi("test-golden-device-lfi", foo_golden_device_lfi, "hi")
+    p: Handle[str] = resonate.run("test-golden-device-lfi", foo_golden_device_lfi, "hi")
     assert isinstance(p, Handle)
     assert p.result() == "hi"
 
@@ -88,7 +87,7 @@ def test_factorial_lfi(store: LocalStore | RemoteStore) -> None:
     resonate = Resonate(store=store)
     resonate.register(factorial_lfi)
     n = 30
-    p: Handle[int] = resonate.lfi(exec_id(n), factorial_lfi, n)
+    p: Handle[int] = resonate.run(exec_id(n), factorial_lfi, n)
     assert p.result() == 265252859812191058636308480000000  # noqa: PLR2004
 
 
@@ -115,7 +114,7 @@ def test_fibonacci_preorder_lfi(store: LocalStore | RemoteStore) -> None:
     resonate = Resonate(store=store)
     resonate.register(fib_lfi)
     n = 30
-    p: Handle[int] = resonate.lfi(exec_id(n), fib_lfi, n)
+    p: Handle[int] = resonate.run(exec_id(n), fib_lfi, n)
     assert p.result() == 832040  # noqa: PLR2004
 
 
@@ -142,7 +141,7 @@ def test_fibonacci_postorder_lfi(store: LocalStore | RemoteStore) -> None:
     resonate = Resonate(store=store)
     resonate.register(fib_lfi)
     n = 30
-    p: Handle[int] = resonate.lfi(exec_id(n), fib_lfi, n)
+    p: Handle[int] = resonate.run(exec_id(n), fib_lfi, n)
     assert p.result() == 832040  # noqa: PLR2004
 
 
@@ -160,7 +159,7 @@ def test_golden_device_lfc(store: RemoteStore | LocalStore) -> None:
 
     resonate = Resonate(store=store)
     resonate.register(foo_golden_device_lfc)
-    p: Handle[str] = resonate.lfi("test-golden-device-lfc", foo_golden_device_lfc, "hi")
+    p: Handle[str] = resonate.run("test-golden-device-lfc", foo_golden_device_lfc, "hi")
     assert isinstance(p, Handle)
     assert p.result() == "hi"
 
@@ -184,7 +183,7 @@ def test_factorial_lfc(store: LocalStore | RemoteStore) -> None:
     resonate = Resonate(store=store)
     resonate.register(factorial_lfc)
     n = 30
-    p: Handle[int] = resonate.lfi(exec_id(n), factorial_lfc, n)
+    p: Handle[int] = resonate.run(exec_id(n), factorial_lfc, n)
     assert p.result() == 265252859812191058636308480000000  # noqa: PLR2004
 
 
@@ -209,7 +208,7 @@ def test_fibonacci_lfc(store: LocalStore | RemoteStore) -> None:
     resonate = Resonate(store=store)
     resonate.register(fib_lfc)
     n = 30
-    p: Handle[int] = resonate.lfi(exec_id(n), fib_lfc, n)
+    p: Handle[int] = resonate.run(exec_id(n), fib_lfc, n)
     assert p.result() == 832040  # noqa: PLR2004
 
 
@@ -218,7 +217,7 @@ def test_fibonacci_lfc(store: LocalStore | RemoteStore) -> None:
 )
 def test_golden_device_rfi() -> None:
     def foo_golden_device_rfi(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
-        p: Promise[str] = yield ctx.rfi(bar_golden_device_rfi, n)
+        p: Promise[str] = yield ctx.rfi(bar_golden_device_rfi, n).options(id="bar")
         assert isinstance(p, Promise)
         v: str = yield p
         assert isinstance(v, str)
@@ -230,9 +229,7 @@ def test_golden_device_rfi() -> None:
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(foo_golden_device_rfi)
     resonate.register(bar_golden_device_rfi)
-    p: Handle[str] = resonate.rfi(
-        "test-golden-device-rfi", "foo_golden_device_rfi", "hi"
-    )
+    p: Handle[str] = resonate.run("test-golden-device-rfi", foo_golden_device_rfi, "hi")
     assert isinstance(p, Handle)
     assert p.result() == "hi"
 
@@ -255,12 +252,10 @@ def test_factorial_rfi() -> None:
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(factorial_rfi)
     n = 3
-    p: Handle[int] = resonate.rfi(exec_id(n), "factorial_rfi", n)
+    p: Handle[int] = resonate.run(exec_id(n), factorial_rfi, n)
     assert p.result() == 6  # noqa: PLR2004
-    time.sleep(5)
 
 
-@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
@@ -282,7 +277,7 @@ def test_fibonacci_preorder_rfi() -> None:
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(fib_rfi)
     n = 30
-    p: Handle[int] = resonate.rfi(exec_id(n), "fib_rfi", n)
+    p: Handle[int] = resonate.run(exec_id(n), fib_rfi, n)
     assert p.result() == 832040  # noqa: PLR2004
 
 
@@ -310,5 +305,5 @@ def test_fibonacci_postorder_rfi() -> None:
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(fib_rfi)
     n = 30
-    p: Handle[int] = resonate.rfi(exec_id(n), "fib_rfi", n)
+    p: Handle[int] = resonate.run(exec_id(n), fib_rfi, n)
     assert p.result() == 832040  # noqa: PLR2004
