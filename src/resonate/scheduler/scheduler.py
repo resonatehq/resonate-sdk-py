@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
+import time
 from collections import deque
 from functools import partial
 from inspect import iscoroutinefunction, isfunction, isgeneratorfunction
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Any, TypeVar, Union
 
+import requests
 from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
@@ -73,11 +76,24 @@ class Scheduler(IScheduler):
 
         self._default_recv: dict[str, Any] | None = None
 
+        if isinstance(self._store, RemoteStore):
+            self._heartbeating_thread = Thread(target=self._heartbeat, daemon=True)
+            self._heartbeating_thread.start()
+
         self._event_loop = Event()
         self._thread = Thread(target=self._loop, daemon=True)
         self._thread.start()
 
         self._processor = Processor(max_workers=None, sq=self._sq, scheduler=self)
+
+    def _heartbeat(self) -> None:
+        assert isinstance(self._store, RemoteStore)
+        while True:
+            affected: int | None = None
+            with contextlib.suppress(requests.exceptions.ConnectionError):
+                affected = self._store.tasks.heartbeat(pid=self._pid)
+                logger.debug("Heatbeat affected %s tasks", affected)
+            time.sleep(2)
 
     def run(
         self,

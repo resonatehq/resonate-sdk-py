@@ -230,7 +230,7 @@ def test_golden_device_rfi() -> None:
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(foo_golden_device_rfi)
     resonate.register(bar_golden_device_rfi)
-    p: Handle[str] = resonate.run("test-golden-device-rfi", foo_golden_device_rfi, "hi")
+    p: Handle[str] = resonate.run("foo", foo_golden_device_rfi, "hi")
     assert isinstance(p, Handle)
     assert p.result() == "hi"
 
@@ -310,3 +310,29 @@ def test_fibonacci_postorder_rfi() -> None:
     n = 30
     p: Handle[int] = resonate.run(exec_id(n), fib_rfi, n)
     assert p.result() == 832040  # noqa: PLR2004
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_golden_device_rfi_and_lfc() -> None:
+    def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        v: str = yield ctx.lfc(bar, n).options(
+            id="bar",
+            durable=False,
+        )
+        return v
+
+    def bar(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.rfi(baz, n).options(id="baz")
+        v: str = yield p
+        return v
+
+    def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
+    resonate.register(foo)
+    resonate.register(baz)
+    p: Handle[str] = resonate.run("foo", foo, "hi")
+    assert p.result() == "hi"

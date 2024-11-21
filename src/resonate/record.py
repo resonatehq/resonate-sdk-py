@@ -59,6 +59,7 @@ class Record(Generic[T]):
         self._task: TaskRecord | None = None
         self.ctx = ctx
         self.coro: ResonateCoro[T] | None = None
+        self.is_awaiting_remotely: bool = False
         self._num_children: int = 0
 
     def root(self) -> Record[Any]:
