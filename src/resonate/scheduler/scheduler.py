@@ -103,7 +103,7 @@ class Scheduler(IScheduler):
         record = Record[Any](
             id=id,
             parent=None,
-            invocation=LFI(
+            invocation=RFI(
                 Invocation(func, *args, **kwargs), Options(durable=True, id=id)
             ),
             ctx=Context(self._deps),
