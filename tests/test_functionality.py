@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import random
+import time
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
@@ -212,7 +213,6 @@ def test_fibonacci_lfc(store: LocalStore | RemoteStore) -> None:
     assert p.result() == 832040  # noqa: PLR2004
 
 
-@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
@@ -237,7 +237,6 @@ def test_golden_device_rfi() -> None:
     assert p.result() == "hi"
 
 
-@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
@@ -258,6 +257,7 @@ def test_factorial_rfi() -> None:
     n = 3
     p: Handle[int] = resonate.rfi(exec_id(n), "factorial_rfi", n)
     assert p.result() == 6  # noqa: PLR2004
+    time.sleep(5)
 
 
 @pytest.mark.skip

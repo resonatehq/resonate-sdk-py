@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from resonate.encoders import JsonEncoder
-from resonate.logging import logger
 from resonate.stores.record import TaskRecord
 from resonate.task_sources.traits import ITaskSource
 
@@ -40,7 +39,6 @@ class Poller(ITaskSource):
                     assert stripped.startswith("data:")
                     info = self._encoder.decode(stripped[5:])
                     task = TaskRecord.decode(info["task"], encoder=self._encoder)
-                    logger.info("Task received %s", task)
                     self._scheduler.add_task(task)
         except requests.exceptions.ConnectionError:
             time.sleep(2)

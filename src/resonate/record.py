@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 from typing_extensions import assert_never
 
 from resonate.actions import LFI, RFI
+from resonate.logging import logger
 from resonate.result import Err, Ok, Result
 from resonate.stores.record import DurablePromiseRecord, TaskRecord
 
@@ -55,7 +56,7 @@ class Record(Generic[T]):
         self.promise = Promise[T](id=id)
         self.handle = Handle[T](id=self.id, future=self._f)
         self.durable_promise: DurablePromiseRecord | None = None
-        self.task: TaskRecord | None = None
+        self._task: TaskRecord | None = None
         self.ctx = ctx
         self.coro: ResonateCoro[T] | None = None
         self._num_children: int = 0
@@ -83,12 +84,26 @@ class Record(Generic[T]):
         self.coro = coro
 
     def add_durable_promise(self, durable_promise: DurablePromiseRecord) -> None:
+        assert self.id == durable_promise.id
         assert self.durable_promise is None
         self.durable_promise = durable_promise
 
     def add_task(self, task: TaskRecord) -> None:
-        assert self.task is None
-        self.task = task
+        assert not self.has_task()
+        self._task = task
+        logger.info("Task added to %s", self.id)
+
+    def has_task(self) -> bool:
+        return self._task is not None
+
+    def remove_task(self) -> None:
+        assert self.has_task()
+        self._task = None
+        logger.info("Task completed for %s", self.id)
+
+    def get_task(self) -> TaskRecord:
+        assert self._task
+        return self._task
 
     def clear_coro(self) -> None:
         assert self.coro is not None
