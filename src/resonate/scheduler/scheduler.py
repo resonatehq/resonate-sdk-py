@@ -8,7 +8,7 @@ from collections import deque
 from functools import partial
 from inspect import iscoroutinefunction, isfunction, isgeneratorfunction
 from threading import Event, Thread
-from typing import TYPE_CHECKING, Any, TypeVar, Union
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
 from typing_extensions import ParamSpec, assert_never
@@ -199,18 +199,16 @@ class Scheduler(IScheduler):
                         assert_never(invoke_or_resume)
 
                 assert isinstance(self._store, RemoteStore)
-
-                self._processor.enqueue(
-                    SQE[Union[Invoke, Resume]](
-                        partial(
-                            self._store.tasks.claim,
+                continuation(
+                    task,
+                    Ok(
+                        self._store.tasks.claim(
                             task_id=task.task_id,
                             counter=task.counter,
                             pid=self._pid,
                             ttl=5 * 1000,
-                        ),
-                        partial(continuation, task),
-                    )
+                        )
+                    ),
                 )
 
             # for each item in runnable advance one step in the
@@ -344,29 +342,24 @@ class Scheduler(IScheduler):
 
                         assert isinstance(self._store, RemoteStore)
                         task = root.get_task()
-                        self._processor.enqueue(
-                            SQE[None](
-                                partial(
-                                    self._store.tasks.complete,
-                                    task_id=task.task_id,
-                                    counter=task.counter,
-                                ),
-                                continuation,
-                            )
+                        self._store.tasks.complete(
+                            task_id=task.task_id,
+                            counter=task.counter,
                         )
+                        continuation(Ok(None))
 
             assert self._default_recv
-
-            self._processor.enqueue(
-                SQE[tuple[DurablePromiseRecord, Union[CallbackRecord, None]]](
-                    partial(
-                        self._store.callbacks.create,
+            assert (
+                promise_record.durable_promise
+            ), f"Record {promise_record.id} not backed by a promise"
+            continuation(
+                Ok(
+                    self._store.callbacks.create(
                         id=leaf_id,
                         root_id=root_id,
                         timeout=sys.maxsize,
                         recv=self._default_recv,
-                    ),
-                    continuation,
+                    )
                 )
             )
 
@@ -378,6 +371,7 @@ class Scheduler(IScheduler):
         assert record.done()
         for blocked_id in self._awaiting_lfi.pop(record.id, []):
             assert blocked_id in self._records
+            logger.info("Unblocking %s. Who has blocked locally on %s", blocked_id, id)
             self._add_to_runnable(blocked_id, next_value=record.safe_result())
 
     def _unblock_awaiting_remote(self, id: str) -> None:
@@ -386,21 +380,26 @@ class Scheduler(IScheduler):
         assert isinstance(record.invocation, RFI)
         for blocked_id in self._awaiting_rfi.pop(record.id, []):
             assert blocked_id in self._records
+            logger.info("Unblocking %s. Who has blocked remotely on %s", blocked_id, id)
             self._add_to_runnable(blocked_id, next_value=record.safe_result())
 
     def _add_to_runnable(
         self, id: str, next_value: Result[Any, Exception] | None
     ) -> None:
+        logger.info(
+            "Adding %s to runnables. Next value to advance with=%s", id, next_value
+        )
         self._runnable.appendleft((id, next_value))
 
     def _add_to_awaiting_local(self, id: str, blocked: str) -> None:
+        logger.info("Blocking %s awaiting locally on %s", blocked, id)
         record = self._records[id]
         assert isinstance(record.invocation, LFI)
         assert not record.done()
         self._awaiting_lfi.setdefault(id, []).append(blocked)
 
     def _add_to_awaiting_remote(self, id: str, blocked: str) -> None:
-        logger.warning("blocked=%s by=%s", blocked, id)
+        logger.info("Blocking %s awaiting remotely on %s", blocked, id)
         record = self._records[id]
         assert isinstance(record.invocation, RFI)
         assert not record.done()
@@ -409,7 +408,6 @@ class Scheduler(IScheduler):
     def _all_completed_leafs_are_awaiting_remote(self, id: str) -> bool:
         root = self._records[id]
         v: bool
-        logger.warning("%s", [leaf.id for leaf in root.get_leaves() if not leaf.done()])
         if not any(
             isinstance(leaf.invocation, LFI)
             for leaf in root.get_leaves()
@@ -418,10 +416,10 @@ class Scheduler(IScheduler):
             v = True
         else:
             v = False
-        logger.warning("is root=%s blocked only on remote? r/%s", root.id, v)
         return v
 
     def _ingest(self, id: str) -> None:
+        logger.info("Ingesting record %s", id)
         record = self._records[id]
         assert not record.done()
         assert isinstance(record.invocation.unit, Invocation)
@@ -463,16 +461,11 @@ class Scheduler(IScheduler):
 
                     assert isinstance(self._store, RemoteStore)
                     task = record.get_task()
-                    self._processor.enqueue(
-                        SQE[None](
-                            partial(
-                                self._store.tasks.complete,
-                                task_id=task.task_id,
-                                counter=task.counter,
-                            ),
-                            continuation,
-                        )
+                    self._store.tasks.complete(
+                        task_id=task.task_id,
+                        counter=task.counter,
                     )
+                    continuation(Ok(None))
                 else:
                     record.set_result(v)
                     logger.info("Execution for %s has completed", record.id)
@@ -480,31 +473,27 @@ class Scheduler(IScheduler):
 
             if record.invocation.opts.durable:
                 if isinstance(result, Ok):
-                    self._processor.enqueue(
-                        SQE[DurablePromiseRecord](
-                            partial(
-                                self._store.promises.resolve,
+                    continuation(
+                        Ok(
+                            self._store.promises.resolve(
                                 id=record.id,
                                 ikey=utils.string_to_ikey(record.id),
                                 strict=False,
                                 headers=None,
                                 data=self._encoder.encode(result.unwrap()),
-                            ),
-                            continuation,
+                            )
                         )
                     )
                 elif isinstance(result, Err):
-                    self._processor.enqueue(
-                        SQE[DurablePromiseRecord](
-                            partial(
-                                self._store.promises.reject,
+                    continuation(
+                        Ok(
+                            self._store.promises.reject(
                                 id=record.id,
                                 ikey=utils.string_to_ikey(record.id),
                                 strict=False,
                                 headers=None,
                                 data=self._encoder.encode(result.err()),
-                            ),
-                            continuation,
+                            )
                         )
                     )
                 else:
@@ -572,10 +561,9 @@ class Scheduler(IScheduler):
                         self._ingest(child_id)
                         self._add_to_awaiting_local(child_id, record.id)
 
-                self._processor.enqueue(
-                    SQE[DurablePromiseRecord](
-                        partial(
-                            self._store.promises.create,
+                continuation(
+                    Ok(
+                        self._store.promises.create(
                             id=child_id,
                             ikey=utils.string_to_ikey(child_id),
                             strict=False,
@@ -583,8 +571,7 @@ class Scheduler(IScheduler):
                             data=None,
                             timeout=sys.maxsize,
                             tags=None,
-                        ),
-                        continuation,
+                        )
                     )
                 )
             else:
@@ -632,10 +619,9 @@ class Scheduler(IScheduler):
                     child_record.set_result(value)
                 self._add_to_runnable(record.id, Ok(child_record.promise))
 
-            self._processor.enqueue(
-                SQE[DurablePromiseRecord](
-                    partial(
-                        self._store.promises.create,
+            continuation(
+                Ok(
+                    self._store.promises.create(
                         id=child_id,
                         ikey=utils.string_to_ikey(child_id),
                         strict=False,
@@ -643,8 +629,7 @@ class Scheduler(IScheduler):
                         data=self._encoder.encode(data),
                         timeout=sys.maxsize,
                         tags={"resonate:invoke": "default"},
-                    ),
-                    continuation,
+                    )
                 )
             )
 
@@ -673,10 +658,9 @@ class Scheduler(IScheduler):
                         self._ingest(child_id)
                     self._add_to_runnable(record.id, Ok(child_record.promise))
 
-                self._processor.enqueue(
-                    SQE[DurablePromiseRecord](
-                        partial(
-                            self._store.promises.create,
+                continuation(
+                    Ok(
+                        self._store.promises.create(
                             id=child_id,
                             ikey=utils.string_to_ikey(child_id),
                             strict=False,
@@ -684,8 +668,7 @@ class Scheduler(IScheduler):
                             data=None,
                             timeout=sys.maxsize,
                             tags=None,
-                        ),
-                        continuation,
+                        )
                     )
                 )
             else:
@@ -715,47 +698,38 @@ class Scheduler(IScheduler):
 
                     assert isinstance(self._store, RemoteStore)
                     task = record.get_task()
-                    self._processor.enqueue(
-                        SQE[None](
-                            partial(
-                                self._store.tasks.complete,
-                                task_id=task.task_id,
-                                counter=task.counter,
-                            ),
-                            continuation,
-                        )
+                    self._store.tasks.complete(
+                        task_id=task.task_id,
+                        counter=task.counter,
                     )
+                    continuation(Ok(None))
                 else:
                     record.set_result(v)
                     logger.info("Execution for %s has completed", record.id)
                     self._unblock_awaiting_local(record.id)
 
             if isinstance(final_value, Ok):
-                self._processor.enqueue(
-                    SQE[DurablePromiseRecord](
-                        partial(
-                            self._store.promises.resolve,
+                continuation(
+                    Ok(
+                        self._store.promises.resolve(
                             id=record.id,
                             ikey=utils.string_to_ikey(record.id),
                             strict=False,
                             headers=None,
                             data=self._encoder.encode(final_value.unwrap()),
-                        ),
-                        continuation,
+                        )
                     )
                 )
             elif isinstance(final_value, Err):
-                self._processor.enqueue(
-                    SQE[DurablePromiseRecord](
-                        partial(
-                            self._store.promises.reject,
+                continuation(
+                    Ok(
+                        self._store.promises.reject(
                             id=record.id,
                             ikey=utils.string_to_ikey(record.id),
                             strict=False,
                             headers=None,
                             data=self._encoder.encode(final_value.err()),
-                        ),
-                        continuation,
+                        )
                     )
                 )
             else:

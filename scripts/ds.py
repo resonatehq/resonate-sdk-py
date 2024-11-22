@@ -8,7 +8,7 @@ def fib(n: int) -> int:
 
 
 def main() -> None:
-    print(fib(5))  # noqa: T201
+    print(fib(30))  # noqa: T201
 
 
 if __name__ == "__main__":

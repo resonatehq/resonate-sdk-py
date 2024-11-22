@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from typing_extensions import assert_never
@@ -20,9 +21,9 @@ T = TypeVar("T")
 
 
 @final
+@dataclass(frozen=True)
 class Promise(Generic[T]):
-    def __init__(self, id: str) -> None:
-        self.id = id
+    id: str
 
 
 @final
@@ -97,6 +98,7 @@ class Record(Generic[T]):
         assert self.id == durable_promise.id
         assert self.durable_promise is None
         self.durable_promise = durable_promise
+        logger.info("Durable promise added to %s", self.id)
 
     def add_task(self, task: TaskRecord) -> None:
         assert not self.has_task()
