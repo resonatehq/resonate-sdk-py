@@ -51,7 +51,6 @@ class Record(Generic[T]):
         )
         self._f = Future[T]()
         self.children: list[Record[Any]] = []
-        self.leafs: set[Record[Any]] = set()
         self.invocation: LFI | RFI = invocation
         self.promise = Promise[T](id=id)
         self.handle = Handle[T](id=self.id, future=self._f)
@@ -59,8 +58,12 @@ class Record(Generic[T]):
         self._task: TaskRecord | None = None
         self.ctx = ctx
         self.coro: ResonateCoro[T] | None = None
-        self.is_awaiting_remotely: bool = False
         self._num_children: int = 0
+        logger.info(
+            "New record %s created. Child of %s",
+            self.id,
+            self.parent.id if self.parent else None,
+        )
 
     def root(self) -> Record[Any]:
         maybe_is_the_root = self
@@ -72,13 +75,19 @@ class Record(Generic[T]):
 
     def add_child(self, record: Record[Any]) -> None:
         self.children.append(record)
-        self.leafs.add(record)
-        top_root_promise = self.root().parent
-        if top_root_promise:
-            top_root_promise.leafs.discard(self)
-            top_root_promise.leafs.add(record)
-
         self._num_children += 1
+
+    def get_leaves(self) -> set[Record[Any]]:
+        if len(self.children) == 0:
+            return set()
+        leaves: set[Record[Any]] = set()
+        for child in self.children:
+            leaves.add(child)
+            child_leaves = child.get_leaves()
+            if child_leaves:
+                leaves.remove(child)
+                leaves.update(child_leaves)
+        return leaves
 
     def add_coro(self, coro: ResonateCoro[T]) -> None:
         assert self.coro is None

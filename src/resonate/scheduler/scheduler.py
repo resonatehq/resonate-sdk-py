@@ -302,19 +302,24 @@ class Scheduler(IScheduler):
         if promise_record.done():
             self._add_to_runnable(record.id, promise_record.safe_result())
         elif isinstance(promise_record.invocation, LFI):
-            self._add_to_awaiting_local(promise_record.id, [record.id])
+            self._add_to_awaiting_local(promise_record.id, record.id)
         elif isinstance(promise_record.invocation, RFI):
             assert isinstance(self._store, RemoteStore)
             assert (
                 promise_record.is_root
             ), "Callbacks can only be registered partition roots"
 
+            root_id = record.root().id
+            leaf_id = promise_record.id
+
             def continuation(
                 resp: Result[
                     tuple[DurablePromiseRecord, CallbackRecord | None], Exception
                 ],
             ) -> None:
-                assert isinstance(resp, Ok)
+                assert isinstance(
+                    resp, Ok
+                ), f"{resp.err()} for root={root_id} with leaf={leaf_id}"
                 assert promise_record.durable_promise
                 durable_promise, callback = resp.unwrap()
 
@@ -322,7 +327,10 @@ class Scheduler(IScheduler):
                     assert durable_promise.is_completed()
                     record.set_result(durable_promise.get_value(self._encoder))
                 else:
-                    self._add_to_awaiting_remote(promise_record.id, [record.id])
+                    logger.info(
+                        "callback created with root %s and leaf %s", root_id, leaf_id
+                    )
+                    self._add_to_awaiting_remote(promise_record.id, record.id)
                     root = record.root()
                     if self._all_completed_leafs_are_awaiting_remote(root.id):
                         logger.info(
@@ -332,7 +340,7 @@ class Scheduler(IScheduler):
 
                         def continuation(resp: Result[None, Exception]) -> None:
                             assert isinstance(resp, Ok)
-                            record.remove_task()
+                            root.remove_task()
 
                         assert isinstance(self._store, RemoteStore)
                         task = root.get_task()
@@ -353,8 +361,8 @@ class Scheduler(IScheduler):
                 SQE[tuple[DurablePromiseRecord, Union[CallbackRecord, None]]](
                     partial(
                         self._store.callbacks.create,
-                        id=promise_record.id,
-                        root_id=record.root().id,
+                        id=leaf_id,
+                        root_id=root_id,
                         timeout=sys.maxsize,
                         recv=self._default_recv,
                     ),
@@ -375,6 +383,7 @@ class Scheduler(IScheduler):
     def _unblock_awaiting_remote(self, id: str) -> None:
         record = self._records[id]
         assert record.done()
+        assert isinstance(record.invocation, RFI)
         for blocked_id in self._awaiting_rfi.pop(record.id, []):
             assert blocked_id in self._records
             self._add_to_runnable(blocked_id, next_value=record.safe_result())
@@ -384,25 +393,33 @@ class Scheduler(IScheduler):
     ) -> None:
         self._runnable.appendleft((id, next_value))
 
-    def _add_to_awaiting_local(self, id: str, blocked: list[str]) -> None:
+    def _add_to_awaiting_local(self, id: str, blocked: str) -> None:
         record = self._records[id]
         assert isinstance(record.invocation, LFI)
         assert not record.done()
-        self._awaiting_lfi.setdefault(id, []).extend(blocked)
+        self._awaiting_lfi.setdefault(id, []).append(blocked)
 
-    def _add_to_awaiting_remote(self, id: str, blocked: list[str]) -> None:
+    def _add_to_awaiting_remote(self, id: str, blocked: str) -> None:
+        logger.warning("blocked=%s by=%s", blocked, id)
         record = self._records[id]
         assert isinstance(record.invocation, RFI)
         assert not record.done()
-        self._awaiting_rfi.setdefault(id, []).extend(blocked)
+        self._awaiting_rfi.setdefault(id, []).append(blocked)
 
     def _all_completed_leafs_are_awaiting_remote(self, id: str) -> bool:
-        root_record = self._records[id].root()
-        return all(
-            leaf.id in self._awaiting_rfi
-            for leaf in root_record.leafs
+        root = self._records[id]
+        v: bool
+        logger.warning("%s", [leaf.id for leaf in root.get_leaves() if not leaf.done()])
+        if not any(
+            isinstance(leaf.invocation, LFI)
+            for leaf in root.get_leaves()
             if not leaf.done()
-        )
+        ):
+            v = True
+        else:
+            v = False
+        logger.warning("is root=%s blocked only on remote? r/%s", root.id, v)
+        return v
 
     def _ingest(self, id: str) -> None:
         record = self._records[id]
@@ -533,7 +550,7 @@ class Scheduler(IScheduler):
             if child_record.done():
                 self._add_to_runnable(record.id, child_record.safe_result())
             else:
-                self._add_to_awaiting_local(id=child_id, blocked=[record.id])
+                self._add_to_awaiting_local(child_id, record.id)
 
         else:
             child_record = record.create_child(id=child_id, invocation=lfc.to_lfi())
@@ -553,7 +570,7 @@ class Scheduler(IScheduler):
                         self._add_to_runnable(record.id, child_record.safe_result())
                     else:
                         self._ingest(child_id)
-                        self._add_to_awaiting_local(id=child_id, blocked=[record.id])
+                        self._add_to_awaiting_local(child_id, record.id)
 
                 self._processor.enqueue(
                     SQE[DurablePromiseRecord](
@@ -572,7 +589,7 @@ class Scheduler(IScheduler):
                 )
             else:
                 self._ingest(child_id)
-                self._add_to_awaiting_local(id=child_id, blocked=[record.id])
+                self._add_to_awaiting_local(child_id, record.id)
 
     def _process_rfi(self, record: Record[Any], rfi: RFI) -> None:
         child_id = rfi.opts.id if rfi.opts.id is not None else record.next_child_name()

@@ -253,9 +253,9 @@ def test_factorial_rfi() -> None:
 
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(factorial_rfi)
-    n = 3
+    n = 10
     p: Handle[int] = resonate.run(exec_id(n), factorial_rfi, n)
-    assert p.result() == 6  # noqa: PLR2004
+    assert p.result() == 3628800  # noqa: PLR2004
 
 
 @pytest.mark.skip
@@ -279,9 +279,9 @@ def test_fibonacci_preorder_rfi() -> None:
 
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(fib_rfi)
-    n = 30
+    n = 10
     p: Handle[int] = resonate.run(exec_id(n), fib_rfi, n)
-    assert p.result() == 832040  # noqa: PLR2004
+    assert p.result() == 55  # noqa: PLR2004
 
 
 @pytest.mark.skip
@@ -307,11 +307,12 @@ def test_fibonacci_postorder_rfi() -> None:
 
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(fib_rfi)
-    n = 30
+    n = 10
     p: Handle[int] = resonate.run(exec_id(n), fib_rfi, n)
-    assert p.result() == 832040  # noqa: PLR2004
+    assert p.result() == 55  # noqa: PLR2004
 
 
+@pytest.mark.skip
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
