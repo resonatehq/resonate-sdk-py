@@ -59,6 +59,7 @@ class Record(Generic[T]):
         self._task: TaskRecord | None = None
         self.ctx = ctx
         self.coro: ResonateCoro[T] | None = None
+        self.blocked_on: Record[Any] | None = None
         self._num_children: int = 0
         logger.info(
             "New record %s created. Child of %s",
@@ -77,18 +78,6 @@ class Record(Generic[T]):
     def add_child(self, record: Record[Any]) -> None:
         self.children.append(record)
         self._num_children += 1
-
-    def get_leaves(self) -> set[Record[Any]]:
-        if len(self.children) == 0:
-            return set()
-        leaves: set[Record[Any]] = set()
-        for child in self.children:
-            leaves.add(child)
-            child_leaves = child.get_leaves()
-            if child_leaves:
-                leaves.remove(child)
-                leaves.update(child_leaves)
-        return leaves
 
     def add_coro(self, coro: ResonateCoro[T]) -> None:
         assert self.coro is None

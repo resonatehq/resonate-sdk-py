@@ -27,7 +27,6 @@ from resonate.record import Promise, Record
 from resonate.result import Err, Ok
 from resonate.scheduler.traits import IScheduler
 from resonate.stores.record import (
-    CallbackRecord,
     DurablePromiseRecord,
     Invoke,
     Resume,
@@ -185,31 +184,20 @@ class Scheduler(IScheduler):
             # to firt claim the task, then try to resume if in memory
             # else invoke.
             for task in self._task_queue.dequeue_all():
-
-                def continuation(
-                    task: TaskRecord, resp: Result[Invoke | Resume, Exception]
-                ) -> None:
-                    assert isinstance(resp, Ok)
-                    invoke_or_resume = resp.unwrap()
-                    if isinstance(invoke_or_resume, Invoke):
-                        self._process_invoke(invoke_or_resume, task)
-                    elif isinstance(invoke_or_resume, Resume):
-                        self._process_resume(invoke_or_resume, task)
-                    else:
-                        assert_never(invoke_or_resume)
-
                 assert isinstance(self._store, RemoteStore)
-                continuation(
-                    task,
-                    Ok(
-                        self._store.tasks.claim(
-                            task_id=task.task_id,
-                            counter=task.counter,
-                            pid=self._pid,
-                            ttl=5 * 1000,
-                        )
-                    ),
+
+                invoke_or_resume = self._store.tasks.claim(
+                    task_id=task.task_id,
+                    counter=task.counter,
+                    pid=self._pid,
+                    ttl=5 * 1000,
                 )
+                if isinstance(invoke_or_resume, Invoke):
+                    self._process_invoke(invoke_or_resume, task)
+                elif isinstance(invoke_or_resume, Resume):
+                    self._process_resume(invoke_or_resume, task)
+                else:
+                    assert_never(invoke_or_resume)
 
             # for each item in runnable advance one step in the
             # coroutine to collect server commands.
@@ -310,58 +298,36 @@ class Scheduler(IScheduler):
             root_id = record.root().id
             leaf_id = promise_record.id
 
-            def continuation(
-                resp: Result[
-                    tuple[DurablePromiseRecord, CallbackRecord | None], Exception
-                ],
-            ) -> None:
-                assert isinstance(
-                    resp, Ok
-                ), f"{resp.err()} for root={root_id} with leaf={leaf_id}"
-                assert promise_record.durable_promise
-                durable_promise, callback = resp.unwrap()
-
-                if callback is None:
-                    assert durable_promise.is_completed()
-                    record.set_result(durable_promise.get_value(self._encoder))
-                else:
-                    logger.info(
-                        "callback created with root %s and leaf %s", root_id, leaf_id
-                    )
-                    self._add_to_awaiting_remote(promise_record.id, record.id)
-                    root = record.root()
-                    if self._all_completed_leafs_are_awaiting_remote(root.id):
-                        logger.info(
-                            "record %s is blocked on nothing but remote", root.id
-                        )
-                        assert root.has_task()
-
-                        def continuation(resp: Result[None, Exception]) -> None:
-                            assert isinstance(resp, Ok)
-                            root.remove_task()
-
-                        assert isinstance(self._store, RemoteStore)
-                        task = root.get_task()
-                        self._store.tasks.complete(
-                            task_id=task.task_id,
-                            counter=task.counter,
-                        )
-                        continuation(Ok(None))
-
             assert self._default_recv
             assert (
                 promise_record.durable_promise
             ), f"Record {promise_record.id} not backed by a promise"
-            continuation(
-                Ok(
-                    self._store.callbacks.create(
-                        id=leaf_id,
-                        root_id=root_id,
-                        timeout=sys.maxsize,
-                        recv=self._default_recv,
-                    )
-                )
+            durable_promise, callback = self._store.callbacks.create(
+                id=leaf_id,
+                root_id=root_id,
+                timeout=sys.maxsize,
+                recv=self._default_recv,
             )
+            if callback is None:
+                assert durable_promise.is_completed()
+                record.set_result(durable_promise.get_value(self._encoder))
+            else:
+                logger.info(
+                    "callback created with root %s and leaf %s", root_id, leaf_id
+                )
+                self._add_to_awaiting_remote(promise_record.id, record.id)
+                root = record.root()
+                if self._blocked_only_on_remote(root.id):
+                    logger.info("record %s is blocked on nothing but remote", root.id)
+                    assert root.has_task()
+
+                    assert isinstance(self._store, RemoteStore)
+                    task = root.get_task()
+                    self._store.tasks.complete(
+                        task_id=task.task_id,
+                        counter=task.counter,
+                    )
+                    root.remove_task()
 
         else:
             assert_never(promise_record.invocation)
@@ -370,7 +336,10 @@ class Scheduler(IScheduler):
         record = self._records[id]
         assert record.done()
         for blocked_id in self._awaiting_lfi.pop(record.id, []):
-            assert blocked_id in self._records
+            blocked_record = self._records[blocked_id]
+            assert blocked_record.blocked_on
+            assert blocked_record.blocked_on.id == id
+            blocked_record.blocked_on = None
             logger.info("Unblocking %s. Who has blocked locally on %s", blocked_id, id)
             self._add_to_runnable(blocked_id, next_value=record.safe_result())
 
@@ -379,7 +348,10 @@ class Scheduler(IScheduler):
         assert record.done()
         assert isinstance(record.invocation, RFI)
         for blocked_id in self._awaiting_rfi.pop(record.id, []):
-            assert blocked_id in self._records
+            blocked_record = self._records[blocked_id]
+            assert blocked_record.blocked_on
+            assert blocked_record.blocked_on.id == id
+            blocked_record.blocked_on = None
             logger.info("Unblocking %s. Who has blocked remotely on %s", blocked_id, id)
             self._add_to_runnable(blocked_id, next_value=record.safe_result())
 
@@ -396,6 +368,9 @@ class Scheduler(IScheduler):
         record = self._records[id]
         assert isinstance(record.invocation, LFI)
         assert not record.done()
+        blocked_record = self._records[blocked]
+        assert not blocked_record.blocked_on
+        blocked_record.blocked_on = record
         self._awaiting_lfi.setdefault(id, []).append(blocked)
 
     def _add_to_awaiting_remote(self, id: str, blocked: str) -> None:
@@ -403,20 +378,22 @@ class Scheduler(IScheduler):
         record = self._records[id]
         assert isinstance(record.invocation, RFI)
         assert not record.done()
+        blocked_record = self._records[blocked]
+        assert not blocked_record.blocked_on
+        blocked_record.blocked_on = record
         self._awaiting_rfi.setdefault(id, []).append(blocked)
 
-    def _all_completed_leafs_are_awaiting_remote(self, id: str) -> bool:
-        root = self._records[id]
-        v: bool
-        if not any(
-            isinstance(leaf.invocation, LFI)
-            for leaf in root.get_leaves()
-            if not leaf.done()
-        ):
-            v = True
-        else:
-            v = False
-        return v
+    def _blocked_only_on_remote(self, id: str, *, root: bool = True) -> bool:
+        record = self._records[id]
+        if isinstance(record.invocation, RFI) and not root:
+            return True
+        if not record.blocked_on:
+            return False
+        return all(
+            self._blocked_only_on_remote(child.id, root=False)
+            for child in record.children
+            if not child.done()
+        )
 
     def _ingest(self, id: str) -> None:
         logger.info("Ingesting record %s", id)
@@ -444,60 +421,60 @@ class Scheduler(IScheduler):
             return
 
         def continuation(result: Result[Any, Exception]) -> None:
-            def continuation(result: Result[DurablePromiseRecord, Exception]) -> None:
-                assert isinstance(result, Ok)
-                durable_promise = result.unwrap()
+            if record.invocation.opts.durable:
+                durable_promise: DurablePromiseRecord
+                if isinstance(result, Ok):
+                    durable_promise = self._store.promises.resolve(
+                        id=record.id,
+                        ikey=utils.string_to_ikey(record.id),
+                        strict=False,
+                        headers=None,
+                        data=self._encoder.encode(result.unwrap()),
+                    )
+                elif isinstance(result, Err):
+                    durable_promise = self._store.promises.reject(
+                        id=record.id,
+                        ikey=utils.string_to_ikey(record.id),
+                        strict=False,
+                        headers=None,
+                        data=self._encoder.encode(result.err()),
+                    )
+
+                else:
+                    assert_never(result)
+
                 assert record.durable_promise is not None
                 v = durable_promise.get_value(self._encoder)
 
                 if record.has_task():
-
-                    def continuation(result: Result[None, Exception]) -> None:
-                        assert isinstance(result, Ok)
-                        record.remove_task()
-                        record.set_result(v)
-                        logger.info("Execution for %s has completed", record.id)
-                        self._unblock_awaiting_local(record.id)
-
                     assert isinstance(self._store, RemoteStore)
                     task = record.get_task()
                     self._store.tasks.complete(
                         task_id=task.task_id,
                         counter=task.counter,
                     )
-                    continuation(Ok(None))
+                    record.remove_task()
+                    record.set_result(v)
+                    logger.info("Execution for %s has completed", record.id)
+                    self._unblock_awaiting_local(record.id)
                 else:
                     record.set_result(v)
                     logger.info("Execution for %s has completed", record.id)
                     self._unblock_awaiting_local(record.id)
 
-            if record.invocation.opts.durable:
-                if isinstance(result, Ok):
-                    continuation(
-                        Ok(
-                            self._store.promises.resolve(
-                                id=record.id,
-                                ikey=utils.string_to_ikey(record.id),
-                                strict=False,
-                                headers=None,
-                                data=self._encoder.encode(result.unwrap()),
-                            )
-                        )
+                root = record.root()
+                if self._blocked_only_on_remote(root.id):
+                    logger.info("record %s is blocked on nothing but remote", root.id)
+                    assert root.has_task()
+
+                    assert isinstance(self._store, RemoteStore)
+                    task = root.get_task()
+                    self._store.tasks.complete(
+                        task_id=task.task_id,
+                        counter=task.counter,
                     )
-                elif isinstance(result, Err):
-                    continuation(
-                        Ok(
-                            self._store.promises.reject(
-                                id=record.id,
-                                ikey=utils.string_to_ikey(record.id),
-                                strict=False,
-                                headers=None,
-                                data=self._encoder.encode(result.err()),
-                            )
-                        )
-                    )
-                else:
-                    assert_never(result)
+                    root.remove_task()
+
             else:
                 record.set_result(result)
                 self._unblock_awaiting_local(record.id)
@@ -546,34 +523,26 @@ class Scheduler(IScheduler):
             self._records[child_id] = child_record
 
             if lfc.opts.durable:
-
-                def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
-                    assert child_id in self._records
-                    assert not record.done()
-                    assert isinstance(resp, Ok)
-                    durable_promise = resp.unwrap()
-                    child_record.add_durable_promise(durable_promise)
-                    if durable_promise.is_completed():
-                        value = durable_promise.get_value(self._encoder)
-                        child_record.set_result(value)
-                        self._add_to_runnable(record.id, child_record.safe_result())
-                    else:
-                        self._ingest(child_id)
-                        self._add_to_awaiting_local(child_id, record.id)
-
-                continuation(
-                    Ok(
-                        self._store.promises.create(
-                            id=child_id,
-                            ikey=utils.string_to_ikey(child_id),
-                            strict=False,
-                            headers=None,
-                            data=None,
-                            timeout=sys.maxsize,
-                            tags=None,
-                        )
-                    )
+                durable_promise = self._store.promises.create(
+                    id=child_id,
+                    ikey=utils.string_to_ikey(child_id),
+                    strict=False,
+                    headers=None,
+                    data=None,
+                    timeout=sys.maxsize,
+                    tags=None,
                 )
+                assert child_id in self._records
+                assert not record.done()
+                child_record.add_durable_promise(durable_promise)
+                if durable_promise.is_completed():
+                    value = durable_promise.get_value(self._encoder)
+                    child_record.set_result(value)
+                    self._add_to_runnable(record.id, child_record.safe_result())
+                else:
+                    self._ingest(child_id)
+                    self._add_to_awaiting_local(child_id, record.id)
+
             else:
                 self._ingest(child_id)
                 self._add_to_awaiting_local(child_id, record.id)
@@ -608,30 +577,23 @@ class Scheduler(IScheduler):
             else:
                 assert_never(rfi.unit)
 
-            def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
-                assert child_id in self._records
-                assert not record.done()
-                durable_promise = resp.unwrap()
-                child_record.add_durable_promise(durable_promise)
-
-                if durable_promise.is_completed():
-                    value = durable_promise.get_value(self._encoder)
-                    child_record.set_result(value)
-                self._add_to_runnable(record.id, Ok(child_record.promise))
-
-            continuation(
-                Ok(
-                    self._store.promises.create(
-                        id=child_id,
-                        ikey=utils.string_to_ikey(child_id),
-                        strict=False,
-                        headers=None,
-                        data=self._encoder.encode(data),
-                        timeout=sys.maxsize,
-                        tags={"resonate:invoke": "default"},
-                    )
-                )
+            durable_promise = self._store.promises.create(
+                id=child_id,
+                ikey=utils.string_to_ikey(child_id),
+                strict=False,
+                headers=None,
+                data=self._encoder.encode(data),
+                timeout=sys.maxsize,
+                tags={"resonate:invoke": "default"},
             )
+            assert child_id in self._records
+            assert not record.done()
+            child_record.add_durable_promise(durable_promise)
+
+            if durable_promise.is_completed():
+                value = durable_promise.get_value(self._encoder)
+                child_record.set_result(value)
+            self._add_to_runnable(record.id, Ok(child_record.promise))
 
     def _process_lfi(self, record: Record[Any], lfi: LFI) -> None:
         child_id = lfi.opts.id if lfi.opts.id is not None else record.next_child_name()
@@ -644,33 +606,26 @@ class Scheduler(IScheduler):
             self._records[child_id] = child_record
 
             if lfi.opts.durable:
-
-                def continuation(resp: Result[DurablePromiseRecord, Exception]) -> None:
-                    assert child_id in self._records
-                    assert not record.done()
-                    durable_promise = resp.unwrap()
-                    child_record.add_durable_promise(durable_promise)
-
-                    if durable_promise.is_completed():
-                        value = durable_promise.get_value(self._encoder)
-                        child_record.set_result(value)
-                    else:
-                        self._ingest(child_id)
-                    self._add_to_runnable(record.id, Ok(child_record.promise))
-
-                continuation(
-                    Ok(
-                        self._store.promises.create(
-                            id=child_id,
-                            ikey=utils.string_to_ikey(child_id),
-                            strict=False,
-                            headers=None,
-                            data=None,
-                            timeout=sys.maxsize,
-                            tags=None,
-                        )
-                    )
+                durable_promise = self._store.promises.create(
+                    id=child_id,
+                    ikey=utils.string_to_ikey(child_id),
+                    strict=False,
+                    headers=None,
+                    data=None,
+                    timeout=sys.maxsize,
+                    tags=None,
                 )
+                assert child_id in self._records
+                assert not record.done()
+
+                child_record.add_durable_promise(durable_promise)
+
+                if durable_promise.is_completed():
+                    value = durable_promise.get_value(self._encoder)
+                    child_record.set_result(value)
+                else:
+                    self._ingest(child_id)
+                self._add_to_runnable(record.id, Ok(child_record.promise))
             else:
                 self._ingest(child_id)
                 self._add_to_runnable(record.id, Ok(child_record.promise))
@@ -679,61 +634,58 @@ class Scheduler(IScheduler):
         self, record: Record[Any], final_value: Result[Any, Exception]
     ) -> None:
         if record.invocation.opts.durable:
-
-            def continuation(
-                resp: Result[DurablePromiseRecord, Exception],
-            ) -> None:
-                durable_promise = resp.unwrap()
-                v = durable_promise.get_value(self._encoder)
-                assert not record.done()
-
-                if record.has_task():
-
-                    def continuation(result: Result[None, Exception]) -> None:
-                        assert isinstance(result, Ok), result.err()
-                        record.remove_task()
-                        record.set_result(v)
-                        logger.info("Execution for %s has completed", record.id)
-                        self._unblock_awaiting_local(record.id)
-
-                    assert isinstance(self._store, RemoteStore)
-                    task = record.get_task()
-                    self._store.tasks.complete(
-                        task_id=task.task_id,
-                        counter=task.counter,
-                    )
-                    continuation(Ok(None))
-                else:
-                    record.set_result(v)
-                    logger.info("Execution for %s has completed", record.id)
-                    self._unblock_awaiting_local(record.id)
-
+            durable_promise: DurablePromiseRecord
             if isinstance(final_value, Ok):
-                continuation(
-                    Ok(
-                        self._store.promises.resolve(
-                            id=record.id,
-                            ikey=utils.string_to_ikey(record.id),
-                            strict=False,
-                            headers=None,
-                            data=self._encoder.encode(final_value.unwrap()),
-                        )
-                    )
+                durable_promise = self._store.promises.resolve(
+                    id=record.id,
+                    ikey=utils.string_to_ikey(record.id),
+                    strict=False,
+                    headers=None,
+                    data=self._encoder.encode(final_value.unwrap()),
                 )
+
             elif isinstance(final_value, Err):
-                continuation(
-                    Ok(
-                        self._store.promises.reject(
-                            id=record.id,
-                            ikey=utils.string_to_ikey(record.id),
-                            strict=False,
-                            headers=None,
-                            data=self._encoder.encode(final_value.err()),
-                        )
-                    )
+                durable_promise = self._store.promises.reject(
+                    id=record.id,
+                    ikey=utils.string_to_ikey(record.id),
+                    strict=False,
+                    headers=None,
+                    data=self._encoder.encode(final_value.err()),
                 )
             else:
                 assert_never(final_value)
+
+            v = durable_promise.get_value(self._encoder)
+            assert not record.done()
+
+            if record.has_task():
+                assert isinstance(self._store, RemoteStore)
+                task = record.get_task()
+                self._store.tasks.complete(
+                    task_id=task.task_id,
+                    counter=task.counter,
+                )
+                record.remove_task()
+                record.set_result(v)
+                logger.info("Execution for %s has completed", record.id)
+                self._unblock_awaiting_local(record.id)
+            else:
+                record.set_result(v)
+                logger.info("Execution for %s has completed", record.id)
+                self._unblock_awaiting_local(record.id)
+
+            root = record.root()
+            if self._blocked_only_on_remote(root.id):
+                logger.info("record %s is blocked on nothing but remote", root.id)
+                assert root.has_task()
+
+                assert isinstance(self._store, RemoteStore)
+                task = root.get_task()
+                self._store.tasks.complete(
+                    task_id=task.task_id,
+                    counter=task.counter,
+                )
+                root.remove_task()
 
         else:
             record.set_result(final_value)

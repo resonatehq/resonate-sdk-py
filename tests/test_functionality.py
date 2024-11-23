@@ -337,3 +337,32 @@ def test_golden_device_rfi_and_lfc() -> None:
     resonate.register(baz)
     p: Handle[str] = resonate.run("foo", foo, "hi")
     assert p.result() == "hi"
+
+
+@pytest.mark.skip
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_fibonacci_postorder_rfi_or_lfi() -> None:
+    def exec_id(n: int) -> str:
+        return f"fib({n})"
+
+    def fib(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+
+        p1 = yield ctx.rfi(fib, n - 1).options(
+            id=exec_id(n - 1),
+        )
+        p2 = yield ctx.lfi(fib, n - 2).options(
+            id=exec_id(n - 2),
+        )
+        n1 = yield p1
+        n2 = yield p2
+        return n1 + n2
+
+    resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
+    resonate.register(fib)
+    n = 30
+    p: Handle[int] = resonate.run(exec_id(n), fib, n)
+    assert p.result()
