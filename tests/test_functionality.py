@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import random
-from functools import cache
+from functools import cache, lru_cache
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -17,6 +17,20 @@ if TYPE_CHECKING:
 
     from resonate.context import Context
     from resonate.typing import Yieldable
+
+
+@lru_cache
+def _fib(n: int) -> int:
+    if n <= 1:
+        return n
+    return _fib(n - 1) + _fib(n - 2)
+
+
+@lru_cache
+def _factorial(n: int) -> int:
+    if n == 0:
+        return 1
+    return n * _factorial(n - 1)
 
 
 @cache
@@ -88,7 +102,7 @@ def test_factorial_lfi(store: LocalStore | RemoteStore) -> None:
     resonate.register(factorial_lfi)
     n = 30
     p: Handle[int] = resonate.run(exec_id(n), factorial_lfi, n)
-    assert p.result() == 265252859812191058636308480000000  # noqa: PLR2004
+    assert p.result() == _factorial(n)
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -115,7 +129,7 @@ def test_fibonacci_preorder_lfi(store: LocalStore | RemoteStore) -> None:
     resonate.register(fib_lfi)
     n = 30
     p: Handle[int] = resonate.run(exec_id(n), fib_lfi, n)
-    assert p.result() == 832040  # noqa: PLR2004
+    assert p.result() == _fib(n)
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -142,7 +156,7 @@ def test_fibonacci_postorder_lfi(store: LocalStore | RemoteStore) -> None:
     resonate.register(fib_lfi)
     n = 30
     p: Handle[int] = resonate.run(exec_id(n), fib_lfi, n)
-    assert p.result() == 832040  # noqa: PLR2004
+    assert p.result() == _fib(n)
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -184,7 +198,7 @@ def test_factorial_lfc(store: LocalStore | RemoteStore) -> None:
     resonate.register(factorial_lfc)
     n = 30
     p: Handle[int] = resonate.run(exec_id(n), factorial_lfc, n)
-    assert p.result() == 265252859812191058636308480000000  # noqa: PLR2004
+    assert p.result() == _factorial(n)
 
 
 @pytest.mark.parametrize("store", _promise_storages())
@@ -209,7 +223,7 @@ def test_fibonacci_lfc(store: LocalStore | RemoteStore) -> None:
     resonate.register(fib_lfc)
     n = 30
     p: Handle[int] = resonate.run(exec_id(n), fib_lfc, n)
-    assert p.result() == 832040  # noqa: PLR2004
+    assert p.result() == _fib(n)
 
 
 @pytest.mark.skip
@@ -253,9 +267,9 @@ def test_factorial_rfi() -> None:
 
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(factorial_rfi)
-    n = 10
+    n = 50
     p: Handle[int] = resonate.run(exec_id(n), factorial_rfi, n)
-    assert p.result() == 3628800  # noqa: PLR2004
+    assert p.result() == _factorial(n)
 
 
 @pytest.mark.skip
@@ -279,9 +293,9 @@ def test_fibonacci_preorder_rfi() -> None:
 
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(fib_rfi)
-    n = 10
+    n = 50
     p: Handle[int] = resonate.run(exec_id(n), fib_rfi, n)
-    assert p.result() == 55  # noqa: PLR2004
+    assert p.result() == _fib(n)
 
 
 @pytest.mark.skip
@@ -301,15 +315,15 @@ def test_fibonacci_postorder_rfi() -> None:
         p2 = yield ctx.rfi(fib_rfi, n - 2).options(
             id=exec_id(n - 2),
         )
-        n1 = yield p1
         n2 = yield p2
+        n1 = yield p1
         return n1 + n2
 
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(fib_rfi)
     n = 10
     p: Handle[int] = resonate.run(exec_id(n), fib_rfi, n)
-    assert p.result() == 55  # noqa: PLR2004
+    assert p.result() == _fib(n)
 
 
 @pytest.mark.skip
@@ -343,7 +357,9 @@ def test_golden_device_rfi_and_lfc() -> None:
 @pytest.mark.skipif(
     os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
 )
-def test_fibonacci_postorder_rfi_or_lfi() -> None:
+def test_fibonacci_full_random() -> None:
+    rand = random.Random(444)  # noqa: S311
+
     def exec_id(n: int) -> str:
         return f"fib({n})"
 
@@ -351,18 +367,38 @@ def test_fibonacci_postorder_rfi_or_lfi() -> None:
         if n <= 1:
             return n
 
-        p1 = yield ctx.rfi(fib, n - 1).options(
-            id=exec_id(n - 1),
-        )
-        p2 = yield ctx.lfi(fib, n - 2).options(
-            id=exec_id(n - 2),
-        )
-        n1 = yield p1
-        n2 = yield p2
-        return n1 + n2
+        if rand.choice((True, False)):
+            p1 = yield ctx.rfi(fib, n - 1).options(
+                id=exec_id(n - 1),
+            )
+        else:
+            p1 = yield ctx.lfi(fib, n - 1).options(
+                id=exec_id(n - 1),
+                durable=rand.choice((True, False)),
+            )
+
+        if rand.choice((True, False)):
+            p2 = yield ctx.rfi(fib, n - 2).options(
+                id=exec_id(n - 2),
+            )
+        else:
+            p2 = yield ctx.lfi(fib, n - 2).options(
+                id=exec_id(n - 2),
+                durable=rand.choice((True, False)),
+            )
+
+        promises = [p1, p2]
+        total: int = 0
+        while promises:
+            idx = rand.randint(0, len(promises) - 1)
+            p = promises.pop(idx)
+            v = yield p
+            total += v
+
+        return total
 
     resonate = Resonate(store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]))
     resonate.register(fib)
-    n = 30
+    n = 3
     p: Handle[int] = resonate.run(exec_id(n), fib, n)
-    assert p.result()
+    assert p.result() == _fib(n)

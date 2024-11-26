@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from typing_extensions import assert_never
@@ -27,10 +27,10 @@ class Promise(Generic[T]):
 
 
 @final
+@dataclass(frozen=True)
 class Handle(Generic[T]):
-    def __init__(self, id: str, future: Future[T]) -> None:
-        self.id = id
-        self._f = future
+    id: str
+    _f: Future[T] = field(repr=False)
 
     def result(self, timeout: float | None = None) -> T:
         return self._f.result(timeout=timeout)
@@ -54,7 +54,7 @@ class Record(Generic[T]):
         self.children: list[Record[Any]] = []
         self.invocation: LFI | RFI = invocation
         self.promise = Promise[T](id=id)
-        self.handle = Handle[T](id=self.id, future=self._f)
+        self.handle = Handle[T](id=self.id, _f=self._f)
         self.durable_promise: DurablePromiseRecord | None = None
         self._task: TaskRecord | None = None
         self.ctx = ctx
@@ -62,7 +62,8 @@ class Record(Generic[T]):
         self.blocked_on: Record[Any] | None = None
         self._num_children: int = 0
         logger.info(
-            "New record %s created. Child of %s",
+            "New record %s %s created. Child of %s",
+            type(self.invocation).__name__,
             self.id,
             self.parent.id if self.parent else None,
         )

@@ -149,28 +149,28 @@ class DurablePromiseRecord(Decodable):
 @final
 @dataclass(frozen=True)
 class Invoke(Decodable):
-    root_promise_store: DurablePromiseRecord
+    root_durable_promise: DurablePromiseRecord
 
     @classmethod
     def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> Self:
         return cls(
-            root_promise_store=DurablePromiseRecord.decode(data, encoder=encoder),
+            root_durable_promise=DurablePromiseRecord.decode(data, encoder=encoder),
         )
 
 
 @final
 @dataclass(frozen=True)
 class Resume(Decodable):
-    root_promise_store: DurablePromiseRecord
-    leaf_promise_store: DurablePromiseRecord
+    root_durable_promise: DurablePromiseRecord
+    leaf_durable_promise: DurablePromiseRecord
 
     @classmethod
     def decode(cls, data: dict[str, Any], encoder: IEncoder[str, str]) -> Self:
         return cls(
-            root_promise_store=DurablePromiseRecord.decode(
+            root_durable_promise=DurablePromiseRecord.decode(
                 data["root"]["data"], encoder=encoder
             ),
-            leaf_promise_store=DurablePromiseRecord.decode(
+            leaf_durable_promise=DurablePromiseRecord.decode(
                 data["leaf"]["data"], encoder=encoder
             ),
         )
