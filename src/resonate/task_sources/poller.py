@@ -1,30 +1,37 @@
 from __future__ import annotations
 
 import time
-from threading import Thread
-from typing import TYPE_CHECKING, Any
+from threading import Event, Thread
+from typing import Any
 
 import requests
 
 from resonate.encoders import JsonEncoder
+from resonate.queue import Queue
 from resonate.stores.record import TaskRecord
 from resonate.task_sources.traits import ITaskSource
 
-if TYPE_CHECKING:
-    from resonate.scheduler.traits import IScheduler
-
 
 class Poller(ITaskSource):
-    def __init__(self, scheduler: IScheduler, pid: str, url: str, group: str) -> None:
-        self._scheduler = scheduler
+    def __init__(self, url: str, group: str) -> None:
         self._url = url
         self._group = group
-        self._pid = pid
         self._encoder = JsonEncoder()
+        self._sync_event: Event | None = None
+        self._pid: str | None = None
+        self._tasks: Queue[TaskRecord] = Queue()
         self._worket_thread = Thread(target=self._run, daemon=True)
-        self._worket_thread.start()
+
+    def get_tasks(self) -> list[TaskRecord]:
+        return self._tasks.dequeue_all()
+
+    def set_sync_event(self, event: Event) -> None:
+        assert self._sync_event is None
+        self._sync_event = event
 
     def _run(self) -> None:
+        assert self._pid is not None
+        assert self._sync_event is not None
         try:
             while True:
                 response = requests.get(  # noqa: S113
@@ -39,11 +46,14 @@ class Poller(ITaskSource):
                     assert stripped.startswith("data:")
                     info = self._encoder.decode(stripped[5:])
                     task = TaskRecord.decode(info["task"], encoder=self._encoder)
-                    self._scheduler.add_task(task)
+                    self._tasks.put_nowait(task)
+                    self._sync_event.set()
         except requests.exceptions.ConnectionError:
             time.sleep(2)
 
-    def start(self) -> None:
+    def start(self, pid: str) -> None:
+        assert self._pid is None
+        self._pid = pid
         self._worket_thread.start()
 
     def default_recv(self) -> dict[str, Any]:

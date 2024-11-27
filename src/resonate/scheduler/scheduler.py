@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from resonate.result import Result
     from resonate.stores.local import LocalStore
     from resonate.stores.record import TaskRecord
+    from resonate.task_sources.traits import ITaskSource
     from resonate.typing import DurableCoro, DurableFn
 
 T = TypeVar("T")
@@ -55,10 +56,12 @@ class Scheduler(IScheduler):
         deps: Dependencies,
         pid: str,
         store: LocalStore | RemoteStore,
+        task_source: ITaskSource,
     ) -> None:
         self._pid = pid
         self._deps = deps
         self._fn_registry = fn_registry
+        self._task_source = task_source
 
         self._store = store
         self._runnable: deque[tuple[str, Result[Any, Exception] | None]] = deque()
@@ -67,7 +70,6 @@ class Scheduler(IScheduler):
         self._records: dict[str, Record[Any]] = {}
 
         self._record_queue: Queue[str] = Queue()
-        self._task_queue: Queue[TaskRecord] = Queue()
         self._sq: Queue[SQE[Any]] = Queue()
         self._cq: Queue[CQE[Any]] = Queue()
 
@@ -155,13 +157,12 @@ class Scheduler(IScheduler):
 
         return record.handle
 
-    def add_task(self, task: TaskRecord) -> None:
-        self._task_queue.put_nowait(task)
-        self._continue()
-
     def add_cqe(self, cqe: CQE[Any]) -> None:
         self._cq.put_nowait(cqe)
         self._continue()
+
+    def get_sync_event(self) -> Event:
+        return self._event_loop
 
     def set_default_recv(self, recv: dict[str, Any]) -> None:
         assert self._default_recv is None
@@ -183,7 +184,7 @@ class Scheduler(IScheduler):
             # check for tasks added from task_source
             # to firt claim the task, then try to resume if in memory
             # else invoke.
-            for task in self._task_queue.dequeue_all():
+            for task in self._task_source.get_tasks():
                 assert isinstance(self._store, RemoteStore)
 
                 invoke_or_resume = self._store.tasks.claim(
@@ -257,8 +258,6 @@ class Scheduler(IScheduler):
             self._records[record.id] = record
             record.add_durable_promise(invoke.root_durable_promise)
 
-        # TODO: If there's already a task. all we need to do is replace a task with the
-        # newest task. DO NOT add to the record queue.
         record.add_task(task=task)
         self._record_queue.put_nowait(record.id)
         self._continue()
@@ -529,7 +528,7 @@ class Scheduler(IScheduler):
                 headers=None,
                 data=self._encoder.encode(data),
                 timeout=sys.maxsize,
-                tags={"resonate:invoke": "default"},
+                tags={"resonate:invoke": rfi.opts.send_to or "default"},
             )
             assert child_id in self._records
             assert not record.done()

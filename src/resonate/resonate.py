@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, TypedDict, TypeVar, overload
 from uuid import uuid4
 
 from typing_extensions import Concatenate, ParamSpec
@@ -10,7 +10,7 @@ from resonate.dependencies import Dependencies
 from resonate.options import Options
 from resonate.scheduler.scheduler import Scheduler
 from resonate.scheduler.traits import IScheduler
-from resonate.stores.local import LocalStore, MemoryStorage
+from resonate.stores.remote import RemoteStore
 from resonate.task_sources.poller import Poller
 from resonate.task_sources.traits import ITaskSource
 
@@ -20,12 +20,16 @@ if TYPE_CHECKING:
     from resonate.context import Context
     from resonate.record import Handle
     from resonate.scheduler.traits import IScheduler
-    from resonate.stores.remote import RemoteStore
+    from resonate.stores.local import LocalStore
     from resonate.task_sources.traits import ITaskSource
     from resonate.typing import DurableCoro, DurableFn, Yieldable
 
 P = ParamSpec("P")
 T = TypeVar("T")
+
+
+class _RunOptions(TypedDict):
+    version: int
 
 
 class Resonate:
@@ -39,6 +43,12 @@ class Resonate:
         self._deps = Dependencies()
         self._fn_registry = FunctionRegistry()
         self.pid = pid if pid is not None else uuid4().hex
+
+        self._task_source: ITaskSource = task_source or Poller(
+            url="http://localhost:8002",
+            group="default",
+        )
+
         self._scheduler: IScheduler = (
             scheduler
             if scheduler is not None
@@ -46,18 +56,20 @@ class Resonate:
                 fn_registry=self._fn_registry,
                 deps=self._deps,
                 pid=self.pid,
-                store=store if store is not None else LocalStore(MemoryStorage()),
+                store=store
+                if store is not None
+                else RemoteStore("http://localhost:8001"),
+                task_source=self._task_source,
             )
         )
 
-        self._task_source: ITaskSource = task_source or Poller(
-            scheduler=self._scheduler,
-            url="http://localhost:8002",
-            group="default",
-            pid=self.pid,
-        )
-
+        self._task_source.set_sync_event(self._scheduler.get_sync_event())
         self._scheduler.set_default_recv(self._task_source.default_recv())
+
+        self._task_source.start(self.pid)
+
+    def set_dependency(self, key: str, obj: Any) -> None:  # noqa: ANN401
+        self._deps.set(key, obj)
 
     @overload
     def register(
@@ -67,28 +79,34 @@ class Resonate:
             Generator[Yieldable, Any, Any],
         ],
         name: str | None = None,
+        version: int = 1,
     ) -> None: ...
     @overload
     def register(
         self,
         func: Callable[Concatenate[Context, P], Coroutine[Any, Any, Any]],
         name: str | None = None,
+        version: int = 1,
     ) -> None: ...
     @overload
     def register(
         self,
         func: Callable[Concatenate[Context, P], Any],
         name: str | None = None,
+        version: int = 1,
     ) -> None: ...
     def register(
         self,
         func: DurableCoro[P, Any] | DurableFn[P, Any],
         name: str | None = None,
+        version: int = 1,
     ) -> None:
+        _ = version
         if name is None:
             name = func.__name__
         self._fn_registry.add(name, (func, Options(durable=True)))
 
+    @overload
     def run(
         self,
         id: str,
@@ -101,5 +119,46 @@ class Resonate:
         /,
         *args: P.args,
         **kwargs: P.kwargs,
+    ) -> Handle[T]: ...
+    @overload
+    def run(
+        self,
+        id: str,
+        func: tuple[
+            Callable[
+                Concatenate[Context, P],
+                Generator[Yieldable, Any, T],
+            ]
+            | Callable[Concatenate[Context, P], T]
+            | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
+            _RunOptions,
+        ],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> Handle[T]: ...
+    def run(
+        self,
+        id: str,
+        func: Callable[
+            Concatenate[Context, P],
+            Generator[Yieldable, Any, T],
+        ]
+        | Callable[Concatenate[Context, P], T]
+        | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]]
+        | tuple[
+            Callable[
+                Concatenate[Context, P],
+                Generator[Yieldable, Any, T],
+            ]
+            | Callable[Concatenate[Context, P], T]
+            | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
+            _RunOptions,
+        ],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
     ) -> Handle[T]:
+        if isinstance(func, tuple):
+            raise NotImplementedError
         return self._scheduler.run(id, func, *args, **kwargs)

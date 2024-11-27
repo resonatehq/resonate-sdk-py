@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from typing_extensions import ParamSpec
 
 if TYPE_CHECKING:
+    from threading import Event
+
     from resonate.record import Handle
-    from resonate.stores.record import TaskRecord
     from resonate.typing import DurableCoro, DurableFn
 
 P = ParamSpec("P")
@@ -26,6 +27,7 @@ class IScheduler(ABC):
     ) -> Handle[T]: ...
 
     @abstractmethod
-    def add_task(self, task: TaskRecord) -> None: ...
-    @abstractmethod
     def set_default_recv(self, recv: dict[str, Any]) -> None: ...
+
+    @abstractmethod
+    def get_sync_event(self) -> Event: ...
