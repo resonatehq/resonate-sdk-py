@@ -11,7 +11,9 @@ class Options:
         id: str | None = None,
         durable: bool = True,
         send_to: str | None = None,
+        version: int = 1,
     ) -> None:
         self.durable = durable
         self.id = id
         self.send_to = send_to
+        self.version = version

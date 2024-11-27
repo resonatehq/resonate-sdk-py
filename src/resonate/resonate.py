@@ -6,6 +6,7 @@ from uuid import uuid4
 from typing_extensions import Concatenate, ParamSpec
 
 from resonate.collections import FunctionRegistry
+from resonate.dataclasses import RegisteredFn
 from resonate.dependencies import Dependencies
 from resonate.options import Options
 from resonate.scheduler.scheduler import Scheduler
@@ -76,35 +77,35 @@ class Resonate:
         self,
         func: Callable[
             Concatenate[Context, P],
-            Generator[Yieldable, Any, Any],
+            Generator[Yieldable, Any, T],
         ],
         name: str | None = None,
         version: int = 1,
-    ) -> None: ...
+    ) -> RegisteredFn[P, T]: ...
     @overload
     def register(
         self,
-        func: Callable[Concatenate[Context, P], Coroutine[Any, Any, Any]],
+        func: Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
         name: str | None = None,
         version: int = 1,
-    ) -> None: ...
+    ) -> RegisteredFn[P, T]: ...
     @overload
     def register(
         self,
-        func: Callable[Concatenate[Context, P], Any],
+        func: Callable[Concatenate[Context, P], T],
         name: str | None = None,
         version: int = 1,
-    ) -> None: ...
+    ) -> RegisteredFn[P, T]: ...
     def register(
         self,
-        func: DurableCoro[P, Any] | DurableFn[P, Any],
+        func: DurableCoro[P, T] | DurableFn[P, T],
         name: str | None = None,
         version: int = 1,
-    ) -> None:
-        _ = version
+    ) -> RegisteredFn[P, T]:
         if name is None:
             name = func.__name__
-        self._fn_registry.add(name, (func, Options(durable=True)))
+        self._fn_registry.add(name, (func, Options(version=version, durable=True)))
+        return RegisteredFn[P, T](self._scheduler, func)
 
     @overload
     def run(

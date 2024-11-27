@@ -430,3 +430,35 @@ def test_fibonacci_full_random() -> None:
     n = 3
     p: Handle[int] = resonate.run(exec_id(n), fib, n)
     assert p.result() == _fib(n)
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_golden_device_rfi_and_lfc_with_decorator() -> None:
+    group = "test-golden-device-rfi-and-lfc-with-decorator"
+
+    resonate = Resonate(
+        store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
+        task_source=Poller("http://localhost:8002", group=group),
+    )
+
+    @resonate.register
+    def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        v: str = yield ctx.lfc(bar, n).options(
+            id="bar",
+            durable=False,
+        )
+        return v
+
+    def bar(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        p: Promise[str] = yield ctx.rfi(baz, n).options(id="baz", send_to=poll(group))
+        v: str = yield p
+        return v
+
+    @resonate.register
+    def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    p: Handle[str] = foo.run("foo", n="hi")
+    assert p.result() == "hi"

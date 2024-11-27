@@ -10,11 +10,24 @@ from resonate.result import Err, Ok, Result
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from resonate.record import Record
+    from resonate.record import Handle, Record
+    from resonate.scheduler.traits import IScheduler
     from resonate.typing import DurableCoro, DurableFn, Yieldable
 
 T = TypeVar("T")
 P = ParamSpec("P")
+
+
+@final
+class RegisteredFn(Generic[P, T]):
+    def __init__(
+        self, scheduler: IScheduler, func: DurableCoro[P, T] | DurableFn[P, T], /
+    ) -> None:
+        self.fn = func
+        self._scheduler = scheduler
+
+    def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[T]:
+        return self._scheduler.run(id, self.fn, *args, **kwargs)
 
 
 @final

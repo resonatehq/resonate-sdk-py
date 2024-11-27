@@ -12,7 +12,7 @@ from resonate.actions import (
     RFI,
 )
 from resonate.commands import Command, DurablePromise
-from resonate.dataclasses import Invocation
+from resonate.dataclasses import Invocation, RegisteredFn
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Generator
@@ -42,6 +42,14 @@ class Context:
     @overload
     def rfc(self, cmd: DurablePromise, /) -> RFC: ...
     @overload
+    def rfc(
+        self,
+        func: RegisteredFn[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> RFC: ...
+    @overload
     def rfc(self, func: str, /, *args: Any, **kwargs: Any) -> RFC: ...  # noqa: ANN401
     @overload
     def rfc(
@@ -61,7 +69,11 @@ class Context:
     ) -> RFC: ...
     def rfc(
         self,
-        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | str | DurablePromise,
+        func_or_cmd: DurableCoro[P, T]
+        | DurableFn[P, T]
+        | str
+        | DurablePromise
+        | RegisteredFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -71,12 +83,22 @@ class Context:
             unit = Invocation(func_or_cmd, args, kwargs)
         elif isinstance(func_or_cmd, DurablePromise):
             unit = func_or_cmd
+        elif isinstance(func_or_cmd, RegisteredFn):
+            unit = Invocation(func_or_cmd.fn, *args, **kwargs)
         else:
             unit = Invocation(func_or_cmd, *args, **kwargs)
         return RFC(unit)
 
     @overload
     def rfi(self, cmd: DurablePromise, /) -> RFI: ...
+    @overload
+    def rfi(
+        self,
+        func: RegisteredFn[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> RFI: ...
     @overload
     def rfi(self, func: str, /, *args: Any, **kwargs: Any) -> RFI: ...  # noqa: ANN401
     @overload
@@ -97,7 +119,11 @@ class Context:
     ) -> RFI: ...
     def rfi(
         self,
-        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | str | DurablePromise,
+        func_or_cmd: DurableCoro[P, T]
+        | DurableFn[P, T]
+        | str
+        | DurablePromise
+        | RegisteredFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -106,6 +132,14 @@ class Context:
 
     @overload
     def lfi(self, cmd: Command, /) -> LFI: ...
+    @overload
+    def lfi(
+        self,
+        func: RegisteredFn[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFI: ...
     @overload
     def lfi(
         self,
@@ -124,7 +158,7 @@ class Context:
     ) -> LFI: ...
     def lfi(
         self,
-        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | Command,
+        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | Command | RegisteredFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -145,6 +179,14 @@ class Context:
     @overload
     def lfc(
         self,
+        func: RegisteredFn[P, Any],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFC: ...
+    @overload
+    def lfc(
+        self,
         func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
@@ -160,7 +202,7 @@ class Context:
     ) -> LFC: ...
     def lfc(
         self,
-        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | Command,
+        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | Command | RegisteredFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -174,6 +216,8 @@ class Context:
         unit: Command | Invocation[Any]
         if isinstance(func_or_cmd, Command):
             unit = func_or_cmd
+        elif isinstance(func_or_cmd, RegisteredFn):
+            unit = Invocation(func_or_cmd.fn, *args, **kwargs)
         else:
             unit = Invocation(func_or_cmd, *args, **kwargs)
         return LFC(unit)
