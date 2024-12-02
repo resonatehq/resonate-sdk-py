@@ -42,7 +42,7 @@ class RFC:
         self.opts = Options(id=id, send_to=send_to)
         return self
 
-    def to_invocation(self) -> RFI:
+    def to_rfi(self) -> RFI:
         return RFI(self.unit, self.opts)
 
 

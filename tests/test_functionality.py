@@ -252,7 +252,7 @@ def test_golden_device_rfi() -> None:
     )
     resonate.register(foo_golden_device_rfi)
     resonate.register(bar_golden_device_rfi)
-    p: Handle[str] = resonate.run("foo", foo_golden_device_rfi, "hi")
+    p: Handle[str] = resonate.run(f"{group}-foo", foo_golden_device_rfi, "hi")
     assert isinstance(p, Handle)
     assert p.result() == "hi"
 
@@ -376,7 +376,7 @@ def test_golden_device_rfi_and_lfc() -> None:
     )
     resonate.register(foo)
     resonate.register(baz)
-    p: Handle[str] = resonate.run("foo", foo, "hi")
+    p: Handle[str] = resonate.run(f"{group}-foo", foo, "hi")
     assert p.result() == "hi"
 
 
@@ -459,5 +459,151 @@ def test_golden_device_rfi_and_lfc_with_decorator() -> None:
     def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
-    p: Handle[str] = foo.run("foo", n="hi")
+    p: Handle[str] = foo.run(f"{group}-foo", n="hi")
+    assert p.result() == "hi"
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_golden_device_rfc() -> None:
+    group = "test-golden-device-rfc"
+
+    def foo_golden_device_rfc(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        v: str = yield ctx.rfc(bar_golden_device_rfc, n).options(
+            id="bar", send_to=poll(group)
+        )
+        assert isinstance(v, str)
+        return v
+
+    def bar_golden_device_rfc(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    resonate = Resonate(
+        store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
+        task_source=Poller("http://localhost:8002", group=group),
+    )
+    resonate.register(foo_golden_device_rfc)
+    resonate.register(bar_golden_device_rfc)
+    p: Handle[str] = resonate.run(f"{group}-foo", foo_golden_device_rfc, "hi")
+    assert isinstance(p, Handle)
+    assert p.result() == "hi"
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_factorial_rfc() -> None:
+    group = "test-factorial-rfc"
+
+    def exec_id(n: int) -> str:
+        return f"test-factorial-rfc-{n}"
+
+    def factorial_rfc(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 0:
+            return 1
+        return n * (
+            yield ctx.rfc(factorial_rfc, n - 1).options(
+                id=exec_id(n - 1), send_to=poll(group)
+            )
+        )
+
+    resonate = Resonate(
+        store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
+        task_source=Poller("http://localhost:8002", group=group),
+    )
+    resonate.register(factorial_rfc)
+    n = 10
+    p: Handle[int] = resonate.run(exec_id(n), factorial_rfc, n)
+    assert p.result() == _factorial(n)
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_fibonacci_preorder_rfc() -> None:
+    group = "test-fibonacci-preorder-rfc"
+
+    def exec_id(n: int) -> str:
+        return f"test-fib-preorder-rfc-{n}"
+
+    def fib_rfc(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n <= 1:
+            return n
+        n1 = yield ctx.rfc(fib_rfc, n - 1).options(
+            id=exec_id(n - 1), send_to=poll(group)
+        )
+        n2 = yield ctx.rfc(fib_rfc, n - 2).options(
+            id=exec_id(n - 2), send_to=poll(group)
+        )
+        return n1 + n2
+
+    resonate = Resonate(
+        store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
+        task_source=Poller("http://localhost:8002", group=group),
+    )
+    resonate.register(fib_rfc)
+    n = 10
+    p: Handle[int] = resonate.run(exec_id(n), fib_rfc, n)
+    assert p.result() == _fib(n)
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_golden_device_rfc_and_lfc() -> None:
+    group = "test-golden-device-rfc-and-lfc"
+
+    def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        v: str = yield ctx.lfc(bar, n).options(
+            id="bar",
+            durable=False,
+        )
+        return v
+
+    def bar(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        v: str = yield ctx.rfc(baz, n).options(id="baz", send_to=poll(group))
+        return v
+
+    def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    resonate = Resonate(
+        store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
+        task_source=Poller("http://localhost:8002", group=group),
+    )
+    resonate.register(foo)
+    resonate.register(baz)
+    p: Handle[str] = resonate.run(f"{group}-foo", foo, "hi")
+    assert p.result() == "hi"
+
+
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
+def test_golden_device_rfc_and_lfc_with_decorator() -> None:
+    group = "test-golden-device-rfc-and-lfc-with-decorator"
+
+    resonate = Resonate(
+        store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
+        task_source=Poller("http://localhost:8002", group=group),
+    )
+
+    @resonate.register
+    def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        v: str = yield ctx.lfc(bar, n).options(
+            id="bar",
+            durable=False,
+        )
+        return v
+
+    def bar(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+        v: str = yield ctx.rfc(baz, n).options(id="baz", send_to=poll(group))
+        return v
+
+    @resonate.register
+    def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    p: Handle[str] = foo.run(f"{group}-foo", n="hi")
     assert p.result() == "hi"
