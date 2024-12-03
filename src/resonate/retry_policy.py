@@ -25,11 +25,11 @@ class Exponential(Retriable):
     max_retries: int
 
     def calculate_delay(self, attempt: int) -> float:
-        assert attempt > 0, "Attempt must be possitive."
+        assert attempt > 0, "Attempt must be positive."
         return self.base_delay * (self.factor**attempt)
 
     def should_retry(self, attempt: int) -> bool:
-        assert attempt > 0, "Attempt must be possitive."
+        assert attempt > 0, "Attempt must be positive."
         if self.max_retries < 0:
             return True
         return attempt <= self.max_retries
@@ -44,11 +44,11 @@ class Linear(Retriable):
     max_retries: int
 
     def calculate_delay(self, attempt: int) -> float:
-        assert attempt > 0, "Attempt must be possitive."
+        assert attempt > 0, "Attempt must be positive."
         return self.delay * attempt
 
     def should_retry(self, attempt: int) -> bool:
-        assert attempt > 0, "Attempt must be possitive."
+        assert attempt > 0, "Attempt must be positive."
         if self.max_retries < 0:
             return True
         return attempt <= self.max_retries
@@ -63,11 +63,11 @@ class Constant(Retriable):
     max_retries: int
 
     def calculate_delay(self, attempt: int) -> float:
-        assert attempt > 0, "Attempt must be possitive."
+        assert attempt > 0, "Attempt must be positive."
         return self.delay
 
     def should_retry(self, attempt: int) -> bool:
-        assert attempt > 0, "Attempt must be possitive."
+        assert attempt > 0, "Attempt must be positive."
         if self.max_retries < 0:
             return True
         return attempt <= self.max_retries
