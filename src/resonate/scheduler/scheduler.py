@@ -20,7 +20,6 @@ from resonate.context import Context
 from resonate.dataclasses import FinalValue, Invocation, ResonateCoro
 from resonate.encoders import JsonEncoder
 from resonate.logging import logger
-from resonate.options import Options
 from resonate.processor import SQE, Processor
 from resonate.queue import Queue
 from resonate.record import Promise, Record
@@ -120,9 +119,7 @@ class Scheduler(IScheduler):
         record = Record[Any](
             id=id,
             parent=None,
-            invocation=RFI(
-                Invocation(func, *args, **kwargs), Options(durable=True, id=id)
-            ),
+            invocation=RFI(Invocation(func, *args, **kwargs), opts),
             ctx=Context(self._deps),
         )
         self._records[record.id] = record
@@ -150,7 +147,7 @@ class Scheduler(IScheduler):
 
         if durable_promise.is_completed():
             assert task is None
-            record.set_result(durable_promise.get_value(self._encoder))
+            record.set_result(durable_promise.get_value(self._encoder), deduping=True)
         else:
             self._record_queue.put_nowait(record.id)
             self._continue()
@@ -205,8 +202,8 @@ class Scheduler(IScheduler):
             while self._runnable:
                 id, next_value = self._runnable.pop()
                 record = self._records[id]
-                assert record.coro
-                yielded_value = record.coro.advance(next_value)
+                coro = record.get_coro()
+                yielded_value = coro.advance(next_value)
 
                 if isinstance(yielded_value, LFI):
                     self._process_lfi(record, yielded_value)
@@ -274,7 +271,7 @@ class Scheduler(IScheduler):
             assert leaf_record.is_root
             root_record.add_task(task)
             if not leaf_record.done():
-                assert leaf_record.coro, "This had to be done here."
+                assert leaf_record.has_coro(), "This had to be done here."
                 leaf_record.set_result(
                     resume.leaf_durable_promise.get_value(self._encoder)
                 )
@@ -311,7 +308,9 @@ class Scheduler(IScheduler):
             )
             if callback is None:
                 assert durable_promise.is_completed()
-                record.set_result(durable_promise.get_value(self._encoder))
+                record.set_result(
+                    durable_promise.get_value(self._encoder), deduping=True
+                )
             else:
                 self._add_to_awaiting_remote(promise_record.id, record.id)
                 if self._blocked_only_on_remote(root.id):
@@ -490,7 +489,7 @@ class Scheduler(IScheduler):
             if durable_promise.is_completed():
                 assert callback is None
                 value = durable_promise.get_value(self._encoder)
-                child_record.set_result(value)
+                child_record.set_result(value, deduping=True)
                 self._add_to_runnable(record.id, child_record.safe_result())
             else:
                 self._add_to_awaiting_remote(child_id, record.id)
@@ -548,7 +547,7 @@ class Scheduler(IScheduler):
                 child_record.add_durable_promise(durable_promise)
                 if durable_promise.is_completed():
                     value = durable_promise.get_value(self._encoder)
-                    child_record.set_result(value)
+                    child_record.set_result(value, deduping=True)
                     self._add_to_runnable(record.id, child_record.safe_result())
                 else:
                     self._ingest(child_id)
@@ -586,7 +585,7 @@ class Scheduler(IScheduler):
 
             if durable_promise.is_completed():
                 value = durable_promise.get_value(self._encoder)
-                child_record.set_result(value)
+                child_record.set_result(value, deduping=True)
             self._add_to_runnable(record.id, Ok(child_record.promise))
 
     def _process_lfi(self, record: Record[Any], lfi: LFI) -> None:
@@ -616,7 +615,7 @@ class Scheduler(IScheduler):
 
                 if durable_promise.is_completed():
                     value = durable_promise.get_value(self._encoder)
-                    child_record.set_result(value)
+                    child_record.set_result(value, deduping=True)
                 else:
                     self._ingest(child_id)
                 self._add_to_runnable(record.id, Ok(child_record.promise))
@@ -627,7 +626,11 @@ class Scheduler(IScheduler):
     def _process_final_value(
         self, record: Record[Any], final_value: Result[Any, Exception]
     ) -> None:
-        if record.invocation.opts.durable:
+        if record.should_retry(final_value):
+            record.increate_attempt()
+            self._ingest(record.id)
+
+        elif record.invocation.opts.durable:
             durable_promise: DurablePromiseRecord
             if isinstance(final_value, Ok):
                 durable_promise = self._store.promises.resolve(

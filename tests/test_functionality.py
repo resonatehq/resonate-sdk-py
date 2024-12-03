@@ -9,6 +9,7 @@ import pytest
 
 from resonate.record import Handle, Promise
 from resonate.resonate import Resonate
+from resonate.retry_policy import constant, exponential, linear, never
 from resonate.stores.local import LocalStore, MemoryStorage
 from resonate.stores.remote import RemoteStore
 from resonate.targets import poll
@@ -607,3 +608,49 @@ def test_golden_device_rfc_and_lfc_with_decorator() -> None:
 
     p: Handle[str] = foo.run(f"{group}-foo", n="hi")
     assert p.result() == "hi"
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_retry_policies_local_coroutine(store: LocalStore | RemoteStore) -> None:
+    def foo_retry_policy(ctx: Context, n: str) -> Generator[Yieldable, str, str]:
+        yield ctx.lfc(bar_retry_policy, n)
+        msg = "oops something went wrong"
+        raise RuntimeError(msg)
+
+    def bar_retry_policy(ctx: Context, n: str) -> str:  # noqa: ARG001
+        return n
+
+    for policy in (
+        never(),
+        constant(delay=0, max_retries=3),
+        linear(delay=0, max_retries=3),
+        exponential(base_delay=0, factor=1, max_retries=1),
+    ):
+        resonate = Resonate(store=store)
+        resonate.register(foo_retry_policy, retry_policy=policy)
+        p: Handle[str] = resonate.run(
+            f"foo-retry-policy-local-coroutine-{policy!s}", foo_retry_policy, "hi"
+        )
+        with pytest.raises(RuntimeError):
+            p.result()
+
+
+@pytest.mark.parametrize("store", _promise_storages())
+def test_retry_policies_local_func(store: LocalStore | RemoteStore) -> None:
+    def foo_retry_policy(ctx: Context, n: str) -> str:  # noqa: ARG001
+        msg = "oops something went wrong"
+        raise RuntimeError(msg)
+
+    for policy in (
+        never(),
+        constant(delay=0, max_retries=3),
+        linear(delay=0, max_retries=3),
+        exponential(base_delay=0, factor=1, max_retries=1),
+    ):
+        resonate = Resonate(store=store)
+        resonate.register(foo_retry_policy, retry_policy=policy)
+        p: Handle[str] = resonate.run(
+            f"foo-retry-policy-local-func-{policy!s}", foo_retry_policy, "hi"
+        )
+        with pytest.raises(RuntimeError):
+            p.result()
