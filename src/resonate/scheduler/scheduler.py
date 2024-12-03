@@ -273,7 +273,7 @@ class Scheduler(IScheduler):
             if not leaf_record.done():
                 assert leaf_record.has_coro(), "This had to be done here."
                 leaf_record.set_result(
-                    resume.leaf_durable_promise.get_value(self._encoder)
+                    resume.leaf_durable_promise.get_value(self._encoder), deduping=False
                 )
 
             self._unblock_awaiting_remote(leaf_record.id)
@@ -658,7 +658,7 @@ class Scheduler(IScheduler):
             if record.has_task():
                 self._complete_task(record.id)
 
-            record.set_result(final_value)
+            record.set_result(final_value, deduping=False)
             self._unblock_awaiting_local(record.id)
 
             root = record.root()
@@ -666,5 +666,5 @@ class Scheduler(IScheduler):
                 self._complete_task(root.id)
 
         else:
-            record.set_result(final_value)
+            record.set_result(final_value, deduping=False)
             self._unblock_awaiting_local(record.id)

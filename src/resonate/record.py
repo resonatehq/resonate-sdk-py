@@ -131,9 +131,7 @@ class Record(Generic[T]):
             return False
         return self.retry_policy.should_retry(self._attempt)
 
-    def set_result(
-        self, result: Result[T, Exception], *, deduping: bool = False
-    ) -> None:
+    def set_result(self, result: Result[T, Exception], *, deduping: bool) -> None:
         if not deduping:
             assert not self.should_retry(
                 result
