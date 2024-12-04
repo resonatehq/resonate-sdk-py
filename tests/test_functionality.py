@@ -627,7 +627,7 @@ def test_retry_policies_local_coroutine(store: LocalStore | RemoteStore) -> None
         never(),
         constant(delay=0, max_retries=3),
         linear(delay=0, max_retries=3),
-        exponential(base_delay=0, factor=1, max_retries=1),
+        exponential(base_delay=0, factor=1, max_retries=1, max_delay=5),
     ):
         resonate = Resonate(store=store)
         resonate.register(foo_retry_policy, retry_policy=policy)
@@ -648,7 +648,7 @@ def test_retry_policies_local_func(store: LocalStore | RemoteStore) -> None:
         never(),
         constant(delay=0, max_retries=3),
         linear(delay=0, max_retries=3),
-        exponential(base_delay=0, factor=1, max_retries=1),
+        exponential(base_delay=0, factor=1, max_retries=1, max_delay=5),
     ):
         resonate = Resonate(store=store)
         resonate.register(foo_retry_policy, retry_policy=policy)

@@ -12,7 +12,7 @@ from resonate.actions import LFI, RFI
 from resonate.dataclasses import Invocation
 from resonate.logging import logger
 from resonate.result import Err, Ok, Result
-from resonate.retry_policy import Never, constant, never
+from resonate.retry_policy import Never, exponential, never
 from resonate.stores.record import DurablePromiseRecord, TaskRecord
 
 if TYPE_CHECKING:
@@ -69,8 +69,11 @@ class Record(Generic[T]):
             assert iscoroutinefunction(invocation.unit.fn) or isfunction(
                 invocation.unit.fn
             )
-            self.retry_policy = invocation.opts.retry_policy or constant(
-                delay=3, max_retries=-1
+            self.retry_policy = invocation.opts.retry_policy or exponential(
+                base_delay=1,
+                factor=2,
+                max_retries=-1,
+                max_delay=30,
             )
 
         self._attempt: int = 1
