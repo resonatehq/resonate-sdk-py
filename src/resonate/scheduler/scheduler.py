@@ -451,7 +451,14 @@ class Scheduler(IScheduler):
         record.remove_task()
 
     def _process_rfc(self, record: Record[Any], rfc: RFC) -> None:
-        child_id = rfc.opts.id if rfc.opts.id is not None else record.next_child_name()
+        child_id: str
+        next_child_name = record.next_child_name()
+        if isinstance(rfc.unit, Invocation):
+            child_id = rfc.opts.id if rfc.opts.id is not None else next_child_name
+        elif isinstance(rfc.unit, DurablePromise):
+            child_id = rfc.unit.id if rfc.unit.id is not None else next_child_name
+        else:
+            assert_never(rfc.unit)
         child_record = self._records.get(child_id)
         root = record.root()
         if child_record is not None:
@@ -496,10 +503,11 @@ class Scheduler(IScheduler):
                 if self._blocked_only_on_remote(root.id):
                     self._complete_task(root.id)
 
-    def _get_data_from_rfi(self, rfi: RFI) -> dict[str, Any]:
+    def _get_data_from_rfi(self, rfi: RFI) -> dict[str, Any] | None:
+        data: dict[str, Any] | None
         if isinstance(rfi.unit, DurablePromise):
-            raise NotImplementedError
-        if isinstance(rfi.unit, Invocation):
+            data = rfi.unit.data
+        elif isinstance(rfi.unit, Invocation):
             func: str
             if isinstance(rfi.unit.fn, str):
                 func = rfi.unit.fn
@@ -558,7 +566,14 @@ class Scheduler(IScheduler):
                 self._add_to_awaiting_local(child_id, record.id)
 
     def _process_rfi(self, record: Record[Any], rfi: RFI) -> None:
-        child_id = rfi.opts.id if rfi.opts.id is not None else record.next_child_name()
+        child_id: str
+        next_child_name = record.next_child_name()
+        if isinstance(rfi.unit, Invocation):
+            child_id = rfi.opts.id if rfi.opts.id is not None else next_child_name
+        elif isinstance(rfi.unit, DurablePromise):
+            child_id = rfi.unit.id if rfi.unit.id is not None else next_child_name
+        else:
+            assert_never(rfi.unit)
         child_record = self._records.get(child_id)
         if child_record is not None:
             record.add_child(child_record)

@@ -59,10 +59,10 @@ class Record(Generic[T]):
         self.children: list[Record[Any]] = []
         self.invocation: LFI | RFI = invocation
         self.retry_policy: retry_policy.RetryPolicy | None
-        if not isinstance(invocation.unit, Invocation) or isinstance(
-            invocation.unit.fn, str
-        ):
+        if not isinstance(invocation.unit, Invocation):
             self.retry_policy = None
+        elif isinstance(invocation.unit.fn, str):
+            self.retry_policy = invocation.opts.retry_policy or None
         elif isgeneratorfunction(invocation.unit.fn):
             self.retry_policy = invocation.opts.retry_policy or never()
         else:
