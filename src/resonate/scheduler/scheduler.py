@@ -473,7 +473,7 @@ class Scheduler(IScheduler):
             self._records[child_id] = child_record
             assert rfc.opts.durable
 
-            data, tags, headers = self._get_data_tags_and_headers_from_rfi(rfc.to_rfi())
+            data, headers, tags = self._get_info_from_rfi(rfc.to_rfi())
 
             assert self._default_recv
 
@@ -501,36 +501,6 @@ class Scheduler(IScheduler):
                 self._add_to_awaiting_remote(child_id, record.id)
                 if self._blocked_only_on_remote(root.id):
                     self._complete_task(root.id)
-
-    def _get_data_tags_and_headers_from_rfi(
-        self, rfi: RFI
-    ) -> tuple[dict[str, Any] | None, dict[str, str] | None, dict[str, str] | None]:
-        data: dict[str, Any] | None
-        tags: dict[str, str] | None
-        headers: dict[str, str] | None
-        if isinstance(rfi.unit, DurablePromise):
-            data = rfi.unit.data
-            tags = rfi.unit.tags
-            headers = rfi.unit.headers
-        elif isinstance(rfi.unit, Invocation):
-            func: str
-            if isinstance(rfi.unit.fn, str):
-                func = rfi.unit.fn
-            else:
-                assert isfunction(rfi.unit.fn)
-                registered_fn_name = self._fn_registry.get_from_value(rfi.unit.fn)
-                assert registered_fn_name is not None
-                func = registered_fn_name
-            data = {
-                "func": func,
-                "args": rfi.unit.args,
-                "kwargs": rfi.unit.kwargs,
-            }
-            tags = {"resonate:invoke": rfi.opts.send_to or "default"}
-            headers = None
-        else:
-            assert_never(rfi.unit)
-        return (data, tags, headers)
 
     def _process_lfc(self, record: Record[Any], lfc: LFC) -> None:
         child_id = lfc.opts.id if lfc.opts.id is not None else record.next_child_name()
@@ -589,7 +559,7 @@ class Scheduler(IScheduler):
             self._records[child_id] = child_record
             assert rfi.opts.durable
 
-            data, tags, headers = self._get_data_tags_and_headers_from_rfi(rfi)
+            data, headers, tags = self._get_info_from_rfi(rfi)
 
             durable_promise = self._store.promises.create(
                 id=child_id,
@@ -689,3 +659,33 @@ class Scheduler(IScheduler):
         else:
             record.set_result(final_value, deduping=False)
             self._unblock_awaiting_local(record.id)
+
+    def _get_info_from_rfi(
+        self, rfi: RFI
+    ) -> tuple[dict[str, Any] | None, dict[str, str] | None, dict[str, str] | None]:
+        data: dict[str, Any] | None
+        tags: dict[str, str] | None
+        headers: dict[str, str] | None
+        if isinstance(rfi.unit, DurablePromise):
+            data = rfi.unit.data
+            tags = rfi.unit.tags
+            headers = rfi.unit.headers
+        elif isinstance(rfi.unit, Invocation):
+            func: str
+            if isinstance(rfi.unit.fn, str):
+                func = rfi.unit.fn
+            else:
+                assert isfunction(rfi.unit.fn)
+                registered_fn_name = self._fn_registry.get_from_value(rfi.unit.fn)
+                assert registered_fn_name is not None
+                func = registered_fn_name
+            data = {
+                "func": func,
+                "args": rfi.unit.args,
+                "kwargs": rfi.unit.kwargs,
+            }
+            tags = {"resonate:invoke": rfi.opts.send_to or "default"}
+            headers = None
+        else:
+            assert_never(rfi.unit)
+        return (data, headers, tags)
