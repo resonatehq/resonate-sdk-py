@@ -356,7 +356,7 @@ class RemoteTaskStore:
 class RemoteStore:
     def __init__(
         self,
-        url: str,
+        url: str = "http://localhost:8001",
         request_timeout: int = 10,
     ) -> None:
         self.url = url

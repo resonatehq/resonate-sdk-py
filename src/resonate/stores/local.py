@@ -39,7 +39,6 @@ def _timeout(promise_record: DurablePromiseRecord) -> DurablePromiseRecord:
         )
     return promise_record
 
-
 class IStorage(ABC):
     @abstractmethod
     def rmw(
@@ -65,11 +64,10 @@ class MemoryStorage(IStorage):
         self._durable_promises[id] = item
         return item
 
-
 @final
 class LocalPromiseStore(IPromiseStore):
-    def __init__(self, storage: IStorage) -> None:
-        self._storage = storage
+    def __init__(self, storage: IStorage | None = None) -> None:
+        self._storage = storage or MemoryStorage()
 
     def create_with_task(  # noqa: PLR0913
         self,
@@ -295,8 +293,7 @@ class LocalPromiseStore(IPromiseStore):
 
         return self._storage.rmw(id=id, fn=_get)
 
-
 @final
 class LocalStore:
-    def __init__(self, storage: IStorage) -> None:
-        self.promises = LocalPromiseStore(storage=storage)
+    def __init__(self, promises: LocalPromiseStore | None = None) -> None:
+        self.promises = promises or LocalPromiseStore()

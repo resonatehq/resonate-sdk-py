@@ -13,48 +13,54 @@ from resonate.task_sources.traits import ITaskSource
 
 
 class Poller(ITaskSource):
-    def __init__(self, url: str, group: str) -> None:
+    def __init__(
+        self,
+        url: str = "http://localhost:8002",
+        group: str = "default",
+    ) -> None:
         self._url = url
         self._group = group
         self._encoder = JsonEncoder()
-        self._sync_event: Event | None = None
-        self._pid: str | None = None
         self._tasks: Queue[TaskRecord] = Queue()
-        self._worket_thread = Thread(target=self._run, daemon=True)
 
-    def get_tasks(self) -> list[TaskRecord]:
+    def start(self, event: Event, pid: str) -> None:
+        t = Thread(target=self._run, args=(event, pid), daemon=True)
+        t.start()
+
+    def dequeue(self) -> list[TaskRecord]:
         return self._tasks.dequeue_all()
 
-    def set_sync_event(self, event: Event) -> None:
-        assert self._sync_event is None
-        self._sync_event = event
-
-    def _run(self) -> None:
-        assert self._pid is not None
-        assert self._sync_event is not None
+    def _run(self, event: Event, pid: str) -> None:
         try:
             while True:
                 response = requests.get(  # noqa: S113
-                    url=f"{self._url}/{self._group}/{self._pid}",
+                    url=f"{self._url}/{self._group}/{pid}",
                     headers={"Accept": "text/event-stream"},
                     stream=True,
                 )
                 for line in response.iter_lines(chunk_size=None, decode_unicode=True):
                     if not line:
                         continue
-                    stripped: str = line.strip()
+
+                    stripped = line.strip()
                     assert stripped.startswith("data:")
+
                     info = self._encoder.decode(stripped[5:])
+                    assert "task" in info
+
+                    # extract the task
                     task = TaskRecord.decode(info["task"], encoder=self._encoder)
+
+
+                    # enqueue the task
                     self._tasks.put_nowait(task)
-                    self._sync_event.set()
+
+                    # raise event so scheduler knows there is something to process
+                    event.set()
+
+
         except requests.exceptions.ConnectionError:
             time.sleep(2)
 
-    def start(self, pid: str) -> None:
-        assert self._pid is None
-        self._pid = pid
-        self._worket_thread.start()
-
-    def default_recv(self) -> dict[str, Any]:
-        return {"type": "poll", "data": {"group": self._group, "id": self._pid}}
+    def default_recv(self, pid: str) -> dict[str, Any]:
+        return {"type": "poll", "data": {"group": self._group, "id": pid}}
