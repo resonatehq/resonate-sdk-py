@@ -11,17 +11,20 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
+
 @final
 @dataclass(frozen=True)
 class SQE(Generic[T]):
     thunk: Callable[[], T]
     callback: Callable[[Result[T, Exception]], None]
 
+
 @final
 @dataclass(frozen=True)
 class CQE(Generic[T]):
     result: Result[T, Exception]
     callback: Callable[[Result[T, Exception]], None]
+
 
 class IProcessor(ABC):
     @abstractmethod

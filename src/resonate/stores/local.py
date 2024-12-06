@@ -39,6 +39,7 @@ def _timeout(promise_record: DurablePromiseRecord) -> DurablePromiseRecord:
         )
     return promise_record
 
+
 class IStorage(ABC):
     @abstractmethod
     def rmw(
@@ -63,6 +64,7 @@ class MemoryStorage(IStorage):
         item = fn(promise_record)
         self._durable_promises[id] = item
         return item
+
 
 @final
 class LocalPromiseStore(IPromiseStore):
@@ -292,6 +294,7 @@ class LocalPromiseStore(IPromiseStore):
             return promise_record
 
         return self._storage.rmw(id=id, fn=_get)
+
 
 @final
 class LocalStore:
