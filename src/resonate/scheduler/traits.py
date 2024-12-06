@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, TypeVar
 from typing_extensions import ParamSpec
 
 if TYPE_CHECKING:
-
     from resonate.record import Handle
     from resonate.typing import DurableCoro, DurableFn
 

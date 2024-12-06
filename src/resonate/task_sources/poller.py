@@ -36,7 +36,7 @@ class Poller(ITaskSource):
 
         while True:
             try:
-                with requests.get(url, stream=True) as res: # noqa: S113
+                with requests.get(url, stream=True) as res:  # noqa: S113
                     if not res.ok:
                         break
 

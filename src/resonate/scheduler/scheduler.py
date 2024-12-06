@@ -78,7 +78,6 @@ class Scheduler(IScheduler):
         self._heartbeat_thread = Thread(target=self._heartbeat, daemon=True)
         self._scheduler_thread = Thread(target=self._loop, daemon=True)
 
-
     def start(self) -> None:
         if isinstance(self._store, RemoteStore):
             # start the heartbeat thread
@@ -163,22 +162,18 @@ class Scheduler(IScheduler):
 
     def _loop(self) -> None:
         # wait until an event occurs, either:
-            # - resonate run is called
-            # - a completion is enqueued by the processor
-            # - a task is enqueued by the task source
+        # - resonate run is called
+        # - a completion is enqueued by the processor
+        # - a task is enqueued by the task source
         while self._event.wait():
-
-
             # immediately clear the event so the next tick waits
             # unless another event occurs in the meantime
             self._event.clear()
 
-
             # start the next tick
             self._tick()
 
-
-    def _tick(self) -> None: # noqa: C901,PLR0912
+    def _tick(self) -> None:  # noqa: C901,PLR0912
         # get record to retry
         for id in self._delay_queue.dequeue_all():
             self._ingest(id)
@@ -218,7 +213,6 @@ class Scheduler(IScheduler):
             record = self._records[id]
             coro = record.get_coro()
             yielded_value = coro.advance(next_value)
-
 
             if isinstance(yielded_value, LFI):
                 self._process_lfi(record, yielded_value)

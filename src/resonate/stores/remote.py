@@ -48,17 +48,19 @@ class RemotePromiseStore(IPromiseStore):
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        res = self._call(requests.Request(
-            method="post",
-            url=f"{self.url}/promises",
-            headers=request_headers,
-            json={
-                "id": id,
-                "param": {"headers": headers, "data": self._encode_data(data)},
-                "timeout": timeout,
-                "tags": tags,
-            },
-        ))
+        res = self._call(
+            requests.Request(
+                method="post",
+                url=f"{self.url}/promises",
+                headers=request_headers,
+                json={
+                    "id": id,
+                    "param": {"headers": headers, "data": self._encode_data(data)},
+                    "timeout": timeout,
+                    "tags": tags,
+                },
+            )
+        )
 
         return DurablePromiseRecord.decode(data=res.json(), encoder=self._encoder)
 
@@ -78,24 +80,26 @@ class RemotePromiseStore(IPromiseStore):
     ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        res = self._call(requests.Request(
-            method="post",
-            url=f"{self.url}/promises/task",
-            headers=request_headers,
-            json={
-                "promise": {
-                    "id": id,
-                    "param": {"headers": headers,"data": self._encode_data(data)},
-                    "timeout": timeout,
-                    "tags": tags,
+        res = self._call(
+            requests.Request(
+                method="post",
+                url=f"{self.url}/promises/task",
+                headers=request_headers,
+                json={
+                    "promise": {
+                        "id": id,
+                        "param": {"headers": headers, "data": self._encode_data(data)},
+                        "timeout": timeout,
+                        "tags": tags,
+                    },
+                    "task": {
+                        "processId": pid,
+                        "ttl": ttl,
+                        "recv": recv,
+                    },
                 },
-                "task": {
-                    "processId": pid,
-                    "ttl": ttl,
-                    "recv": recv,
-                },
-            },
-        ))
+            )
+        )
 
         data_json = res.json()
         task_data = data_json["task"]
@@ -121,24 +125,26 @@ class RemotePromiseStore(IPromiseStore):
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        res = self._call(requests.Request(
-            method="post",
-            url=f"{self.url}/promises/callback",
-            headers=request_headers,
-            json={
-                "promise": {
-                    "id": id,
-                    "timeout": timeout,
-                    "param": {"headers": headers, "data": self._encode_data(data)},
-                    "tags": tags,
+        res = self._call(
+            requests.Request(
+                method="post",
+                url=f"{self.url}/promises/callback",
+                headers=request_headers,
+                json={
+                    "promise": {
+                        "id": id,
+                        "timeout": timeout,
+                        "param": {"headers": headers, "data": self._encode_data(data)},
+                        "tags": tags,
+                    },
+                    "callback": {
+                        "rootPromiseId": root_id,
+                        "timeout": timeout,
+                        "recv": recv,
+                    },
                 },
-                "callback": {
-                    "rootPromiseId": root_id,
-                    "timeout": timeout,
-                    "recv": recv,
-                },
-            },
-        ))
+            )
+        )
 
         data_json = res.json()
         callback_data = data_json["callback"]
@@ -162,15 +168,17 @@ class RemotePromiseStore(IPromiseStore):
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        res = self._call(requests.Request(
-            method="patch",
-            url=f"{self.url}/promises/{id}",
-            headers=request_headers,
-            json={
-                "state": "RESOLVED",
-                "value": {"headers": headers, "data": self._encode_data(data)},
-            },
-        ))
+        res = self._call(
+            requests.Request(
+                method="patch",
+                url=f"{self.url}/promises/{id}",
+                headers=request_headers,
+                json={
+                    "state": "RESOLVED",
+                    "value": {"headers": headers, "data": self._encode_data(data)},
+                },
+            )
+        )
 
         return DurablePromiseRecord.decode(data=res.json(), encoder=self._encoder)
 
@@ -185,15 +193,17 @@ class RemotePromiseStore(IPromiseStore):
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        res = self._call(requests.Request(
-            method="patch",
-            url=f"{self.url}/promises/{id}",
-            headers=request_headers,
-            json={
-                "state": "REJECTED",
-                "value": {"headers": headers, "data": self._encode_data(data)},
-            },
-        ))
+        res = self._call(
+            requests.Request(
+                method="patch",
+                url=f"{self.url}/promises/{id}",
+                headers=request_headers,
+                json={
+                    "state": "REJECTED",
+                    "value": {"headers": headers, "data": self._encode_data(data)},
+                },
+            )
+        )
 
         return DurablePromiseRecord.decode(data=res.json(), encoder=self._encoder)
 
@@ -208,23 +218,27 @@ class RemotePromiseStore(IPromiseStore):
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        res = self._call(requests.Request(
-            method="patch",
-            url=f"{self.url}/promises/{id}",
-            headers=request_headers,
-            json={
-                "state": "REJECTED_CANCELED",
-                "value": {"headers": headers, "data": self._encode_data(data)},
-            },
-        ))
+        res = self._call(
+            requests.Request(
+                method="patch",
+                url=f"{self.url}/promises/{id}",
+                headers=request_headers,
+                json={
+                    "state": "REJECTED_CANCELED",
+                    "value": {"headers": headers, "data": self._encode_data(data)},
+                },
+            )
+        )
 
         return DurablePromiseRecord.decode(data=res.json(), encoder=self._encoder)
 
     def get(self, *, id: str) -> DurablePromiseRecord:
-        res = self._call(requests.Request(
-            method="get",
-            url=f"{self.url}/promises/{id}",
-        ))
+        res = self._call(
+            requests.Request(
+                method="get",
+                url=f"{self.url}/promises/{id}",
+            )
+        )
 
         return DurablePromiseRecord.decode(data=res.json(), encoder=self._encoder)
 
@@ -263,16 +277,18 @@ class RemoteCallbackStore:
         timeout: int,
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
-        res = self._call(requests.Request(
-            method="post",
-            url=f"{self.url}/callbacks",
-            json={
-                "promiseId": id,
-                "rootPromiseId": root_id,
-                "timeout": timeout,
-                "recv": recv,
-            },
-        ))
+        res = self._call(
+            requests.Request(
+                method="post",
+                url=f"{self.url}/callbacks",
+                json={
+                    "promiseId": id,
+                    "rootPromiseId": root_id,
+                    "timeout": timeout,
+                    "recv": recv,
+                },
+            )
+        )
 
         data = res.json()
         callback_data = data["callback"]
@@ -301,16 +317,18 @@ class RemoteTaskStore:
     def claim(
         self, *, task_id: str, counter: int, pid: str, ttl: int
     ) -> Invoke | Resume:
-        res = self._call(requests.Request(
-            method="post",
-            url=f"{self.url}/tasks/claim",
-            json={
-                "id": task_id,
-                "counter": counter,
-                "processId": pid,
-                "ttl": ttl,
-            },
-        ))
+        res = self._call(
+            requests.Request(
+                method="post",
+                url=f"{self.url}/tasks/claim",
+                json={
+                    "id": task_id,
+                    "counter": counter,
+                    "processId": pid,
+                    "ttl": ttl,
+                },
+            )
+        )
 
         data = res.json()
         kind: Literal["resume", "invoke"] = data["type"]
@@ -323,23 +341,27 @@ class RemoteTaskStore:
         return Resume.decode(data=promises, encoder=self._encoder)
 
     def complete(self, *, task_id: str, counter: int) -> None:
-        self._call(requests.Request(
-            method="post",
-            url=f"{self.url}/tasks/complete",
-            json={
-                "id": task_id,
-                "counter": counter,
-            },
-        ))
+        self._call(
+            requests.Request(
+                method="post",
+                url=f"{self.url}/tasks/complete",
+                json={
+                    "id": task_id,
+                    "counter": counter,
+                },
+            )
+        )
 
     def heartbeat(self, *, pid: str) -> int:
-        res = self._call(requests.Request(
-            method="post",
-            url=f"{self.url}/tasks/heartbeat",
-            json={
-                "processId": pid,
-            },
-        ))
+        res = self._call(
+            requests.Request(
+                method="post",
+                url=f"{self.url}/tasks/heartbeat",
+                json={
+                    "processId": pid,
+                },
+            )
+        )
 
         return res.json()["tasksAffected"]
 
@@ -400,6 +422,7 @@ class RemoteStore:
 
 def _ensure_success(resp: requests.Response) -> None:
     resp.raise_for_status()
+
 
 def _encode(value: str, encoder: IEncoder[str, str]) -> str:
     try:
