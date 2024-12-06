@@ -14,6 +14,18 @@ if TYPE_CHECKING:
 
 class IPromiseStore(ABC):
     @abstractmethod
+    def create(  # noqa: PLR0913
+        self,
+        *,
+        id: str,
+        ikey: IdempotencyKey,
+        strict: bool,
+        headers: Headers,
+        data: Data,
+        timeout: int,
+        tags: Tags,
+    ) -> DurablePromiseRecord: ...
+    @abstractmethod
     def create_with_callback(  # noqa: PLR0913
         self,
         *,
@@ -44,30 +56,6 @@ class IPromiseStore(ABC):
     ) -> tuple[DurablePromiseRecord, TaskRecord | None]: ...
 
     @abstractmethod
-    def create(  # noqa: PLR0913
-        self,
-        *,
-        id: str,
-        ikey: IdempotencyKey,
-        strict: bool,
-        headers: Headers,
-        data: Data,
-        timeout: int,
-        tags: Tags,
-    ) -> DurablePromiseRecord: ...
-
-    @abstractmethod
-    def cancel(
-        self,
-        *,
-        id: str,
-        ikey: IdempotencyKey,
-        strict: bool,
-        headers: Headers,
-        data: Data,
-    ) -> DurablePromiseRecord: ...
-
-    @abstractmethod
     def resolve(
         self,
         *,
@@ -80,6 +68,17 @@ class IPromiseStore(ABC):
 
     @abstractmethod
     def reject(
+        self,
+        *,
+        id: str,
+        ikey: IdempotencyKey,
+        strict: bool,
+        headers: Headers,
+        data: Data,
+    ) -> DurablePromiseRecord: ...
+
+    @abstractmethod
+    def cancel(
         self,
         *,
         id: str,
