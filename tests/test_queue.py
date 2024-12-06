@@ -5,6 +5,7 @@ from resonate.queue import DelayQueue
 
 def test_delay_queue() -> None:
     queue = DelayQueue[int](caller_event=None)
+    queue.start()
     queue.put_nowait(item=3, delay=0.002)
     assert queue.dequeue() == 3  # noqa: PLR2004
     assert queue.qsize() == 0

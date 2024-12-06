@@ -89,6 +89,9 @@ class Scheduler(IScheduler):
         # start the processor
         self._processor.start(self._event)
 
+        # start the delay queue
+        self._delay_queue.start()
+
         # start the scheduler
         self._scheduler_thread.start()
 

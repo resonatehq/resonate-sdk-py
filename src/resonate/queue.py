@@ -60,6 +60,7 @@ class DelayQueue(Generic[T]):
         self._caller_event = caller_event
         self._continue_event = Event()
 
+    def start(self) -> None:
         self._worker_thread = Thread(target=self._run, daemon=True)
         self._worker_thread.start()
 
