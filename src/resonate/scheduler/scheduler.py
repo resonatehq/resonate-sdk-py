@@ -172,6 +172,7 @@ class Scheduler(IScheduler):
             # unless another event occurs in the meantime
             self._event.clear()
 
+
             # start the next tick
             self._tick()
 
@@ -234,8 +235,6 @@ class Scheduler(IScheduler):
                 raise NotImplementedError
             else:
                 assert_never(yielded_value)
-
-
 
     def _continue(self) -> None:
         self._event.set()

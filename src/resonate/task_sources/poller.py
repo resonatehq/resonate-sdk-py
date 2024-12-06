@@ -7,6 +7,7 @@ from typing import Any
 import requests
 
 from resonate.encoders import JsonEncoder
+from resonate.logging import logger
 from resonate.queue import Queue
 from resonate.stores.record import TaskRecord
 from resonate.task_sources.traits import ITaskSource
@@ -31,8 +32,8 @@ class Poller(ITaskSource):
         return self._tasks.dequeue_all()
 
     def _run(self, event: Event, pid: str) -> None:
-        try:
-            while True:
+        while True:
+            try:
                 response = requests.get(  # noqa: S113
                     url=f"{self._url}/{self._group}/{pid}",
                     headers={"Accept": "text/event-stream"},
@@ -51,16 +52,15 @@ class Poller(ITaskSource):
                     # extract the task
                     task = TaskRecord.decode(info["task"], encoder=self._encoder)
 
-
                     # enqueue the task
                     self._tasks.put_nowait(task)
 
                     # raise event so scheduler knows there is something to process
                     event.set()
 
-
-        except requests.exceptions.ConnectionError:
-            time.sleep(2)
+            except requests.exceptions.ConnectionError:
+                logger.warning("Connection to poller failed, reconnecting after 1s")
+                time.sleep(1)
 
     def default_recv(self, pid: str) -> dict[str, Any]:
         return {"type": "poll", "data": {"group": self._group, "id": pid}}
