@@ -32,9 +32,11 @@ class Poller(ITaskSource):
         return self._tasks.dequeue_all()
 
     def _run(self, event: Event, pid: str) -> None:
+        url = f"{self._url}/{self._group}/{pid}"
+
         while True:
             try:
-                with requests.get(f"{self._url}/{self._group}/{pid}", stream=True) as res:
+                with requests.get(url, stream=True) as res: # noqa: S113
                     if not res.ok:
                         break
 
