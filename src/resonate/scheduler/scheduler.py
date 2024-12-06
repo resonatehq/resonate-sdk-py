@@ -168,6 +168,7 @@ class Scheduler(IScheduler):
             # - a task is enqueued by the task source
         while self._event.wait():
 
+
             # immediately clear the event so the next tick waits
             # unless another event occurs in the meantime
             self._event.clear()
@@ -175,6 +176,7 @@ class Scheduler(IScheduler):
 
             # start the next tick
             self._tick()
+
 
     def _tick(self) -> None: # noqa: C901,PLR0912
         # get record to retry

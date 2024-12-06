@@ -34,33 +34,33 @@ class Poller(ITaskSource):
     def _run(self, event: Event, pid: str) -> None:
         while True:
             try:
-                response = requests.get(  # noqa: S113
-                    url=f"{self._url}/{self._group}/{pid}",
-                    headers={"Accept": "text/event-stream"},
-                    stream=True,
-                )
-                for line in response.iter_lines(chunk_size=None, decode_unicode=True):
-                    if not line:
-                        continue
+                with requests.get(f"{self._url}/{self._group}/{pid}", stream=True) as res:
+                    if not res.ok:
+                        break
 
-                    stripped = line.strip()
-                    assert stripped.startswith("data:")
+                    for line in res.iter_lines(chunk_size=None, decode_unicode=True):
+                        if not line:
+                            continue
 
-                    info = self._encoder.decode(stripped[5:])
-                    assert "task" in info
+                        stripped = line.strip()
+                        assert stripped.startswith("data:")
 
-                    # extract the task
-                    task = TaskRecord.decode(info["task"], encoder=self._encoder)
+                        info = self._encoder.decode(stripped[5:])
+                        assert "task" in info
 
-                    # enqueue the task
-                    self._tasks.put_nowait(task)
+                        # extract the task
+                        task = TaskRecord.decode(info["task"], encoder=self._encoder)
 
-                    # raise event so scheduler knows there is something to process
-                    event.set()
+                        # enqueue the task
+                        self._tasks.put_nowait(task)
+
+                        # raise event so scheduler knows there is something to process
+                        event.set()
 
             except requests.exceptions.ConnectionError:
-                logger.warning("Connection to poller failed, reconnecting after 1s")
-                time.sleep(1)
+                logger.warning("Connection to poller failed, reconnecting")
+
+            time.sleep(1)
 
     def default_recv(self, pid: str) -> dict[str, Any]:
         return {"type": "poll", "data": {"group": self._group, "id": pid}}

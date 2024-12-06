@@ -37,7 +37,7 @@ class _RunOptions(TypedDict):
 class Resonate:
     def __init__(
         self,
-        pid: str = uuid4().hex,
+        pid: str | None = None,
         store: LocalStore | RemoteStore | None = None,
         task_source: ITaskSource | None = None,
     ) -> None:
@@ -46,7 +46,7 @@ class Resonate:
 
         self._scheduler: IScheduler = Scheduler(
             deps=self._deps,
-            pid=pid,
+            pid=pid or uuid4().hex,
             registry=self._registry,
             store=store or RemoteStore(),
             task_source=task_source or Poller(),
