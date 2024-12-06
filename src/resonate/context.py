@@ -79,7 +79,9 @@ class Context:
         **kwargs: P.kwargs,
     ) -> RFC:
         unit: Invocation[Any] | DurablePromise
-        if isinstance(func_or_cmd, DurablePromise):
+        if isinstance(func_or_cmd, str):
+            unit = Invocation(func_or_cmd, *args, **kwargs)
+        elif isinstance(func_or_cmd, DurablePromise):
             unit = func_or_cmd
         elif isinstance(func_or_cmd, RegisteredFn):
             unit = Invocation(func_or_cmd.fn, *args, **kwargs)
