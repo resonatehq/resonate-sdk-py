@@ -305,7 +305,7 @@ class Scheduler(IScheduler):
                 promise_record.durable_promise
             ), f"Record {promise_record.id} not backed by a promise"
             durable_promise, callback = self._store.callbacks.create(
-                id=utils.string_to_uuid(root.id + leaf_id),
+                id=utils.string_to_uuid(record.id),
                 promise_id=leaf_id,
                 root_promise_id=root.id,
                 timeout=sys.maxsize,
@@ -491,7 +491,7 @@ class Scheduler(IScheduler):
                 data=self._encoder.encode(data),
                 timeout=sys.maxsize,
                 tags=tags,
-                callback_id=utils.string_to_uuid(root.id+child_id),
+                callback_id=utils.string_to_uuid(record.id),
                 root_promise_id=root.id,
                 recv=self._default_recv,
             )
