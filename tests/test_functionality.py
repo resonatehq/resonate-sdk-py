@@ -5,7 +5,7 @@ import os
 import random
 import time
 from functools import cache, lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate.context import Context
-    from resonate.typing import Yieldable
+    from resonate.typing import Coro, Yieldable
 
 
 @lru_cache
@@ -71,7 +71,7 @@ def test_calling_only_async_function(store: LocalStore | RemoteStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_golden_device_lfi(store: LocalStore | RemoteStore) -> None:
-    def foo_golden_device_lfi(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def foo_golden_device_lfi(ctx: Context, n: str) -> Coro[str]:
         p: Promise[str] = yield ctx.lfi(bar_golden_device_lfi, n).options(
             durable=random.choice([True, False])  # noqa: S311
         )
@@ -95,7 +95,7 @@ def test_factorial_lfi(store: LocalStore | RemoteStore) -> None:
     def exec_id(n: int) -> str:
         return f"test-factorial-lfi-{n}"
 
-    def factorial_lfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def factorial_lfi(ctx: Context, n: int) -> Coro[int]:
         if n == 0:
             return 1
         p = yield ctx.lfi(factorial_lfi, n - 1).options(
@@ -116,7 +116,7 @@ def test_fibonacci_preorder_lfi(store: LocalStore | RemoteStore) -> None:
     def exec_id(n: int) -> str:
         return f"test-fib-preorder-lfi-{n}"
 
-    def fib_lfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def fib_lfi(ctx: Context, n: int) -> Coro[int]:
         if n <= 1:
             return n
         p1 = yield ctx.lfi(fib_lfi, n - 1).options(
@@ -143,7 +143,7 @@ def test_fibonacci_postorder_lfi(store: LocalStore | RemoteStore) -> None:
     def exec_id(n: int) -> str:
         return f"test-fib-postorder-lfi-{n}"
 
-    def fib_lfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def fib_lfi(ctx: Context, n: int) -> Coro[int]:
         if n <= 1:
             return n
         p1 = yield ctx.lfi(fib_lfi, n - 1).options(
@@ -167,7 +167,7 @@ def test_fibonacci_postorder_lfi(store: LocalStore | RemoteStore) -> None:
 
 @pytest.mark.parametrize("store", _promise_storages())
 def test_golden_device_lfc(store: RemoteStore | LocalStore) -> None:
-    def foo_golden_device_lfc(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def foo_golden_device_lfc(ctx: Context, n: str) -> Coro[str]:
         v: str = yield ctx.lfc(bar_golden_device_lfi, n).options(
             durable=random.choice([True, False])  # noqa: S311
         )
@@ -189,7 +189,7 @@ def test_factorial_lfc(store: LocalStore | RemoteStore) -> None:
     def exec_id(n: int) -> str:
         return f"test-factorial-lfc-{n}"
 
-    def factorial_lfc(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def factorial_lfc(ctx: Context, n: int) -> Coro[int]:
         if n == 0:
             return 1
 
@@ -212,7 +212,7 @@ def test_fibonacci_lfc(store: LocalStore | RemoteStore) -> None:
     def exec_id(n: int) -> str:
         return f"test-fib-lfc-{n}"
 
-    def fib_lfc(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def fib_lfc(ctx: Context, n: int) -> Coro[int]:
         if n <= 1:
             return n
         n1 = yield ctx.lfc(fib_lfc, n - 1).options(
@@ -238,7 +238,7 @@ def test_fibonacci_lfc(store: LocalStore | RemoteStore) -> None:
 def test_golden_device_rfi() -> None:
     group = "test-golden-device-rfi"
 
-    def foo_golden_device_rfi(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def foo_golden_device_rfi(ctx: Context, n: str) -> Coro[str]:
         p: Promise[str] = yield ctx.rfi(bar_golden_device_rfi, n).options(
             id="bar", send_to=poll(group)
         )
@@ -270,7 +270,7 @@ def test_factorial_rfi() -> None:
     def exec_id(n: int) -> str:
         return f"test-factorial-rfi-{n}"
 
-    def factorial_rfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def factorial_rfi(ctx: Context, n: int) -> Coro[int]:
         if n == 0:
             return 1
         p = yield ctx.rfi(factorial_rfi, n - 1).options(
@@ -297,7 +297,7 @@ def test_fibonacci_preorder_rfi() -> None:
     def exec_id(n: int) -> str:
         return f"test-fib-preorder-rfi-{n}"
 
-    def fib_rfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def fib_rfi(ctx: Context, n: int) -> Coro[int]:
         if n <= 1:
             return n
         p1 = yield ctx.rfi(fib_rfi, n - 1).options(
@@ -329,7 +329,7 @@ def test_fibonacci_postorder_rfi() -> None:
     def exec_id(n: int) -> str:
         return f"test-fib-postorder-rfi-{n}"
 
-    def fib_rfi(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def fib_rfi(ctx: Context, n: int) -> Coro[int]:
         if n <= 1:
             return n
         p1 = yield ctx.rfi(fib_rfi, n - 1).options(
@@ -359,14 +359,14 @@ def test_fibonacci_postorder_rfi() -> None:
 def test_golden_device_rfi_and_lfc() -> None:
     group = "test-golden-device-rfi-and-lfc"
 
-    def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def foo(ctx: Context, n: str) -> Coro[str]:
         v: str = yield ctx.lfc(bar, n).options(
             id="bar",
             durable=False,
         )
         return v
 
-    def bar(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def bar(ctx: Context, n: str) -> Coro[str]:
         p: Promise[str] = yield ctx.rfi(baz, n).options(id="baz", send_to=poll(group))
         v: str = yield p
         return v
@@ -394,7 +394,7 @@ def test_fibonacci_full_random() -> None:
     def exec_id(n: int) -> str:
         return f"fib({n})"
 
-    def fib(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def fib(ctx: Context, n: int) -> Coro[int]:
         if n <= 1:
             return n
 
@@ -447,14 +447,14 @@ def test_golden_device_rfi_and_lfc_with_decorator() -> None:
     )
 
     @resonate.register
-    def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def foo(ctx: Context, n: str) -> Coro[str]:
         v: str = yield ctx.lfc(bar, n).options(
             id="bar",
             durable=False,
         )
         return v
 
-    def bar(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def bar(ctx: Context, n: str) -> Coro[str]:
         p: Promise[str] = yield ctx.rfi(baz, n).options(id="baz", send_to=poll(group))
         v: str = yield p
         return v
@@ -473,7 +473,7 @@ def test_golden_device_rfi_and_lfc_with_decorator() -> None:
 def test_golden_device_rfc() -> None:
     group = "test-golden-device-rfc"
 
-    def foo_golden_device_rfc(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def foo_golden_device_rfc(ctx: Context, n: str) -> Coro[str]:
         v: str = yield ctx.rfc(bar_golden_device_rfc, n).options(
             id="bar", send_to=poll(group)
         )
@@ -503,7 +503,7 @@ def test_factorial_rfc() -> None:
     def exec_id(n: int) -> str:
         return f"test-factorial-rfc-{n}"
 
-    def factorial_rfc(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def factorial_rfc(ctx: Context, n: int) -> Coro[int]:
         if n == 0:
             return 1
         return n * (
@@ -531,7 +531,7 @@ def test_fibonacci_preorder_rfc() -> None:
     def exec_id(n: int) -> str:
         return f"test-fib-preorder-rfc-{n}"
 
-    def fib_rfc(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+    def fib_rfc(ctx: Context, n: int) -> Coro[int]:
         if n <= 1:
             return n
         n1 = yield ctx.rfc(fib_rfc, n - 1).options(
@@ -558,14 +558,14 @@ def test_fibonacci_preorder_rfc() -> None:
 def test_golden_device_rfc_and_lfc() -> None:
     group = "test-golden-device-rfc-and-lfc"
 
-    def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def foo(ctx: Context, n: str) -> Coro[str]:
         v: str = yield ctx.lfc(bar, n).options(
             id="bar",
             durable=False,
         )
         return v
 
-    def bar(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def bar(ctx: Context, n: str) -> Coro[str]:
         v: str = yield ctx.rfc(baz, n).options(id="baz", send_to=poll(group))
         return v
 
@@ -594,14 +594,14 @@ def test_golden_device_rfc_and_lfc_with_decorator() -> None:
     )
 
     @resonate.register
-    def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def foo(ctx: Context, n: str) -> Coro[str]:
         v: str = yield ctx.lfc(bar, n).options(
             id="bar",
             durable=False,
         )
         return v
 
-    def bar(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
+    def bar(ctx: Context, n: str) -> Coro[str]:
         v: str = yield ctx.rfc(baz, n).options(id="baz", send_to=poll(group))
         return v
 
@@ -668,7 +668,7 @@ def test_human_in_the_loop() -> None:
     def _user_manual_completion(id: str) -> DurablePromise:
         return DurablePromise(id=id)
 
-    def human_in_the_loop(ctx: Context) -> Generator[Yieldable, Any, str]:
+    def human_in_the_loop(ctx: Context) -> Coro[str]:
         name: str = yield ctx.rfc(
             _user_manual_completion("test-human-in-loop-question-to-answer-1")
         )
