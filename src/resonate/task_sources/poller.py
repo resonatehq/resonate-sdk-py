@@ -45,10 +45,12 @@ class Poller(ITaskSource):
                             continue
 
                         stripped = line.strip()
-                        assert stripped.startswith("data:")
+                        if not stripped.startswith("data:"):
+                            continue
 
                         info = self._encoder.decode(stripped[5:])
-                        assert "task" in info
+                        if "task" not in info:
+                            continue
 
                         # extract the task
                         task = TaskRecord.decode(info["task"], encoder=self._encoder)
