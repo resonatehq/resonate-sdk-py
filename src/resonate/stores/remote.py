@@ -120,28 +120,27 @@ class RemotePromiseStore(IPromiseStore):
         headers: dict[str, str] | None,
         data: str | None,
         tags: dict[str, str] | None,
-        root_id: str,
+        callback_id: str,
+        root_promise_id: str,
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        res = self._call(
-            requests.Request(
-                method="post",
-                url=f"{self.url}/promises/callback",
-                headers=request_headers,
-                json={
-                    "promise": {
-                        "id": id,
-                        "timeout": timeout,
-                        "param": {"headers": headers, "data": self._encode_data(data)},
-                        "tags": tags,
-                    },
-                    "callback": {
-                        "rootPromiseId": root_id,
-                        "timeout": timeout,
-                        "recv": recv,
-                    },
+        res = requests.post(
+            url=f"{self.url}/promises/callback",
+            headers=request_headers,
+            json={
+                "promise": {
+                    "id": id,
+                    "timeout": timeout,
+                    "param": {"headers": headers, "data": self._encode_data(data)},
+                    "tags": tags,
+                },
+                "callback": {
+                    "id": callback_id,
+                    "rootPromiseId": root_promise_id,
+                    "timeout": timeout,
+                    "recv": recv,
                 },
             )
         )
@@ -273,7 +272,8 @@ class RemoteCallbackStore:
         self,
         *,
         id: str,
-        root_id: str,
+        promise_id: str,
+        root_promise_id: str,
         timeout: int,
         recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
@@ -282,8 +282,9 @@ class RemoteCallbackStore:
                 method="post",
                 url=f"{self.url}/callbacks",
                 json={
+                    "id": id,
                     "promiseId": id,
-                    "rootPromiseId": root_id,
+                    "rootPromiseId": root_promise_id,
                     "timeout": timeout,
                     "recv": recv,
                 },
