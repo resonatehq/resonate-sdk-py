@@ -126,21 +126,24 @@ class RemotePromiseStore(IPromiseStore):
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
-        res = requests.post(
-            url=f"{self.url}/promises/callback",
-            headers=request_headers,
-            json={
-                "promise": {
-                    "id": id,
-                    "timeout": timeout,
-                    "param": {"headers": headers, "data": self._encode_data(data)},
-                    "tags": tags,
-                },
-                "callback": {
-                    "id": callback_id,
-                    "rootPromiseId": root_promise_id,
-                    "timeout": timeout,
-                    "recv": recv,
+        res = self._call(
+            requests.Request(
+                method="post",
+                url=f"{self.url}/promises/callback",
+                headers=request_headers,
+                json={
+                    "promise": {
+                        "id": id,
+                        "timeout": timeout,
+                        "param": {"headers": headers, "data": self._encode_data(data)},
+                        "tags": tags,
+                    },
+                    "callback": {
+                        "id": callback_id,
+                        "rootPromiseId": root_promise_id,
+                        "timeout": timeout,
+                        "recv": recv,
+                    },
                 },
             )
         )
@@ -283,7 +286,7 @@ class RemoteCallbackStore:
                 url=f"{self.url}/callbacks",
                 json={
                     "id": id,
-                    "promiseId": id,
+                    "promiseId": promise_id,
                     "rootPromiseId": root_promise_id,
                     "timeout": timeout,
                     "recv": recv,
@@ -419,10 +422,6 @@ class RemoteStore:
 
             # wait for 1s and try again
             time.sleep(1)
-
-
-def _ensure_success(resp: requests.Response) -> None:
-    resp.raise_for_status()
 
 
 def _encode(value: str, encoder: IEncoder[str, str]) -> str:

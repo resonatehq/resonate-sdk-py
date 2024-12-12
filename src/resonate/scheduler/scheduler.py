@@ -500,7 +500,7 @@ class Scheduler(IScheduler):
                 tags=tags,
                 callback_id=utils.string_to_uuid(record.id),
                 root_promise_id=root.id,
-                recv=self._default_recv,
+                recv=self._recv,
             )
             assert child_id in self._records
             assert not record.done()
