@@ -20,7 +20,7 @@ from resonate.stores.traits import IPromiseStore
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from resonate.typing import Data, Headers, IdempotencyKey
+    from resonate.typing import Data, Headers, IdempotencyKey, Tags
 
 
 @final
@@ -41,10 +41,10 @@ class RemotePromiseStore(IPromiseStore):
         id: str,
         ikey: str | None,
         strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
+        headers: Headers,
+        data: Data,
         timeout: int,
-        tags: dict[str, str] | None,
+        tags: Tags,
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
@@ -70,10 +70,10 @@ class RemotePromiseStore(IPromiseStore):
         id: str,
         ikey: str | None,
         strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
+        headers: Headers,
+        data: Data,
         timeout: int,
-        tags: dict[str, str] | None,
+        tags: Tags,
         pid: str,
         ttl: int,
         recv: str | dict[str, Any],
@@ -117,12 +117,13 @@ class RemotePromiseStore(IPromiseStore):
         ikey: str | None,
         strict: bool,
         timeout: int,
-        headers: dict[str, str] | None,
-        data: str | None,
-        tags: dict[str, str] | None,
+        headers: Headers,
+        data: Data,
+        tags: Tags,
         callback_id: str,
         root_promise_id: str,
         recv: str | dict[str, Any],
+        callback_timeout: int,
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
@@ -141,7 +142,7 @@ class RemotePromiseStore(IPromiseStore):
                     "callback": {
                         "id": callback_id,
                         "rootPromiseId": root_promise_id,
-                        "timeout": timeout,
+                        "timeout": callback_timeout,
                         "recv": recv,
                     },
                 },
@@ -165,8 +166,8 @@ class RemotePromiseStore(IPromiseStore):
         id: str,
         ikey: str | None,
         strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
+        headers: Headers,
+        data: Data,
     ) -> DurablePromiseRecord:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
@@ -253,7 +254,7 @@ class RemotePromiseStore(IPromiseStore):
 
         return headers
 
-    def _encode_data(self, data: str | None) -> str | None:
+    def _encode_data(self, data: Data) -> str | None:
         if data is None:
             return None
         return _encode(data, self._encoder)

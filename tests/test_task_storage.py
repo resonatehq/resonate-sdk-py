@@ -128,6 +128,7 @@ def test_case_3_create_durable_promise_with_callback() -> None:
         callback_id=id + id,
         root_promise_id=id,
         recv={"type": "poll", "data": {"group": "default", "id": pid}},
+        callback_timeout=sys.maxsize,
     )
     assert callback_record is not None
     assert durable_promise.id == callback_record.id
@@ -164,6 +165,7 @@ def test_case_4_create_with_callback_dedup() -> None:
         headers=None,
         data=None,
         tags=None,
+        callback_timeout=sys.maxsize,
     )
     assert promise_record.is_completed()
     assert callback_record is None

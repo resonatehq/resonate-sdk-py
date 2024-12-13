@@ -15,14 +15,18 @@ from resonate.stores.traits import IPromiseStore
 from resonate.time import now
 
 if TYPE_CHECKING:
-    from resonate.typing import State
+    from collections.abc import Hashable
+
+    from resonate.typing import Data, Headers, State, Tags
 
 
 def _timeout(promise_record: DurablePromiseRecord) -> DurablePromiseRecord:
     new_status: State = "REJECTED_TIMEDOUT"
     if promise_record.is_pending() and now() >= promise_record.timeout:
         if promise_record.tags is not None:
-            resonate_timeout: str | None = promise_record.tags.get("resonate:timeout")
+            resonate_timeout: Hashable | None = promise_record.tags.get(
+                "resonate:timeout"
+            )
             if resonate_timeout is not None and resonate_timeout == "true":
                 new_status = "RESOLVED"
         return DurablePromiseRecord(
@@ -77,10 +81,10 @@ class LocalPromiseStore(IPromiseStore):
         id: str,
         ikey: str | None,
         strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
+        headers: Headers,
+        data: Data,
         timeout: int,
-        tags: dict[str, str] | None,
+        tags: Tags,
         pid: str,  # noqa: ARG002
         ttl: int,  # noqa: ARG002
         recv: str | dict[str, Any],  # noqa: ARG002
@@ -102,12 +106,13 @@ class LocalPromiseStore(IPromiseStore):
         ikey: str | None,
         strict: bool,
         timeout: int,
-        headers: dict[str, str] | None,
-        data: str | None,
-        tags: dict[str, str] | None,
+        headers: Headers,
+        data: Data,
+        tags: Tags,
         callback_id: str,  # noqa: ARG002
         root_promise_id: str,  # noqa: ARG002
         recv: str | dict[str, Any],  # noqa: ARG002
+        callback_timeout: int,  # noqa: ARG002
     ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         return self.create(
             id=id,
@@ -125,10 +130,10 @@ class LocalPromiseStore(IPromiseStore):
         id: str,
         ikey: str | None,
         strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
+        headers: Headers,
+        data: Data,
         timeout: int,
-        tags: dict[str, str] | None,
+        tags: Tags,
     ) -> DurablePromiseRecord:
         def _create(
             promise_record: DurablePromiseRecord | None,
@@ -168,8 +173,8 @@ class LocalPromiseStore(IPromiseStore):
         id: str,
         ikey: str | None,
         strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
+        headers: Headers,
+        data: Data,
     ) -> DurablePromiseRecord:
         def _reject(
             promise_record: DurablePromiseRecord | None,
@@ -209,8 +214,8 @@ class LocalPromiseStore(IPromiseStore):
         id: str,
         ikey: str | None,
         strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
+        headers: Headers,
+        data: Data,
     ) -> DurablePromiseRecord:
         def _cancel(
             promise_record: DurablePromiseRecord | None,
@@ -250,8 +255,8 @@ class LocalPromiseStore(IPromiseStore):
         id: str,
         ikey: str | None,
         strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
+        headers: Headers,
+        data: Data,
     ) -> DurablePromiseRecord:
         def _resolve(
             promise_record: DurablePromiseRecord | None,
