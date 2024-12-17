@@ -503,10 +503,12 @@ class Scheduler(IScheduler):
             assert child_id in self._records
             assert not record.done()
             child_record.add_durable_promise(durable_promise)
+
             if durable_promise.is_completed():
                 value = durable_promise.get_value(self._encoder)
                 child_record.set_result(value, deduping=True)
                 self._add_to_runnable(record.id, child_record.safe_result())
+
             else:
                 durable_promise, callback = self._store.callbacks.create(
                     id=utils.string_to_uuid(record.id),
