@@ -16,7 +16,7 @@ from resonate.task_sources.poller import Poller
 from resonate.task_sources.traits import ITaskSource
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
+    from collections.abc import Coroutine, Generator
 
     from resonate import retry_policy
     from resonate.context import Context
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from resonate.scheduler.traits import IScheduler
     from resonate.stores.local import LocalStore
     from resonate.task_sources.traits import ITaskSource
-    from resonate.typing import Coro, DurableCoro, DurableFn
+    from resonate.typing import DurableCoro, DurableFn, Yieldable
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -63,7 +63,7 @@ class Resonate:
         self,
         func: Callable[
             Concatenate[Context, P],
-            Coro[T],
+            Generator[Yieldable, Any, T],
         ],
         name: str | None = None,
         version: int = 1,
@@ -106,7 +106,7 @@ class Resonate:
         id: str,
         func: Callable[
             Concatenate[Context, P],
-            Coro[T],
+            Generator[Yieldable, Any, T],
         ]
         | Callable[Concatenate[Context, P], T]
         | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
@@ -121,7 +121,7 @@ class Resonate:
         func: tuple[
             Callable[
                 Concatenate[Context, P],
-                Coro[T],
+                Generator[Yieldable, Any, T],
             ]
             | Callable[Concatenate[Context, P], T]
             | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
@@ -136,14 +136,14 @@ class Resonate:
         id: str,
         func: Callable[
             Concatenate[Context, P],
-            Coro[T],
+            Generator[Yieldable, Any, T],
         ]
         | Callable[Concatenate[Context, P], T]
         | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]]
         | tuple[
             Callable[
                 Concatenate[Context, P],
-                Coro[T],
+                Generator[Yieldable, Any, T],
             ]
             | Callable[Concatenate[Context, P], T]
             | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],

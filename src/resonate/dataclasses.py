@@ -8,9 +8,11 @@ from typing_extensions import ParamSpec, assert_never
 from resonate.result import Err, Ok, Result
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from resonate.record import Handle, Record
     from resonate.scheduler.traits import IScheduler
-    from resonate.typing import Coro, DurableCoro, DurableFn, Yieldable
+    from resonate.typing import DurableCoro, DurableFn, Yieldable
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -35,7 +37,7 @@ class FinalValue(Generic[T]):
 
 
 class ResonateCoro(Generic[T]):
-    def __init__(self, record: Record[T], coro: Coro[T]) -> None:
+    def __init__(self, record: Record[T], coro: Generator[Yieldable, Any, T]) -> None:
         self.id = record.id
         self._coro = coro
         self._coro_active: bool = True

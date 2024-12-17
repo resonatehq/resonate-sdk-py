@@ -16,10 +16,10 @@ from resonate.dataclasses import Invocation, RegisteredFn
 from resonate.time import now
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
+    from collections.abc import Coroutine, Generator
 
     from resonate.dependencies import Dependencies
-    from resonate.typing import Coro, DurableCoro, DurableFn
+    from resonate.typing import DurableCoro, DurableFn, Yieldable
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -58,7 +58,7 @@ class Context:
     @overload
     def rfc(
         self,
-        func: Callable[Concatenate[Context, P], Coro[Any]],
+        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -108,7 +108,7 @@ class Context:
     @overload
     def rfi(
         self,
-        func: Callable[Concatenate[Context, P], Coro[Any]],
+        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -147,7 +147,7 @@ class Context:
     @overload
     def lfi(
         self,
-        func: Callable[Concatenate[Context, P], Coro[Any]],
+        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -191,7 +191,7 @@ class Context:
     @overload
     def lfc(
         self,
-        func: Callable[Concatenate[Context, P], Coro[Any]],
+        func: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -230,7 +230,7 @@ class Context:
     def deferred(
         self,
         id: str,
-        coro: Callable[Concatenate[Context, P], Coro[Any]],
+        coro: Callable[Concatenate[Context, P], Generator[Yieldable, Any, Any]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,

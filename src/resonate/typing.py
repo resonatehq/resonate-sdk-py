@@ -27,9 +27,8 @@ Yieldable: TypeAlias = Union[
     DI,
     Promise[Any],
 ]
-Coro: TypeAlias = Generator[Yieldable, Any, T]
 
-DurableCoro: TypeAlias = Callable[Concatenate[Context, P], Coro[T]]
+DurableCoro: TypeAlias = Callable[Concatenate[Context, P], Generator[Yieldable, Any, T]]
 DurableSyncFn: TypeAlias = Callable[Concatenate[Context, P], T]
 DurableAsyncFn: TypeAlias = Callable[Concatenate[Context, P], Coroutine[Any, Any, T]]
 DurableFn: TypeAlias = Union[DurableSyncFn[P, T], DurableAsyncFn[P, T]]
