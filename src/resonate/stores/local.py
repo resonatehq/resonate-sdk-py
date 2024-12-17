@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, Callable, final
 
 from resonate.errors import ResonateError
 from resonate.stores.record import (
-    CallbackRecord,
     DurablePromiseRecord,
     Param,
     TaskRecord,
@@ -89,31 +88,6 @@ class LocalPromiseStore(IPromiseStore):
         ttl: int,  # noqa: ARG002
         recv: str | dict[str, Any],  # noqa: ARG002
     ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
-        return self.create(
-            id=id,
-            ikey=ikey,
-            strict=strict,
-            headers=headers,
-            data=data,
-            timeout=timeout,
-            tags=tags,
-        ), None
-
-    def create_with_callback(  # noqa: PLR0913
-        self,
-        *,
-        id: str,
-        ikey: str | None,
-        strict: bool,
-        timeout: int,
-        headers: Headers,
-        data: Data,
-        tags: Tags,
-        callback_id: str,  # noqa: ARG002
-        root_promise_id: str,  # noqa: ARG002
-        recv: str | dict[str, Any],  # noqa: ARG002
-        callback_timeout: int,  # noqa: ARG002
-    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
         return self.create(
             id=id,
             ikey=ikey,

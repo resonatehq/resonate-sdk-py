@@ -110,56 +110,6 @@ class RemotePromiseStore(IPromiseStore):
             return durable_promise, None
         return durable_promise, TaskRecord.decode(task_data, encoder=self._encoder)
 
-    def create_with_callback(  # noqa: PLR0913
-        self,
-        *,
-        id: str,
-        ikey: str | None,
-        strict: bool,
-        timeout: int,
-        headers: Headers,
-        data: Data,
-        tags: Tags,
-        callback_id: str,
-        root_promise_id: str,
-        recv: str | dict[str, Any],
-        callback_timeout: int,
-    ) -> tuple[DurablePromiseRecord, CallbackRecord | None]:
-        request_headers = self._initialize_headers(strict=strict, ikey=ikey)
-
-        res = self._call(
-            requests.Request(
-                method="post",
-                url=f"{self.url}/promises/callback",
-                headers=request_headers,
-                json={
-                    "promise": {
-                        "id": id,
-                        "timeout": timeout,
-                        "param": {"headers": headers, "data": self._encode_data(data)},
-                        "tags": tags,
-                    },
-                    "callback": {
-                        "id": callback_id,
-                        "rootPromiseId": root_promise_id,
-                        "timeout": callback_timeout,
-                        "recv": recv,
-                    },
-                },
-            )
-        )
-
-        data_json = res.json()
-        callback_data = data_json["callback"]
-        durable_promise = DurablePromiseRecord.decode(
-            data_json["promise"], encoder=self._encoder
-        )
-        if callback_data is None:
-            return durable_promise, None
-        return durable_promise, CallbackRecord.decode(
-            callback_data, encoder=self._encoder
-        )
-
     def resolve(
         self,
         *,
