@@ -27,8 +27,8 @@ from resonate.result import Err, Ok
 from resonate.scheduler.traits import IScheduler
 from resonate.stores.record import (
     DurablePromiseRecord,
-    Invoke,
-    Resume,
+    InvokeMsg,
+    ResumeMsg,
     TaskRecord,
 )
 from resonate.stores.remote import RemoteStore
@@ -202,10 +202,10 @@ class Scheduler(IScheduler):
                 pid=self._pid,
                 ttl=5 * 1000,
             )
-            if isinstance(invoke_or_resume, Invoke):
-                self._process_invoke(invoke_or_resume, task)
-            elif isinstance(invoke_or_resume, Resume):
-                self._process_resume(invoke_or_resume, task)
+            if isinstance(invoke_or_resume, InvokeMsg):
+                self._process_invoke_msg(invoke_or_resume, task)
+            elif isinstance(invoke_or_resume, ResumeMsg):
+                self._process_resume_msg(invoke_or_resume, task)
             else:
                 assert_never(invoke_or_resume)
 
@@ -238,10 +238,12 @@ class Scheduler(IScheduler):
     def _continue(self) -> None:
         self._event.set()
 
-    def _process_invoke(self, invoke: Invoke, task: TaskRecord) -> None:
-        logger.info("Invoke message for %s received", invoke.root_durable_promise.id)
+    def _process_invoke_msg(self, invoke_msg: InvokeMsg, task: TaskRecord) -> None:
+        logger.info(
+            "Invoke message for %s received", invoke_msg.root_durable_promise.id
+        )
 
-        invoke_info = invoke.root_durable_promise.invoke_info(self._encoder)
+        invoke_info = invoke_msg.root_durable_promise.invoke_info(self._encoder)
         func_name = invoke_info["func_name"]
         registered_func = self._registry.get(func_name)
         assert registered_func, f"There's no function registered under name {func_name}"
@@ -251,7 +253,7 @@ class Scheduler(IScheduler):
         rfi = RFI(
             Invocation(func, *invoke_info["args"], **invoke_info["kwargs"]), opts=opts
         )
-        record = self._records.get(invoke.root_durable_promise.id)
+        record = self._records.get(invoke_msg.root_durable_promise.id)
         if record:
             assert record.is_root
             assert isinstance(record.invocation, RFI)
@@ -259,38 +261,41 @@ class Scheduler(IScheduler):
             record.invocation = rfi
         else:
             record = Record[Any](
-                id=invoke.root_durable_promise.id,
+                id=invoke_msg.root_durable_promise.id,
                 invocation=rfi,
                 parent=None,
                 ctx=Context(self._deps),
             )
             self._records[record.id] = record
-            record.add_durable_promise(invoke.root_durable_promise)
+            record.add_durable_promise(invoke_msg.root_durable_promise)
 
         record.add_task(task=task)
         self._record_queue.put_nowait(record.id)
         self._continue()
 
-    def _process_resume(self, resume: Resume, task: TaskRecord) -> None:
-        logger.info("Resume message for %s received", resume.leaf_durable_promise.id)
+    def _process_resume_msg(self, resume_msg: ResumeMsg, task: TaskRecord) -> None:
+        logger.info(
+            "Resume message for %s received", resume_msg.leaf_durable_promise.id
+        )
         assert isinstance(self._store, RemoteStore)
-        assert resume.leaf_durable_promise.is_completed()
+        assert resume_msg.leaf_durable_promise.is_completed()
 
-        root_record = self._records.get(resume.root_durable_promise.id)
-        leaf_record = self._records.get(resume.leaf_durable_promise.id)
+        root_record = self._records.get(resume_msg.root_durable_promise.id)
+        leaf_record = self._records.get(resume_msg.leaf_durable_promise.id)
         if root_record and leaf_record:
             assert root_record.is_root
             assert leaf_record.is_root
             root_record.add_task(task)
             if not leaf_record.done():
                 leaf_record.set_result(
-                    resume.leaf_durable_promise.get_value(self._encoder), deduping=True
+                    resume_msg.leaf_durable_promise.get_value(self._encoder),
+                    deduping=True,
                 )
 
             self._unblock_awaiting_remote(leaf_record.id)
 
         else:
-            self._process_invoke(Invoke(resume.root_durable_promise), task)
+            self._process_invoke_msg(InvokeMsg(resume_msg.root_durable_promise), task)
 
     def _process_promise(self, record: Record[Any], promise: Promise[Any]) -> None:
         promise_record = self._records[promise.id]
