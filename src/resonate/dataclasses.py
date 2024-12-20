@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final, overload
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar, final, overload
 
 from typing_extensions import ParamSpec, assert_never
 
@@ -17,6 +17,13 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 P = ParamSpec("P")
+
+
+@final
+@dataclass(frozen=True)
+class SQE(Generic[T]):
+    thunk: Callable[[], T]
+    id: str
 
 
 @final

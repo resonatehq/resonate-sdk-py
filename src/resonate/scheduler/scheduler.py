@@ -7,7 +7,7 @@ import time
 from collections import deque
 from functools import partial
 from inspect import iscoroutinefunction, isfunction, isgeneratorfunction
-from threading import Event, Thread
+from threading import Thread
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
@@ -15,12 +15,19 @@ from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
 from resonate.actions import DI, LFC, LFI, RFC, RFI
+from resonate.cmd_queue import Claim, CmdQ, Command, Complete, Invoke, Resume
 from resonate.context import Context
-from resonate.dataclasses import DurablePromise, FinalValue, Invocation, ResonateCoro
+from resonate.dataclasses import (
+    SQE,
+    DurablePromise,
+    FinalValue,
+    Invocation,
+    ResonateCoro,
+)
 from resonate.encoders import JsonEncoder
 from resonate.logging import logger
-from resonate.processor.processor import SQE, Processor
-from resonate.queue import DelayQueue, Queue
+from resonate.processor.processor import Processor
+from resonate.queue import DelayQueue
 from resonate.record import Promise, Record
 from resonate.result import Err, Ok
 from resonate.scheduler.traits import IScheduler
@@ -66,13 +73,12 @@ class Scheduler(IScheduler):
         self._awaiting_rfi: dict[str, list[str]] = {}
         self._awaiting_lfi: dict[str, list[str]] = {}
 
-        self._event = Event()
         self._encoder = JsonEncoder()
         self._recv = self._task_source.default_recv(self._pid)
 
         self._records: dict[str, Record[Any]] = {}
-        self._record_queue: Queue[str] = Queue()
-        self._delay_queue = DelayQueue[str]()
+        self._cmd_queue = CmdQ()
+        self._delay_queue = DelayQueue()
 
         self._heartbeat_thread = Thread(target=self._heartbeat, daemon=True)
         self._scheduler_thread = Thread(target=self._loop, daemon=True)
@@ -83,13 +89,13 @@ class Scheduler(IScheduler):
             self._heartbeat_thread.start()
 
             # start the task source
-            self._task_source.start(self._event, self._pid)
+            self._task_source.start(self._cmd_queue, self._pid)
 
         # start delay queue
-        self._delay_queue.start(self._event)
+        self._delay_queue.start(self._cmd_queue)
 
         # start the processor
-        self._processor.start(self._event)
+        self._processor.start(self._cmd_queue)
 
         # start the scheduler
         self._scheduler_thread.start()
@@ -148,8 +154,7 @@ class Scheduler(IScheduler):
             assert task is None
             record.set_result(durable_promise.get_value(self._encoder), deduping=True)
         else:
-            self._record_queue.put_nowait(record.id)
-            self._continue()
+            self._cmd_queue.enqueue(Invoke(record.id))
 
         return record.handle
 
@@ -167,46 +172,39 @@ class Scheduler(IScheduler):
         # - resonate run is called
         # - a completion is enqueued by the processor
         # - a task is enqueued by the task source
-        while self._event.wait():
+        while True:
             # immediately clear the event so the next tick waits
             # unless another event occurs in the meantime
-            self._event.clear()
+            cmd = self._cmd_queue.dequeue()
+            if cmd is None:
+                break
 
             # start the next tick
-            self._tick()
+            self._tick(cmd)
 
-    def _tick(self) -> None:  # noqa: C901,PLR0912
-        # get record to retry
-        for id in self._delay_queue.dequeue_all():
-            self._ingest(id)
-
-        # dequeue all cqes and call the callback
-        for cqe in self._processor.dequeue():
-            self._process_final_value(cqe.id, cqe.result)
-
-        # check for newly added records from application thread
-        # to feed runnable.
-        for id in self._record_queue.dequeue_all():
-            self._ingest(id)
-
-        # check for tasks added from task_source
-        # to firt claim the task, then try to resume if in memory
-        # else invoke.
-        for task in self._task_source.dequeue():
+    def _tick(self, cmd: Command) -> None:  # noqa: C901,PLR0912
+        if isinstance(cmd, Invoke):
+            self._ingest(cmd.id)
+        elif isinstance(cmd, Complete):
+            self._process_final_value(cmd.id, cmd.result)
+        elif isinstance(cmd, Claim):
             assert isinstance(self._store, RemoteStore)
-
             invoke_or_resume = self._store.tasks.claim(
-                task_id=task.task_id,
-                counter=task.counter,
+                task_id=cmd.record.task_id,
+                counter=cmd.record.counter,
                 pid=self._pid,
                 ttl=5 * 1000,
             )
             if isinstance(invoke_or_resume, InvokeMsg):
-                self._process_invoke_msg(invoke_or_resume, task)
+                self._process_invoke_msg(invoke_or_resume, cmd.record)
             elif isinstance(invoke_or_resume, ResumeMsg):
-                self._process_resume_msg(invoke_or_resume, task)
+                self._process_resume_msg(invoke_or_resume, cmd.record)
             else:
                 assert_never(invoke_or_resume)
+        elif isinstance(cmd, Resume):
+            raise NotImplementedError
+        else:
+            assert_never(cmd)
 
         # for each item in runnable advance one step in the
         # coroutine to collect server commands.
@@ -233,9 +231,6 @@ class Scheduler(IScheduler):
                 raise NotImplementedError
             else:
                 assert_never(yielded_value)
-
-    def _continue(self) -> None:
-        self._event.set()
 
     def _process_invoke_msg(self, invoke_msg: InvokeMsg, task: TaskRecord) -> None:
         logger.info(
@@ -269,8 +264,7 @@ class Scheduler(IScheduler):
             record.add_durable_promise(invoke_msg.root_durable_promise)
 
         record.add_task(task=task)
-        self._record_queue.put_nowait(record.id)
-        self._continue()
+        self._cmd_queue.enqueue(Invoke(record.id))
 
     def _process_resume_msg(self, resume_msg: ResumeMsg, task: TaskRecord) -> None:
         logger.info(
@@ -649,7 +643,7 @@ class Scheduler(IScheduler):
             record = self._records[record]
         if record.should_retry(final_value):
             record.increate_attempt()
-            self._delay_queue.put_nowait(record.id, record.next_retry_delay())
+            self._delay_queue.enqueue(Invoke(record.id), record.next_retry_delay())
 
         elif record.invocation.opts.durable:
             durable_promise: DurablePromiseRecord

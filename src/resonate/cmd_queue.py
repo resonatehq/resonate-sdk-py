@@ -32,17 +32,17 @@ class Claim:
     record: TaskRecord
 
 
-CQE: TypeAlias = Union[Invoke, Resume, Complete, Claim]
+Command: TypeAlias = Union[Invoke, Resume, Complete, Claim]
 
 
-class CQ:
+class CmdQ:
     def __init__(self) -> None:
-        self._q = Queue[Union[CQE, None]]()
+        self._q = Queue[Union[Command, None]]()
 
-    def enqueue(self, item: CQE) -> None:
+    def enqueue(self, item: Command) -> None:
         self._q.put(item)
 
-    def dequeue(self) -> CQE | None:
+    def dequeue(self) -> Command | None:
         return self._q.get()
 
     def stop(self) -> None:

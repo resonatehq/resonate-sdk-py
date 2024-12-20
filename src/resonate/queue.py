@@ -7,6 +7,8 @@ import time
 from threading import Event, Thread
 from typing import Generic, TypeVar, final
 
+from resonate.cmd_queue import CmdQ, Invoke
+
 T = TypeVar("T")
 
 
@@ -59,21 +61,20 @@ class Queue(Generic[T]):
 
 
 @final
-class DelayQueue(Generic[T]):
+class DelayQueue:
     def __init__(self) -> None:
-        self._inq = Queue[tuple[T, float]]()
-        self._outq = Queue[T]()
-        self._delayed: list[tuple[float, int, T]] = []
+        self._inq = Queue[tuple[Invoke, float]]()
+        self._delayed: list[tuple[float, int, Invoke]] = []
         self._continue_event = Event()
 
-    def start(self, event: Event | None = None) -> None:
-        self._worker_thread = Thread(target=self._run, args=(event,), daemon=True)
+    def start(self, cmd_queue: CmdQ) -> None:
+        self._worker_thread = Thread(target=self._run, args=(cmd_queue,), daemon=True)
         self._worker_thread.start()
 
     def _next_release_time(self) -> float:
         return self._delayed[0][0]
 
-    def _run(self, event: Event | None) -> None:
+    def _run(self, cmd_queue: CmdQ) -> None:
         """Worker thread that processes the delayed queue."""
         while True:
             current_time = time.time_ns()
@@ -87,9 +88,7 @@ class DelayQueue(Generic[T]):
             # Release any items whose delay has expired
             while self._delayed and self._next_release_time() <= current_time:
                 _, _, item = heapq.heappop(self._delayed)
-                self._outq.put_nowait(item)  # Put the item in the consumer queue
-                if event:
-                    event.set()
+                cmd_queue.enqueue(item)
 
             # Calculate the time to wait until the next item is ready
 
@@ -103,18 +102,6 @@ class DelayQueue(Generic[T]):
             )
             self._continue_event.clear()
 
-    def dequeue_batch(self, batch_size: int) -> list[T]:
-        return self._outq.dequeue_batch(batch_size)
-
-    def dequeue(self, timeout: float | None = None) -> T:
-        return self._outq.dequeue(timeout)
-
-    def put_nowait(self, item: T, delay: float) -> None:
-        self._inq.put_nowait((item, delay))
+    def enqueue(self, item: Invoke, delay: float) -> None:
+        self._inq.put((item, delay))
         self._continue_event.set()
-
-    def qsize(self) -> int:
-        return len(self._delayed) + self._outq.qsize()
-
-    def dequeue_all(self) -> list[T]:
-        return self._outq.dequeue_all()
