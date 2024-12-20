@@ -15,9 +15,8 @@ from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
 from resonate.actions import DI, LFC, LFI, RFC, RFI
-from resonate.commands import DurablePromise
 from resonate.context import Context
-from resonate.dataclasses import FinalValue, Invocation, ResonateCoro
+from resonate.dataclasses import DurablePromise, FinalValue, Invocation, ResonateCoro
 from resonate.encoders import JsonEncoder
 from resonate.logging import logger
 from resonate.processor.processor import SQE, Processor
@@ -183,7 +182,7 @@ class Scheduler(IScheduler):
 
         # dequeue all cqes and call the callback
         for cqe in self._processor.dequeue():
-            cqe.callback(cqe.result)
+            self._process_final_value(cqe.id, cqe.result)
 
         # check for newly added records from application thread
         # to feed runnable.
@@ -424,8 +423,6 @@ class Scheduler(IScheduler):
             self._add_to_runnable(record.id, None)
             return
 
-        continuation = partial(self._process_final_value, record)
-
         if iscoroutinefunction(fn):
             self._processor.enqueue(
                 SQE[Any](
@@ -437,7 +434,7 @@ class Scheduler(IScheduler):
                             **kwargs,
                         ),
                     ),
-                    callback=continuation,
+                    id=record.id,
                 )
             )
 
@@ -451,7 +448,7 @@ class Scheduler(IScheduler):
                         *args,
                         **kwargs,
                     ),
-                    callback=continuation,
+                    id=record.id,
                 )
             )
 
@@ -646,8 +643,10 @@ class Scheduler(IScheduler):
                 self._add_to_runnable(record.id, Ok(child_record.promise))
 
     def _process_final_value(
-        self, record: Record[Any], final_value: Result[Any, Exception]
+        self, record: str | Record[Any], final_value: Result[Any, Exception]
     ) -> None:
+        if isinstance(record, str):
+            record = self._records[record]
         if record.should_retry(final_value):
             record.increate_attempt()
             self._delay_queue.put_nowait(record.id, record.next_retry_delay())

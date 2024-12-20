@@ -45,7 +45,7 @@ class Processor:
                 result = Err(e)
 
             # put on completion queue
-            self._cq.put_nowait(CQE[Any](result=result, callback=sqe.callback))
+            self._cq.put_nowait(CQE[Any](result=result, id=sqe.id))
 
             # raise event so scheduler knows there is something to process
             event.set()

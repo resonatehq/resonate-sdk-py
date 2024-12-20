@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from resonate.commands import DurablePromise
+from resonate.dataclasses import DurablePromise
 from resonate.record import Handle, Promise
 from resonate.resonate import Resonate
 from resonate.retry_policy import constant, exponential, linear, never

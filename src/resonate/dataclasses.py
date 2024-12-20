@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final, overload
 
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
 
     from resonate.record import Handle, Record
     from resonate.scheduler.traits import IScheduler
-    from resonate.typing import DurableCoro, DurableFn, Yieldable
+    from resonate.typing import Data, DurableCoro, DurableFn, Headers, Tags, Yieldable
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -150,3 +151,22 @@ class Invocation(Generic[T]):
         self.fn = fn
         self.args = args
         self.kwargs = kwargs
+
+
+class BatchCommand: ...
+
+
+class DurablePromise:
+    def __init__(
+        self,
+        id: str | None = None,
+        data: Data = None,
+        headers: Headers = None,
+        tags: Tags = None,
+        timeout: int = sys.maxsize,
+    ) -> None:
+        self.id = id
+        self.data = data
+        self.headers = headers
+        self.tags = tags
+        self.timeout = timeout

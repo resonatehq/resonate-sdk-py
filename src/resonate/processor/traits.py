@@ -16,14 +16,14 @@ T = TypeVar("T")
 @dataclass(frozen=True)
 class SQE(Generic[T]):
     thunk: Callable[[], T]
-    callback: Callable[[Result[T, Exception]], None]
+    id: str
 
 
 @final
 @dataclass(frozen=True)
 class CQE(Generic[T]):
     result: Result[T, Exception]
-    callback: Callable[[Result[T, Exception]], None]
+    id: str
 
 
 class IProcessor(ABC):
