@@ -168,25 +168,22 @@ class Scheduler(IScheduler):
             time.sleep(2)
 
     def _loop(self) -> None:
-        # wait until an event occurs, either:
-        # - resonate run is called
-        # - a completion is enqueued by the processor
-        # - a task is enqueued by the task source
         while True:
-            # immediately clear the event so the next tick waits
-            # unless another event occurs in the meantime
             cmd = self._cmd_queue.dequeue()
             if cmd is None:
                 break
 
             # start the next tick
-            self._tick(cmd)
+            for loopback in self._tick(cmd):
+                self._cmd_queue.enqueue(loopback)
+                assert not self._runnable
 
-    def _tick(self, cmd: Command) -> None:  # noqa: C901,PLR0912
+    def _tick(self, cmd: Command) -> list[Command]:  # noqa: C901,PLR0912
+        loopback_cmds: list[Command] = []
         if isinstance(cmd, Invoke):
             self._ingest(cmd.id)
         elif isinstance(cmd, Complete):
-            self._process_final_value(cmd.id, cmd.result)
+            self._process_final_value(cmd.id, cmd.result, loopback_cmds)
         elif isinstance(cmd, Claim):
             assert isinstance(self._store, RemoteStore)
             invoke_or_resume = self._store.tasks.claim(
@@ -196,13 +193,13 @@ class Scheduler(IScheduler):
                 ttl=5 * 1000,
             )
             if isinstance(invoke_or_resume, InvokeMsg):
-                self._process_invoke_msg(invoke_or_resume, cmd.record)
+                self._process_invoke_msg(invoke_or_resume, cmd.record, loopback_cmds)
             elif isinstance(invoke_or_resume, ResumeMsg):
-                self._process_resume_msg(invoke_or_resume, cmd.record)
+                self._process_resume_msg(invoke_or_resume, cmd.record, loopback_cmds)
             else:
                 assert_never(invoke_or_resume)
         elif isinstance(cmd, Resume):
-            raise NotImplementedError
+            self._add_to_runnable(cmd.id, cmd.result)
         else:
             assert_never(cmd)
 
@@ -225,14 +222,18 @@ class Scheduler(IScheduler):
             elif isinstance(yielded_value, Promise):
                 self._process_promise(record, yielded_value)
             elif isinstance(yielded_value, FinalValue):
-                self._process_final_value(record, yielded_value.v)
+                self._process_final_value(record, yielded_value.v, loopback_cmds)
             elif isinstance(yielded_value, DI):
                 # start execution from the top. Add current record to runnable
                 raise NotImplementedError
             else:
                 assert_never(yielded_value)
 
-    def _process_invoke_msg(self, invoke_msg: InvokeMsg, task: TaskRecord) -> None:
+        return loopback_cmds
+
+    def _process_invoke_msg(
+        self, invoke_msg: InvokeMsg, task: TaskRecord, loopback_cmds: list[Command]
+    ) -> None:
         logger.info(
             "Invoke message for %s received", invoke_msg.root_durable_promise.id
         )
@@ -264,9 +265,11 @@ class Scheduler(IScheduler):
             record.add_durable_promise(invoke_msg.root_durable_promise)
 
         record.add_task(task=task)
-        self._cmd_queue.enqueue(Invoke(record.id))
+        loopback_cmds.append(Invoke(record.id))
 
-    def _process_resume_msg(self, resume_msg: ResumeMsg, task: TaskRecord) -> None:
+    def _process_resume_msg(
+        self, resume_msg: ResumeMsg, task: TaskRecord, loopback_cmds: list[Command]
+    ) -> None:
         logger.info(
             "Resume message for %s received", resume_msg.leaf_durable_promise.id
         )
@@ -285,10 +288,12 @@ class Scheduler(IScheduler):
                     deduping=True,
                 )
 
-            self._unblock_awaiting_remote(leaf_record.id)
+            self._unblock_awaiting_remote(leaf_record.id, loopback_cmds)
 
         else:
-            self._process_invoke_msg(InvokeMsg(resume_msg.root_durable_promise), task)
+            self._process_invoke_msg(
+                InvokeMsg(resume_msg.root_durable_promise), task, loopback_cmds
+            )
 
     def _process_promise(self, record: Record[Any], promise: Promise[Any]) -> None:
         promise_record = self._records[promise.id]
@@ -329,7 +334,7 @@ class Scheduler(IScheduler):
         else:
             assert_never(promise_record.invocation)
 
-    def _unblock_awaiting_local(self, id: str) -> None:
+    def _unblock_awaiting_local(self, id: str, loopback_cmds: list[Command]) -> None:
         record = self._records[id]
         assert record.done()
         for blocked_id in self._awaiting_lfi.pop(record.id, []):
@@ -337,10 +342,9 @@ class Scheduler(IScheduler):
             assert blocked_record.blocked_on
             assert blocked_record.blocked_on.id == id
             blocked_record.blocked_on = None
-            logger.info("Unblocking %s. Who has blocked locally on %s", blocked_id, id)
-            self._add_to_runnable(blocked_id, next_value=record.safe_result())
+            loopback_cmds.append(Resume(blocked_id, record.safe_result()))
 
-    def _unblock_awaiting_remote(self, id: str) -> None:
+    def _unblock_awaiting_remote(self, id: str, loopback_cmds: list[Command]) -> None:
         record = self._records[id]
         assert record.done()
         assert isinstance(record.invocation, RFI)
@@ -349,8 +353,7 @@ class Scheduler(IScheduler):
             assert blocked_record.blocked_on
             assert blocked_record.blocked_on.id == id
             blocked_record.blocked_on = None
-            logger.info("Unblocking %s. Who has blocked remotely on %s", blocked_id, id)
-            self._add_to_runnable(blocked_id, next_value=record.safe_result())
+            loopback_cmds.append(Resume(blocked_id, record.safe_result()))
 
     def _add_to_runnable(
         self, id: str, next_value: Result[Any, Exception] | None
@@ -637,7 +640,10 @@ class Scheduler(IScheduler):
                 self._add_to_runnable(record.id, Ok(child_record.promise))
 
     def _process_final_value(
-        self, record: str | Record[Any], final_value: Result[Any, Exception]
+        self,
+        record: str | Record[Any],
+        final_value: Result[Any, Exception],
+        loopback_cmds: list[Command],
     ) -> None:
         if isinstance(record, str):
             record = self._records[record]
@@ -674,7 +680,7 @@ class Scheduler(IScheduler):
                 self._complete_task(record.id)
 
             record.set_result(final_value, deduping=False)
-            self._unblock_awaiting_local(record.id)
+            self._unblock_awaiting_local(record.id, loopback_cmds)
 
             root = record.root()
             if root != record and self._blocked_only_on_remote(root.id):
@@ -682,7 +688,7 @@ class Scheduler(IScheduler):
 
         else:
             record.set_result(final_value, deduping=False)
-            self._unblock_awaiting_local(record.id)
+            self._unblock_awaiting_local(record.id, loopback_cmds)
 
     def _get_info_from_rfi(self, rfi: RFI) -> tuple[Data, Headers, Tags, int | None]:
         data: Data

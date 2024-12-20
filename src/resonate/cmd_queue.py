@@ -19,6 +19,7 @@ class Invoke:
 @dataclass(frozen=True)
 class Resume:
     id: str
+    result: Result[Any, Exception]
 
 
 @dataclass(frozen=True)
