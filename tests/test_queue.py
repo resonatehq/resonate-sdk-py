@@ -17,3 +17,4 @@ def test_delay_queue() -> None:
     cmd_queue.task_done()
     assert cmd_queue.get() == Invoke("10")
     cmd_queue.task_done()
+    queue.stop()

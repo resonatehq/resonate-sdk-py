@@ -24,10 +24,15 @@ class Poller(ITaskSource):
         self._group = group
         self._encoder = JsonEncoder()
         self._pid = pid
+        self._t: Thread | None = None
 
     def start(self, cmd_queue: CommandQ) -> None:
-        t = Thread(target=self._run, args=(cmd_queue,), daemon=True)
-        t.start()
+        assert self._t is None
+        self._t = Thread(target=self._run, args=(cmd_queue,), daemon=True)
+        self._t.start()
+
+    def stop(self) -> None:
+        raise NotImplementedError
 
     def _run(self, cmd_queue: CommandQ) -> None:
         url = f"{self._url}/{self._group}/{self._pid}"

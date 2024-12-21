@@ -10,3 +10,6 @@ if TYPE_CHECKING:
 class SubSystem(ABC):
     @abstractmethod
     def start(self, cmd_queue: CommandQ) -> None: ...
+
+    @abstractmethod
+    def stop(self) -> None: ...

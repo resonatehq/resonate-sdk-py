@@ -31,6 +31,9 @@ class Processor(IProcessor):
 
             t.start()
 
+    def stop(self) -> None:
+        raise NotImplementedError
+
     def enqueue(self, sqe: SQE[Any]) -> None:
         self._sq.put(sqe)
 
