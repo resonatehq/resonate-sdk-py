@@ -7,7 +7,7 @@ import time
 from threading import Event, Thread
 from typing import Generic, TypeVar, final
 
-from resonate.cmd_queue import CmdQ, Invoke
+from resonate.cmd_queue import CommandQ, Invoke
 
 T = TypeVar("T")
 
@@ -67,14 +67,14 @@ class DelayQueue:
         self._delayed: list[tuple[float, int, Invoke]] = []
         self._continue_event = Event()
 
-    def start(self, cmd_queue: CmdQ) -> None:
+    def start(self, cmd_queue: CommandQ) -> None:
         self._worker_thread = Thread(target=self._run, args=(cmd_queue,), daemon=True)
         self._worker_thread.start()
 
     def _next_release_time(self) -> float:
         return self._delayed[0][0]
 
-    def _run(self, cmd_queue: CmdQ) -> None:
+    def _run(self, cmd_queue: CommandQ) -> None:
         """Worker thread that processes the delayed queue."""
         while True:
             current_time = time.time_ns()
@@ -88,7 +88,7 @@ class DelayQueue:
             # Release any items whose delay has expired
             while self._delayed and self._next_release_time() <= current_time:
                 _, _, item = heapq.heappop(self._delayed)
-                cmd_queue.enqueue(item)
+                cmd_queue.put(item)
 
             # Calculate the time to wait until the next item is ready
 

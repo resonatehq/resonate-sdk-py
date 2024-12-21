@@ -6,7 +6,7 @@ from typing import Any
 
 import requests
 
-from resonate.cmd_queue import Claim, CmdQ
+from resonate.cmd_queue import Claim, CommandQ
 from resonate.encoders import JsonEncoder
 from resonate.logging import logger
 from resonate.stores.record import TaskRecord
@@ -23,11 +23,11 @@ class Poller(ITaskSource):
         self._group = group
         self._encoder = JsonEncoder()
 
-    def start(self, cmd_queue: CmdQ, pid: str) -> None:
+    def start(self, cmd_queue: CommandQ, pid: str) -> None:
         t = Thread(target=self._run, args=(cmd_queue, pid), daemon=True)
         t.start()
 
-    def _run(self, cmd_queue: CmdQ, pid: str) -> None:
+    def _run(self, cmd_queue: CommandQ, pid: str) -> None:
         url = f"{self._url}/{self._group}/{pid}"
 
         while True:
@@ -52,7 +52,7 @@ class Poller(ITaskSource):
                         task = TaskRecord.decode(info["task"], encoder=self._encoder)
 
                         # enqueue the task
-                        cmd_queue.enqueue(Claim(task))
+                        cmd_queue.put(Claim(task))
 
             except requests.exceptions.ConnectionError:
                 logger.warning("Connection to poller failed, reconnecting")

@@ -7,6 +7,7 @@ import time
 from collections import deque
 from functools import partial
 from inspect import iscoroutinefunction, isfunction, isgeneratorfunction
+from queue import Queue
 from threading import Thread
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -15,7 +16,7 @@ from typing_extensions import ParamSpec, assert_never
 
 from resonate import utils
 from resonate.actions import DI, LFC, LFI, RFC, RFI
-from resonate.cmd_queue import Claim, CmdQ, Command, Complete, Invoke, Resume
+from resonate.cmd_queue import Claim, Command, CommandQ, Complete, Invoke, Resume
 from resonate.context import Context
 from resonate.dataclasses import (
     SQE,
@@ -77,7 +78,7 @@ class Scheduler(IScheduler):
         self._recv = self._task_source.default_recv(self._pid)
 
         self._records: dict[str, Record[Any]] = {}
-        self._cmd_queue = CmdQ()
+        self._cmd_queue: CommandQ = Queue()
         self._delay_queue = DelayQueue()
 
         self._heartbeat_thread = Thread(target=self._heartbeat, daemon=True)
@@ -154,7 +155,7 @@ class Scheduler(IScheduler):
             assert task is None
             record.set_result(durable_promise.get_value(self._encoder), deduping=True)
         else:
-            self._cmd_queue.enqueue(Invoke(record.id))
+            self._cmd_queue.put(Invoke(record.id))
 
         return record.handle
 
@@ -169,14 +170,17 @@ class Scheduler(IScheduler):
 
     def _loop(self) -> None:
         while True:
-            cmd = self._cmd_queue.dequeue()
+            cmd = self._cmd_queue.get()
             if cmd is None:
                 break
 
             # start the next tick
             for loopback in self._tick(cmd):
-                self._cmd_queue.enqueue(loopback)
+                self._cmd_queue.put(loopback)
                 assert not self._runnable
+
+            # mark task done
+            self._cmd_queue.task_done()
 
     def _tick(self, cmd: Command) -> list[Command]:  # noqa: C901,PLR0912
         loopback_cmds: list[Command] = []

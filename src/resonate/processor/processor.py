@@ -3,7 +3,7 @@ from __future__ import annotations
 from threading import Thread
 from typing import TYPE_CHECKING, Any
 
-from resonate.cmd_queue import CmdQ, Complete
+from resonate.cmd_queue import CommandQ, Complete
 from resonate.processor.traits import IProcessor
 from resonate.queue import Queue
 from resonate.result import Err, Ok, Result
@@ -24,7 +24,7 @@ class Processor(IProcessor):
 
         self._sq: Queue[SQE[Any]] = Queue()
 
-    def start(self, cmd_queue: CmdQ) -> None:
+    def start(self, cmd_queue: CommandQ) -> None:
         for _ in range(self._workers):
             t = Thread(target=self._run, args=(cmd_queue,), daemon=True)
             self._threads.add(t)
@@ -34,7 +34,7 @@ class Processor(IProcessor):
     def enqueue(self, sqe: SQE[Any]) -> None:
         self._sq.put(sqe)
 
-    def _run(self, cmd_queue: CmdQ) -> None:
+    def _run(self, cmd_queue: CommandQ) -> None:
         while True:
             sqe = self._sq.get()
             result: Result[Any, Exception]
@@ -45,4 +45,4 @@ class Processor(IProcessor):
                 result = Err(e)
 
             # put on completion queue
-            cmd_queue.enqueue(Complete(sqe.id, result))
+            cmd_queue.put(Complete(sqe.id, result))

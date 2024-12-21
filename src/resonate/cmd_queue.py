@@ -34,17 +34,4 @@ class Claim:
 
 
 Command: TypeAlias = Union[Invoke, Resume, Complete, Claim]
-
-
-class CmdQ:
-    def __init__(self) -> None:
-        self._q = Queue[Union[Command, None]]()
-
-    def enqueue(self, item: Command) -> None:
-        self._q.put(item)
-
-    def dequeue(self) -> Command | None:
-        return self._q.get()
-
-    def stop(self) -> None:
-        self._q.put(None)
+CommandQ: TypeAlias = Queue[Union[Command, None]]
