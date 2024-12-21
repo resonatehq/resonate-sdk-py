@@ -16,19 +16,21 @@ from resonate.task_sources.traits import ITaskSource
 class Poller(ITaskSource):
     def __init__(
         self,
+        pid: str,
         url: str = "http://localhost:8002",
         group: str = "default",
     ) -> None:
         self._url = url
         self._group = group
         self._encoder = JsonEncoder()
+        self._pid = pid
 
-    def start(self, cmd_queue: CommandQ, pid: str) -> None:
-        t = Thread(target=self._run, args=(cmd_queue, pid), daemon=True)
+    def start(self, cmd_queue: CommandQ) -> None:
+        t = Thread(target=self._run, args=(cmd_queue,), daemon=True)
         t.start()
 
-    def _run(self, cmd_queue: CommandQ, pid: str) -> None:
-        url = f"{self._url}/{self._group}/{pid}"
+    def _run(self, cmd_queue: CommandQ) -> None:
+        url = f"{self._url}/{self._group}/{self._pid}"
 
         while True:
             try:
@@ -59,5 +61,5 @@ class Poller(ITaskSource):
 
             time.sleep(1)
 
-    def default_recv(self, pid: str) -> dict[str, Any]:
-        return {"type": "poll", "data": {"group": self._group, "id": pid}}
+    def default_recv(self) -> dict[str, Any]:
+        return {"type": "poll", "data": {"group": self._group, "id": self._pid}}

@@ -3,14 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from resonate.traits import SubSystem
+
 if TYPE_CHECKING:
-    from resonate.cmd_queue import CommandQ
     from resonate.dataclasses import SQE
 
 
-class IProcessor(ABC):
-    @abstractmethod
-    def start(self, cmd_queue: CommandQ) -> None: ...
-
+class IProcessor(SubSystem, ABC):
     @abstractmethod
     def enqueue(self, sqe: SQE[Any]) -> None: ...

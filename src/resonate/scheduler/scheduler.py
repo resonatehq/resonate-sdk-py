@@ -75,7 +75,7 @@ class Scheduler(IScheduler):
         self._awaiting_lfi: dict[str, list[str]] = {}
 
         self._encoder = JsonEncoder()
-        self._recv = self._task_source.default_recv(self._pid)
+        self._recv = self._task_source.default_recv()
 
         self._records: dict[str, Record[Any]] = {}
         self._cmd_queue: CommandQ = Queue()
@@ -90,7 +90,7 @@ class Scheduler(IScheduler):
             self._heartbeat_thread.start()
 
             # start the task source
-            self._task_source.start(self._cmd_queue, self._pid)
+            self._task_source.start(self._cmd_queue)
 
         # start delay queue
         self._delay_queue.start(self._cmd_queue)
