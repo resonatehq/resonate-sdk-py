@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import time
-from threading import Event, Thread
+from threading import Thread
 from typing import Any
 
 import requests
 
+from resonate.cmd_queue import Claim, CommandQ
 from resonate.encoders import JsonEncoder
 from resonate.logging import logger
-from resonate.queue import Queue
 from resonate.stores.record import TaskRecord
 from resonate.task_sources.traits import ITaskSource
 
@@ -16,23 +16,26 @@ from resonate.task_sources.traits import ITaskSource
 class Poller(ITaskSource):
     def __init__(
         self,
+        pid: str,
         url: str = "http://localhost:8002",
         group: str = "default",
     ) -> None:
         self._url = url
         self._group = group
         self._encoder = JsonEncoder()
-        self._tasks: Queue[TaskRecord] = Queue()
+        self._pid = pid
+        self._t: Thread | None = None
 
-    def start(self, event: Event, pid: str) -> None:
-        t = Thread(target=self._run, args=(event, pid), daemon=True)
-        t.start()
+    def start(self, cmd_queue: CommandQ) -> None:
+        assert self._t is None
+        self._t = Thread(target=self._run, args=(cmd_queue,), daemon=True)
+        self._t.start()
 
-    def dequeue(self) -> list[TaskRecord]:
-        return self._tasks.dequeue_all()
+    def stop(self) -> None:
+        raise NotImplementedError
 
-    def _run(self, event: Event, pid: str) -> None:
-        url = f"{self._url}/{self._group}/{pid}"
+    def _run(self, cmd_queue: CommandQ) -> None:
+        url = f"{self._url}/{self._group}/{self._pid}"
 
         while True:
             try:
@@ -56,15 +59,12 @@ class Poller(ITaskSource):
                         task = TaskRecord.decode(info["task"], encoder=self._encoder)
 
                         # enqueue the task
-                        self._tasks.put_nowait(task)
-
-                        # raise event so scheduler knows there is something to process
-                        event.set()
+                        cmd_queue.put(Claim(task))
 
             except requests.exceptions.ConnectionError:
                 logger.warning("Connection to poller failed, reconnecting")
 
             time.sleep(1)
 
-    def default_recv(self, pid: str) -> dict[str, Any]:
-        return {"type": "poll", "data": {"group": self._group, "id": pid}}
+    def default_recv(self) -> dict[str, Any]:
+        return {"type": "poll", "data": {"group": self._group, "id": self._pid}}
