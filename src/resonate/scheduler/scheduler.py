@@ -188,7 +188,7 @@ class Scheduler(IScheduler):
 
     def _step(self, cmd: Command) -> list[Command]:
         if isinstance(cmd, Invoke):
-            return self._handle_invoke(cmd.id)
+            return self._handle_invoke(cmd)
         if isinstance(cmd, Resume):
             return self._handle_resume(cmd)
         if isinstance(cmd, Complete):
@@ -407,9 +407,9 @@ class Scheduler(IScheduler):
             if not child.done()
         )
 
-    def _handle_invoke(self, id: str) -> list[Command]:
-        logger.info("Ingesting record %s", id)
-        record = self._records[id]
+    def _handle_invoke(self, invoke: Invoke) -> list[Command]:
+        logger.info("Ingesting record %s", invoke.id)
+        record = self._records[invoke.id]
         assert not record.done()
         assert isinstance(record.invocation.unit, Invocation)
         assert not isinstance(record.invocation.unit.fn, str)
