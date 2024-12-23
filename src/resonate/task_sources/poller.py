@@ -16,14 +16,13 @@ from resonate.task_sources.traits import ITaskSource
 class Poller(ITaskSource):
     def __init__(
         self,
-        pid: str,
         url: str = "http://localhost:8002",
         group: str = "default",
     ) -> None:
         self._url = url
         self._group = group
         self._encoder = JsonEncoder()
-        self._pid = pid
+        self._pid: str | None = None
         self._t: Thread | None = None
 
     def start(self, cmd_queue: CommandQ) -> None:
@@ -34,7 +33,12 @@ class Poller(ITaskSource):
     def stop(self) -> None:
         raise NotImplementedError
 
+    def set_pid(self, pid: str) -> None:
+        assert self._pid is None
+        self._pid = pid
+
     def _run(self, cmd_queue: CommandQ) -> None:
+        assert self._pid is not None
         url = f"{self._url}/{self._group}/{self._pid}"
 
         while True:

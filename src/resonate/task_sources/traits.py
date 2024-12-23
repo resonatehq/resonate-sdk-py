@@ -8,4 +8,6 @@ from resonate.traits import SubSystem
 
 class ITaskSource(SubSystem, ABC):
     @abstractmethod
+    def set_pid(self, pid: str) -> None: ...
+    @abstractmethod
     def default_recv(self) -> dict[str, Any]: ...

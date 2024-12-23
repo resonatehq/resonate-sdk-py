@@ -94,6 +94,7 @@ class Scheduler(IScheduler):
             self._heartbeat_thread.start()
 
             # start the task source
+            self._task_source.set_pid(self._pid)
             self._task_source.start(self._cmd_queue)
 
         # start delay queue

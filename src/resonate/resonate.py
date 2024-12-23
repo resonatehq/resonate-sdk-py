@@ -44,13 +44,12 @@ class Resonate:
         self._deps = Dependencies()
         self._registry = FunctionRegistry()
 
-        pid = pid or uuid4().hex
         self._scheduler: IScheduler = Scheduler(
             deps=self._deps,
-            pid=pid,
+            pid=pid or uuid4().hex,
             registry=self._registry,
             store=store or RemoteStore(),
-            task_source=task_source or Poller(pid),
+            task_source=task_source or Poller(),
         )
 
         # start the scheduler
