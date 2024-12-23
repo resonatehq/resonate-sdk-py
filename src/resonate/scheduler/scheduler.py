@@ -188,7 +188,7 @@ class Scheduler(IScheduler):
 
     def _step(self, cmd: Command) -> list[Command]:
         if isinstance(cmd, Invoke):
-            return self._ingest(cmd.id)
+            return self._handle_invoke(cmd.id)
         if isinstance(cmd, Resume):
             return self._handle_resume(cmd)
         if isinstance(cmd, Complete):
@@ -199,9 +199,9 @@ class Scheduler(IScheduler):
         assert_never(cmd)
 
     def _handle_resume(self, resume: Resume) -> list[Command]:
-        return self._continue(resume.id, resume.next_value)
+        return self._handle_continue(resume.id, resume.next_value)
 
-    def _continue(
+    def _handle_continue(
         self, id: str, next_value: Result[Any, Exception] | None
     ) -> list[Command]:
         record = self._records[id]
@@ -310,7 +310,9 @@ class Scheduler(IScheduler):
         loopbacks: list[Command] = []
         promise_record = self._records[promise.id]
         if promise_record.done():
-            loopbacks.extend(self._continue(record.id, promise_record.safe_result()))
+            loopbacks.extend(
+                self._handle_continue(record.id, promise_record.safe_result())
+            )
         elif isinstance(promise_record.invocation, LFI):
             self._add_to_awaiting_local(promise_record.id, record.id)
         elif isinstance(promise_record.invocation, RFI):
@@ -405,7 +407,7 @@ class Scheduler(IScheduler):
             if not child.done()
         )
 
-    def _ingest(self, id: str) -> list[Command]:
+    def _handle_invoke(self, id: str) -> list[Command]:
         logger.info("Ingesting record %s", id)
         record = self._records[id]
         assert not record.done()
@@ -427,7 +429,7 @@ class Scheduler(IScheduler):
                     ),
                 )
             )
-            return self._continue(record.id, next_value=None)
+            return self._handle_continue(record.id, next_value=None)
 
         if iscoroutinefunction(fn):
             self._processor.enqueue(
@@ -488,7 +490,9 @@ class Scheduler(IScheduler):
         if child_record is not None:
             record.add_child(child_record)
             if child_record.done():
-                loopbacks.extend(self._continue(record.id, child_record.safe_result()))
+                loopbacks.extend(
+                    self._handle_continue(record.id, child_record.safe_result())
+                )
             else:
                 self._add_to_awaiting_remote(child_id, record.id)
                 if self._blocked_only_on_remote(root.id):
@@ -518,7 +522,9 @@ class Scheduler(IScheduler):
             if durable_promise.is_completed():
                 value = durable_promise.get_value(self._encoder)
                 child_record.set_result(value, deduping=True)
-                loopbacks.extend(self._continue(record.id, child_record.safe_result()))
+                loopbacks.extend(
+                    self._handle_continue(record.id, child_record.safe_result())
+                )
 
             else:
                 durable_promise, callback = self._store.callbacks.create(
@@ -533,7 +539,7 @@ class Scheduler(IScheduler):
                     value = durable_promise.get_value(self._encoder)
                     child_record.set_result(value, deduping=True)
                     loopbacks.extend(
-                        self._continue(record.id, child_record.safe_result())
+                        self._handle_continue(record.id, child_record.safe_result())
                     )
                 else:
                     assert callback is not None
@@ -550,7 +556,9 @@ class Scheduler(IScheduler):
         if child_record is not None:
             record.add_child(child_record)
             if child_record.done():
-                loopbacks.extend(self._continue(record.id, child_record.safe_result()))
+                loopbacks.extend(
+                    self._handle_continue(record.id, child_record.safe_result())
+                )
             else:
                 self._add_to_awaiting_local(child_id, record.id)
 
@@ -575,7 +583,7 @@ class Scheduler(IScheduler):
                     value = durable_promise.get_value(self._encoder)
                     child_record.set_result(value, deduping=True)
                     loopbacks.extend(
-                        self._continue(record.id, child_record.safe_result())
+                        self._handle_continue(record.id, child_record.safe_result())
                     )
                 else:
                     loopbacks.append(Invoke(child_id))
@@ -599,7 +607,7 @@ class Scheduler(IScheduler):
         child_record = self._records.get(child_id)
         if child_record is not None:
             record.add_child(child_record)
-            loopbacks.extend(self._continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
         else:
             child_record = record.create_child(id=child_id, invocation=rfi)
             self._records[child_id] = child_record
@@ -623,7 +631,7 @@ class Scheduler(IScheduler):
             if durable_promise.is_completed():
                 value = durable_promise.get_value(self._encoder)
                 child_record.set_result(value, deduping=True)
-            loopbacks.extend(self._continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
 
         return loopbacks
 
@@ -633,7 +641,7 @@ class Scheduler(IScheduler):
         child_record = self._records.get(child_id)
         if child_record is not None:
             record.add_child(child_record)
-            loopbacks.extend(self._continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
         else:
             child_record = record.create_child(id=child_id, invocation=lfi)
             self._records[child_id] = child_record
@@ -658,10 +666,14 @@ class Scheduler(IScheduler):
                     child_record.set_result(value, deduping=True)
                 else:
                     loopbacks.append(Invoke(child_id))
-                loopbacks.extend(self._continue(record.id, Ok(child_record.promise)))
+                loopbacks.extend(
+                    self._handle_continue(record.id, Ok(child_record.promise))
+                )
             else:
                 loopbacks.append(Invoke(child_id))
-                loopbacks.extend(self._continue(record.id, Ok(child_record.promise)))
+                loopbacks.extend(
+                    self._handle_continue(record.id, Ok(child_record.promise))
+                )
 
         return loopbacks
 
@@ -670,43 +682,43 @@ class Scheduler(IScheduler):
         complete: Complete,
     ) -> list[Command]:
         record = self._records[complete.id]
-        final_value = complete.result
+        value = complete.result
         if isinstance(record, str):
             record = self._records[record]
-        if record.should_retry(final_value):
+        if record.should_retry(value):
             record.increate_attempt()
             self._delay_queue.enqueue(Invoke(record.id), record.next_retry_delay())
             return []
 
         if record.invocation.opts.durable:
             durable_promise: DurablePromiseRecord
-            if isinstance(final_value, Ok):
+            if isinstance(value, Ok):
                 durable_promise = self._store.promises.resolve(
                     id=record.id,
                     ikey=utils.string_to_uuid(record.id),
                     strict=False,
                     headers=None,
-                    data=self._encoder.encode(final_value.unwrap()),
+                    data=self._encoder.encode(value.unwrap()),
                 )
 
-            elif isinstance(final_value, Err):
+            elif isinstance(value, Err):
                 durable_promise = self._store.promises.reject(
                     id=record.id,
                     ikey=utils.string_to_uuid(record.id),
                     strict=False,
                     headers=None,
-                    data=self._encoder.encode(final_value.err()),
+                    data=self._encoder.encode(value.err()),
                 )
             else:
-                assert_never(final_value)
+                assert_never(value)
 
-            final_value = durable_promise.get_value(self._encoder)
+            value = durable_promise.get_value(self._encoder)
             assert not record.done()
 
             if record.has_task():
                 self._complete_task(record.id)
 
-            record.set_result(final_value, deduping=False)
+            record.set_result(value, deduping=False)
             resume_cmds = self._unblock_awaiting_local(record.id)
 
             root = record.root()
@@ -714,7 +726,7 @@ class Scheduler(IScheduler):
                 self._complete_task(root.id)
             return resume_cmds
 
-        record.set_result(final_value, deduping=False)
+        record.set_result(value, deduping=False)
         return self._unblock_awaiting_local(record.id)
 
     def _get_info_from_rfi(self, rfi: RFI) -> tuple[Data, Headers, Tags, int | None]:
