@@ -201,6 +201,11 @@ class Scheduler(IScheduler):
     def _handle_resume(self, resume: Resume) -> list[Command]:
         return self._handle_continue(resume.id, resume.next_value)
 
+    def _process_final_value(
+        self, record: Record[Any], final_value: Result[Any, Exception]
+    ) -> list[Command]:
+        return [Complete(record.id, final_value)]
+
     def _handle_continue(
         self, id: str, next_value: Result[Any, Exception] | None
     ) -> list[Command]:
@@ -219,7 +224,7 @@ class Scheduler(IScheduler):
         if isinstance(yielded_value, Promise):
             return self._process_promise(record, yielded_value)
         if isinstance(yielded_value, FinalValue):
-            return [Complete(record.id, yielded_value.v)]
+            return self._process_final_value(record, yielded_value.v)
         if isinstance(yielded_value, DI):
             # start execution from the top. Add current record to runnable
             raise NotImplementedError
