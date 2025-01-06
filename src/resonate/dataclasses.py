@@ -160,9 +160,6 @@ class Invocation(Generic[T]):
         self.kwargs = kwargs
 
 
-class BatchCommand: ...
-
-
 class DurablePromise:
     def __init__(
         self,

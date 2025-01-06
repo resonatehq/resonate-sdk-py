@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from resonate.cmd_queue import CommandQ
 
 
-class SubSystem(ABC):
+class Subsystem(ABC):
     @abstractmethod
     def start(self, cmd_queue: CommandQ) -> None: ...
 

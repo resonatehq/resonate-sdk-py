@@ -8,7 +8,7 @@ from threading import Thread
 from typing import Optional, TypeVar, final
 
 from resonate.cmd_queue import CommandQ, Invoke
-from resonate.traits import SubSystem
+from resonate.traits import Subsystem
 
 T = TypeVar("T")
 
@@ -22,7 +22,7 @@ def _secs_to_ns(secs: float) -> float:
 
 
 @final
-class DelayQueue(SubSystem):
+class DelayQueue(Subsystem):
     def __init__(self) -> None:
         self._inq = Queue[Optional[tuple[Invoke, float]]]()
         self._delayed: list[tuple[float, Invoke]] = []

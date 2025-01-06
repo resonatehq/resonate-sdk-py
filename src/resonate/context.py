@@ -11,7 +11,7 @@ from resonate.actions import (
     RFC,
     RFI,
 )
-from resonate.dataclasses import BatchCommand, DurablePromise, Invocation, RegisteredFn
+from resonate.dataclasses import DurablePromise, Invocation, RegisteredFn
 from resonate.time import now
 
 if TYPE_CHECKING:
@@ -134,8 +134,6 @@ class Context:
         return self.rfc(func_or_cmd, *args, **kwargs).to_rfi()
 
     @overload
-    def lfi(self, cmd: BatchCommand, /) -> LFI: ...
-    @overload
     def lfi(
         self,
         func: RegisteredFn[P, Any],
@@ -161,10 +159,7 @@ class Context:
     ) -> LFI: ...
     def lfi(
         self,
-        func_or_cmd: DurableCoro[P, T]
-        | DurableFn[P, T]
-        | BatchCommand
-        | RegisteredFn[P, T],
+        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | RegisteredFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -181,8 +176,6 @@ class Context:
         return self.lfc(func_or_cmd, *args, **kwargs).to_lfi()
 
     @overload
-    def lfc(self, func: BatchCommand, /) -> LFC: ...
-    @overload
     def lfc(
         self,
         func: RegisteredFn[P, Any],
@@ -208,10 +201,7 @@ class Context:
     ) -> LFC: ...
     def lfc(
         self,
-        func_or_cmd: DurableCoro[P, T]
-        | DurableFn[P, T]
-        | BatchCommand
-        | RegisteredFn[P, T],
+        func_or_cmd: DurableCoro[P, T] | DurableFn[P, T] | RegisteredFn[P, T],
         /,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -222,10 +212,8 @@ class Context:
         LFC and await for the result of the execution. It's syntax
         sugar for `yield (yield ctx.lfi(...))`
         """
-        unit: BatchCommand | Invocation[Any]
-        if isinstance(func_or_cmd, BatchCommand):
-            unit = func_or_cmd
-        elif isinstance(func_or_cmd, RegisteredFn):
+        unit: Invocation[Any]
+        if isinstance(func_or_cmd, RegisteredFn):
             unit = Invocation(func_or_cmd.fn, *args, **kwargs)
         else:
             unit = Invocation(func_or_cmd, *args, **kwargs)
