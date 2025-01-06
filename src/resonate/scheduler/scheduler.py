@@ -86,7 +86,7 @@ class Scheduler(IScheduler):
         self._delay_queue = DelayQueue()
 
         self._heartbeat_thread = Thread(target=self._heartbeat, daemon=True)
-        self._scheduler_thread = Thread(target=self._loop)
+        self._scheduler_thread = Thread(target=self._loop, daemon=True)
 
     def start(self) -> None:
         if isinstance(self._store, RemoteStore):

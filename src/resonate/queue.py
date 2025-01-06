@@ -30,7 +30,7 @@ class DelayQueue(Subsystem):
 
     def start(self, cmd_queue: CommandQ) -> None:
         assert self._worker_thread is None, "Already been started."
-        self._worker_thread = Thread(target=self._run, args=(cmd_queue,))
+        self._worker_thread = Thread(target=self._run, args=(cmd_queue,), daemon=True)
         self._worker_thread.start()
 
     def stop(self) -> None:
