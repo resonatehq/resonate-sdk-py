@@ -32,10 +32,12 @@ from resonate.dataclasses import (
     ResonateCoro,
 )
 from resonate.encoders import JsonEncoder
+from resonate.handle import Handle
 from resonate.logging import logger
 from resonate.processor.processor import Processor
+from resonate.promise import Promise
 from resonate.queue import DelayQueue
-from resonate.record import Promise, Record
+from resonate.record import Record
 from resonate.result import Err, Ok, Result
 from resonate.scheduler.traits import IScheduler
 from resonate.stores.record import (
@@ -49,7 +51,6 @@ from resonate.stores.remote import RemoteStore
 if TYPE_CHECKING:
     from resonate.collections import FunctionRegistry
     from resonate.dependencies import Dependencies
-    from resonate.record import Handle
     from resonate.stores.local import LocalStore
     from resonate.stores.record import TaskRecord
     from resonate.task_sources.traits import ITaskSource
@@ -117,7 +118,7 @@ class Scheduler(IScheduler):
         # If there's already a record with this ID, dedup.
         record = self._records.get(id)
         if record is not None:
-            return record.handle
+            return Handle[T](record.id, record.f)
 
         # Get function name from registry
         fn_name = self._registry.get_from_value(func)
@@ -162,7 +163,7 @@ class Scheduler(IScheduler):
         else:
             self._cmd_queue.put(Invoke(record.id))
 
-        return record.handle
+        return Handle[T](record.id, record.f)
 
     def _heartbeat(self) -> None:
         assert isinstance(self._store, RemoteStore)
@@ -612,7 +613,9 @@ class Scheduler(IScheduler):
         child_record = self._records.get(child_id)
         if child_record is not None:
             record.add_child(child_record)
-            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(
+                self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
+            )
         else:
             child_record = record.create_child(id=child_id, invocation=rfi)
             self._records[child_id] = child_record
@@ -636,7 +639,9 @@ class Scheduler(IScheduler):
             if durable_promise.is_completed():
                 value = durable_promise.get_value(self._encoder)
                 child_record.set_result(value, deduping=True)
-            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(
+                self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
+            )
 
         return loopbacks
 
@@ -646,7 +651,9 @@ class Scheduler(IScheduler):
         child_record = self._records.get(child_id)
         if child_record is not None:
             record.add_child(child_record)
-            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(
+                self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
+            )
         else:
             child_record = record.create_child(id=child_id, invocation=lfi)
             self._records[child_id] = child_record
@@ -672,12 +679,12 @@ class Scheduler(IScheduler):
                 else:
                     loopbacks.append(Invoke(child_id))
                 loopbacks.extend(
-                    self._handle_continue(record.id, Ok(child_record.promise))
+                    self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
                 )
             else:
                 loopbacks.append(Invoke(child_id))
                 loopbacks.extend(
-                    self._handle_continue(record.id, Ok(child_record.promise))
+                    self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
                 )
 
         return loopbacks

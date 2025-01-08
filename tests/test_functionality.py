@@ -9,14 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from resonate.dataclasses import DurablePromise
-from resonate.record import Handle, Promise
-from resonate.resonate import Resonate
+from resonate import DurablePromise, Handle, Resonate
+from resonate.promise import Promise
 from resonate.retry_policy import constant, exponential, linear, never
-from resonate.stores.local import LocalStore
-from resonate.stores.remote import RemoteStore
+from resonate.stores import LocalStore, RemoteStore
 from resonate.targets import poll
-from resonate.task_sources.poller import Poller
+from resonate.task_sources import Poller
 
 if TYPE_CHECKING:
     from collections.abc import Generator
