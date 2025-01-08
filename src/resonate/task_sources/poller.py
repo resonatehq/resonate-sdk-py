@@ -18,12 +18,16 @@ class Poller(ITaskSource):
     def __init__(
         self,
         url: str | None = None,
-        group: str = "default",
+        group: str | None = None,
     ) -> None:
-        if url is None:
-            url = os.getenv("RESONATE_POLLER", "http://localhost:8002")
-        self._url = url
-        self._group = group
+        self._url = (
+            url
+            if url is not None
+            else os.getenv("RESONATE_POLLER", "http://localhost:8002")
+        )
+        self._group = (
+            group if group is not None else os.getenv("RESONATE_GROUP", "default")
+        )
         self._encoder = JsonEncoder()
         self._pid: str | None = None
         self._t: Thread | None = None

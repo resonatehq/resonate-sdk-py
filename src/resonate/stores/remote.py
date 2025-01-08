@@ -332,9 +332,11 @@ class RemoteStore:
         connect_timeout: int = 5,
         request_timeout: int = 5,
     ) -> None:
-        if url is None:
-            url = os.getenv("RESONATE_SERVER", "http://localhost:8002")
-        self.url = url
+        self.url = (
+            url
+            if url is not None
+            else os.getenv("RESONATE_SERVER", "http://localhost:8002")
+        )
         self._encoder = Base64Encoder()
         self._session = requests.Session()
         self._timeout = (connect_timeout, request_timeout)
