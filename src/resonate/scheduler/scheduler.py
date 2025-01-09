@@ -21,7 +21,10 @@ from resonate.cmd_queue import (
     CommandQ,
     Complete,
     Invoke,
+    Notify,
+    Onboard,
     Resume,
+    Suscribe,
 )
 from resonate.context import Context
 from resonate.dataclasses import (
@@ -79,6 +82,7 @@ class Scheduler(IScheduler):
         self._awaiting_rfi: dict[str, list[str]] = {}
         self._awaiting_lfi: dict[str, list[str]] = {}
 
+        self._suscription_list: dict[str, list[Handle[Any]]] = {}
         self._encoder = JsonEncoder()
         self._recv = self._task_source.default_recv()
 
@@ -107,6 +111,11 @@ class Scheduler(IScheduler):
         # start the scheduler
         self._scheduler_thread.start()
 
+    def get(self, id: str) -> Handle[Any]:
+        handle = Handle[Any](id)
+        self._cmd_queue.put(Suscribe(id, handle))
+        return handle
+
     def run(
         self,
         id: str,
@@ -116,54 +125,9 @@ class Scheduler(IScheduler):
         **kwargs: P.kwargs,
     ) -> Handle[T]:
         # If there's already a record with this ID, dedup.
-        record = self._records.get(id)
-        if record is not None:
-            return Handle[T](record.id, record.f)
-
-        # Get function name from registry
-        fn_name = self._registry.get_from_value(func)
-        assert fn_name is not None, f"Function {func.__name__} must be registered"
-        func_with_options = self._registry.get(fn_name)
-        assert func_with_options is not None
-        opts = func_with_options[-1]
-        assert opts.durable, "Top level must always be durable."
-
-        record = Record[Any](
-            id=id,
-            parent=None,
-            invocation=RFI(Invocation(func, *args, **kwargs), opts),
-            ctx=Context(self._deps),
-        )
-        self._records[record.id] = record
-
-        # Create durable promise while claiming the task.
-        assert self._recv
-        durable_promise, task = self._store.promises.create_with_task(
-            id=id,
-            ikey=utils.string_to_uuid(id),
-            strict=False,
-            headers=None,
-            data=self._encoder.encode(
-                {"func": fn_name, "args": args, "kwargs": kwargs}
-            ),
-            timeout=sys.maxsize,
-            tags={},
-            pid=self._pid,
-            ttl=5 * 1_000,
-            recv=self._recv,
-        )
-
-        record.add_durable_promise(durable_promise)
-        if task:
-            record.add_task(task)
-
-        if durable_promise.is_completed():
-            assert task is None
-            record.set_result(durable_promise.get_value(self._encoder), deduping=True)
-        else:
-            self._cmd_queue.put(Invoke(record.id))
-
-        return Handle[T](record.id, record.f)
+        handle = Handle[T](id)
+        self._cmd_queue.put(Onboard(id, handle, Invocation(func, *args, **kwargs)))
+        return handle
 
     def _heartbeat(self) -> None:
         assert isinstance(self._store, RemoteStore)
@@ -187,7 +151,7 @@ class Scheduler(IScheduler):
             # mark task done
             self._cmd_queue.task_done()
 
-    def _step(self, cmd: Command) -> list[Command]:
+    def _step(self, cmd: Command) -> list[Command]:  # noqa: PLR0911
         if isinstance(cmd, Invoke):
             return self._handle_invoke(cmd)
         if isinstance(cmd, Resume):
@@ -196,8 +160,83 @@ class Scheduler(IScheduler):
             return self._handle_complete(cmd)
         if isinstance(cmd, Claim):
             return self._handle_claim(cmd)
-
+        if isinstance(cmd, Onboard):
+            return self._handle_onboard(cmd)
+        if isinstance(cmd, Suscribe):
+            return self._handle_suscribe(cmd)
+        if isinstance(cmd, Notify):
+            return self._handle_notify(cmd)
         assert_never(cmd)
+
+    def _handle_notify(self, notify: Notify) -> list[Command]:
+        for suscriber in self._suscription_list.pop(notify.id, []):
+            suscriber.set_result(notify.value)
+        return []
+
+    def _handle_suscribe(self, suscribe: Suscribe) -> list[Command]:
+        self._suscription_list.setdefault(suscribe.id, []).append(suscribe.handle)
+        return []
+
+    def _handle_onboard(self, onboard: Onboard) -> list[Command]:
+        record = self._records.get(onboard.id)
+        if record:
+            if record.done():
+                onboard.handle.set_result(record.safe_result())
+            else:
+                return [Suscribe(onboard.id, onboard.handle)]
+
+        # Get function name from registry
+        assert not isinstance(onboard.invocation.fn, str)
+        fn_name = self._registry.get_from_value(onboard.invocation.fn)
+        assert (
+            fn_name is not None
+        ), f"Function {onboard.invocation.fn.__name__} must be registered"
+        func_with_options = self._registry.get(fn_name)
+        assert func_with_options is not None
+        opts = func_with_options[-1]
+        assert opts.durable, "Top level must always be durable."
+
+        record = Record[Any](
+            id=onboard.id,
+            parent=None,
+            invocation=RFI(onboard.invocation, opts),
+            ctx=Context(self._deps),
+        )
+        self._records[record.id] = record
+
+        # Create durable promise while claiming the task.
+        assert self._recv
+        durable_promise, task = self._store.promises.create_with_task(
+            id=onboard.id,
+            ikey=utils.string_to_uuid(onboard.id),
+            strict=False,
+            headers=None,
+            data=self._encoder.encode(
+                {
+                    "func": fn_name,
+                    "args": onboard.invocation.args,
+                    "kwargs": onboard.invocation.kwargs,
+                }
+            ),
+            timeout=sys.maxsize,
+            tags={},
+            pid=self._pid,
+            ttl=5 * 1_000,
+            recv=self._recv,
+        )
+
+        record.add_durable_promise(durable_promise)
+        if task:
+            record.add_task(task)
+
+        if durable_promise.is_completed():
+            assert task is None
+            record.set_result(durable_promise.get_value(self._encoder), deduping=True)
+            onboard.handle.set_result(record.safe_result())
+        else:
+            return [Invoke(record.id), Suscribe(record.id, onboard.handle)]
+
+        return []
 
     def _handle_resume(self, resume: Resume) -> list[Command]:
         return self._handle_continue(resume.id, resume.next_value)
@@ -702,6 +741,7 @@ class Scheduler(IScheduler):
             self._delay_queue.enqueue(Invoke(record.id), record.next_retry_delay())
             return []
 
+        loopbacks: list[Command] = []
         if record.invocation.opts.durable:
             durable_promise: DurablePromiseRecord
             if isinstance(value, Ok):
@@ -730,16 +770,19 @@ class Scheduler(IScheduler):
             if record.has_task():
                 self._complete_task(record.id)
 
+            loopbacks.append(Notify(complete.id, value))
             record.set_result(value, deduping=False)
-            resume_cmds = self._unblock_awaiting_local(record.id)
+            loopbacks.extend(self._unblock_awaiting_local(record.id))
 
             root = record.root()
             if root != record and self._blocked_only_on_remote(root.id):
                 self._complete_task(root.id)
-            return resume_cmds
+            return loopbacks
 
+        loopbacks.append(Notify(complete.id, value))
         record.set_result(value, deduping=False)
-        return self._unblock_awaiting_local(record.id)
+        loopbacks.extend(self._unblock_awaiting_local(record.id))
+        return loopbacks
 
     def _get_info_from_rfi(self, rfi: RFI) -> tuple[Data, Headers, Tags, int | None]:
         data: Data

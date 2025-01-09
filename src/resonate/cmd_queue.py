@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Union
 from typing_extensions import TypeAlias
 
 if TYPE_CHECKING:
+    from resonate.dataclasses import Invocation
+    from resonate.handle import Handle
     from resonate.result import Result
     from resonate.stores.record import TaskRecord
 
@@ -14,6 +16,25 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class Invoke:
     id: str
+
+
+@dataclass(frozen=True)
+class Onboard:
+    id: str
+    handle: Handle[Any]
+    invocation: Invocation[Any]
+
+
+@dataclass(frozen=True)
+class Suscribe:
+    id: str
+    handle: Handle[Any]
+
+
+@dataclass(frozen=True)
+class Notify:
+    id: str
+    value: Result[Any, Exception]
 
 
 @dataclass(frozen=True)
@@ -33,5 +54,5 @@ class Claim:
     record: TaskRecord
 
 
-Command: TypeAlias = Union[Invoke, Resume, Complete, Claim]
+Command: TypeAlias = Union[Invoke, Resume, Complete, Claim, Suscribe, Notify, Onboard]
 CommandQ: TypeAlias = Queue[Union[Command, None]]

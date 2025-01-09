@@ -723,6 +723,9 @@ def test_human_in_the_loop() -> None:
     s.stop()
 
 
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
 def test_sleep() -> None:
     group = "test-sleep"
 

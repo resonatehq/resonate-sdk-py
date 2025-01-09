@@ -39,6 +39,9 @@ class RegisteredFn(Generic[P, T]):
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[T]:
         return self._scheduler.run(id, self.fn, *args, **kwargs)
 
+    def get(self, id: str) -> Handle[T]:
+        return self._scheduler.get(id)
+
 
 @final
 @dataclass(frozen=True)

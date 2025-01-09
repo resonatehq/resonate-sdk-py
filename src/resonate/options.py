@@ -15,4 +15,4 @@ class Options:
     send_to: str | None = None
     retry_policy: retry_policy.RetryPolicy | None = None
     version: int = 1
-    execute_here: bool = False
+    execute_here: bool = True
