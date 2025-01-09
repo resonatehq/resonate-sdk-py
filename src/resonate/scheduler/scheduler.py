@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import sys
 import time
 from functools import partial
@@ -219,10 +220,9 @@ class Scheduler(IScheduler):
                 }
             ),
             timeout=sys.maxsize,
-            tags={},
+            tags={"resonate:invoke": json.dumps(self._recv)},
             pid=self._pid,
             ttl=5 * 1_000,
-            recv=self._recv,
         )
 
         record.add_durable_promise(durable_promise)

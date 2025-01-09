@@ -77,7 +77,6 @@ class RemotePromiseStore(IPromiseStore):
         tags: Tags,
         pid: str,
         ttl: int,
-        recv: str | dict[str, Any],
     ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
         request_headers = self._initialize_headers(strict=strict, ikey=ikey)
 
@@ -96,7 +95,6 @@ class RemotePromiseStore(IPromiseStore):
                     "task": {
                         "processId": pid,
                         "ttl": ttl,
-                        "recv": recv,
                     },
                 },
             )
