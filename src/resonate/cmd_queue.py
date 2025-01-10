@@ -19,7 +19,7 @@ class Invoke:
 
 
 @dataclass(frozen=True)
-class Onboard:
+class ForkOrJoin:
     id: str
     handle: Handle[Any]
     invocation: Invocation[Any]
@@ -54,5 +54,7 @@ class Claim:
     record: TaskRecord
 
 
-Command: TypeAlias = Union[Invoke, Resume, Complete, Claim, Subscribe, Notify, Onboard]
+Command: TypeAlias = Union[
+    Invoke, Resume, Complete, Claim, Subscribe, Notify, ForkOrJoin
+]
 CommandQ: TypeAlias = Queue[Union[Command, None]]

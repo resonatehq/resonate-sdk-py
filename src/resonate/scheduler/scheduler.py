@@ -21,9 +21,9 @@ from resonate.cmd_queue import (
     Command,
     CommandQ,
     Complete,
+    ForkOrJoin,
     Invoke,
     Notify,
-    Onboard,
     Resume,
     Subscribe,
 )
@@ -127,7 +127,7 @@ class Scheduler(IScheduler):
     ) -> Handle[T]:
         # If there's already a record with this ID, dedup.
         handle = Handle[T](id)
-        self._cmd_queue.put(Onboard(id, handle, Invocation(func, *args, **kwargs)))
+        self._cmd_queue.put(ForkOrJoin(id, handle, Invocation(func, *args, **kwargs)))
         return handle
 
     def _heartbeat(self) -> None:
@@ -161,8 +161,8 @@ class Scheduler(IScheduler):
             return self._handle_complete(cmd)
         if isinstance(cmd, Claim):
             return self._handle_claim(cmd)
-        if isinstance(cmd, Onboard):
-            return self._handle_onboard(cmd)
+        if isinstance(cmd, ForkOrJoin):
+            return self._handle_fork_or_join(cmd)
         if isinstance(cmd, Subscribe):
             return self._handle_subscribe(cmd)
         if isinstance(cmd, Notify):
@@ -298,29 +298,29 @@ class Scheduler(IScheduler):
 
         assert_never(invoke_or_resume)
 
-    def _handle_onboard(self, onboard: Onboard) -> list[Command]:
-        record = self._records.get(onboard.id)
+    def _handle_fork_or_join(self, fork_or_join: ForkOrJoin) -> list[Command]:
+        record = self._records.get(fork_or_join.id)
         if record:
             if record.done():
-                onboard.handle.set_result(record.safe_result())
+                fork_or_join.handle.set_result(record.safe_result())
             else:
-                return [Subscribe(onboard.id, onboard.handle)]
+                return [Subscribe(fork_or_join.id, fork_or_join.handle)]
 
         # Get function name from registry
-        assert not isinstance(onboard.invocation.fn, str)
-        fn_name = self._registry.get_from_value(onboard.invocation.fn)
+        assert not isinstance(fork_or_join.invocation.fn, str)
+        fn_name = self._registry.get_from_value(fork_or_join.invocation.fn)
         assert (
             fn_name is not None
-        ), f"Function {onboard.invocation.fn.__name__} must be registered"
+        ), f"Function {fork_or_join.invocation.fn.__name__} must be registered"
         func_with_options = self._registry.get(fn_name)
         assert func_with_options is not None
         opts = func_with_options[-1]
         assert opts.durable, "Top level must always be durable."
 
         record = Record[Any](
-            id=onboard.id,
+            id=fork_or_join.id,
             parent=None,
-            invocation=RFI(onboard.invocation, opts),
+            invocation=RFI(fork_or_join.invocation, opts),
             ctx=Context(self._deps),
         )
         self._records[record.id] = record
@@ -328,15 +328,15 @@ class Scheduler(IScheduler):
         # Create durable promise while claiming the task.
         assert self._recv
         durable_promise, task = self._store.promises.create_with_task(
-            id=onboard.id,
-            ikey=utils.string_to_uuid(onboard.id),
+            id=fork_or_join.id,
+            ikey=utils.string_to_uuid(fork_or_join.id),
             strict=False,
             headers=None,
             data=self._encoder.encode(
                 {
                     "func": fn_name,
-                    "args": onboard.invocation.args,
-                    "kwargs": onboard.invocation.kwargs,
+                    "args": fork_or_join.invocation.args,
+                    "kwargs": fork_or_join.invocation.kwargs,
                 }
             ),
             timeout=sys.maxsize,
@@ -352,9 +352,9 @@ class Scheduler(IScheduler):
         if durable_promise.is_completed():
             assert task is None
             record.set_result(durable_promise.get_value(self._encoder), deduping=True)
-            onboard.handle.set_result(record.safe_result())
+            fork_or_join.handle.set_result(record.safe_result())
         else:
-            return [Invoke(record.id), Subscribe(record.id, onboard.handle)]
+            return [Invoke(record.id), Subscribe(record.id, fork_or_join.handle)]
 
         return []
 
