@@ -4,8 +4,8 @@ from threading import Thread
 from typing import TYPE_CHECKING, Any
 
 from resonate.cmd_queue import CommandQ, Complete
+from resonate.delay_queue import Queue
 from resonate.processor.traits import IProcessor
-from resonate.queue import Queue
 from resonate.result import Err, Ok, Result
 
 if TYPE_CHECKING:

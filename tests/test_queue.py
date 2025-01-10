@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from resonate.cmd_queue import CommandQ, Invoke
-from resonate.queue import DelayQueue
+from resonate.delay_queue import DelayQueue
 
 
 def test_delay_queue() -> None:

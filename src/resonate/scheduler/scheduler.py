@@ -35,12 +35,12 @@ from resonate.dataclasses import (
     Invocation,
     ResonateCoro,
 )
+from resonate.delay_queue import DelayQueue
 from resonate.encoders import JsonEncoder
 from resonate.handle import Handle
 from resonate.logging import logger
 from resonate.processor.processor import Processor
 from resonate.promise import Promise
-from resonate.queue import DelayQueue
 from resonate.record import Record
 from resonate.result import Err, Ok, Result
 from resonate.scheduler.traits import IScheduler
@@ -80,15 +80,16 @@ class Scheduler(IScheduler):
         self._store = store
         self._task_source = task_source
 
+        self._cmd_queue: CommandQ = Queue()
+
         self._awaiting_rfi: dict[str, list[str]] = {}
         self._awaiting_lfi: dict[str, list[str]] = {}
+        self._subsriptions: dict[str, list[Handle[Any]]] = {}
+        self._records: dict[str, Record[Any]] = {}
 
-        self._suscription_list: dict[str, list[Handle[Any]]] = {}
         self._encoder = JsonEncoder()
         self._recv = self._task_source.default_recv(self._pid)
 
-        self._records: dict[str, Record[Any]] = {}
-        self._cmd_queue: CommandQ = Queue()
         self._delay_queue = DelayQueue()
 
         self._heartbeat_thread = Thread(target=self._heartbeat, daemon=True)
@@ -358,12 +359,12 @@ class Scheduler(IScheduler):
         return []
 
     def _handle_subscribe(self, subscribe: Subscribe) -> list[Command]:
-        self._suscription_list.setdefault(subscribe.id, []).append(subscribe.handle)
+        self._subsriptions.setdefault(subscribe.id, []).append(subscribe.handle)
         return []
 
     def _handle_notify(self, notify: Notify) -> list[Command]:
-        for suscriber in self._suscription_list.pop(notify.id, []):
-            suscriber.set_result(notify.value)
+        for subscriber in self._subsriptions.pop(notify.id, []):
+            subscriber.set_result(notify.value)
         return []
 
     def _handle_continue(
