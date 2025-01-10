@@ -24,7 +24,7 @@ class Processor(IProcessor):
 
         self._sq: Queue[SQE[Any]] = Queue()
 
-    def start(self, cmd_queue: CommandQ) -> None:
+    def start(self, cmd_queue: CommandQ, pid: str) -> None:
         for _ in range(self._workers):
             t = Thread(target=self._run, args=(cmd_queue,), daemon=True)
             self._threads.add(t)

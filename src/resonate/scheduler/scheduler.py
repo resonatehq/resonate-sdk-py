@@ -85,7 +85,7 @@ class Scheduler(IScheduler):
 
         self._suscription_list: dict[str, list[Handle[Any]]] = {}
         self._encoder = JsonEncoder()
-        self._recv = self._task_source.default_recv()
+        self._recv = self._task_source.default_recv(self._pid)
 
         self._records: dict[str, Record[Any]] = {}
         self._cmd_queue: CommandQ = Queue()
@@ -100,14 +100,13 @@ class Scheduler(IScheduler):
             self._heartbeat_thread.start()
 
             # start the task source
-            self._task_source.set_pid(self._pid)
-            self._task_source.start(self._cmd_queue)
+            self._task_source.start(self._cmd_queue, self._pid)
 
         # start delay queue
-        self._delay_queue.start(self._cmd_queue)
+        self._delay_queue.start(self._cmd_queue, self._pid)
 
         # start the processor
-        self._processor.start(self._cmd_queue)
+        self._processor.start(self._cmd_queue, self._pid)
 
         # start the scheduler
         self._scheduler_thread.start()

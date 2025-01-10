@@ -333,7 +333,7 @@ class RemoteStore:
         self.url = (
             url
             if url is not None
-            else os.getenv("RESONATE_SERVER", "http://localhost:8002")
+            else os.getenv("RESONATE_SERVER", "http://localhost:8001")
         )
         self._encoder = Base64Encoder()
         self._session = requests.Session()

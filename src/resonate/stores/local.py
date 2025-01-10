@@ -84,8 +84,8 @@ class LocalPromiseStore(IPromiseStore):
         data: Data,
         timeout: int,
         tags: Tags,
-        pid: str,  # noqa: ARG002
-        ttl: int,  # noqa: ARG002
+        pid: str,
+        ttl: int,
     ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
         return self.create(
             id=id,
