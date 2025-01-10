@@ -26,7 +26,7 @@ class Onboard:
 
 
 @dataclass(frozen=True)
-class Suscribe:
+class Subscribe:
     id: str
     handle: Handle[Any]
 
@@ -54,5 +54,5 @@ class Claim:
     record: TaskRecord
 
 
-Command: TypeAlias = Union[Invoke, Resume, Complete, Claim, Suscribe, Notify, Onboard]
+Command: TypeAlias = Union[Invoke, Resume, Complete, Claim, Subscribe, Notify, Onboard]
 CommandQ: TypeAlias = Queue[Union[Command, None]]

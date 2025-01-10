@@ -25,7 +25,7 @@ from resonate.cmd_queue import (
     Notify,
     Onboard,
     Resume,
-    Suscribe,
+    Subscribe,
 )
 from resonate.context import Context
 from resonate.dataclasses import (
@@ -114,7 +114,7 @@ class Scheduler(IScheduler):
 
     def get(self, id: str) -> Handle[Any]:
         handle = Handle[Any](id)
-        self._cmd_queue.put(Suscribe(id, handle))
+        self._cmd_queue.put(Subscribe(id, handle))
         return handle
 
     def run(
@@ -163,8 +163,8 @@ class Scheduler(IScheduler):
             return self._handle_claim(cmd)
         if isinstance(cmd, Onboard):
             return self._handle_onboard(cmd)
-        if isinstance(cmd, Suscribe):
-            return self._handle_suscribe(cmd)
+        if isinstance(cmd, Subscribe):
+            return self._handle_subscribe(cmd)
         if isinstance(cmd, Notify):
             return self._handle_notify(cmd)
         assert_never(cmd)
@@ -174,8 +174,8 @@ class Scheduler(IScheduler):
             suscriber.set_result(notify.value)
         return []
 
-    def _handle_suscribe(self, suscribe: Suscribe) -> list[Command]:
-        self._suscription_list.setdefault(suscribe.id, []).append(suscribe.handle)
+    def _handle_subscribe(self, subscribe: Subscribe) -> list[Command]:
+        self._suscription_list.setdefault(subscribe.id, []).append(subscribe.handle)
         return []
 
     def _handle_onboard(self, onboard: Onboard) -> list[Command]:
@@ -184,7 +184,7 @@ class Scheduler(IScheduler):
             if record.done():
                 onboard.handle.set_result(record.safe_result())
             else:
-                return [Suscribe(onboard.id, onboard.handle)]
+                return [Subscribe(onboard.id, onboard.handle)]
 
         # Get function name from registry
         assert not isinstance(onboard.invocation.fn, str)
@@ -234,7 +234,7 @@ class Scheduler(IScheduler):
             record.set_result(durable_promise.get_value(self._encoder), deduping=True)
             onboard.handle.set_result(record.safe_result())
         else:
-            return [Invoke(record.id), Suscribe(record.id, onboard.handle)]
+            return [Invoke(record.id), Subscribe(record.id, onboard.handle)]
 
         return []
 
