@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import sys
 import time
 from functools import partial
@@ -21,7 +22,10 @@ from resonate.cmd_queue import (
     CommandQ,
     Complete,
     Invoke,
+    Notify,
+    Onboard,
     Resume,
+    Subscribe,
 )
 from resonate.context import Context
 from resonate.dataclasses import (
@@ -32,10 +36,12 @@ from resonate.dataclasses import (
     ResonateCoro,
 )
 from resonate.encoders import JsonEncoder
+from resonate.handle import Handle
 from resonate.logging import logger
 from resonate.processor.processor import Processor
+from resonate.promise import Promise
 from resonate.queue import DelayQueue
-from resonate.record import Promise, Record
+from resonate.record import Record
 from resonate.result import Err, Ok, Result
 from resonate.scheduler.traits import IScheduler
 from resonate.stores.record import (
@@ -49,7 +55,6 @@ from resonate.stores.remote import RemoteStore
 if TYPE_CHECKING:
     from resonate.collections import FunctionRegistry
     from resonate.dependencies import Dependencies
-    from resonate.record import Handle
     from resonate.stores.local import LocalStore
     from resonate.stores.record import TaskRecord
     from resonate.task_sources.traits import ITaskSource
@@ -78,8 +83,9 @@ class Scheduler(IScheduler):
         self._awaiting_rfi: dict[str, list[str]] = {}
         self._awaiting_lfi: dict[str, list[str]] = {}
 
+        self._suscription_list: dict[str, list[Handle[Any]]] = {}
         self._encoder = JsonEncoder()
-        self._recv = self._task_source.default_recv()
+        self._recv = self._task_source.default_recv(self._pid)
 
         self._records: dict[str, Record[Any]] = {}
         self._cmd_queue: CommandQ = Queue()
@@ -94,17 +100,21 @@ class Scheduler(IScheduler):
             self._heartbeat_thread.start()
 
             # start the task source
-            self._task_source.set_pid(self._pid)
-            self._task_source.start(self._cmd_queue)
+            self._task_source.start(self._cmd_queue, self._pid)
 
         # start delay queue
-        self._delay_queue.start(self._cmd_queue)
+        self._delay_queue.start(self._cmd_queue, self._pid)
 
         # start the processor
-        self._processor.start(self._cmd_queue)
+        self._processor.start(self._cmd_queue, self._pid)
 
         # start the scheduler
         self._scheduler_thread.start()
+
+    def get(self, id: str) -> Handle[Any]:
+        handle = Handle[Any](id)
+        self._cmd_queue.put(Subscribe(id, handle))
+        return handle
 
     def run(
         self,
@@ -115,54 +125,9 @@ class Scheduler(IScheduler):
         **kwargs: P.kwargs,
     ) -> Handle[T]:
         # If there's already a record with this ID, dedup.
-        record = self._records.get(id)
-        if record is not None:
-            return record.handle
-
-        # Get function name from registry
-        fn_name = self._registry.get_from_value(func)
-        assert fn_name is not None, f"Function {func.__name__} must be registered"
-        func_with_options = self._registry.get(fn_name)
-        assert func_with_options is not None
-        opts = func_with_options[-1]
-        assert opts.durable, "Top level must always be durable."
-
-        record = Record[Any](
-            id=id,
-            parent=None,
-            invocation=RFI(Invocation(func, *args, **kwargs), opts),
-            ctx=Context(self._deps),
-        )
-        self._records[record.id] = record
-
-        # Create durable promise while claiming the task.
-        assert self._recv
-        durable_promise, task = self._store.promises.create_with_task(
-            id=id,
-            ikey=utils.string_to_uuid(id),
-            strict=False,
-            headers=None,
-            data=self._encoder.encode(
-                {"func": fn_name, "args": args, "kwargs": kwargs}
-            ),
-            timeout=sys.maxsize,
-            tags={},
-            pid=self._pid,
-            ttl=5 * 1_000,
-            recv=self._recv,
-        )
-
-        record.add_durable_promise(durable_promise)
-        if task:
-            record.add_task(task)
-
-        if durable_promise.is_completed():
-            assert task is None
-            record.set_result(durable_promise.get_value(self._encoder), deduping=True)
-        else:
-            self._cmd_queue.put(Invoke(record.id))
-
-        return record.handle
+        handle = Handle[T](id)
+        self._cmd_queue.put(Onboard(id, handle, Invocation(func, *args, **kwargs)))
+        return handle
 
     def _heartbeat(self) -> None:
         assert isinstance(self._store, RemoteStore)
@@ -186,7 +151,7 @@ class Scheduler(IScheduler):
             # mark task done
             self._cmd_queue.task_done()
 
-    def _step(self, cmd: Command) -> list[Command]:
+    def _step(self, cmd: Command) -> list[Command]:  # noqa: PLR0911
         if isinstance(cmd, Invoke):
             return self._handle_invoke(cmd)
         if isinstance(cmd, Resume):
@@ -195,16 +160,211 @@ class Scheduler(IScheduler):
             return self._handle_complete(cmd)
         if isinstance(cmd, Claim):
             return self._handle_claim(cmd)
-
+        if isinstance(cmd, Onboard):
+            return self._handle_onboard(cmd)
+        if isinstance(cmd, Subscribe):
+            return self._handle_subscribe(cmd)
+        if isinstance(cmd, Notify):
+            return self._handle_notify(cmd)
         assert_never(cmd)
+
+    def _handle_invoke(self, invoke: Invoke) -> list[Command]:
+        logger.info("Ingesting record %s", invoke.id)
+        record = self._records[invoke.id]
+        assert not record.done()
+        assert isinstance(record.invocation.unit, Invocation)
+        assert not isinstance(record.invocation.unit.fn, str)
+        fn, args, kwargs = (
+            record.invocation.unit.fn,
+            record.invocation.unit.args,
+            record.invocation.unit.kwargs,
+        )
+        if isgeneratorfunction(fn):
+            record.add_coro(
+                ResonateCoro(
+                    record,
+                    fn(
+                        record.ctx,
+                        *args,
+                        **kwargs,
+                    ),
+                )
+            )
+            return self._handle_continue(record.id, next_value=None)
+
+        if iscoroutinefunction(fn):
+            self._processor.enqueue(
+                SQE[Any](
+                    thunk=partial(
+                        asyncio.run,
+                        fn(
+                            record.ctx,
+                            *args,
+                            **kwargs,
+                        ),
+                    ),
+                    id=record.id,
+                )
+            )
+
+        else:
+            assert isfunction(fn)
+            self._processor.enqueue(
+                SQE[Any](
+                    thunk=partial(
+                        fn,
+                        record.ctx,
+                        *args,
+                        **kwargs,
+                    ),
+                    id=record.id,
+                )
+            )
+
+        return []
 
     def _handle_resume(self, resume: Resume) -> list[Command]:
         return self._handle_continue(resume.id, resume.next_value)
 
-    def _process_final_value(
-        self, record: Record[Any], final_value: Result[Any, Exception]
+    def _handle_complete(
+        self,
+        complete: Complete,
     ) -> list[Command]:
-        return [Complete(record.id, final_value)]
+        record = self._records[complete.id]
+        value = complete.result
+        if isinstance(record, str):
+            record = self._records[record]
+        if record.should_retry(value):
+            record.increate_attempt()
+            self._delay_queue.enqueue(Invoke(record.id), record.next_retry_delay())
+            return []
+
+        loopbacks: list[Command] = []
+        if record.invocation.opts.durable:
+            durable_promise: DurablePromiseRecord
+            if isinstance(value, Ok):
+                durable_promise = self._store.promises.resolve(
+                    id=record.id,
+                    ikey=utils.string_to_uuid(record.id),
+                    strict=False,
+                    headers=None,
+                    data=self._encoder.encode(value.unwrap()),
+                )
+
+            elif isinstance(value, Err):
+                durable_promise = self._store.promises.reject(
+                    id=record.id,
+                    ikey=utils.string_to_uuid(record.id),
+                    strict=False,
+                    headers=None,
+                    data=self._encoder.encode(value.err()),
+                )
+            else:
+                assert_never(value)
+
+            value = durable_promise.get_value(self._encoder)
+            assert not record.done()
+
+            if record.has_task():
+                self._complete_task(record.id)
+
+            loopbacks.append(Notify(complete.id, value))
+            record.set_result(value, deduping=False)
+            loopbacks.extend(self._unblock_awaiting_local(record.id))
+
+            root = record.root()
+            if root != record and self._blocked_only_on_remote(root.id):
+                self._complete_task(root.id)
+            return loopbacks
+
+        loopbacks.append(Notify(complete.id, value))
+        record.set_result(value, deduping=False)
+        loopbacks.extend(self._unblock_awaiting_local(record.id))
+        return loopbacks
+
+    def _handle_claim(self, claim: Claim) -> list[Command]:
+        assert isinstance(self._store, RemoteStore)
+        invoke_or_resume = self._store.tasks.claim(
+            task_id=claim.record.task_id,
+            counter=claim.record.counter,
+            pid=self._pid,
+            ttl=5 * 1000,
+        )
+        if isinstance(invoke_or_resume, InvokeMsg):
+            return self._process_invoke_msg(invoke_or_resume, claim.record)
+        if isinstance(invoke_or_resume, ResumeMsg):
+            return self._process_resume_msg(invoke_or_resume, claim.record)
+
+        assert_never(invoke_or_resume)
+
+    def _handle_onboard(self, onboard: Onboard) -> list[Command]:
+        record = self._records.get(onboard.id)
+        if record:
+            if record.done():
+                onboard.handle.set_result(record.safe_result())
+            else:
+                return [Subscribe(onboard.id, onboard.handle)]
+
+        # Get function name from registry
+        assert not isinstance(onboard.invocation.fn, str)
+        fn_name = self._registry.get_from_value(onboard.invocation.fn)
+        assert (
+            fn_name is not None
+        ), f"Function {onboard.invocation.fn.__name__} must be registered"
+        func_with_options = self._registry.get(fn_name)
+        assert func_with_options is not None
+        opts = func_with_options[-1]
+        assert opts.durable, "Top level must always be durable."
+
+        record = Record[Any](
+            id=onboard.id,
+            parent=None,
+            invocation=RFI(onboard.invocation, opts),
+            ctx=Context(self._deps),
+        )
+        self._records[record.id] = record
+
+        # Create durable promise while claiming the task.
+        assert self._recv
+        durable_promise, task = self._store.promises.create_with_task(
+            id=onboard.id,
+            ikey=utils.string_to_uuid(onboard.id),
+            strict=False,
+            headers=None,
+            data=self._encoder.encode(
+                {
+                    "func": fn_name,
+                    "args": onboard.invocation.args,
+                    "kwargs": onboard.invocation.kwargs,
+                }
+            ),
+            timeout=sys.maxsize,
+            tags={"resonate:invoke": json.dumps(self._recv)},
+            pid=self._pid,
+            ttl=5 * 1_000,
+        )
+
+        record.add_durable_promise(durable_promise)
+        if task:
+            record.add_task(task)
+
+        if durable_promise.is_completed():
+            assert task is None
+            record.set_result(durable_promise.get_value(self._encoder), deduping=True)
+            onboard.handle.set_result(record.safe_result())
+        else:
+            return [Invoke(record.id), Subscribe(record.id, onboard.handle)]
+
+        return []
+
+    def _handle_subscribe(self, subscribe: Subscribe) -> list[Command]:
+        self._suscription_list.setdefault(subscribe.id, []).append(subscribe.handle)
+        return []
+
+    def _handle_notify(self, notify: Notify) -> list[Command]:
+        for suscriber in self._suscription_list.pop(notify.id, []):
+            suscriber.set_result(notify.value)
+        return []
 
     def _handle_continue(
         self, id: str, next_value: Result[Any, Exception] | None
@@ -230,21 +390,6 @@ class Scheduler(IScheduler):
             raise NotImplementedError
 
         assert_never(yielded_value)
-
-    def _handle_claim(self, claim: Claim) -> list[Command]:
-        assert isinstance(self._store, RemoteStore)
-        invoke_or_resume = self._store.tasks.claim(
-            task_id=claim.record.task_id,
-            counter=claim.record.counter,
-            pid=self._pid,
-            ttl=5 * 1000,
-        )
-        if isinstance(invoke_or_resume, InvokeMsg):
-            return self._process_invoke_msg(invoke_or_resume, claim.record)
-        if isinstance(invoke_or_resume, ResumeMsg):
-            return self._process_resume_msg(invoke_or_resume, claim.record)
-
-        assert_never(invoke_or_resume)
 
     def _process_invoke_msg(
         self, invoke_msg: InvokeMsg, task: TaskRecord
@@ -412,61 +557,6 @@ class Scheduler(IScheduler):
             if not child.done()
         )
 
-    def _handle_invoke(self, invoke: Invoke) -> list[Command]:
-        logger.info("Ingesting record %s", invoke.id)
-        record = self._records[invoke.id]
-        assert not record.done()
-        assert isinstance(record.invocation.unit, Invocation)
-        assert not isinstance(record.invocation.unit.fn, str)
-        fn, args, kwargs = (
-            record.invocation.unit.fn,
-            record.invocation.unit.args,
-            record.invocation.unit.kwargs,
-        )
-        if isgeneratorfunction(fn):
-            record.add_coro(
-                ResonateCoro(
-                    record,
-                    fn(
-                        record.ctx,
-                        *args,
-                        **kwargs,
-                    ),
-                )
-            )
-            return self._handle_continue(record.id, next_value=None)
-
-        if iscoroutinefunction(fn):
-            self._processor.enqueue(
-                SQE[Any](
-                    thunk=partial(
-                        asyncio.run,
-                        fn(
-                            record.ctx,
-                            *args,
-                            **kwargs,
-                        ),
-                    ),
-                    id=record.id,
-                )
-            )
-
-        else:
-            assert isfunction(fn)
-            self._processor.enqueue(
-                SQE[Any](
-                    thunk=partial(
-                        fn,
-                        record.ctx,
-                        *args,
-                        **kwargs,
-                    ),
-                    id=record.id,
-                )
-            )
-
-        return []
-
     def _complete_task(self, id: str) -> None:
         record = self._records[id]
         assert record.has_task()
@@ -612,7 +702,9 @@ class Scheduler(IScheduler):
         child_record = self._records.get(child_id)
         if child_record is not None:
             record.add_child(child_record)
-            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(
+                self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
+            )
         else:
             child_record = record.create_child(id=child_id, invocation=rfi)
             self._records[child_id] = child_record
@@ -636,7 +728,9 @@ class Scheduler(IScheduler):
             if durable_promise.is_completed():
                 value = durable_promise.get_value(self._encoder)
                 child_record.set_result(value, deduping=True)
-            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(
+                self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
+            )
 
         return loopbacks
 
@@ -646,7 +740,9 @@ class Scheduler(IScheduler):
         child_record = self._records.get(child_id)
         if child_record is not None:
             record.add_child(child_record)
-            loopbacks.extend(self._handle_continue(record.id, Ok(child_record.promise)))
+            loopbacks.extend(
+                self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
+            )
         else:
             child_record = record.create_child(id=child_id, invocation=lfi)
             self._records[child_id] = child_record
@@ -672,67 +768,20 @@ class Scheduler(IScheduler):
                 else:
                     loopbacks.append(Invoke(child_id))
                 loopbacks.extend(
-                    self._handle_continue(record.id, Ok(child_record.promise))
+                    self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
                 )
             else:
                 loopbacks.append(Invoke(child_id))
                 loopbacks.extend(
-                    self._handle_continue(record.id, Ok(child_record.promise))
+                    self._handle_continue(record.id, Ok(Promise[Any](child_record.id)))
                 )
 
         return loopbacks
 
-    def _handle_complete(
-        self,
-        complete: Complete,
+    def _process_final_value(
+        self, record: Record[Any], final_value: Result[Any, Exception]
     ) -> list[Command]:
-        record = self._records[complete.id]
-        value = complete.result
-        if isinstance(record, str):
-            record = self._records[record]
-        if record.should_retry(value):
-            record.increate_attempt()
-            self._delay_queue.enqueue(Invoke(record.id), record.next_retry_delay())
-            return []
-
-        if record.invocation.opts.durable:
-            durable_promise: DurablePromiseRecord
-            if isinstance(value, Ok):
-                durable_promise = self._store.promises.resolve(
-                    id=record.id,
-                    ikey=utils.string_to_uuid(record.id),
-                    strict=False,
-                    headers=None,
-                    data=self._encoder.encode(value.unwrap()),
-                )
-
-            elif isinstance(value, Err):
-                durable_promise = self._store.promises.reject(
-                    id=record.id,
-                    ikey=utils.string_to_uuid(record.id),
-                    strict=False,
-                    headers=None,
-                    data=self._encoder.encode(value.err()),
-                )
-            else:
-                assert_never(value)
-
-            value = durable_promise.get_value(self._encoder)
-            assert not record.done()
-
-            if record.has_task():
-                self._complete_task(record.id)
-
-            record.set_result(value, deduping=False)
-            resume_cmds = self._unblock_awaiting_local(record.id)
-
-            root = record.root()
-            if root != record and self._blocked_only_on_remote(root.id):
-                self._complete_task(root.id)
-            return resume_cmds
-
-        record.set_result(value, deduping=False)
-        return self._unblock_awaiting_local(record.id)
+        return [Complete(record.id, final_value)]
 
     def _get_info_from_rfi(self, rfi: RFI) -> tuple[Data, Headers, Tags, int | None]:
         data: Data
