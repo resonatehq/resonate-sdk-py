@@ -141,7 +141,6 @@ class Scheduler(IScheduler):
 
     @utils.exit_on_exception
     def _loop(self) -> None:
-        raise NotImplementedError
         while True:
             cmd = self._cmd_queue.get()
             if cmd is None:
