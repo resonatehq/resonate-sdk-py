@@ -139,7 +139,9 @@ class Scheduler(IScheduler):
                 logger.debug("Heatbeat affected %s tasks", affected)
             time.sleep(2)
 
+    @utils.exit_on_exception
     def _loop(self) -> None:
+        raise NotImplementedError
         while True:
             cmd = self._cmd_queue.get()
             if cmd is None:
