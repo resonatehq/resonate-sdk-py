@@ -6,6 +6,7 @@ import traceback
 import urllib
 import urllib.parse
 from functools import wraps
+from importlib.metadata import version
 from typing import Any, Callable, TypeVar
 from uuid import UUID
 
@@ -26,10 +27,11 @@ def exit_on_exception(func: F) -> F:
         try:
             return func(*args, **kwargs)
         except Exception:
+            v = version("resonate-sdk")
             logger.exception(
                 "An unexpected error happened.\n\nPlease report this issue so we can fix it as fast a possible:\n - https://github.com/resonatehq/resonate-sdk-py/issues/new?body=%s\n\n",  # noqa: E501
                 urllib.parse.quote(
-                    f"Resonate process exited with error:\n```bash\n{traceback.format_exc()}```"  # noqa: E501
+                    f"Resonate (version {v}) process exited with error:\n```bash\n{traceback.format_exc()}```"  # noqa: E501
                 ),
             )
             os._exit(1)

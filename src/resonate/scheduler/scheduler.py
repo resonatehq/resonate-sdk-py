@@ -130,6 +130,7 @@ class Scheduler(IScheduler):
         self._cmd_queue.put(ForkOrJoin(id, handle, Invocation(func, *args, **kwargs)))
         return handle
 
+    @utils.exit_on_exception
     def _heartbeat(self) -> None:
         assert isinstance(self._store, RemoteStore)
         while True:
