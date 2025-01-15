@@ -30,15 +30,13 @@ jobs:
       - uses: actions/checkout@v3
 
       - uses: eifinger/setup-rye@v2
-        env:
-          RYE_TOOLCHAIN_VERSION: ${{ matrix.python-version }}
         with:
           enable-cache: true
           cache-prefix: '${{ matrix.python-version }}-'
           version: '0.40.0'
 
       - name: Sync dependencies
-        run: rye sync --no-lock
+        run: rye pin ${{ matrix.python-version }} && rye sync --no-lock
 
       - name: Check code
         run: |
