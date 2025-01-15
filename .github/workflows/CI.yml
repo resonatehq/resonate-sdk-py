@@ -16,7 +16,7 @@ env:
 
 jobs:
   run:
-    name: On ${{ startsWith(matrix.os, 'macos-') && 'macOS' || startsWith(matrix.os, 'windows-') && 'Windows' || 'Linux' }}
+    name: On ${{ startsWith(matrix.os, 'macos-') && 'macOS' || startsWith(matrix.os, 'windows-') && 'Windows' || 'Linux' }} with python version ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -24,13 +24,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v3
 
       - uses: eifinger/setup-rye@v2
+        env:
+          RYE_TOOLCHAIN_VERSION: ${{ matrix.python-version }}
         with:
           enable-cache: true
+          cache-prefix: '${{ matrix.python-version }}-'
           version: '0.40.0'
 
       - name: Sync dependencies
