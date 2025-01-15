@@ -35,12 +35,28 @@ class _RunOptions(TypedDict):
 
 
 class Resonate:
+    """
+    The Resonate class serves as the main API interface for Resonate Application Nodes.
+
+    Attributes:
+        _deps (Dependencies): Manages application-level dependencies.
+        _registry (FunctionRegistry): Stores and manages registered functions.
+        _scheduler (IScheduler): Manages coroutine and function executions.
+    """
     def __init__(
         self,
         pid: str | None = None,
         store: LocalStore | RemoteStore | None = None,
         task_source: ITaskSource | None = None,
     ) -> None:
+        """
+        Initializes the Resonate object.
+
+        Args:
+            pid (str | None): Optional process ID for the scheduler. Defaults to a generated UUID.
+            store (LocalStore | RemoteStore | None): Optional store for promise persistence. Defaults to RemoteStore.
+            task_source (ITaskSource | None): Optional task source for obtaining tasks. Defaults to Poller.
+        """
         self._deps = Dependencies()
         self._registry = FunctionRegistry()
 
@@ -56,9 +72,19 @@ class Resonate:
         self._scheduler.start()
 
     def stop(self) -> None:
+        """
+        Stops the scheduler and halts all executions.
+        """
         self._scheduler.stop()
 
     def set_dependency(self, key: str, obj: Any) -> None:  # noqa: ANN401
+        """
+        Sets a dependency to be used by the Application Node.
+
+        Args:
+            key (str): The identifier for the dependency.
+            obj (Any): The dependency object to associate with the key.
+        """
         self._deps.set(key, obj)
 
     @overload
