@@ -37,11 +37,12 @@ class _RunOptions(TypedDict):
 class Resonate:
     """
     The Resonate class serves as the main API interface for Resonate Application Nodes.
+    
+    Object attributes:
+        - _deps (Dependencies): Manages application-level dependencies.
+        - _registry (FunctionRegistry): Stores and manages registered functions.
+        - _scheduler (IScheduler): Manages coroutine and function executions.
 
-    Attributes:
-        _deps (Dependencies): Manages application-level dependencies.
-        _registry (FunctionRegistry): Stores and manages registered functions.
-        _scheduler (IScheduler): Manages coroutine and function executions.
     """
     def __init__(
         self,
@@ -50,12 +51,27 @@ class Resonate:
         task_source: ITaskSource | None = None,
     ) -> None:
         """
-        Initializes the Resonate object.
+        Initialization args:
+            - pid (str | None): Optional process ID for the scheduler. Defaults to a generated UUID.
+            - store (LocalStore | RemoteStore | None): Optional store for promise persistence. Defaults to RemoteStore.
+            - task_source (ITaskSource | None): Optional task source for obtaining tasks. Defaults to Poller.
+        
+        Example::
 
-        Args:
-            pid (str | None): Optional process ID for the scheduler. Defaults to a generated UUID.
-            store (LocalStore | RemoteStore | None): Optional store for promise persistence. Defaults to RemoteStore.
-            task_source (ITaskSource | None): Optional task source for obtaining tasks. Defaults to Poller.
+            from resonate import Resonate
+            # ...
+            resonate = Resonate()
+
+        Example with custom store and task source::
+
+            from resonate import Resonate
+            from resonate.stores import RemoteStore
+            from resonate.task_sources import Poller
+            # ...
+            resonate = Resonate(
+                store=RemoteStore(url="http://localhost:8001"),
+                task_source=Poller(url="http://localhost:8002"),
+            )
         """
         self._deps = Dependencies()
         self._registry = FunctionRegistry()
@@ -80,10 +96,10 @@ class Resonate:
     def set_dependency(self, key: str, obj: Any) -> None:  # noqa: ANN401
         """
         Sets a dependency to be used by the Application Node.
-
+        
         Args:
-            key (str): The identifier for the dependency.
-            obj (Any): The dependency object to associate with the key.
+            key: The identifier for the dependency.
+            obj: The dependency object to associate with the key.
         """
         self._deps.set(key, obj)
 
