@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from threading import Event
 from typing import TYPE_CHECKING, Any, Callable, TypedDict, TypeVar, overload
 from uuid import uuid4
 
@@ -159,3 +160,6 @@ class Resonate:
         if isinstance(func, tuple):
             raise NotImplementedError
         return self._scheduler.run(id, func, *args, **kwargs)
+
+    def keep_node_alive(self) -> bool:
+        return Event().wait()
