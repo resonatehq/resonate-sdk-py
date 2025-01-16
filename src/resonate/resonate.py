@@ -55,7 +55,7 @@ class Resonate:
         Initialization args:
             - pid (str | None): Optional process ID for the scheduler.
                 Defaults to a generated UUID.
-            - store (LocalStore | RemoteStore | None): Optional store for promise persistence.
+            - store (LocalStore | RemoteStore | None): Optional store for promises.
                 Defaults to RemoteStore.
             - task_source (TaskSource | None): Optional task source for obtaining tasks.
                 Defaults to Poller.
