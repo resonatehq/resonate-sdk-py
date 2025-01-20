@@ -357,7 +357,8 @@ class Scheduler(IScheduler):
         if isinstance(self._store, LocalStore):
             assert task is None
         elif isinstance(self._store, RemoteStore):
-            assert task is not None
+            if task is None:
+                return [Subscribe(record.id, fork_or_join.handle)]
             record.add_task(task)
         else:
             assert_never(self._store)
