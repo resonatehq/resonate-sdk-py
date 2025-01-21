@@ -7,8 +7,6 @@ import pytest
 from resonate.encoders import Base64Encoder, JsonEncoder
 from resonate.errors import ResonateError
 
-print("sd")
-
 
 @pytest.mark.parametrize("data", ["hi", "bye", "1"])
 def test_base64_encoder(data: str) -> None:
