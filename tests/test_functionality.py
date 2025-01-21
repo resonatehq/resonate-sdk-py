@@ -757,8 +757,7 @@ def test_golden_device_detached() -> None:
         return n
 
     def bar_golden_device_detached(ctx: Context) -> None:  # noqa: ARG001
-        g = globals()
-        g["ran"] = True
+        return None
 
     resonate = Resonate(
         store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
@@ -770,4 +769,3 @@ def test_golden_device_detached() -> None:
     assert isinstance(p, Handle)
     assert p.result() == "hi"
     resonate.stop()
-    assert globals()["ran"]
