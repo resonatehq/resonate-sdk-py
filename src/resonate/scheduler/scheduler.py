@@ -793,8 +793,7 @@ class Scheduler(IScheduler):
         return [Complete(record.id, final_value)]
 
     def _process_deferred(self, record: Record[Any], deferred: DI) -> list[Command]:
-        assert not isinstance(deferred.unit.fn, str)
-        loopback: list[Command] = [
+        loopback = self._handle_fork_or_join(
             ForkOrJoin(
                 deferred.id,
                 Handle[Any](deferred.id),
@@ -804,7 +803,7 @@ class Scheduler(IScheduler):
                     **deferred.unit.kwargs,
                 ),
             )
-        ]
+        )
         loopback.extend(
             self._handle_continue(record.id, next_value=Ok(Promise[Any](deferred.id)))
         )
