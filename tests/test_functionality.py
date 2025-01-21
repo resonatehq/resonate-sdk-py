@@ -752,12 +752,22 @@ def test_golden_device_detached() -> None:
     def foo_golden_device_detached(
         ctx: Context, n: str
     ) -> Generator[Yieldable, Any, str]:
-        v: None = yield ctx.detached("bar", bar_golden_device_detached)
-        assert v is None
+        p: Promise[str] = yield ctx.detached("bar", bar_golden_device_detached, n)
+        yield ctx.detached("baz.1", baz_golden_device_detached, p.id)
+        yield ctx.detached("baz.2", baz_golden_device_detached, p.id)
+        yield ctx.detached("baz.3", baz_golden_device_detached, p.id)
+        v: str = yield p
+        return v
+
+    def bar_golden_device_detached(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
-    def bar_golden_device_detached(ctx: Context) -> None:  # noqa: ARG001
-        return None
+    def baz_golden_device_detached(
+        ctx: Context,  # noqa: ARG001
+        promise_id: str,
+    ) -> Generator[Yieldable, Any, str]:
+        v: str = yield Promise[str](promise_id)
+        return v
 
     resonate = Resonate(
         store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
@@ -765,6 +775,7 @@ def test_golden_device_detached() -> None:
     )
     resonate.register(foo_golden_device_detached)
     resonate.register(bar_golden_device_detached)
+    resonate.register(baz_golden_device_detached)
     p: Handle[str] = resonate.run(f"{group}-foo", foo_golden_device_detached, "hi")
     assert isinstance(p, Handle)
     assert p.result() == "hi"

@@ -804,7 +804,9 @@ class Scheduler(IScheduler):
                 ),
             )
         )
-        loopback.extend(self._handle_continue(record.id, next_value=Ok(None)))
+        loopback.extend(
+            self._handle_continue(record.id, next_value=Ok(Promise[Any](detached.id)))
+        )
         return loopback
 
     def _get_info_from_rfi(self, rfi: RFI) -> tuple[Data, Headers, Tags, int | None]:
