@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from resonate import DurablePromise, Handle, Resonate
+from resonate import Handle, Resonate
 from resonate.promise import Promise
 from resonate.retry_policy import constant, exponential, linear, never
 from resonate.stores import LocalStore, RemoteStore
@@ -686,16 +686,16 @@ def test_retry_policies_local_func(store: LocalStore | RemoteStore) -> None:
 def test_human_in_the_loop() -> None:
     group = "test-human-in-the-loop"
 
-    def _user_manual_completion(id: str) -> DurablePromise:
-        return DurablePromise(id=id)
-
     def human_in_the_loop(ctx: Context) -> Generator[Yieldable, Any, str]:
-        name: str = yield ctx.rfc(
-            _user_manual_completion("test-human-in-loop-question-to-answer-1")
+        p_name: Promise[str] = yield ctx.promise(
+            "test-human-in-loop-question-to-answer-1"
         )
-        age: int = yield ctx.rfc(
-            _user_manual_completion(id="test-human-in-loop-question-to-answer-2")
+        name: str = yield p_name
+
+        p_age: Promise[int] = yield ctx.promise(
+            id="test-human-in-loop-question-to-answer-2"
         )
+        age: int = yield p_age
         return f"Hi {name} with age {age}"
 
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
