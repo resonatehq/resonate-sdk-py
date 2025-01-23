@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, TypedDict, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, overload
 from uuid import uuid4
 
 from typing_extensions import Concatenate, ParamSpec
@@ -28,10 +28,6 @@ if TYPE_CHECKING:
 
 P = ParamSpec("P")
 T = TypeVar("T")
-
-
-class _RunOptions(TypedDict):
-    version: int
 
 
 class Resonate:
@@ -117,7 +113,7 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
         retry_policy: retry_policy.RetryPolicy | None = None,
-    ) -> RegisteredFn[P, T]: ...
+    ) -> None: ...
     @overload
     def register(
         self,
@@ -125,7 +121,7 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
         retry_policy: retry_policy.RetryPolicy | None = None,
-    ) -> RegisteredFn[P, T]: ...
+    ) -> None: ...
     @overload
     def register(
         self,
@@ -133,21 +129,33 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
         retry_policy: retry_policy.RetryPolicy | None = None,
-    ) -> RegisteredFn[P, T]: ...
+    ) -> None: ...
     def register(
         self,
-        func: DurableCoro[P, T] | DurableFn[P, T],
+        func: DurableCoro[P, Any] | DurableFn[P, Any],
         name: str | None = None,
         version: int = 1,
         retry_policy: retry_policy.RetryPolicy | None = None,
-    ) -> RegisteredFn[P, T]:
-        if name is None:
-            name = func.__name__
-        self._registry.add(
-            name,
+    ) -> None:
+        return self._registry.add(
+            name or func.__name__,
             (func, Options(version=version, durable=True, retry_policy=retry_policy)),
         )
-        return RegisteredFn[P, T](self._scheduler, func)
+
+    def fn(
+        self,
+        name: str | None = None,
+        version: int = 1,
+        retry_policy: retry_policy.RetryPolicy | None = None,
+    ) -> Callable[
+        [
+            Callable[
+                Concatenate[Context, P],
+                T | Generator[Yieldable, Any, T] | Coroutine[Any, Any, T],
+            ]
+        ],
+        RegisteredFn[P, T],
+    ]: ...
 
     @overload
     def run(
@@ -172,23 +180,6 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[T]: ...
-    @overload
-    def run(
-        self,
-        id: str,
-        func: tuple[
-            Callable[
-                Concatenate[Context, P],
-                Generator[Yieldable, Any, T],
-            ]
-            | Callable[Concatenate[Context, P], T]
-            | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
-            _RunOptions,
-        ],
-        /,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> Handle[T]: ...
     def run(
         self,
         id: str,
@@ -198,16 +189,7 @@ class Resonate:
             Generator[Yieldable, Any, T],
         ]
         | Callable[Concatenate[Context, P], T]
-        | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]]
-        | tuple[
-            Callable[
-                Concatenate[Context, P],
-                Generator[Yieldable, Any, T],
-            ]
-            | Callable[Concatenate[Context, P], T]
-            | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
-            _RunOptions,
-        ],
+        | Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
         /,
         *args: P.args,
         **kwargs: P.kwargs,

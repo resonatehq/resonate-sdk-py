@@ -459,7 +459,7 @@ def test_golden_device_rfi_and_lfc_with_decorator() -> None:
         task_source=Poller("http://localhost:8002", group=group),
     )
 
-    @resonate.register
+    @resonate.fn()
     def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
         v: str = yield ctx.lfc(bar, n).options(
             id="bar",
@@ -472,7 +472,7 @@ def test_golden_device_rfi_and_lfc_with_decorator() -> None:
         v: str = yield p
         return v
 
-    @resonate.register
+    @resonate.fn()
     def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
@@ -611,7 +611,7 @@ def test_golden_device_rfc_and_lfc_with_decorator() -> None:
         task_source=Poller("http://localhost:8002", group=group),
     )
 
-    @resonate.register
+    @resonate.fn()
     def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
         v: str = yield ctx.lfc(bar, n).options(
             id="bar",
@@ -623,7 +623,7 @@ def test_golden_device_rfc_and_lfc_with_decorator() -> None:
         v: str = yield ctx.rfc(baz, n).options(id="baz", send_to=poll(group))
         return v
 
-    @resonate.register
+    @resonate.fn()
     def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
@@ -730,17 +730,19 @@ def test_sleep() -> None:
     group = "test-sleep"
 
     store = RemoteStore(url="http://localhost:8001")
-    s = Resonate(store=store, task_source=Poller("http://localhost:8002", group=group))
+    resonate = Resonate(
+        store=store, task_source=Poller("http://localhost:8002", group=group)
+    )
 
-    @s.register
+    @resonate.fn()
     def foo_sleep(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         yield ctx.sleep(n)
         return n
 
     n = 1
-    p = foo_sleep.run(f"{group}-{n}", n)
+    p: Handle[int] = foo_sleep.run(f"{group}-{n}", n)
     assert p.result() == n
-    s.stop()
+    resonate.stop()
 
 
 @pytest.mark.skipif(
@@ -792,7 +794,7 @@ def test_golden_device_detached_with_registered() -> None:
         task_source=Poller("http://localhost:8002", group=group),
     )
 
-    @resonate.register
+    @resonate.fn()
     def foo_golden_device_detached_with_registered(
         ctx: Context, n: str
     ) -> Generator[Yieldable, Any, str]:
@@ -805,11 +807,11 @@ def test_golden_device_detached_with_registered() -> None:
         v: str = yield p
         return v
 
-    @resonate.register
+    @resonate.fn()
     def bar_golden_device_detached_with_registered(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
-    @resonate.register
+    @resonate.fn()
     def baz_golden_device_detached_with_registered(
         ctx: Context,  # noqa: ARG001
         promise_id: str,
