@@ -817,8 +817,8 @@ def test_golden_device_detached_with_registered() -> None:
         v: str = yield Promise[str](promise_id)
         return v
 
-    p: Handle[str] = foo_golden_device_detached_with_registered.run(
-        f"{group}-foo", "hi"
+    p: Handle[str] = resonate.run(
+        f"{group}-foo", foo_golden_device_detached_with_registered, "hi"
     )
 
     assert isinstance(p, Handle)
