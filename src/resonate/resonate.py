@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import sys
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, overload
 from uuid import uuid4
 
 from typing_extensions import Concatenate, ParamSpec
 
-from resonate import utils
 from resonate.collections import FunctionRegistry
 from resonate.dataclasses import RegisteredFn
 from resonate.dependencies import Dependencies
@@ -25,45 +23,12 @@ if TYPE_CHECKING:
     from resonate.handle import Handle
     from resonate.scheduler.traits import IScheduler
     from resonate.stores.local import LocalStore
-    from resonate.stores.record import DurablePromiseRecord
+    from resonate.stores.traits import IPromiseStore
     from resonate.task_sources.traits import ITaskSource
-    from resonate.typing import Data, DurableCoro, DurableFn, Headers, Yieldable
+    from resonate.typing import DurableCoro, DurableFn, Yieldable
 
 P = ParamSpec("P")
 T = TypeVar("T")
-
-
-class _PromiseStoreMethods:
-    def __init__(self, store: LocalStore | RemoteStore) -> None:
-        self._store = store
-
-    def create(
-        self,
-        id: str,
-        headers: Headers = None,
-        data: Data = None,
-        timeout: int = sys.maxsize,
-    ) -> DurablePromiseRecord:
-        return self._store.promises.create(
-            id=id,
-            ikey=utils.string_to_uuid(id),
-            strict=False,
-            headers=headers,
-            data=data,
-            timeout=timeout,
-            tags=None,
-        )
-
-    def resolve(
-        self, id: str, headers: Headers = None, data: Data = None
-    ) -> DurablePromiseRecord:
-        return self._store.promises.resolve(
-            id=id,
-            ikey=utils.string_to_uuid(id),
-            strict=False,
-            headers=headers,
-            data=data,
-        )
 
 
 class Resonate:
@@ -112,14 +77,13 @@ class Resonate:
         self._deps = Dependencies()
         self._registry = FunctionRegistry()
 
-        _store = store or RemoteStore()
-        self._store = _PromiseStoreMethods(_store)
+        self._store = store or RemoteStore()
 
         self._scheduler: IScheduler = Scheduler(
             deps=self._deps,
             pid=pid or uuid4().hex,
             registry=self._registry,
-            store=_store,
+            store=self._store,
             task_source=task_source or Poller(),
         )
 
@@ -248,5 +212,5 @@ class Resonate:
         return self._scheduler.run(id, func, *args, **kwargs)
 
     @property
-    def promises(self) -> _PromiseStoreMethods:
-        return self._store
+    def promises(self) -> IPromiseStore:
+        return self._store.promises
