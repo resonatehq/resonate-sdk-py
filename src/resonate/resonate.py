@@ -181,7 +181,7 @@ class Resonate:
             (func, Options(version=version, durable=True, retry_policy=retry_policy)),
         )
 
-    def fn(
+    def __call__(
         self,
         name: str | None = None,
         version: int = 1,
@@ -189,7 +189,20 @@ class Resonate:
     ) -> Callable[
         [Callable[Concatenate[Context, P], Any]],
         RegisteredFn[P, Any],
-    ]: ...
+    ]:
+        def wrapper(
+            func: Callable[Concatenate[Context, P], Any],
+        ) -> RegisteredFn[P, Any]:
+            self._registry.add(
+                name or func.__name__,
+                (
+                    func,
+                    Options(version=version, durable=True, retry_policy=retry_policy),
+                ),
+            )
+            return RegisteredFn(self._scheduler, func)
+
+        return wrapper
 
     @overload
     def run(

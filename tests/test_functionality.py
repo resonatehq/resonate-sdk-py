@@ -459,7 +459,7 @@ def test_golden_device_rfi_and_lfc_with_decorator() -> None:
         task_source=Poller("http://localhost:8002", group=group),
     )
 
-    @resonate.fn()
+    @resonate()
     def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
         v: str = yield ctx.lfc(bar, n).options(
             id="bar",
@@ -472,7 +472,7 @@ def test_golden_device_rfi_and_lfc_with_decorator() -> None:
         v: str = yield p
         return v
 
-    @resonate.fn()
+    @resonate()
     def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
@@ -611,7 +611,7 @@ def test_golden_device_rfc_and_lfc_with_decorator() -> None:
         task_source=Poller("http://localhost:8002", group=group),
     )
 
-    @resonate.fn()
+    @resonate()
     def foo(ctx: Context, n: str) -> Generator[Yieldable, Any, str]:
         v: str = yield ctx.lfc(bar, n).options(
             id="bar",
@@ -623,7 +623,7 @@ def test_golden_device_rfc_and_lfc_with_decorator() -> None:
         v: str = yield ctx.rfc(baz, n).options(id="baz", send_to=poll(group))
         return v
 
-    @resonate.fn()
+    @resonate()
     def baz(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
@@ -734,7 +734,7 @@ def test_sleep() -> None:
         store=store, task_source=Poller("http://localhost:8002", group=group)
     )
 
-    @resonate.fn()
+    @resonate()
     def foo_sleep(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
         yield ctx.sleep(n)
         return n
@@ -794,7 +794,7 @@ def test_golden_device_detached_with_registered() -> None:
         task_source=Poller("http://localhost:8002", group=group),
     )
 
-    @resonate.fn()
+    @resonate()
     def foo_golden_device_detached_with_registered(
         ctx: Context, n: str
     ) -> Generator[Yieldable, Any, str]:
@@ -807,11 +807,11 @@ def test_golden_device_detached_with_registered() -> None:
         v: str = yield p
         return v
 
-    @resonate.fn()
+    @resonate()
     def bar_golden_device_detached_with_registered(ctx: Context, n: str) -> str:  # noqa: ARG001
         return n
 
-    @resonate.fn()
+    @resonate()
     def baz_golden_device_detached_with_registered(
         ctx: Context,  # noqa: ARG001
         promise_id: str,
