@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from resonate.handle import Handle
     from resonate.scheduler.traits import IScheduler
     from resonate.stores.local import LocalStore
+    from resonate.stores.traits import IPromiseStore
     from resonate.task_sources.traits import ITaskSource
     from resonate.typing import DurableCoro, DurableFn, Yieldable
 
@@ -76,11 +77,13 @@ class Resonate:
         self._deps = Dependencies()
         self._registry = FunctionRegistry()
 
+        self._store = store or RemoteStore()
+
         self._scheduler: IScheduler = Scheduler(
             deps=self._deps,
             pid=pid or uuid4().hex,
             registry=self._registry,
-            store=store or RemoteStore(),
+            store=self._store,
             task_source=task_source or Poller(),
         )
 
@@ -199,3 +202,7 @@ class Resonate:
         if isinstance(func, RegisteredFn):
             func = func.fn
         return self._scheduler.run(id, func, *args, **kwargs)
+
+    @property
+    def promises(self) -> IPromiseStore:
+        return self._store.promises
