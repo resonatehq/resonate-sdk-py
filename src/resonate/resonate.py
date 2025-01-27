@@ -18,14 +18,14 @@ from resonate.task_sources.traits import ITaskSource
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Generator
 
-    from resonate import retry_policy
     from resonate.context import Context
     from resonate.handle import Handle
+    from resonate.retry_policy import RetryPolicy
     from resonate.scheduler.traits import IScheduler
     from resonate.stores.local import LocalStore
     from resonate.stores.traits import IPromiseStore
     from resonate.task_sources.traits import ITaskSource
-    from resonate.typing import DurableCoro, DurableFn, Yieldable
+    from resonate.typing import Yieldable
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -113,47 +113,66 @@ class Resonate:
             Concatenate[Context, P],
             Generator[Yieldable, Any, T],
         ],
+        /,
+        *,
         name: str | None = None,
         version: int = 1,
-        retry_policy: retry_policy.RetryPolicy | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> None: ...
     @overload
     def register(
         self,
         func: Callable[Concatenate[Context, P], Coroutine[Any, Any, T]],
+        /,
+        *,
         name: str | None = None,
         version: int = 1,
-        retry_policy: retry_policy.RetryPolicy | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> None: ...
     @overload
     def register(
         self,
         func: Callable[Concatenate[Context, P], T],
+        /,
+        *,
         name: str | None = None,
         version: int = 1,
-        retry_policy: retry_policy.RetryPolicy | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> None: ...
+    @overload
     def register(
         self,
-        func: DurableCoro[P, Any] | DurableFn[P, Any],
+        *,
         name: str | None = None,
         version: int = 1,
-        retry_policy: retry_policy.RetryPolicy | None = None,
-    ) -> None:
-        return self._registry.add(
-            name or func.__name__,
-            (func, Options(version=version, durable=True, retry_policy=retry_policy)),
-        )
-
-    def __call__(
-        self,
-        name: str | None = None,
-        version: int = 1,
-        retry_policy: retry_policy.RetryPolicy | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> Callable[
         [Callable[Concatenate[Context, P], Any]],
         RegisteredFn[P, Any],
-    ]:
+    ]: ...
+    def register(
+        self, *args: Any, **kwargs: Any
+    ) -> (
+        None
+        | Callable[
+            [Callable[Concatenate[Context, P], Any]],
+            RegisteredFn[P, Any],
+        ]
+    ):
+        name: str | None = kwargs.get("name")
+        version: int = kwargs.get("version", 1)
+        retry_policy: RetryPolicy | None = kwargs.get("retry_policy")
+        if args and callable(args[0]):
+            func: Callable = args[0]  # type: ignore[type-arg]
+            self._registry.add(
+                name or func.__name__,
+                (
+                    func,
+                    Options(version=version, durable=True, retry_policy=retry_policy),
+                ),
+            )
+            return None
+
         def wrapper(
             func: Callable[Concatenate[Context, P], Any],
         ) -> RegisteredFn[P, Any]:
