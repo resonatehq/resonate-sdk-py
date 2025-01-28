@@ -171,7 +171,7 @@ class Resonate:
                     Options(version=version, durable=True, retry_policy=retry_policy),
                 ),
             )
-            return RegisteredFn[P, T](self._scheduler, func)  # type: ignore[arg-type]
+            return RegisteredFn[P, T](self._scheduler, func)  # type: ignore[arg-type, unused-ignore]
 
         def wrapper(
             func: Callable[Concatenate[Context, P], Any],
