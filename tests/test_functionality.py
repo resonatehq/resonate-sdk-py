@@ -501,9 +501,9 @@ def test_golden_device_rfc() -> None:
         store=RemoteStore(url=os.environ["RESONATE_STORE_URL"]),
         task_source=Poller("http://localhost:8002", group=group),
     )
-    resonate.register(foo_golden_device_rfc)
+    rf = resonate.register(foo_golden_device_rfc)
     resonate.register(bar_golden_device_rfc)
-    p: Handle[str] = resonate.run(f"{group}-foo", foo_golden_device_rfc, "hi")
+    p: Handle[str] = rf.run(f"{group}-foo", "hi")
     assert isinstance(p, Handle)
     assert p.result() == "hi"
     resonate.stop()

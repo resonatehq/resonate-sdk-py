@@ -118,7 +118,7 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
         retry_policy: RetryPolicy | None = None,
-    ) -> None: ...
+    ) -> RegisteredFn[P, T]: ...
     @overload
     def register(
         self,
@@ -128,7 +128,7 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
         retry_policy: RetryPolicy | None = None,
-    ) -> None: ...
+    ) -> RegisteredFn[P, T]: ...
     @overload
     def register(
         self,
@@ -138,7 +138,7 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
         retry_policy: RetryPolicy | None = None,
-    ) -> None: ...
+    ) -> RegisteredFn[P, T]: ...
     @overload
     def register(
         self,
@@ -153,17 +153,17 @@ class Resonate:
     def register(
         self, *args: Any, **kwargs: Any
     ) -> (
-        None
+        RegisteredFn[P, T]
         | Callable[
             [Callable[Concatenate[Context, P], Any]],
-            RegisteredFn[P, Any],
+            RegisteredFn[P, T],
         ]
     ):
         name: str | None = kwargs.get("name")
         version: int = kwargs.get("version", 1)
         retry_policy: RetryPolicy | None = kwargs.get("retry_policy")
         if args and callable(args[0]):
-            func: Callable = args[0]  # type: ignore[type-arg]
+            func = args[0]
             self._registry.add(
                 name or func.__name__,
                 (
@@ -171,7 +171,7 @@ class Resonate:
                     Options(version=version, durable=True, retry_policy=retry_policy),
                 ),
             )
-            return None
+            return RegisteredFn[P, T](self._scheduler, func)  # type: ignore[arg-type]
 
         def wrapper(
             func: Callable[Concatenate[Context, P], Any],
