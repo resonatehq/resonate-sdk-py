@@ -240,7 +240,7 @@ class Scheduler(IScheduler):
         if record.should_retry(value):
             error = value.err()  # Get the exception instance.
             separator = "\n" + ("-" * 80) + "\n"
-            logger.error(
+            logger.warning(
                 "%sError processing record %s: %s. Retrying execution.",
                 separator,
                 record.id,
