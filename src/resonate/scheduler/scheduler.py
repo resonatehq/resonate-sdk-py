@@ -238,6 +238,13 @@ class Scheduler(IScheduler):
         if isinstance(record, str):
             record = self._records[record]
         if record.should_retry(value):
+            error = value.err()  # Get the exception instance.
+            logger.error(
+                "Error processing record %s: %s. Retrying execution.",
+                record.id,
+                error,
+                exc_info=error,  # This will include the traceback in the log.
+            )
             record.increate_attempt()
             self._delay_queue.enqueue(Invoke(record.id), record.next_retry_delay())
             return []
