@@ -239,12 +239,9 @@ class Scheduler(IScheduler):
             record = self._records[record]
         if record.should_retry(value):
             error = value.err()  # Get the exception instance.
-            separator = "\n" + ("-" * 80) + "\n"
             logger.warning(
-                "%sError processing record %s: %s. Retrying execution.",
-                separator,
+                "Error processing record %s: Retrying execution.",
                 record.id,
-                error,
                 exc_info=error,  # This includes the traceback.
             )
             record.increate_attempt()
