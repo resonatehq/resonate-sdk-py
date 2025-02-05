@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 import time
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING
 
 from requests import Request, Response, Session
 
+from resonate_sdk import default, utils
 from resonate_sdk.encoder import Base64Encoder
 from resonate_sdk.errors import ResonateError
 from resonate_sdk.logging import logger
@@ -13,7 +13,7 @@ from resonate_sdk.store.models import (
     DurablePromiseRecord,
     InvokeMesg,
     ResumeMesg,
-    Value,
+    TaskRecord,
 )
 from resonate_sdk.store.traits import IPromiseStore, IStore, ITaskStore
 
@@ -32,6 +32,47 @@ class RemotePromiseStore(IPromiseStore):
         if ikey is not None:
             headers["Idempotency-Key"] = ikey
         return headers
+
+    def create_with_task(
+        self,
+        *,
+        id: str,
+        ikey: str | None,
+        strict: bool,
+        headers: dict[str, str] | None,
+        data: str | None,
+        timeout: int,
+        tags: dict[str, str] | None,
+        pid: str,
+        ttl: int,
+    ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
+        req_headers = self._headers(strict=strict, ikey=ikey)
+        req = Request(
+            method="post",
+            url=f"{self._url}/promises/task",
+            headers=req_headers,
+            json={
+                "promise": {
+                    "id": id,
+                    "param": {
+                        "headers": headers or {},
+                        "data": self._encoder.encode(data) if data else None,
+                    },
+                    "timeout": timeout,
+                    "tags": tags,
+                },
+                "task": {
+                    "processId": pid,
+                    "ttl": ttl,
+                },
+            },
+        )
+        resp = self._call(req)
+        resp.raise_for_status()
+
+        decoded = utils.decode(resp.json(), self._encoder)
+        assert isinstance(decoded, tuple)
+        return decoded
 
     def create(
         self,
@@ -62,7 +103,7 @@ class RemotePromiseStore(IPromiseStore):
         resp = self._call(req)
         resp.raise_for_status()
 
-        decoded = _decode(resp.json(), self._encoder)
+        decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, DurablePromiseRecord)
         return decoded
 
@@ -90,7 +131,7 @@ class RemotePromiseStore(IPromiseStore):
         )
         resp = self._call(req)
         resp.raise_for_status()
-        decoded = _decode(resp.json(), self._encoder)
+        decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, DurablePromiseRecord)
         return decoded
 
@@ -118,7 +159,7 @@ class RemotePromiseStore(IPromiseStore):
         )
         resp = self._call(req)
         resp.raise_for_status()
-        decoded = _decode(resp.json(), self._encoder)
+        decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, DurablePromiseRecord)
         return decoded
 
@@ -146,7 +187,7 @@ class RemotePromiseStore(IPromiseStore):
         )
         resp = self._call(req)
         resp.raise_for_status()
-        decoded = _decode(resp.json(), self._encoder)
+        decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, DurablePromiseRecord)
         return decoded
 
@@ -172,7 +213,7 @@ class RemoteTaskStore(ITaskStore):
         )
         resp = self._call(req)
         resp.raise_for_status()
-        decoded = _decode(resp.json(), self._encoder)
+        decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, (InvokeMesg, ResumeMesg))
         return decoded
 
@@ -186,7 +227,7 @@ class RemoteTaskStore(ITaskStore):
         )
         resp = self._call(req)
         resp.raise_for_status()
-        decoded = _decode(resp.json(), self._encoder)
+        decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, int)
         return decoded
 
@@ -236,7 +277,7 @@ class RemoteStore(IStore):
     def __init__(
         self, url: str | None = None, encoder: IEncoder[str, str] | None = None
     ) -> None:
-        self._url = os.getenv("RESONATE_STORE_URL", url or "http://localhost:8001")
+        self._url = url or default.url("store")
         self._encoder = encoder or Base64Encoder()
 
     @property
@@ -254,59 +295,3 @@ class status_codes:  # noqa: N801
     FORBIDDEN = 403
     NOT_FOUND = 404
     CONFLICT = 409
-
-
-def _decode_value(
-    data: dict[str, Any], key: Literal["param", "value"], encoder: IEncoder[str, str]
-) -> Value:
-    if data[key]:
-        return Value(
-            data=encoder.decode(data[key]["data"]),
-            headers=data[key]["headers"],
-        )
-    return Value(data=None, headers={})
-
-
-def _decode(
-    data: dict[str, Any], encoder: IEncoder[str, str]
-) -> DurablePromiseRecord | InvokeMesg | ResumeMesg | int:
-    msg = "Unkown object %s"
-    match data:
-        case {
-            "id": id,
-            "state": state,
-            "timeout": timeout,
-            "createdOn": created_on,
-            **rest,
-        }:
-            return DurablePromiseRecord(
-                id=id,
-                state=state,
-                param=_decode_value(rest, "param", encoder),
-                value=_decode_value(rest, "value", encoder),
-                timeout=timeout,
-                tags=rest.get("tags"),
-                created_on=created_on,
-                completed_on=rest.get("completedOn"),
-                ikey_for_create=rest.get("idempotencyKeyForCreate"),
-                ikey_for_complete=rest.get("idempotencyKeyForComplete"),
-            )
-        case {"promises": promises}:
-            match promises:
-                case {"leaf": leaf, "root": root}:
-                    root_promise = _decode(root, encoder)
-                    assert isinstance(root_promise, DurablePromiseRecord)
-                    leaf_promise = _decode(leaf, encoder)
-                    assert isinstance(leaf_promise, DurablePromiseRecord)
-                    return ResumeMesg(root=root_promise, leaf=leaf_promise)
-                case {"root": root}:
-                    root_promise = _decode(root, encoder)
-                    assert isinstance(root_promise, DurablePromiseRecord)
-                    return InvokeMesg(root=root_promise)
-                case {"tasksAffected": count}:
-                    return count
-                case _:
-                    raise RuntimeError(msg, data)
-
-        case _:
-            raise RuntimeError(msg, data)

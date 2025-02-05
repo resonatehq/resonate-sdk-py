@@ -49,12 +49,7 @@ class JsonAndExceptionEncoder(IEncoder[Any, str]):
 
                     module = importlib.import_module(module_name)
                     exc_class = getattr(module, class_name)
-                    if issubclass(exc_class, Exception):
-                        return exc_class(*args)
+                    assert issubclass(exc_class, Exception)
+                    return exc_class(*args)
 
-                    msg = f"{exc_class} is not an Exception subclass"
-                    raise TypeError(msg)
-
-                return obj
-            case _:
-                return obj
+        return obj

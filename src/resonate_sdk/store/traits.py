@@ -8,6 +8,7 @@ if TYPE_CHECKING:
         DurablePromiseRecord,
         InvokeMesg,
         ResumeMesg,
+        TaskRecord,
     )
 
 
@@ -25,6 +26,20 @@ class IPromiseStore(ABC):
         tags: dict[str, str] | None,
     ) -> DurablePromiseRecord: ...
 
+    @abstractmethod
+    def create_with_task(
+        self,
+        *,
+        id: str,
+        ikey: str | None,
+        strict: bool,
+        headers: dict[str, str] | None,
+        data: str | None,
+        timeout: int,
+        tags: dict[str, str] | None,
+        pid: str,
+        ttl: int,
+    ) -> tuple[DurablePromiseRecord, TaskRecord | None]: ...
     @abstractmethod
     def resolve(
         self,

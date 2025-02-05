@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+from functools import cache
 from typing import TYPE_CHECKING
 
 import pytest
@@ -15,9 +16,10 @@ if TYPE_CHECKING:
     from resonate_sdk.store.traits import IStore
 
 
+@cache
 def _stores() -> list[IStore]:
     stores: list[IStore] = [LocalStore()]
-    if os.getenv("RESONATE_STORE_URL") is not None:
+    if "RESONATE_STORE_URL" in os.environ:
         stores.append(RemoteStore())
     return stores
 

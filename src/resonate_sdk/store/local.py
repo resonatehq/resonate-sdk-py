@@ -102,7 +102,16 @@ class LocalPromiseStore(IPromiseStore):
         pid: str,
         ttl: int,
     ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
-        raise NotImplementedError
+        promise_record = self.create(
+            id=id,
+            ikey=ikey,
+            strict=strict,
+            headers=headers,
+            data=data,
+            timeout=timeout,
+            tags=tags,
+        )
+        return promise_record, None
 
     def reject(
         self,

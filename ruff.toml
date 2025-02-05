@@ -20,6 +20,8 @@ ignore = [
     "A002",
     "PLR0913",
     "A005",
+    "BLE001",
+    "PLR0911",
 ]
 logger-objects = ["resonate.logging.logger"]
 
