@@ -1,0 +1,26 @@
+[project]
+name = "resonate-sdk"
+version = "0.1.0"
+description = "Distributed Async Await by Resonate HQ, Inc"
+readme = "README.md"
+authors = [{ name = "Resonate HQ, Inc", email = "contact@resonatehq.io" }]
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.32.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "pytest>=8.3.4",
+    "ruff>=0.9.4",
+    "types-requests>=2.32.0.20241016",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
