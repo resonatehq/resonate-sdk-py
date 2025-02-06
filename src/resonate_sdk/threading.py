@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 def exit_on_exception(func: Callable) -> Callable:
     @wraps(func)
-    def wrapper(*args: Any, kwargs: Any) -> Any:
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
         except Exception:

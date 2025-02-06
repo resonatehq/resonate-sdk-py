@@ -94,7 +94,10 @@ class RemotePromiseStore(IPromiseStore):
                     "timeout": timeout,
                     "tags": tags or {},
                 },
-                "task": {"processId": pid, "ttl": ttl},
+                "task": {
+                    "processId": pid,
+                    "ttl": ttl,
+                },
             },
         )
         resp = self._call(req.prepare())
@@ -231,7 +234,7 @@ class RemoteTaskStore(ITaskStore):
     def complete(self, *, id: str, counter: int) -> None:
         req = Request(
             method="post",
-            url=f"{self._url}/tasks/heartbeat",
+            url=f"{self._url}/tasks/complete",
             json={
                 "id": id,
                 "counter": counter,

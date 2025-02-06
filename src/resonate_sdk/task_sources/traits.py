@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from queue import Queue
@@ -11,10 +11,10 @@ if TYPE_CHECKING:
 
 class ITaskSource(ABC):
     @abstractmethod
-    def run(self, cq: Queue[TaskRecord | None], pid: str) -> None: ...
+    def run(self, cq: Queue[TaskRecord], pid: str) -> None: ...
 
     @abstractmethod
     def stop(self) -> None: ...
 
     @abstractmethod
-    def recv(self, pid: str) -> dict[str, Any]: ...
+    def recv(self, pid: str) -> str: ...

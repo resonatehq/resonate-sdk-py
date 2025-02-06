@@ -48,25 +48,34 @@ def decode(
                 ikey_for_complete=rest.get("idempotencyKeyForComplete"),
             )
         case {"promises": {"leaf": leaf, "root": root}}:
-            root_promise = decode(root, value_encoder)
-            leaf_promise = decode(leaf, value_encoder)
+            root_promise = decode(root["data"], value_encoder)
+            leaf_promise = decode(leaf["data"], value_encoder)
             assert isinstance(root_promise, DurablePromiseRecord)
             assert isinstance(leaf_promise, DurablePromiseRecord)
             return ResumeMesg(root=root_promise, leaf=leaf_promise)
         case {"promises": {"root": root}}:
-            root_promise = decode(root, value_encoder)
+            root_promise = decode(root["data"], value_encoder)
             assert isinstance(root_promise, DurablePromiseRecord)
             return InvokeMesg(root=root_promise)
         case {"id": id, "counter": counter}:
             return TaskRecord(id, counter)
         case {"promise": promise, "task": task}:
             task = decode(task, value_encoder)
+            promise = decode(promise, value_encoder)
             assert isinstance(task, TaskRecord)
+            assert isinstance(promise, DurablePromiseRecord)
             return promise, task
         case {"promise": promise}:
             promise = decode(promise, value_encoder)
             assert isinstance(promise, DurablePromiseRecord)
             return promise, None
+        case {"href": _, "task": task}:
+            task = decode(task, value_encoder)
+            assert isinstance(task, TaskRecord)
+            return task
+        case {"tasksAffected": n}:
+            return n
+
         case _:
             raise RuntimeError(msg, data)
 
@@ -75,8 +84,10 @@ def _decode_value(
     data: dict[str, Any], key: Literal["param", "value"], encoder: IEncoder[str, str]
 ) -> Value:
     if data[key]:
+        headers = data[key].get("headers")
+        _data = data[key].get("data")
         return Value(
-            data=encoder.decode(data[key]["data"]),
-            headers=data[key]["headers"],
+            data=encoder.decode(_data) if _data else None,
+            headers=headers,
         )
     return Value(data=None, headers={})

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import time
 from threading import Thread
 from typing import TYPE_CHECKING
 
 import requests
 from typing_extensions import Any
 
-from resonate_sdk import default, threading, utils
+from resonate_sdk import default, targets, utils
 from resonate_sdk.encoder import IEncoder, JsonAndExceptionEncoder
+from resonate_sdk.logging import logger
 from resonate_sdk.store.models import TaskRecord
 from resonate_sdk.task_sources.traits import ITaskSource
 
@@ -23,11 +25,11 @@ class Poller(ITaskSource):
         encoder: IEncoder[Any, str] | None = None,
     ) -> None:
         self._url = url or default.url("poller")
-        self._group = group or default.group()
+        self.group = group or default.group()
         self._encoder = encoder or JsonAndExceptionEncoder()
         self._t: Thread | None = None
 
-    def run(self, cq: Queue[TaskRecord | None], pid: str) -> None:
+    def run(self, cq: Queue[TaskRecord], pid: str) -> None:
         if self._t is not None:
             return
         self._t = Thread(
@@ -38,29 +40,40 @@ class Poller(ITaskSource):
             ),
             daemon=True,
         )
+        self._t.start()
 
-    @threading.exit_on_exception
-    def _run(self, cq: Queue[TaskRecord | None], pid: str) -> None:
-        url = f"{self._url}/{self._group}/{pid}"
+    # @threading.exit_on_exception
+    def _run(self, cq: Queue[TaskRecord], pid: str) -> None:
+        url = f"{self._url}/{self.group}/{pid}"
+        while True:
+            try:
+                with requests.get(url, stream=True) as res:  # noqa: S113
+                    if not res.ok:
+                        break
 
-        with requests.get(url, stream=True, timeout=10) as res:
-            if not res.ok:
-                raise NotImplementedError
+                    for line in res.iter_lines(chunk_size=None, decode_unicode=True):
+                        if not line:
+                            continue
 
-            for line in res.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
+                        stripped = line.strip()
+                        if not stripped.startswith("data:"):
+                            continue
 
-                stripped: str = line.strip()
-                if not stripped.startswith("data:"):
-                    continue
-                info: dict[str, Any] = self._encoder.decode(stripped[5:])
-                record = utils.decode(info["task"], self._encoder)
-                assert isinstance(record, TaskRecord)
-                cq.put(record)
+                        info = self._encoder.decode(stripped[5:])
+                        if "task" not in info:
+                            continue
+
+                        task_record = utils.decode(info, self._encoder)
+                        assert isinstance(task_record, TaskRecord)
+                        cq.put(task_record)
+
+            except requests.exceptions.ConnectionError:
+                logger.warning("Connection to poller failed, reconnecting")
+
+            time.sleep(1)
 
     def stop(self) -> None:
         return
 
-    def recv(self, pid: str) -> dict[str, Any]:
-        return {"type": "poll", "data": {"group": self._group, "id": pid}}
+    def recv(self, pid: str) -> str:
+        return targets.poll(self.group, pid)
