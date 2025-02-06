@@ -28,13 +28,13 @@ class JsonAndExceptionEncoder(IEncoder[Any, str]):
     def encode(self, obj: Any) -> str:
         match obj:
             case Exception():
-                error_info = {
+                obj = {
                     "__exception__": True,
                     "type": type(obj).__name__,
                     "module": type(obj).__module__,
                     "args": obj.args,
                 }
-                return json.dumps(error_info)
+                return json.dumps(obj)
             case _:
                 return json.dumps(obj)
 

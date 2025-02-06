@@ -27,8 +27,9 @@ class Poller(ITaskSource):
         self._encoder = encoder or JsonAndExceptionEncoder()
         self._t: Thread | None = None
 
-    def start(self, cq: Queue[TaskRecord | None], pid: str) -> None:
-        assert self._t is None
+    def run(self, cq: Queue[TaskRecord | None], pid: str) -> None:
+        if self._t is not None:
+            return
         self._t = Thread(
             target=self._run,
             args=(
@@ -37,12 +38,6 @@ class Poller(ITaskSource):
             ),
             daemon=True,
         )
-
-    def stop(self) -> None:
-        return
-
-    def recv(self, pid: str) -> dict[str, Any]:
-        return {"type": "poll", "data": {"group": self._group, "id": pid}}
 
     @threading.exit_on_exception
     def _run(self, cq: Queue[TaskRecord | None], pid: str) -> None:
@@ -63,3 +58,9 @@ class Poller(ITaskSource):
                 record = utils.decode(info["task"], self._encoder)
                 assert isinstance(record, TaskRecord)
                 cq.put(record)
+
+    def stop(self) -> None:
+        return
+
+    def recv(self, pid: str) -> dict[str, Any]:
+        return {"type": "poll", "data": {"group": self._group, "id": pid}}

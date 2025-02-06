@@ -16,17 +16,6 @@ if TYPE_CHECKING:
     from resonate_sdk.encoder import IEncoder
 
 
-def _decode_value(
-    data: dict[str, Any], key: Literal["param", "value"], encoder: IEncoder[str, str]
-) -> Value:
-    if data[key]:
-        return Value(
-            data=encoder.decode(data[key]["data"]),
-            headers=data[key]["headers"],
-        )
-    return Value(data=None, headers={})
-
-
 def decode(
     data: dict[str, Any], value_encoder: IEncoder[str, str]
 ) -> (
@@ -58,31 +47,36 @@ def decode(
                 ikey_for_create=rest.get("idempotencyKeyForCreate"),
                 ikey_for_complete=rest.get("idempotencyKeyForComplete"),
             )
-        case {"promises": promises}:
-            match promises:
-                case {"leaf": leaf, "root": root}:
-                    root_promise = decode(root, value_encoder)
-                    leaf_promise = decode(leaf, value_encoder)
-                    assert isinstance(root_promise, DurablePromiseRecord)
-                    assert isinstance(leaf_promise, DurablePromiseRecord)
-                    return ResumeMesg(root=root_promise, leaf=leaf_promise)
-                case {"root": root}:
-                    root_promise = decode(root, value_encoder)
-                    assert isinstance(root_promise, DurablePromiseRecord)
-                    return InvokeMesg(root=root_promise)
-                case {"tasksAffected": count}:
-                    return count
-                case _:
-                    raise RuntimeError(msg, data)
+        case {"promises": {"leaf": leaf, "root": root}}:
+            root_promise = decode(root, value_encoder)
+            leaf_promise = decode(leaf, value_encoder)
+            assert isinstance(root_promise, DurablePromiseRecord)
+            assert isinstance(leaf_promise, DurablePromiseRecord)
+            return ResumeMesg(root=root_promise, leaf=leaf_promise)
+        case {"promises": {"root": root}}:
+            root_promise = decode(root, value_encoder)
+            assert isinstance(root_promise, DurablePromiseRecord)
+            return InvokeMesg(root=root_promise)
         case {"id": id, "counter": counter}:
             return TaskRecord(id, counter)
-        case {"promise": promise, **rest}:
+        case {"promise": promise, "task": task}:
+            task = decode(task, value_encoder)
+            assert isinstance(task, TaskRecord)
+            return promise, task
+        case {"promise": promise}:
             promise = decode(promise, value_encoder)
             assert isinstance(promise, DurablePromiseRecord)
-            if "task" in rest:
-                task = decode(rest["task"], value_encoder)
-                assert isinstance(task, TaskRecord)
-                return promise, task
             return promise, None
         case _:
             raise RuntimeError(msg, data)
+
+
+def _decode_value(
+    data: dict[str, Any], key: Literal["param", "value"], encoder: IEncoder[str, str]
+) -> Value:
+    if data[key]:
+        return Value(
+            data=encoder.decode(data[key]["data"]),
+            headers=data[key]["headers"],
+        )
+    return Value(data=None, headers={})

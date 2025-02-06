@@ -30,25 +30,6 @@ class LocalPromiseStore(IPromiseStore):
         self._tasks = tasks
         self._encoder = encoder
 
-    def _timeout(self, promise: DurablePromiseRecord) -> DurablePromiseRecord:
-        new_state: State = "REJECTED_TIMEDOUT"
-        if promise.state == "PENDING" and now() >= promise.timeout:
-            if promise.tags and promise.tags.get("resonate:timeout") == "true":
-                new_state = "RESOLVED"
-            return DurablePromiseRecord(
-                state=new_state,
-                id=promise.id,
-                timeout=promise.timeout,
-                param=promise.param,
-                value=Value(headers={}, data=None),
-                tags=promise.tags,
-                created_on=promise.created_on,
-                completed_on=promise.timeout,
-                ikey_for_create=promise.ikey_for_create,
-                ikey_for_complete=None,
-            )
-        return promise
-
     def create(
         self,
         *,
@@ -243,6 +224,25 @@ class LocalPromiseStore(IPromiseStore):
         new_item = self._timeout(_cancel(self._promises.get(id)))
         self._promises[id] = new_item
         return new_item
+
+    def _timeout(self, promise: DurablePromiseRecord) -> DurablePromiseRecord:
+        new_state: State = "REJECTED_TIMEDOUT"
+        if promise.state == "PENDING" and now() >= promise.timeout:
+            if promise.tags and promise.tags.get("resonate:timeout") == "true":
+                new_state = "RESOLVED"
+            return DurablePromiseRecord(
+                state=new_state,
+                id=promise.id,
+                timeout=promise.timeout,
+                param=promise.param,
+                value=Value(headers={}, data=None),
+                tags=promise.tags,
+                created_on=promise.created_on,
+                completed_on=promise.timeout,
+                ikey_for_create=promise.ikey_for_create,
+                ikey_for_complete=None,
+            )
+        return promise
 
 
 class LocalTaskStore(ITaskStore):

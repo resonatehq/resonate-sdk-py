@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from requests import Request, Response, Session
+from requests import PreparedRequest, Request, Response, Session
 
 from resonate_sdk import default, utils
 from resonate_sdk.encoder import Base64Encoder
@@ -28,51 +28,10 @@ class RemotePromiseStore(IPromiseStore):
         self._encoder = encoder
 
     def _headers(self, *, strict: bool, ikey: str | None) -> dict[str, str]:
-        headers: dict[str, str] = {"Strict": str(strict)}
+        headers: dict[str, str] = {"strict": str(strict)}
         if ikey is not None:
-            headers["Idempotency-Key"] = ikey
+            headers["idempotency-Key"] = ikey
         return headers
-
-    def create_with_task(
-        self,
-        *,
-        id: str,
-        ikey: str | None,
-        strict: bool,
-        headers: dict[str, str] | None,
-        data: str | None,
-        timeout: int,
-        tags: dict[str, str] | None,
-        pid: str,
-        ttl: int,
-    ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
-        req_headers = self._headers(strict=strict, ikey=ikey)
-        req = Request(
-            method="post",
-            url=f"{self._url}/promises/task",
-            headers=req_headers,
-            json={
-                "promise": {
-                    "id": id,
-                    "param": {
-                        "headers": headers or {},
-                        "data": self._encoder.encode(data) if data else None,
-                    },
-                    "timeout": timeout,
-                    "tags": tags,
-                },
-                "task": {
-                    "processId": pid,
-                    "ttl": ttl,
-                },
-            },
-        )
-        resp = self._call(req)
-        resp.raise_for_status()
-
-        decoded = utils.decode(resp.json(), self._encoder)
-        assert isinstance(decoded, tuple)
-        return decoded
 
     def create(
         self,
@@ -100,11 +59,49 @@ class RemotePromiseStore(IPromiseStore):
                 "tags": tags or {},
             },
         )
-        resp = self._call(req)
+        resp = self._call(req.prepare())
         resp.raise_for_status()
 
         decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, DurablePromiseRecord)
+        return decoded
+
+    def create_with_task(
+        self,
+        *,
+        id: str,
+        ikey: str | None,
+        strict: bool,
+        headers: dict[str, str] | None,
+        data: str | None,
+        timeout: int,
+        tags: dict[str, str] | None,
+        pid: str,
+        ttl: int,
+    ) -> tuple[DurablePromiseRecord, TaskRecord | None]:
+        req_headers = self._headers(strict=strict, ikey=ikey)
+        req = Request(
+            method="post",
+            url=f"{self._url}/promises/task",
+            headers=req_headers,
+            json={
+                "promise": {
+                    "id": id,
+                    "param": {
+                        "headers": headers or {},
+                        "data": self._encoder.encode(data) if data else None,
+                    },
+                    "timeout": timeout,
+                    "tags": tags or {},
+                },
+                "task": {"processId": pid, "ttl": ttl},
+            },
+        )
+        resp = self._call(req.prepare())
+        resp.raise_for_status()
+
+        decoded = utils.decode(resp.json(), self._encoder)
+        assert isinstance(decoded, tuple)
         return decoded
 
     def resolve(
@@ -129,7 +126,7 @@ class RemotePromiseStore(IPromiseStore):
                 },
             },
         )
-        resp = self._call(req)
+        resp = self._call(req.prepare())
         resp.raise_for_status()
         decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, DurablePromiseRecord)
@@ -157,7 +154,7 @@ class RemotePromiseStore(IPromiseStore):
                 },
             },
         )
-        resp = self._call(req)
+        resp = self._call(req.prepare())
         resp.raise_for_status()
         decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, DurablePromiseRecord)
@@ -185,7 +182,7 @@ class RemotePromiseStore(IPromiseStore):
                 },
             },
         )
-        resp = self._call(req)
+        resp = self._call(req.prepare())
         resp.raise_for_status()
         decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, DurablePromiseRecord)
@@ -211,7 +208,7 @@ class RemoteTaskStore(ITaskStore):
                 "ttl": ttl,
             },
         )
-        resp = self._call(req)
+        resp = self._call(req.prepare())
         resp.raise_for_status()
         decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, (InvokeMesg, ResumeMesg))
@@ -225,7 +222,7 @@ class RemoteTaskStore(ITaskStore):
                 "processId": pid,
             },
         )
-        resp = self._call(req)
+        resp = self._call(req.prepare())
         resp.raise_for_status()
         decoded = utils.decode(resp.json(), self._encoder)
         assert isinstance(decoded, int)
@@ -240,37 +237,8 @@ class RemoteTaskStore(ITaskStore):
                 "counter": counter,
             },
         )
-        resp = self._call(req)
+        resp = self._call(req.prepare())
         resp.raise_for_status()
-
-
-def _call(req: Request) -> Response:
-    prep_req = req.prepare()
-    with Session() as s:
-        while True:
-            res = s.send(prep_req, timeout=5)
-            if res.ok:
-                return res
-            if res.status_code == status_codes.BAD_REQUEST:
-                msg = "Invalid Request"
-                raise ResonateError(msg, "STORE_PAYLOAD")
-            if res.status_code == status_codes.UNAUTHORIZED:
-                msg = "Unauthorized request"
-                raise ResonateError(msg, "STORE_UNAUTHORIZED")
-            if res.status_code == status_codes.FORBIDDEN:
-                msg = "Forbidden request"
-                raise ResonateError(msg, "STORE_FORBIDDEN")
-            if res.status_code == status_codes.NOT_FOUND:
-                msg = "Not found"
-                raise ResonateError(msg, "STORE_NOT_FOUND")
-            if res.status_code == status_codes.CONFLICT:
-                msg = "Already exists"
-                raise ResonateError(msg, "STORE_ALREADY_EXISTS")
-            logger.warning(
-                "Unexpected code response from remote store: %s", res.status_code
-            )
-        time.sleep(1)
-    raise NotImplementedError
 
 
 class RemoteStore(IStore):
@@ -289,9 +257,37 @@ class RemoteStore(IStore):
         return RemoteTaskStore(self._url, self._encoder)
 
 
-class status_codes:  # noqa: N801
+class _status_codes:  # noqa: N801
     BAD_REQUEST = 400
     UNAUTHORIZED = 401
     FORBIDDEN = 403
     NOT_FOUND = 404
     CONFLICT = 409
+
+
+def _call(req: PreparedRequest) -> Response:
+    with Session() as s:
+        while True:
+            res = s.send(req, timeout=10)
+            if res.ok:
+                return res
+            if res.status_code == _status_codes.BAD_REQUEST:
+                msg = "Invalid Request"
+                raise ResonateError(msg, "STORE_PAYLOAD")
+            if res.status_code == _status_codes.UNAUTHORIZED:
+                msg = "Unauthorized request"
+                raise ResonateError(msg, "STORE_UNAUTHORIZED")
+            if res.status_code == _status_codes.FORBIDDEN:
+                msg = "Forbidden request"
+                raise ResonateError(msg, "STORE_FORBIDDEN")
+            if res.status_code == _status_codes.NOT_FOUND:
+                msg = "Not found"
+                raise ResonateError(msg, "STORE_NOT_FOUND")
+            if res.status_code == _status_codes.CONFLICT:
+                msg = "Already exists"
+                raise ResonateError(msg, "STORE_ALREADY_EXISTS")
+            logger.warning(
+                "Unexpected code response from remote store: %s", res.status_code
+            )
+        time.sleep(1)
+    raise NotImplementedError

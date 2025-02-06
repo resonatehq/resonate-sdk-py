@@ -25,7 +25,6 @@ class IPromiseStore(ABC):
         timeout: int,
         tags: dict[str, str] | None,
     ) -> DurablePromiseRecord: ...
-
     @abstractmethod
     def create_with_task(
         self,
@@ -50,7 +49,6 @@ class IPromiseStore(ABC):
         headers: dict[str, str] | None,
         data: str | None,
     ) -> DurablePromiseRecord: ...
-
     @abstractmethod
     def reject(
         self,
@@ -61,7 +59,6 @@ class IPromiseStore(ABC):
         headers: dict[str, str] | None,
         data: str | None,
     ) -> DurablePromiseRecord: ...
-
     @abstractmethod
     def cancel(
         self,
@@ -79,10 +76,8 @@ class ITaskStore(ABC):
     def claim(
         self, *, id: str, counter: int, pid: str, ttl: int
     ) -> InvokeMesg | ResumeMesg: ...
-
     @abstractmethod
     def complete(self, *, id: str, counter: int) -> None: ...
-
     @abstractmethod
     def heartbeat(self, *, pid: str) -> int: ...
 
@@ -91,7 +86,6 @@ class IStore(ABC):
     @property
     @abstractmethod
     def promises(self) -> IPromiseStore: ...
-
     @property
     @abstractmethod
     def tasks(self) -> ITaskStore: ...
