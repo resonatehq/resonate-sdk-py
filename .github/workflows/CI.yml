@@ -35,5 +35,8 @@ jobs:
         with:
           python-version: ${{matrix.python-version}}
 
+      - name: Install the project
+        run: uv sync --dev
+
       - name: "Run tests"
-        run: pytest
+        run: uv run pytest tests
