@@ -4,12 +4,8 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from resonate_sdk.store.models import (
-        DurablePromiseRecord,
-        InvokeMesg,
-        ResumeMesg,
-        TaskRecord,
-    )
+    from resonate_sdk.models.durable_promise import DurablePromiseRecord
+    from resonate_sdk.models.task import TaskRecord
 
 
 class IPromiseStore(ABC):

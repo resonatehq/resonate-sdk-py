@@ -10,7 +10,7 @@ from typing_extensions import Any
 from resonate_sdk import default, targets, utils
 from resonate_sdk.encoder import IEncoder, JsonAndExceptionEncoder
 from resonate_sdk.logging import logger
-from resonate_sdk.store.models import TaskRecord
+from resonate_sdk.models.task import TaskRecord
 from resonate_sdk.task_sources.traits import ITaskSource
 
 if TYPE_CHECKING:

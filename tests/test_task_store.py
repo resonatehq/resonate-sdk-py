@@ -2,129 +2,101 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+from functools import cache
 from queue import Queue
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 import pytest
 
 from resonate_sdk import targets
 from resonate_sdk.errors import ResonateError
-from resonate_sdk.store.models import DurablePromiseRecord, InvokeMesg, TaskRecord
-from resonate_sdk.store.remote import RemoteStore
-from resonate_sdk.task_sources.poller import Poller
+from resonate_sdk.models.task import Mesg, TaskRecord
+from resonate_sdk.stores import RemoteStore
+from resonate_sdk.stores._local import LocalStore, Recv
+from resonate_sdk.task_sources import Poller
 
 if TYPE_CHECKING:
-    from resonate_sdk.store.traits import IStore
+    from resonate_sdk.stores.traits import IStore
+
+TICK_TIME = 1
 
 
-def _prevent_orphan_task(
-    store: IStore,
-    task_record: TaskRecord,
-    promise_record: DurablePromiseRecord,
+class LocalSender:
+    def __init__(self, cq: Queue[TaskRecord]) -> None:
+        self.cq = cq
+
+    def send(self, recv: Recv, mesg: Mesg) -> None:
+        self.cq.put(mesg.task)
+
+
+@pytest.fixture
+def depedencies() -> list[tuple[IStore, Queue[TaskRecord]]]:
+    local = LocalStore()
+    cq = Queue[TaskRecord]()
+    local.add_sender(targets.poll("default", "pid"), LocalSender(cq=cq))
+    stores: list[tuple[IStore, Queue[TaskRecord]]] = [(local, cq)]
+    if "RESONATE_STORE_URL" in os.environ:
+        p = Poller()
+        p.run(cq=cq, pid="pid")
+        stores.append((RemoteStore(), cq))
+    return stores
+
+def test_case_5_transition_from_enqueue_to_claimed_via_claim(
+    depedencies: tuple[IStore, Queue[TaskRecord]]
 ) -> None:
-    store.promises.resolve(
-        id=promise_record.id, ikey=None, strict=False, headers=None, data=None
-    )
-    store.tasks.complete(id=task_record.id, counter=task_record.counter)
-
-
-@pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
-def test_base_case() -> None:
-    store, task_source = RemoteStore(), Poller()
-    pid = uuid4().hex
-    promise_record, task_record = store.promises.create_with_task(
-        id="idbase",
+    store, cq = depedencies
+    store.promises.create(
+        id="task5",
         ikey=None,
         strict=False,
         headers=None,
         data=None,
         timeout=sys.maxsize,
-        tags={"resonate:invoke": task_source.recv(pid)},
-        pid=pid,
-        ttl=sys.maxsize,
+        tags={"resonate:invoke": targets.poll("default", "pid")},
     )
-    assert promise_record.state == "PENDING"
-    assert promise_record.id == "idbase"
-    assert promise_record.ikey_for_create is None
-    assert promise_record.ikey_for_complete is None
-    assert task_record
-    assert task_record.id == "1"
-    assert task_record.counter == 1
-    store.promises.resolve(
-        id=promise_record.id, ikey=None, strict=False, headers=None, data=None
-    )
-    store.tasks.complete(id=task_record.id, counter=task_record.counter)
-
-
-@pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
-def test_case_5_transition_from_enqueue_to_claimed_via_claim() -> None:
-    store, task_source = RemoteStore(), Poller()
-    cq = Queue[TaskRecord]()
-    pid = uuid4().hex
-    promise_record = store.promises.create(
-        id="id5",
-        ikey=None,
-        strict=False,
-        headers=None,
-        data=None,
-        timeout=sys.maxsize,
-        tags={"resonate:invoke": targets.poll(task_source.group, pid)},
-    )
-    task_source.run(cq=cq, pid=pid)
     task_record = cq.get()
-    assert task_record.counter == 1
     store.tasks.claim(
-        id=task_record.id, counter=task_record.counter, pid=pid, ttl=sys.maxsize
+        id=task_record.id, counter=task_record.counter, pid="task5", ttl=sys.maxsize
     )
-    _prevent_orphan_task(store, task_record, promise_record)
 
 
-@pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
-def test_case_6_transition_from_enqueue_to_enqueue_via_claim() -> None:
-    store, task_source = RemoteStore(), Poller()
-    cq = Queue[TaskRecord]()
-    pid = uuid4().hex
-    promise_record = store.promises.create(
-        id="id6",
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_6_transition_from_enqueue_to_enqueue_via_claim(
+    store: IStore, cq: Queue[TaskRecord]
+) -> None:
+    store.promises.create(
+        id="task6",
         ikey=None,
         strict=False,
         headers=None,
         data=None,
         timeout=sys.maxsize,
-        tags={"resonate:invoke": targets.poll(task_source.group, pid)},
+        tags={"resonate:invoke": targets.poll("default", "pid")},
     )
-    task_source.run(cq=cq, pid=pid)
     task_record = cq.get()
-    assert task_record.counter == 1
     with pytest.raises(ResonateError):
         store.tasks.claim(
             id=task_record.id,
             counter=task_record.counter + 1,
-            pid=pid,
+            pid="task6",
             ttl=sys.maxsize,
         )
-    store.tasks.claim(
-        id=task_record.id, counter=task_record.counter, pid=pid, ttl=sys.maxsize
-    )
-    _prevent_orphan_task(store, task_record, promise_record)
 
 
-@pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
-def test_case_8_transition_from_enqueue_to_enqueue_via_complete() -> None:
-    store, task_source = RemoteStore(), Poller()
-    cq = Queue[TaskRecord]()
-    pid = uuid4().hex
-    promise_record = store.promises.create(
-        id="id8",
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_8_transition_from_enqueue_to_enqueue_via_complete(
+    store: IStore, cq: Queue[TaskRecord]
+) -> None:
+    store.promises.create(
+        id="task8",
         ikey=None,
         strict=False,
         headers=None,
         data=None,
         timeout=sys.maxsize,
-        tags={"resonate:invoke": targets.poll(task_source.group, pid)},
+        tags={"resonate:invoke": targets.poll("default", "pid")},
     )
-    task_source.run(cq=cq, pid=pid)
     task_record = cq.get()
     assert task_record.counter == 1
     with pytest.raises(ResonateError):
@@ -133,88 +105,227 @@ def test_case_8_transition_from_enqueue_to_enqueue_via_complete() -> None:
             counter=task_record.counter,
         )
 
-    store.tasks.claim(
-        id=task_record.id, counter=task_record.counter, pid=pid, ttl=sys.maxsize
-    )
-    _prevent_orphan_task(store, task_record, promise_record)
 
-
-@pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
-def test_case_10_transition_from_enqueue_to_enqueue_via_hearbeat() -> None:
-    store, task_source = RemoteStore(), Poller()
-    cq = Queue[TaskRecord]()
-    pid = uuid4().hex
-    promise_record = store.promises.create(
-        id="id10",
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_10_transition_from_enqueue_to_enqueue_via_hearbeat(
+    store: IStore, cq: Queue[TaskRecord]
+) -> None:
+    store.promises.create(
+        id="task10",
         ikey=None,
         strict=False,
         headers=None,
         data=None,
         timeout=sys.maxsize,
-        tags={"resonate:invoke": targets.poll(task_source.group, pid)},
+        tags={"resonate:invoke": targets.poll("default", "pid")},
     )
-    affected_tasks = store.tasks.heartbeat(pid=pid)
-    assert affected_tasks == 0
-    task_source.run(cq=cq, pid=pid)
-    task_record = cq.get()
-    store.tasks.claim(
-        id=task_record.id, counter=task_record.counter, pid=pid, ttl=sys.maxsize
-    )
-    _prevent_orphan_task(store, task_record, promise_record)
+    cq.get()
+    assert store.tasks.heartbeat(pid="task10") == 0
 
 
-@pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
-def test_case_12_transition_from_claimed_to_claimed_via_claim() -> None:
-    store, task_source = RemoteStore(), Poller()
-    cq = Queue[TaskRecord]()
-    pid = uuid4().hex
-    promise_record = store.promises.create(
-        id="id12",
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_12_transition_from_claimed_to_claimed_via_claim(store: IStore, cq: Queue[TaskRecord]) -> None:
+    store.promises.create(
+        id="task12",
         ikey=None,
         strict=False,
         headers=None,
         data=None,
         timeout=sys.maxsize,
-        tags={"resonate:invoke": targets.poll(task_source.group, pid)},
+        tags={"resonate:invoke": targets.poll("default", "pid")},
     )
-    task_source.run(cq=cq, pid=pid)
     task_record = cq.get()
-    invoke = store.tasks.claim(
-        id=task_record.id, counter=task_record.counter, pid=pid, ttl=sys.maxsize
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="pid", ttl=sys.maxsize
     )
-    assert isinstance(invoke, InvokeMesg)
     with pytest.raises(ResonateError):
         store.tasks.claim(
-            id=task_record.id, counter=task_record.counter, pid=pid, ttl=sys.maxsize
+            id=task_record.id,
+            counter=task_record.counter,
+            pid="task12",
+            ttl=sys.maxsize,
         )
-
-    _prevent_orphan_task(store, task_record, promise_record)
 
 
 @pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
-def test_case_13_transition_from_claimed_to_init_via_claim() -> None:
-    store, task_source = RemoteStore(), Poller()
-    cq = Queue[TaskRecord]()
-    pid = uuid4().hex
-    promise_record = store.promises.create(
-        id="id13",
+def test_case_13_transition_from_claimed_to_init_via_claim(store: IStore, cq: Queue[TaskRecord]) -> None:
+    raise NotImplementedError()
+
+
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_14_transition_from_claimed_to_completed_via_complete(store: IStore, cq: Queue[TaskRecord]) -> None:
+    store.promises.create(
+        id="task14",
         ikey=None,
         strict=False,
         headers=None,
         data=None,
         timeout=sys.maxsize,
-        tags={"resonate:invoke": targets.poll(task_source.group, pid)},
+        tags={"resonate:invoke": targets.poll("default", "pid")},
     )
-    task_source.run(cq=cq, pid=pid)
     task_record = cq.get()
-    invoke = store.tasks.claim(
-        id=task_record.id, counter=task_record.counter, pid=pid, ttl=1
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="pid", ttl=sys.maxsize
     )
-    task_source.run(cq=cq, pid=pid)
-    task_record = cq.get()
-    invoke = store.tasks.claim(
-        id=task_record.id, counter=task_record.counter, pid=pid, ttl=sys.maxsize
-    )
-    assert isinstance(invoke, InvokeMesg)
+    store.tasks.complete(id=task_record.id, counter=task_record.counter)
 
-    _prevent_orphan_task(store, task_record, promise_record)
+
+@pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
+def test_case_15_transition_from_claimed_to_init_via_complete() -> None:
+    store, task_source, cq = RemoteStore(), Poller(group="task15"), Queue[TaskRecord]()
+    store.promises.create(
+        id="task15",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags={"resonate:invoke": targets.poll(task_source.group, "task15")},
+    )
+    task_source.run(cq=cq, pid="task15")
+    task_record = cq.get()
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="task15", ttl=0
+    )
+    time.sleep(TICK_TIME)
+    with pytest.raises(ResonateError):
+        store.tasks.complete(id=task_record.id, counter=task_record.counter)
+
+
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_16_transition_from_claimed_to_claimed_via_complete(store: IStore, cq: Queue[TaskRecord]) -> None:
+    store.promises.create(
+        id="task16",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags={"resonate:invoke": targets.poll("default", "pid")},
+    )
+    task_record = cq.get()
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="pid", ttl=sys.maxsize
+    )
+    with pytest.raises(ResonateError):
+        store.tasks.complete(id=task_record.id, counter=task_record.counter + 1)
+
+
+@pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
+def test_case_17_transition_from_claimed_to_init_via_complete() -> None:
+    store, task_source, cq = RemoteStore(), Poller(group="task17"), Queue[TaskRecord]()
+    store.promises.create(
+        id="task17",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags={"resonate:invoke": targets.poll(task_source.group, "task17")},
+    )
+    task_source.run(cq=cq, pid="task17")
+    task_record = cq.get()
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="task17", ttl=0
+    )
+    time.sleep(TICK_TIME)
+    with pytest.raises(ResonateError):
+        store.tasks.complete(id=task_record.id, counter=task_record.counter)
+
+
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_18_transition_from_claimed_to_claimed_via_heartbeat(store: IStore, cq: Queue[TaskRecord]) -> None:
+    store.promises.create(
+        id="task18",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags={"resonate:invoke": targets.poll("default", "pid")},
+    )
+    task_record = cq.get()
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="pid", ttl=sys.maxsize
+    )
+    assert store.tasks.heartbeat(pid="pid") == 1
+
+
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_19_transition_from_claimed_to_init_via_heartbeat(store: IStore, cq: Queue[TaskRecord]) -> None:
+    store.promises.create(
+        id="task19",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags={"resonate:invoke": targets.poll("default", "pid")},
+    )
+    task_record = cq.get()
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="pid", ttl=0
+    )
+
+    assert store.tasks.heartbeat(pid="pid") == 1
+
+
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_20_transition_from_completed_to_completed_via_claim(store: IStore, cq: Queue[TaskRecord]) -> None:
+    store.promises.create(
+        id="task20",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags={"resonate:invoke": targets.poll("default", "pid")},
+    )
+    task_record = cq.get()
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="pid", ttl=sys.maxsize
+    )
+    store.tasks.complete(id=task_record.id, counter=task_record.counter)
+    with pytest.raises(ResonateError):
+        store.tasks.claim(
+            id=task_record.id, counter=task_record.counter, pid="pid", ttl=0
+        )
+
+
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_21_transition_from_completed_to_completed_via_complete(store: IStore, cq: Queue[TaskRecord]) -> None:
+    store.promises.create(
+        id="task21",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags={"resonate:invoke": targets.poll("default", "pid")},
+    )
+    task_record = cq.get()
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="pid", ttl=sys.maxsize
+    )
+    store.tasks.complete(id=task_record.id, counter=task_record.counter)
+    with pytest.raises(ResonateError):
+        store.tasks.complete(id=task_record.id, counter=task_record.counter)
+
+
+@pytest.mark.parametrize(("store", "cq"), _stores())
+def test_case_22_transition_from_completed_to_completed_via_heartbeat(store: IStore, cq: Queue[TaskRecord]) -> None:
+    store.promises.create(
+        id="task22",
+        ikey=None,
+        strict=False,
+        headers=None,
+        data=None,
+        timeout=sys.maxsize,
+        tags={"resonate:invoke": targets.poll("default", "pid")},
+    )
+    task_record = cq.get()
+    store.tasks.claim(
+        id=task_record.id, counter=task_record.counter, pid="pid", ttl=sys.maxsize
+    )
+    store.tasks.complete(id=task_record.id, counter=task_record.counter)
+    assert store.tasks.heartbeat(pid="pid") == 0

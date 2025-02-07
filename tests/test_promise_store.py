@@ -9,11 +9,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from resonate_sdk.errors import ResonateError
-from resonate_sdk.store.local import LocalStore
-from resonate_sdk.store.remote import RemoteStore
+from resonate_sdk.stores import LocalStore, RemoteStore
 
 if TYPE_CHECKING:
-    from resonate_sdk.store.traits import IStore
+    from resonate_sdk.stores.traits import IStore
 
 
 @cache

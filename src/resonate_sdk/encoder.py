@@ -16,16 +16,23 @@ class IEncoder[In, Out](ABC):
 
 
 @final
-class Base64Encoder(IEncoder[str, str]):
-    def encode(self, obj: str) -> str:
+class Base64Encoder(IEncoder[str | None, str | None]):
+    def encode(self, obj: str | None) -> str | None:
+        if obj is None:
+            return None
         return base64.b64encode(obj.encode()).decode()
 
-    def decode(self, data: str) -> str:
+    def decode(self, data: str | None) -> str | None:
+        if data is None:
+            return None
         return base64.b64decode(data).decode()
 
 
-class JsonAndExceptionEncoder(IEncoder[Any, str]):
-    def encode(self, obj: Any) -> str:
+class JsonAndExceptionEncoder(IEncoder[Any, str | None]):
+    def encode(self, obj: Any) -> str | None:
+        if obj is None:
+            return None
+
         match obj:
             case Exception():
                 obj = {
@@ -38,18 +45,20 @@ class JsonAndExceptionEncoder(IEncoder[Any, str]):
             case _:
                 return json.dumps(obj)
 
-    def decode(self, data: str) -> Any:
-        obj: Any = json.loads(data)
+    def decode(self, data: str | None) -> Any:
+        if data is None:
+            return None
+
+        obj = json.loads(data)
         match obj:
-            case dict():
-                if obj.get("__exception__"):
-                    module_name: str = obj.get("module", "builtins")
-                    class_name: str = obj["type"]
-                    args = tuple(obj.get("args", ()))
+            case {"__exception__": _}:
+                module_name: str = obj.get("module", "builtins")
+                class_name: str = obj["type"]
+                args = obj.get("args", ())
 
-                    module = importlib.import_module(module_name)
-                    exc_class = getattr(module, class_name)
-                    assert issubclass(exc_class, Exception)
-                    return exc_class(*args)
-
-        return obj
+                module = importlib.import_module(module_name)
+                exc_class = getattr(module, class_name)
+                assert issubclass(exc_class, Exception)
+                return exc_class(*args)
+            case _:
+                return obj

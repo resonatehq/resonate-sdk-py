@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal, TypeAlias
+from typing import Literal
 
-State: TypeAlias = Literal[
+type State = Literal[
     "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
 ]

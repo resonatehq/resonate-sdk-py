@@ -9,13 +9,9 @@ from resonate_sdk import default, utils
 from resonate_sdk.encoder import Base64Encoder
 from resonate_sdk.errors import ResonateError
 from resonate_sdk.logging import logger
-from resonate_sdk.store.models import (
-    DurablePromiseRecord,
-    InvokeMesg,
-    ResumeMesg,
-    TaskRecord,
-)
-from resonate_sdk.store.traits import IPromiseStore, IStore, ITaskStore
+from resonate_sdk.models.durable_promise import DurablePromiseRecord
+from resonate_sdk.models.task import InvokeMesg, ResumeMesg, TaskRecord
+from resonate_sdk.stores.traits import IPromiseStore, IStore, ITaskStore
 
 if TYPE_CHECKING:
     from resonate_sdk.encoder import IEncoder

@@ -4,20 +4,19 @@ from typing import TYPE_CHECKING, Literal
 
 from typing_extensions import Any
 
-from resonate_sdk.store.models import (
-    DurablePromiseRecord,
-    InvokeMesg,
-    ResumeMesg,
-    TaskRecord,
-    Value,
-)
+from resonate_sdk.models.durable_promise import DurablePromiseRecord, Value
+from resonate_sdk.models.task import InvokeMesg, ResumeMesg, TaskRecord
+
+from . import threading
 
 if TYPE_CHECKING:
     from resonate_sdk.encoder import IEncoder
 
+__all__ = ["threading"]
+
 
 def decode(
-    data: dict[str, Any], value_encoder: IEncoder[str, str]
+    data: dict[str, Any], value_encoder: IEncoder[str | None, str | None]
 ) -> (
     DurablePromiseRecord
     | InvokeMesg
@@ -26,7 +25,6 @@ def decode(
     | TaskRecord
     | tuple[DurablePromiseRecord, TaskRecord | None]
 ):
-    msg = "Unkown object %s"
     match data:
         case {
             "id": id,
@@ -57,7 +55,7 @@ def decode(
             root_promise = decode(root["data"], value_encoder)
             assert isinstance(root_promise, DurablePromiseRecord)
             return InvokeMesg(root=root_promise)
-        case {"id": id, "counter": counter}:
+        case {"id": id, "counter": counter, **rest}:
             return TaskRecord(id, counter)
         case {"promise": promise, "task": task}:
             task = decode(task, value_encoder)
@@ -77,17 +75,20 @@ def decode(
             return n
 
         case _:
+            msg = "Unkown object %s"
             raise RuntimeError(msg, data)
 
 
 def _decode_value(
-    data: dict[str, Any], key: Literal["param", "value"], encoder: IEncoder[str, str]
+    data: dict[str, Any],
+    key: Literal["param", "value"],
+    encoder: IEncoder[str | None, str | None],
 ) -> Value:
     if data[key]:
         headers = data[key].get("headers")
         _data = data[key].get("data")
         return Value(
-            data=encoder.decode(_data) if _data else None,
+            data=encoder.decode(_data),
             headers=headers,
         )
     return Value(data=None, headers={})

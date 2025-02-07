@@ -12,7 +12,7 @@ from resonate_sdk.encoder import (
 
 @pytest.mark.parametrize(
     "value",
-    ["12321", "hi", "by"],
+    ["12321", "hi", "by", None],
 )
 def test_base64_enconder(value: str) -> None:
     encoder = Base64Encoder()
@@ -26,14 +26,16 @@ class CustomError(Exception):
         super().__init__(name)
 
 
-@pytest.mark.parametrize("value", [{"value": 1}, CustomError("abc"), TypeError("HERE")])
+@pytest.mark.parametrize(
+    "value", [{"value": 1}, CustomError("abc"), TypeError("HERE"), None]
+)
 def test_json_encoder(value: Any) -> None:
     encoder = JsonAndExceptionEncoder()
     encoded = encoder.encode(value)
 
-    decoded = encoder.decode(encoded)
-    if not isinstance(decoded, Exception):
-        assert value == decoded
-    else:
-        assert isinstance(decoded, type(value))
-        assert decoded.args == value.args
+    match encoder.decode(encoded):
+        case Exception() as decoded:
+            assert isinstance(decoded, type(value))
+            assert decoded.args == value.args
+        case _ as decoded:
+            assert value == decoded

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-@dataclass(frozen=True)
+@dataclass
 class ResonateError(Exception):
     msg: str
     code: Literal[

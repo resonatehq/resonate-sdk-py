@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from queue import Queue
 
-    from resonate_sdk.store.models import TaskRecord
+    from resonate_sdk.models.task import TaskRecord
 
 
 class ITaskSource(ABC):
