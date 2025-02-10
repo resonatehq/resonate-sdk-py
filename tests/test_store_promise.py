@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.models.store import Store
 from resonate.stores.local import LocalStore, ResonateError
 from resonate.stores.remote import RemoteStore
+
+if TYPE_CHECKING:
+    from resonate.models.store import Store
 
 stores: list[Store] = [
     LocalStore(),
@@ -16,6 +19,7 @@ stores: list[Store] = [
 
 if "RESONATE_STORE_URL" in os.environ:
     stores.append(RemoteStore(os.environ["RESONATE_STORE_URL"]))
+
 
 @pytest.fixture(scope="module", params=stores)
 def store(request: pytest.FixtureRequest) -> Store:
@@ -38,7 +42,6 @@ def test_case_0_transition_from_init_to_pending_via_create(store: Store) -> None
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_1_transition_from_init_to_pending_via_create(store: Store) -> None:
     promise_record = store.promises.create(
         id="id1",
@@ -53,7 +56,6 @@ def test_case_1_transition_from_init_to_pending_via_create(store: Store) -> None
     assert promise_record.id == "id1"
     assert promise_record.ikey_for_create is None
     assert promise_record.ikey_for_complete is None
-
 
 
 def test_case_2_transition_from_init_to_pending_via_create(store: Store) -> None:
@@ -72,7 +74,6 @@ def test_case_2_transition_from_init_to_pending_via_create(store: Store) -> None
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_3_transition_from_init_to_pending_via_create(store: Store) -> None:
     promise_record = store.promises.create(
         id="id3",
@@ -89,13 +90,11 @@ def test_case_3_transition_from_init_to_pending_via_create(store: Store) -> None
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_4_transition_from_init_to_init_via_resolve(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.resolve(
             id="id4", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_5_transition_from_init_to_init_via_resolve(store: Store) -> None:
@@ -105,13 +104,11 @@ def test_case_5_transition_from_init_to_init_via_resolve(store: Store) -> None:
         )
 
 
-
 def test_case_6_transition_from_init_to_init_via_resolve(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.resolve(
             id="id6", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_7_transition_from_init_to_init_via_resolve(store: Store) -> None:
@@ -121,11 +118,9 @@ def test_case_7_transition_from_init_to_init_via_resolve(store: Store) -> None:
         )
 
 
-
 def test_case_8_transition_from_init_to_init_via_reject(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.reject(id="id8", ikey=None, strict=True, headers=None, data=None)
-
 
 
 def test_case_9_transition_from_init_to_init_via_reject(store: Store) -> None:
@@ -135,13 +130,11 @@ def test_case_9_transition_from_init_to_init_via_reject(store: Store) -> None:
         )
 
 
-
 def test_case_10_transition_from_init_to_init_via_reject(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.reject(
             id="id10", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_11_transition_from_init_to_init_via_reject(store: Store) -> None:
@@ -151,13 +144,11 @@ def test_case_11_transition_from_init_to_init_via_reject(store: Store) -> None:
         )
 
 
-
 def test_case_12_transition_from_init_to_init_via_cancel(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.cancel(
             id="id12", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_13_transition_from_init_to_init_via_cancel(store: Store) -> None:
@@ -167,7 +158,6 @@ def test_case_13_transition_from_init_to_init_via_cancel(store: Store) -> None:
         )
 
 
-
 def test_case_14_transition_from_init_to_init_via_cancel(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.cancel(
@@ -175,13 +165,11 @@ def test_case_14_transition_from_init_to_init_via_cancel(store: Store) -> None:
         )
 
 
-
 def test_case_15_transition_from_init_to_init_via_cancel(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.cancel(
             id="id15", ikey="iku", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_16_transition_from_pending_to_pending_via_create(store: Store) -> None:
@@ -206,7 +194,6 @@ def test_case_16_transition_from_pending_to_pending_via_create(store: Store) -> 
         )
 
 
-
 def test_case_17_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id17",
@@ -227,7 +214,6 @@ def test_case_17_transition_from_pending_to_pending_via_create(store: Store) -> 
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_18_transition_from_pending_to_pending_via_create(store: Store) -> None:
@@ -252,7 +238,6 @@ def test_case_18_transition_from_pending_to_pending_via_create(store: Store) -> 
         )
 
 
-
 def test_case_19_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id19",
@@ -275,7 +260,6 @@ def test_case_19_transition_from_pending_to_pending_via_create(store: Store) -> 
         )
 
 
-
 def test_case_20_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id20",
@@ -293,7 +277,6 @@ def test_case_20_transition_from_pending_to_resolved_via_resolve(store: Store) -
     assert promise_record.id == "id20"
     assert promise_record.ikey_for_create is None
     assert promise_record.ikey_for_complete is None
-
 
 
 def test_case_21_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
@@ -315,7 +298,6 @@ def test_case_21_transition_from_pending_to_resolved_via_resolve(store: Store) -
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_22_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id22",
@@ -333,7 +315,6 @@ def test_case_22_transition_from_pending_to_resolved_via_resolve(store: Store) -
     assert promise_record.id == "id22"
     assert promise_record.ikey_for_create is None
     assert promise_record.ikey_for_complete == "iku"
-
 
 
 def test_case_23_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
@@ -355,7 +336,6 @@ def test_case_23_transition_from_pending_to_resolved_via_resolve(store: Store) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_24_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id24",
@@ -373,7 +353,6 @@ def test_case_24_transition_from_pending_to_rejected_via_reject(store: Store) ->
     assert promise_record.id == "id24"
     assert promise_record.ikey_for_create is None
     assert promise_record.ikey_for_complete is None
-
 
 
 def test_case_25_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
@@ -395,7 +374,6 @@ def test_case_25_transition_from_pending_to_rejected_via_reject(store: Store) ->
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_26_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id26",
@@ -413,7 +391,6 @@ def test_case_26_transition_from_pending_to_rejected_via_reject(store: Store) ->
     assert promise_record.id == "id26"
     assert promise_record.ikey_for_create is None
     assert promise_record.ikey_for_complete == "iku"
-
 
 
 def test_case_27_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
@@ -435,7 +412,6 @@ def test_case_27_transition_from_pending_to_rejected_via_reject(store: Store) ->
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_28_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id28",
@@ -453,7 +429,6 @@ def test_case_28_transition_from_pending_to_canceled_via_cancel(store: Store) ->
     assert promise_record.id == "id28"
     assert promise_record.ikey_for_create is None
     assert promise_record.ikey_for_complete is None
-
 
 
 def test_case_29_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
@@ -475,7 +450,6 @@ def test_case_29_transition_from_pending_to_canceled_via_cancel(store: Store) ->
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_30_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id30",
@@ -495,7 +469,6 @@ def test_case_30_transition_from_pending_to_canceled_via_cancel(store: Store) ->
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_31_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id31",
@@ -513,7 +486,6 @@ def test_case_31_transition_from_pending_to_canceled_via_cancel(store: Store) ->
     assert promise_record.id == "id31"
     assert promise_record.ikey_for_create is None
     assert promise_record.ikey_for_complete == "iku"
-
 
 
 def test_case_32_transition_from_pending_to_pending_via_create(store: Store) -> None:
@@ -538,7 +510,6 @@ def test_case_32_transition_from_pending_to_pending_via_create(store: Store) -> 
         )
 
 
-
 def test_case_33_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id33",
@@ -559,7 +530,6 @@ def test_case_33_transition_from_pending_to_pending_via_create(store: Store) -> 
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_34_transition_from_pending_to_pending_via_create(store: Store) -> None:
@@ -587,7 +557,6 @@ def test_case_34_transition_from_pending_to_pending_via_create(store: Store) -> 
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_35_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id35",
@@ -613,7 +582,6 @@ def test_case_35_transition_from_pending_to_pending_via_create(store: Store) -> 
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_36_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id36",
@@ -634,7 +602,6 @@ def test_case_36_transition_from_pending_to_pending_via_create(store: Store) -> 
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_37_transition_from_pending_to_pending_via_create(store: Store) -> None:
@@ -659,7 +626,6 @@ def test_case_37_transition_from_pending_to_pending_via_create(store: Store) -> 
         )
 
 
-
 def test_case_38_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id38",
@@ -677,7 +643,6 @@ def test_case_38_transition_from_pending_to_resolved_via_resolve(store: Store) -
     assert promise_record.id == "id38"
     assert promise_record.ikey_for_create == "ikc"
     assert promise_record.ikey_for_complete is None
-
 
 
 def test_case_39_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
@@ -699,7 +664,6 @@ def test_case_39_transition_from_pending_to_resolved_via_resolve(store: Store) -
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_40_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id40",
@@ -717,7 +681,6 @@ def test_case_40_transition_from_pending_to_resolved_via_resolve(store: Store) -
     assert promise_record.id == "id40"
     assert promise_record.ikey_for_create == "ikc"
     assert promise_record.ikey_for_complete == "iku"
-
 
 
 def test_case_41_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
@@ -739,7 +702,6 @@ def test_case_41_transition_from_pending_to_resolved_via_resolve(store: Store) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_42_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id42",
@@ -757,7 +719,6 @@ def test_case_42_transition_from_pending_to_rejected_via_reject(store: Store) ->
     assert promise_record.id == "id42"
     assert promise_record.ikey_for_create == "ikc"
     assert promise_record.ikey_for_complete is None
-
 
 
 def test_case_43_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
@@ -779,7 +740,6 @@ def test_case_43_transition_from_pending_to_rejected_via_reject(store: Store) ->
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_44_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id44",
@@ -797,7 +757,6 @@ def test_case_44_transition_from_pending_to_rejected_via_reject(store: Store) ->
     assert promise_record.id == "id44"
     assert promise_record.ikey_for_create == "ikc"
     assert promise_record.ikey_for_complete == "iku"
-
 
 
 def test_case_45_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
@@ -819,7 +778,6 @@ def test_case_45_transition_from_pending_to_rejected_via_reject(store: Store) ->
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_46_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id46",
@@ -837,7 +795,6 @@ def test_case_46_transition_from_pending_to_canceled_via_cancel(store: Store) ->
     assert promise_record.id == "id46"
     assert promise_record.ikey_for_create == "ikc"
     assert promise_record.ikey_for_complete is None
-
 
 
 def test_case_47_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
@@ -859,7 +816,6 @@ def test_case_47_transition_from_pending_to_canceled_via_cancel(store: Store) ->
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_48_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id48",
@@ -879,7 +835,6 @@ def test_case_48_transition_from_pending_to_canceled_via_cancel(store: Store) ->
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_49_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id49",
@@ -897,7 +852,6 @@ def test_case_49_transition_from_pending_to_canceled_via_cancel(store: Store) ->
     assert promise_record.id == "id49"
     assert promise_record.ikey_for_create == "ikc"
     assert promise_record.ikey_for_complete == "iku"
-
 
 
 def test_case_50_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
@@ -923,7 +877,6 @@ def test_case_50_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_51_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id51",
@@ -945,7 +898,6 @@ def test_case_51_transition_from_resolved_to_resolved_via_create(store: Store) -
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_52_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
@@ -971,7 +923,6 @@ def test_case_52_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_53_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id53",
@@ -995,7 +946,6 @@ def test_case_53_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_54_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -1013,7 +963,6 @@ def test_case_54_transition_from_resolved_to_resolved_via_resolve(
         store.promises.resolve(
             id="id54", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_55_transition_from_resolved_to_resolved_via_resolve(
@@ -1035,7 +984,6 @@ def test_case_55_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-
 def test_case_56_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -1053,7 +1001,6 @@ def test_case_56_transition_from_resolved_to_resolved_via_resolve(
         store.promises.resolve(
             id="id56", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_57_transition_from_resolved_to_resolved_via_resolve(
@@ -1075,7 +1022,6 @@ def test_case_57_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-
 def test_case_58_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id58",
@@ -1091,7 +1037,6 @@ def test_case_58_transition_from_resolved_to_resolved_via_reject(store: Store) -
         store.promises.reject(
             id="id58", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_59_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
@@ -1111,7 +1056,6 @@ def test_case_59_transition_from_resolved_to_resolved_via_reject(store: Store) -
         )
 
 
-
 def test_case_60_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id60",
@@ -1127,7 +1071,6 @@ def test_case_60_transition_from_resolved_to_resolved_via_reject(store: Store) -
         store.promises.reject(
             id="id60", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_61_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
@@ -1147,7 +1090,6 @@ def test_case_61_transition_from_resolved_to_resolved_via_reject(store: Store) -
         )
 
 
-
 def test_case_62_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id62",
@@ -1163,7 +1105,6 @@ def test_case_62_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         store.promises.cancel(
             id="id62", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_63_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
@@ -1183,7 +1124,6 @@ def test_case_63_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         )
 
 
-
 def test_case_64_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id64",
@@ -1201,7 +1141,6 @@ def test_case_64_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         )
 
 
-
 def test_case_65_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id65",
@@ -1217,7 +1156,6 @@ def test_case_65_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         store.promises.cancel(
             id="id65", ikey="iku", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_66_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
@@ -1243,7 +1181,6 @@ def test_case_66_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_67_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id67",
@@ -1265,7 +1202,6 @@ def test_case_67_transition_from_resolved_to_resolved_via_create(store: Store) -
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_68_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
@@ -1291,7 +1227,6 @@ def test_case_68_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_69_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id69",
@@ -1315,7 +1250,6 @@ def test_case_69_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_70_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -1335,7 +1269,6 @@ def test_case_70_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-
 def test_case_71_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -1353,7 +1286,6 @@ def test_case_71_transition_from_resolved_to_resolved_via_resolve(
         store.promises.resolve(
             id="id71", ikey=None, strict=False, headers=None, data=None
         )
-
 
 
 def test_case_72_transition_from_resolved_to_resolved_via_resolve(
@@ -1378,7 +1310,6 @@ def test_case_72_transition_from_resolved_to_resolved_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_73_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -1401,7 +1332,6 @@ def test_case_73_transition_from_resolved_to_resolved_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_74_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -1419,7 +1349,6 @@ def test_case_74_transition_from_resolved_to_resolved_via_resolve(
         store.promises.resolve(
             id="id74", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_75_transition_from_resolved_to_resolved_via_resolve(
@@ -1441,7 +1370,6 @@ def test_case_75_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-
 def test_case_76_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id76",
@@ -1457,7 +1385,6 @@ def test_case_76_transition_from_resolved_to_resolved_via_reject(store: Store) -
         store.promises.reject(
             id="id76", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_77_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
@@ -1477,7 +1404,6 @@ def test_case_77_transition_from_resolved_to_resolved_via_reject(store: Store) -
         )
 
 
-
 def test_case_78_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id78",
@@ -1493,7 +1419,6 @@ def test_case_78_transition_from_resolved_to_resolved_via_reject(store: Store) -
         store.promises.reject(
             id="id78", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_79_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
@@ -1516,7 +1441,6 @@ def test_case_79_transition_from_resolved_to_resolved_via_reject(store: Store) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_80_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id80",
@@ -1532,7 +1456,6 @@ def test_case_80_transition_from_resolved_to_resolved_via_reject(store: Store) -
         store.promises.reject(
             id="id80", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_81_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
@@ -1552,7 +1475,6 @@ def test_case_81_transition_from_resolved_to_resolved_via_reject(store: Store) -
         )
 
 
-
 def test_case_82_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id82",
@@ -1568,7 +1490,6 @@ def test_case_82_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         store.promises.cancel(
             id="id82", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_83_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
@@ -1588,7 +1509,6 @@ def test_case_83_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         )
 
 
-
 def test_case_84_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id84",
@@ -1604,7 +1524,6 @@ def test_case_84_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         store.promises.cancel(
             id="id84", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_85_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
@@ -1627,7 +1546,6 @@ def test_case_85_transition_from_resolved_to_resolved_via_cancel(store: Store) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_86_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id86",
@@ -1645,7 +1563,6 @@ def test_case_86_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         )
 
 
-
 def test_case_87_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id87",
@@ -1661,7 +1578,6 @@ def test_case_87_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         store.promises.cancel(
             id="id87", ikey="iku*", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_88_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
@@ -1687,7 +1603,6 @@ def test_case_88_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_89_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id89",
@@ -1711,7 +1626,6 @@ def test_case_89_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_90_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id90",
@@ -1733,7 +1647,6 @@ def test_case_90_transition_from_resolved_to_resolved_via_create(store: Store) -
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_91_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
@@ -1762,7 +1675,6 @@ def test_case_91_transition_from_resolved_to_resolved_via_create(store: Store) -
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_92_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id92",
@@ -1784,7 +1696,6 @@ def test_case_92_transition_from_resolved_to_resolved_via_create(store: Store) -
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_93_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
@@ -1810,7 +1721,6 @@ def test_case_93_transition_from_resolved_to_resolved_via_create(store: Store) -
         )
 
 
-
 def test_case_94_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -1828,7 +1738,6 @@ def test_case_94_transition_from_resolved_to_resolved_via_resolve(
         store.promises.resolve(
             id="id94", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_95_transition_from_resolved_to_resolved_via_resolve(
@@ -1850,7 +1759,6 @@ def test_case_95_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-
 def test_case_96_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -1868,7 +1776,6 @@ def test_case_96_transition_from_resolved_to_resolved_via_resolve(
         store.promises.resolve(
             id="id96", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_97_transition_from_resolved_to_resolved_via_resolve(
@@ -1890,7 +1797,6 @@ def test_case_97_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-
 def test_case_98_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id98",
@@ -1908,7 +1814,6 @@ def test_case_98_transition_from_resolved_to_resolved_via_reject(store: Store) -
         )
 
 
-
 def test_case_99_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id99",
@@ -1924,7 +1829,6 @@ def test_case_99_transition_from_resolved_to_resolved_via_reject(store: Store) -
         store.promises.reject(
             id="id99", ikey=None, strict=False, headers=None, data=None
         )
-
 
 
 def test_case_100_transition_from_resolved_to_resolved_via_reject(
@@ -1946,7 +1850,6 @@ def test_case_100_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-
 def test_case_101_transition_from_resolved_to_resolved_via_reject(
     store: Store,
 ) -> None:
@@ -1964,7 +1867,6 @@ def test_case_101_transition_from_resolved_to_resolved_via_reject(
         store.promises.reject(
             id="id101", ikey="iku", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_102_transition_from_resolved_to_resolved_via_cancel(
@@ -1986,7 +1888,6 @@ def test_case_102_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-
 def test_case_103_transition_from_resolved_to_resolved_via_cancel(
     store: Store,
 ) -> None:
@@ -2004,7 +1905,6 @@ def test_case_103_transition_from_resolved_to_resolved_via_cancel(
         store.promises.cancel(
             id="id103", ikey=None, strict=False, headers=None, data=None
         )
-
 
 
 def test_case_104_transition_from_resolved_to_resolved_via_cancel(
@@ -2026,7 +1926,6 @@ def test_case_104_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-
 def test_case_105_transition_from_resolved_to_resolved_via_cancel(
     store: Store,
 ) -> None:
@@ -2044,7 +1943,6 @@ def test_case_105_transition_from_resolved_to_resolved_via_cancel(
         store.promises.cancel(
             id="id105", ikey="iku", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_106_transition_from_resolved_to_resolved_via_create(
@@ -2074,7 +1972,6 @@ def test_case_106_transition_from_resolved_to_resolved_via_create(
         )
 
 
-
 def test_case_107_transition_from_resolved_to_resolved_via_create(
     store: Store,
 ) -> None:
@@ -2102,7 +1999,6 @@ def test_case_107_transition_from_resolved_to_resolved_via_create(
         )
 
 
-
 def test_case_108_transition_from_resolved_to_resolved_via_create(
     store: Store,
 ) -> None:
@@ -2128,7 +2024,6 @@ def test_case_108_transition_from_resolved_to_resolved_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_109_transition_from_resolved_to_resolved_via_create(
@@ -2161,7 +2056,6 @@ def test_case_109_transition_from_resolved_to_resolved_via_create(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_110_transition_from_resolved_to_resolved_via_create(
     store: Store,
 ) -> None:
@@ -2187,7 +2081,6 @@ def test_case_110_transition_from_resolved_to_resolved_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_111_transition_from_resolved_to_resolved_via_create(
@@ -2217,7 +2110,6 @@ def test_case_111_transition_from_resolved_to_resolved_via_create(
         )
 
 
-
 def test_case_112_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -2239,7 +2131,6 @@ def test_case_112_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-
 def test_case_113_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -2259,7 +2150,6 @@ def test_case_113_transition_from_resolved_to_resolved_via_resolve(
         store.promises.resolve(
             id="id113", ikey=None, strict=False, headers=None, data=None
         )
-
 
 
 def test_case_114_transition_from_resolved_to_resolved_via_resolve(
@@ -2286,7 +2176,6 @@ def test_case_114_transition_from_resolved_to_resolved_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_115_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -2311,7 +2200,6 @@ def test_case_115_transition_from_resolved_to_resolved_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_116_transition_from_resolved_to_resolved_via_resolve(
     store: Store,
 ) -> None:
@@ -2331,7 +2219,6 @@ def test_case_116_transition_from_resolved_to_resolved_via_resolve(
         store.promises.resolve(
             id="id116", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_117_transition_from_resolved_to_resolved_via_resolve(
@@ -2355,7 +2242,6 @@ def test_case_117_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-
 def test_case_118_transition_from_resolved_to_resolved_via_reject(
     store: Store,
 ) -> None:
@@ -2375,7 +2261,6 @@ def test_case_118_transition_from_resolved_to_resolved_via_reject(
         store.promises.reject(
             id="id118", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_119_transition_from_resolved_to_resolved_via_reject(
@@ -2399,7 +2284,6 @@ def test_case_119_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-
 def test_case_120_transition_from_resolved_to_resolved_via_reject(
     store: Store,
 ) -> None:
@@ -2419,7 +2303,6 @@ def test_case_120_transition_from_resolved_to_resolved_via_reject(
         store.promises.reject(
             id="id120", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_121_transition_from_resolved_to_resolved_via_reject(
@@ -2446,7 +2329,6 @@ def test_case_121_transition_from_resolved_to_resolved_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_122_transition_from_resolved_to_resolved_via_reject(
     store: Store,
 ) -> None:
@@ -2466,7 +2348,6 @@ def test_case_122_transition_from_resolved_to_resolved_via_reject(
         store.promises.reject(
             id="id122", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_123_transition_from_resolved_to_resolved_via_reject(
@@ -2490,7 +2371,6 @@ def test_case_123_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-
 def test_case_124_transition_from_resolved_to_resolved_via_cancel(
     store: Store,
 ) -> None:
@@ -2510,7 +2390,6 @@ def test_case_124_transition_from_resolved_to_resolved_via_cancel(
         store.promises.cancel(
             id="id124", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_125_transition_from_resolved_to_resolved_via_cancel(
@@ -2534,7 +2413,6 @@ def test_case_125_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-
 def test_case_126_transition_from_resolved_to_resolved_via_cancel(
     store: Store,
 ) -> None:
@@ -2554,7 +2432,6 @@ def test_case_126_transition_from_resolved_to_resolved_via_cancel(
         store.promises.cancel(
             id="id126", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_127_transition_from_resolved_to_resolved_via_cancel(
@@ -2581,7 +2458,6 @@ def test_case_127_transition_from_resolved_to_resolved_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_128_transition_from_resolved_to_resolved_via_cancel(
     store: Store,
 ) -> None:
@@ -2603,7 +2479,6 @@ def test_case_128_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-
 def test_case_129_transition_from_resolved_to_resolved_via_cancel(
     store: Store,
 ) -> None:
@@ -2623,7 +2498,6 @@ def test_case_129_transition_from_resolved_to_resolved_via_cancel(
         store.promises.cancel(
             id="id129", ikey="iku*", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_130_transition_from_rejected_to_rejected_via_create(
@@ -2651,7 +2525,6 @@ def test_case_130_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_131_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -2675,7 +2548,6 @@ def test_case_131_transition_from_rejected_to_rejected_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_132_transition_from_rejected_to_rejected_via_create(
@@ -2703,7 +2575,6 @@ def test_case_132_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_133_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -2729,7 +2600,6 @@ def test_case_133_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_134_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -2747,7 +2617,6 @@ def test_case_134_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id134", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_135_transition_from_rejected_to_rejected_via_resolve(
@@ -2769,7 +2638,6 @@ def test_case_135_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-
 def test_case_136_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -2787,7 +2655,6 @@ def test_case_136_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id136", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_137_transition_from_rejected_to_rejected_via_resolve(
@@ -2809,7 +2676,6 @@ def test_case_137_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-
 def test_case_138_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -2827,7 +2693,6 @@ def test_case_138_transition_from_rejected_to_rejected_via_reject(
         store.promises.reject(
             id="id138", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_139_transition_from_rejected_to_rejected_via_reject(
@@ -2849,7 +2714,6 @@ def test_case_139_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-
 def test_case_140_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -2867,7 +2731,6 @@ def test_case_140_transition_from_rejected_to_rejected_via_reject(
         store.promises.reject(
             id="id140", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_141_transition_from_rejected_to_rejected_via_reject(
@@ -2889,7 +2752,6 @@ def test_case_141_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-
 def test_case_142_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -2907,7 +2769,6 @@ def test_case_142_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id142", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_143_transition_from_rejected_to_rejected_via_cancel(
@@ -2929,7 +2790,6 @@ def test_case_143_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-
 def test_case_144_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -2949,7 +2809,6 @@ def test_case_144_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-
 def test_case_145_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -2967,7 +2826,6 @@ def test_case_145_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id145", ikey="iku", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_146_transition_from_rejected_to_rejected_via_create(
@@ -2995,7 +2853,6 @@ def test_case_146_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_147_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -3019,7 +2876,6 @@ def test_case_147_transition_from_rejected_to_rejected_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_148_transition_from_rejected_to_rejected_via_create(
@@ -3047,7 +2903,6 @@ def test_case_148_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_149_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -3073,7 +2928,6 @@ def test_case_149_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_150_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -3091,7 +2945,6 @@ def test_case_150_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id150", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_151_transition_from_rejected_to_rejected_via_resolve(
@@ -3113,7 +2966,6 @@ def test_case_151_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-
 def test_case_152_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -3131,7 +2983,6 @@ def test_case_152_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id152", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_153_transition_from_rejected_to_rejected_via_resolve(
@@ -3156,7 +3007,6 @@ def test_case_153_transition_from_rejected_to_rejected_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_154_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -3174,7 +3024,6 @@ def test_case_154_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id154", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_155_transition_from_rejected_to_rejected_via_resolve(
@@ -3196,7 +3045,6 @@ def test_case_155_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-
 def test_case_156_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -3216,7 +3064,6 @@ def test_case_156_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-
 def test_case_157_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -3234,7 +3081,6 @@ def test_case_157_transition_from_rejected_to_rejected_via_reject(
         store.promises.reject(
             id="id157", ikey=None, strict=False, headers=None, data=None
         )
-
 
 
 def test_case_158_transition_from_rejected_to_rejected_via_reject(
@@ -3259,7 +3105,6 @@ def test_case_158_transition_from_rejected_to_rejected_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_159_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -3282,7 +3127,6 @@ def test_case_159_transition_from_rejected_to_rejected_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_160_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -3300,7 +3144,6 @@ def test_case_160_transition_from_rejected_to_rejected_via_reject(
         store.promises.reject(
             id="id160", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_161_transition_from_rejected_to_rejected_via_reject(
@@ -3322,7 +3165,6 @@ def test_case_161_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-
 def test_case_162_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -3340,7 +3182,6 @@ def test_case_162_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id162", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_163_transition_from_rejected_to_rejected_via_cancel(
@@ -3362,7 +3203,6 @@ def test_case_163_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-
 def test_case_164_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -3380,7 +3220,6 @@ def test_case_164_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id164", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_165_transition_from_rejected_to_rejected_via_cancel(
@@ -3405,7 +3244,6 @@ def test_case_165_transition_from_rejected_to_rejected_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_166_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -3425,7 +3263,6 @@ def test_case_166_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-
 def test_case_167_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -3443,7 +3280,6 @@ def test_case_167_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id167", ikey="iku*", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_168_transition_from_rejected_to_rejected_via_create(
@@ -3471,7 +3307,6 @@ def test_case_168_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_169_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -3497,7 +3332,6 @@ def test_case_169_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_170_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -3521,7 +3355,6 @@ def test_case_170_transition_from_rejected_to_rejected_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_171_transition_from_rejected_to_rejected_via_create(
@@ -3552,7 +3385,6 @@ def test_case_171_transition_from_rejected_to_rejected_via_create(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_172_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -3576,7 +3408,6 @@ def test_case_172_transition_from_rejected_to_rejected_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_173_transition_from_rejected_to_rejected_via_create(
@@ -3604,7 +3435,6 @@ def test_case_173_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_174_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -3622,7 +3452,6 @@ def test_case_174_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id174", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_175_transition_from_rejected_to_rejected_via_resolve(
@@ -3644,7 +3473,6 @@ def test_case_175_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-
 def test_case_176_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -3662,7 +3490,6 @@ def test_case_176_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id176", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_177_transition_from_rejected_to_rejected_via_resolve(
@@ -3684,7 +3511,6 @@ def test_case_177_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-
 def test_case_178_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -3702,7 +3528,6 @@ def test_case_178_transition_from_rejected_to_rejected_via_reject(
         store.promises.reject(
             id="id178", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_179_transition_from_rejected_to_rejected_via_reject(
@@ -3724,7 +3549,6 @@ def test_case_179_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-
 def test_case_180_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -3742,7 +3566,6 @@ def test_case_180_transition_from_rejected_to_rejected_via_reject(
         store.promises.reject(
             id="id180", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_181_transition_from_rejected_to_rejected_via_reject(
@@ -3764,7 +3587,6 @@ def test_case_181_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-
 def test_case_182_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -3782,7 +3604,6 @@ def test_case_182_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id182", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_183_transition_from_rejected_to_rejected_via_cancel(
@@ -3804,7 +3625,6 @@ def test_case_183_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-
 def test_case_184_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -3824,7 +3644,6 @@ def test_case_184_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-
 def test_case_185_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -3842,7 +3661,6 @@ def test_case_185_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id185", ikey="iku", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_186_transition_from_rejected_to_rejected_via_create(
@@ -3870,7 +3688,6 @@ def test_case_186_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_187_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -3896,7 +3713,6 @@ def test_case_187_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_188_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -3920,7 +3736,6 @@ def test_case_188_transition_from_rejected_to_rejected_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_189_transition_from_rejected_to_rejected_via_create(
@@ -3951,7 +3766,6 @@ def test_case_189_transition_from_rejected_to_rejected_via_create(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_190_transition_from_rejected_to_rejected_via_create(
     store: Store,
 ) -> None:
@@ -3975,7 +3789,6 @@ def test_case_190_transition_from_rejected_to_rejected_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_191_transition_from_rejected_to_rejected_via_create(
@@ -4003,7 +3816,6 @@ def test_case_191_transition_from_rejected_to_rejected_via_create(
         )
 
 
-
 def test_case_192_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -4021,7 +3833,6 @@ def test_case_192_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id192", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_193_transition_from_rejected_to_rejected_via_resolve(
@@ -4043,7 +3854,6 @@ def test_case_193_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-
 def test_case_194_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -4061,7 +3871,6 @@ def test_case_194_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id194", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_195_transition_from_rejected_to_rejected_via_resolve(
@@ -4086,7 +3895,6 @@ def test_case_195_transition_from_rejected_to_rejected_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_196_transition_from_rejected_to_rejected_via_resolve(
     store: Store,
 ) -> None:
@@ -4104,7 +3912,6 @@ def test_case_196_transition_from_rejected_to_rejected_via_resolve(
         store.promises.resolve(
             id="id196", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_197_transition_from_rejected_to_rejected_via_resolve(
@@ -4126,7 +3933,6 @@ def test_case_197_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-
 def test_case_198_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -4146,7 +3952,6 @@ def test_case_198_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-
 def test_case_199_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -4164,7 +3969,6 @@ def test_case_199_transition_from_rejected_to_rejected_via_reject(
         store.promises.reject(
             id="id199", ikey=None, strict=False, headers=None, data=None
         )
-
 
 
 def test_case_200_transition_from_rejected_to_rejected_via_reject(
@@ -4189,7 +3993,6 @@ def test_case_200_transition_from_rejected_to_rejected_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_201_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -4212,7 +4015,6 @@ def test_case_201_transition_from_rejected_to_rejected_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_202_transition_from_rejected_to_rejected_via_reject(
     store: Store,
 ) -> None:
@@ -4230,7 +4032,6 @@ def test_case_202_transition_from_rejected_to_rejected_via_reject(
         store.promises.reject(
             id="id202", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_203_transition_from_rejected_to_rejected_via_reject(
@@ -4252,7 +4053,6 @@ def test_case_203_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-
 def test_case_204_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -4270,7 +4070,6 @@ def test_case_204_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id204", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_205_transition_from_rejected_to_rejected_via_cancel(
@@ -4292,7 +4091,6 @@ def test_case_205_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-
 def test_case_206_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -4310,7 +4108,6 @@ def test_case_206_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id206", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_207_transition_from_rejected_to_rejected_via_cancel(
@@ -4335,7 +4132,6 @@ def test_case_207_transition_from_rejected_to_rejected_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_208_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -4355,7 +4151,6 @@ def test_case_208_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-
 def test_case_209_transition_from_rejected_to_rejected_via_cancel(
     store: Store,
 ) -> None:
@@ -4373,7 +4168,6 @@ def test_case_209_transition_from_rejected_to_rejected_via_cancel(
         store.promises.cancel(
             id="id209", ikey="iku*", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_210_transition_from_canceled_to_canceled_via_create(
@@ -4401,7 +4195,6 @@ def test_case_210_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_211_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -4425,7 +4218,6 @@ def test_case_211_transition_from_canceled_to_canceled_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_212_transition_from_canceled_to_canceled_via_create(
@@ -4453,7 +4245,6 @@ def test_case_212_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_213_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -4479,7 +4270,6 @@ def test_case_213_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_214_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -4497,7 +4287,6 @@ def test_case_214_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id214", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_215_transition_from_canceled_to_canceled_via_resolve(
@@ -4519,7 +4308,6 @@ def test_case_215_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-
 def test_case_216_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -4537,7 +4325,6 @@ def test_case_216_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id216", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_217_transition_from_canceled_to_canceled_via_resolve(
@@ -4559,7 +4346,6 @@ def test_case_217_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-
 def test_case_218_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -4577,7 +4363,6 @@ def test_case_218_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id218", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_219_transition_from_canceled_to_canceled_via_reject(
@@ -4599,7 +4384,6 @@ def test_case_219_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-
 def test_case_220_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -4617,7 +4401,6 @@ def test_case_220_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id220", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_221_transition_from_canceled_to_canceled_via_reject(
@@ -4639,7 +4422,6 @@ def test_case_221_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-
 def test_case_222_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -4657,7 +4439,6 @@ def test_case_222_transition_from_canceled_to_canceled_via_cancel(
         store.promises.cancel(
             id="id222", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_223_transition_from_canceled_to_canceled_via_cancel(
@@ -4679,7 +4460,6 @@ def test_case_223_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-
 def test_case_224_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -4699,7 +4479,6 @@ def test_case_224_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-
 def test_case_225_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -4717,7 +4496,6 @@ def test_case_225_transition_from_canceled_to_canceled_via_cancel(
         store.promises.cancel(
             id="id225", ikey="iku", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_226_transition_from_canceled_to_canceled_via_create(
@@ -4745,7 +4523,6 @@ def test_case_226_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_227_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -4769,7 +4546,6 @@ def test_case_227_transition_from_canceled_to_canceled_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_228_transition_from_canceled_to_canceled_via_create(
@@ -4797,7 +4573,6 @@ def test_case_228_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_229_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -4823,7 +4598,6 @@ def test_case_229_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_230_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -4841,7 +4615,6 @@ def test_case_230_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id230", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_231_transition_from_canceled_to_canceled_via_resolve(
@@ -4863,7 +4636,6 @@ def test_case_231_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-
 def test_case_232_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -4881,7 +4653,6 @@ def test_case_232_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id232", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_233_transition_from_canceled_to_canceled_via_resolve(
@@ -4906,7 +4677,6 @@ def test_case_233_transition_from_canceled_to_canceled_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_234_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -4924,7 +4694,6 @@ def test_case_234_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id234", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_235_transition_from_canceled_to_canceled_via_resolve(
@@ -4946,7 +4715,6 @@ def test_case_235_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-
 def test_case_236_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -4964,7 +4732,6 @@ def test_case_236_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id236", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_237_transition_from_canceled_to_canceled_via_reject(
@@ -4986,7 +4753,6 @@ def test_case_237_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-
 def test_case_238_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -5004,7 +4770,6 @@ def test_case_238_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id238", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_239_transition_from_canceled_to_canceled_via_reject(
@@ -5029,7 +4794,6 @@ def test_case_239_transition_from_canceled_to_canceled_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_240_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -5047,7 +4811,6 @@ def test_case_240_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id240", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_241_transition_from_canceled_to_canceled_via_reject(
@@ -5069,7 +4832,6 @@ def test_case_241_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-
 def test_case_242_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -5089,7 +4851,6 @@ def test_case_242_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-
 def test_case_243_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -5107,7 +4868,6 @@ def test_case_243_transition_from_canceled_to_canceled_via_cancel(
         store.promises.cancel(
             id="id243", ikey=None, strict=False, headers=None, data=None
         )
-
 
 
 def test_case_244_transition_from_canceled_to_canceled_via_cancel(
@@ -5132,7 +4892,6 @@ def test_case_244_transition_from_canceled_to_canceled_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_245_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -5155,7 +4914,6 @@ def test_case_245_transition_from_canceled_to_canceled_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_246_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -5175,7 +4933,6 @@ def test_case_246_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-
 def test_case_247_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -5193,7 +4950,6 @@ def test_case_247_transition_from_canceled_to_canceled_via_cancel(
         store.promises.cancel(
             id="id247", ikey="iku*", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_248_transition_from_canceled_to_canceled_via_create(
@@ -5221,7 +4977,6 @@ def test_case_248_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_249_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -5247,7 +5002,6 @@ def test_case_249_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_250_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -5271,7 +5025,6 @@ def test_case_250_transition_from_canceled_to_canceled_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_251_transition_from_canceled_to_canceled_via_create(
@@ -5302,7 +5055,6 @@ def test_case_251_transition_from_canceled_to_canceled_via_create(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_252_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -5326,7 +5078,6 @@ def test_case_252_transition_from_canceled_to_canceled_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_253_transition_from_canceled_to_canceled_via_create(
@@ -5354,7 +5105,6 @@ def test_case_253_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_254_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -5372,7 +5122,6 @@ def test_case_254_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id254", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_255_transition_from_canceled_to_canceled_via_resolve(
@@ -5394,7 +5143,6 @@ def test_case_255_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-
 def test_case_256_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -5412,7 +5160,6 @@ def test_case_256_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id256", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_257_transition_from_canceled_to_canceled_via_resolve(
@@ -5434,7 +5181,6 @@ def test_case_257_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-
 def test_case_258_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -5452,7 +5198,6 @@ def test_case_258_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id258", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_259_transition_from_canceled_to_canceled_via_reject(
@@ -5474,7 +5219,6 @@ def test_case_259_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-
 def test_case_260_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -5492,7 +5236,6 @@ def test_case_260_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id260", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_261_transition_from_canceled_to_canceled_via_reject(
@@ -5514,7 +5257,6 @@ def test_case_261_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-
 def test_case_262_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -5532,7 +5274,6 @@ def test_case_262_transition_from_canceled_to_canceled_via_cancel(
         store.promises.cancel(
             id="id262", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_263_transition_from_canceled_to_canceled_via_cancel(
@@ -5554,7 +5295,6 @@ def test_case_263_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-
 def test_case_264_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -5574,7 +5314,6 @@ def test_case_264_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-
 def test_case_265_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -5592,7 +5331,6 @@ def test_case_265_transition_from_canceled_to_canceled_via_cancel(
         store.promises.cancel(
             id="id265", ikey="iku", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_266_transition_from_canceled_to_canceled_via_create(
@@ -5620,7 +5358,6 @@ def test_case_266_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_267_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -5646,7 +5383,6 @@ def test_case_267_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_268_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -5670,7 +5406,6 @@ def test_case_268_transition_from_canceled_to_canceled_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_269_transition_from_canceled_to_canceled_via_create(
@@ -5701,7 +5436,6 @@ def test_case_269_transition_from_canceled_to_canceled_via_create(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_270_transition_from_canceled_to_canceled_via_create(
     store: Store,
 ) -> None:
@@ -5725,7 +5459,6 @@ def test_case_270_transition_from_canceled_to_canceled_via_create(
             timeout=sys.maxsize,
             tags=None,
         )
-
 
 
 def test_case_271_transition_from_canceled_to_canceled_via_create(
@@ -5753,7 +5486,6 @@ def test_case_271_transition_from_canceled_to_canceled_via_create(
         )
 
 
-
 def test_case_272_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -5771,7 +5503,6 @@ def test_case_272_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id272", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_273_transition_from_canceled_to_canceled_via_resolve(
@@ -5793,7 +5524,6 @@ def test_case_273_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-
 def test_case_274_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -5811,7 +5541,6 @@ def test_case_274_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id274", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_275_transition_from_canceled_to_canceled_via_resolve(
@@ -5836,7 +5565,6 @@ def test_case_275_transition_from_canceled_to_canceled_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_276_transition_from_canceled_to_canceled_via_resolve(
     store: Store,
 ) -> None:
@@ -5854,7 +5582,6 @@ def test_case_276_transition_from_canceled_to_canceled_via_resolve(
         store.promises.resolve(
             id="id276", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_277_transition_from_canceled_to_canceled_via_resolve(
@@ -5876,7 +5603,6 @@ def test_case_277_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-
 def test_case_278_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -5894,7 +5620,6 @@ def test_case_278_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id278", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_279_transition_from_canceled_to_canceled_via_reject(
@@ -5916,7 +5641,6 @@ def test_case_279_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-
 def test_case_280_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -5934,7 +5658,6 @@ def test_case_280_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id280", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_281_transition_from_canceled_to_canceled_via_reject(
@@ -5959,7 +5682,6 @@ def test_case_281_transition_from_canceled_to_canceled_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_282_transition_from_canceled_to_canceled_via_reject(
     store: Store,
 ) -> None:
@@ -5977,7 +5699,6 @@ def test_case_282_transition_from_canceled_to_canceled_via_reject(
         store.promises.reject(
             id="id282", ikey="iku*", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_283_transition_from_canceled_to_canceled_via_reject(
@@ -5999,7 +5720,6 @@ def test_case_283_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-
 def test_case_284_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -6019,7 +5739,6 @@ def test_case_284_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-
 def test_case_285_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -6037,7 +5756,6 @@ def test_case_285_transition_from_canceled_to_canceled_via_cancel(
         store.promises.cancel(
             id="id285", ikey=None, strict=False, headers=None, data=None
         )
-
 
 
 def test_case_286_transition_from_canceled_to_canceled_via_cancel(
@@ -6062,7 +5780,6 @@ def test_case_286_transition_from_canceled_to_canceled_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_287_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -6085,7 +5802,6 @@ def test_case_287_transition_from_canceled_to_canceled_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-
 def test_case_288_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -6105,7 +5821,6 @@ def test_case_288_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-
 def test_case_289_transition_from_canceled_to_canceled_via_cancel(
     store: Store,
 ) -> None:
@@ -6123,7 +5838,6 @@ def test_case_289_transition_from_canceled_to_canceled_via_cancel(
         store.promises.cancel(
             id="id289", ikey="iku*", strict=False, headers=None, data=None
         )
-
 
 
 def test_case_290_transition_from_timedout_to_timedout_via_create(
@@ -6150,7 +5864,6 @@ def test_case_290_transition_from_timedout_to_timedout_via_create(
         )
 
 
-
 def test_case_291_transition_from_timedout_to_timedout_via_create(
     store: Store,
 ) -> None:
@@ -6173,7 +5886,6 @@ def test_case_291_transition_from_timedout_to_timedout_via_create(
             timeout=0,
             tags=None,
         )
-
 
 
 def test_case_292_transition_from_timedout_to_timedout_via_create(
@@ -6200,7 +5912,6 @@ def test_case_292_transition_from_timedout_to_timedout_via_create(
         )
 
 
-
 def test_case_293_transition_from_timedout_to_timedout_via_create(
     store: Store,
 ) -> None:
@@ -6225,7 +5936,6 @@ def test_case_293_transition_from_timedout_to_timedout_via_create(
         )
 
 
-
 def test_case_294_transition_from_timedout_to_timedout_via_resolve(
     store: Store,
 ) -> None:
@@ -6242,7 +5952,6 @@ def test_case_294_transition_from_timedout_to_timedout_via_resolve(
         store.promises.resolve(
             id="id294", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_295_transition_from_timedout_to_timedout_via_resolve(
@@ -6266,7 +5975,6 @@ def test_case_295_transition_from_timedout_to_timedout_via_resolve(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_296_transition_from_timedout_to_timedout_via_resolve(
     store: Store,
 ) -> None:
@@ -6283,7 +5991,6 @@ def test_case_296_transition_from_timedout_to_timedout_via_resolve(
         store.promises.resolve(
             id="id296", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_297_transition_from_timedout_to_timedout_via_resolve(
@@ -6307,7 +6014,6 @@ def test_case_297_transition_from_timedout_to_timedout_via_resolve(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_298_transition_from_timedout_to_timedout_via_reject(
     store: Store,
 ) -> None:
@@ -6324,7 +6030,6 @@ def test_case_298_transition_from_timedout_to_timedout_via_reject(
         store.promises.reject(
             id="id298", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_299_transition_from_timedout_to_timedout_via_reject(
@@ -6348,7 +6053,6 @@ def test_case_299_transition_from_timedout_to_timedout_via_reject(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_300_transition_from_timedout_to_timedout_via_reject(
     store: Store,
 ) -> None:
@@ -6365,7 +6069,6 @@ def test_case_300_transition_from_timedout_to_timedout_via_reject(
         store.promises.reject(
             id="id300", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_301_transition_from_timedout_to_timedout_via_reject(
@@ -6389,7 +6092,6 @@ def test_case_301_transition_from_timedout_to_timedout_via_reject(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_302_transition_from_timedout_to_timedout_via_cancel(
     store: Store,
 ) -> None:
@@ -6406,7 +6108,6 @@ def test_case_302_transition_from_timedout_to_timedout_via_cancel(
         store.promises.cancel(
             id="id302", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_303_transition_from_timedout_to_timedout_via_cancel(
@@ -6430,7 +6131,6 @@ def test_case_303_transition_from_timedout_to_timedout_via_cancel(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_304_transition_from_timedout_to_timedout_via_cancel(
     store: Store,
 ) -> None:
@@ -6447,7 +6147,6 @@ def test_case_304_transition_from_timedout_to_timedout_via_cancel(
         store.promises.cancel(
             id="id304", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_305_transition_from_timedout_to_timedout_via_cancel(
@@ -6469,7 +6168,6 @@ def test_case_305_transition_from_timedout_to_timedout_via_cancel(
     assert promise_record.id == "id305"
     assert promise_record.ikey_for_create is None
     assert promise_record.ikey_for_complete is None
-
 
 
 def test_case_306_transition_from_timedout_to_timedout_via_create(
@@ -6496,7 +6194,6 @@ def test_case_306_transition_from_timedout_to_timedout_via_create(
         )
 
 
-
 def test_case_307_transition_from_timedout_to_timedout_via_create(
     store: Store,
 ) -> None:
@@ -6521,7 +6218,6 @@ def test_case_307_transition_from_timedout_to_timedout_via_create(
         )
 
 
-
 def test_case_308_transition_from_timedout_to_timedout_via_create(
     store: Store,
 ) -> None:
@@ -6544,7 +6240,6 @@ def test_case_308_transition_from_timedout_to_timedout_via_create(
             timeout=0,
             tags=None,
         )
-
 
 
 def test_case_309_transition_from_timedout_to_timedout_via_create(
@@ -6574,7 +6269,6 @@ def test_case_309_transition_from_timedout_to_timedout_via_create(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_310_transition_from_timedout_to_timedout_via_create(
     store: Store,
 ) -> None:
@@ -6597,7 +6291,6 @@ def test_case_310_transition_from_timedout_to_timedout_via_create(
             timeout=0,
             tags=None,
         )
-
 
 
 def test_case_311_transition_from_timedout_to_timedout_via_create(
@@ -6624,7 +6317,6 @@ def test_case_311_transition_from_timedout_to_timedout_via_create(
         )
 
 
-
 def test_case_312_transition_from_timedout_to_timedout_via_resolve(
     store: Store,
 ) -> None:
@@ -6641,7 +6333,6 @@ def test_case_312_transition_from_timedout_to_timedout_via_resolve(
         store.promises.resolve(
             id="id312", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_313_transition_from_timedout_to_timedout_via_resolve(
@@ -6665,7 +6356,6 @@ def test_case_313_transition_from_timedout_to_timedout_via_resolve(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_314_transition_from_timedout_to_timedout_via_resolve(
     store: Store,
 ) -> None:
@@ -6682,7 +6372,6 @@ def test_case_314_transition_from_timedout_to_timedout_via_resolve(
         store.promises.resolve(
             id="id314", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_315_transition_from_timedout_to_timedout_via_resolve(
@@ -6706,7 +6395,6 @@ def test_case_315_transition_from_timedout_to_timedout_via_resolve(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_316_transition_from_timedout_to_timedout_via_reject(
     store: Store,
 ) -> None:
@@ -6723,7 +6411,6 @@ def test_case_316_transition_from_timedout_to_timedout_via_reject(
         store.promises.reject(
             id="id316", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_317_transition_from_timedout_to_timedout_via_reject(
@@ -6747,7 +6434,6 @@ def test_case_317_transition_from_timedout_to_timedout_via_reject(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_318_transition_from_timedout_to_timedout_via_reject(
     store: Store,
 ) -> None:
@@ -6764,7 +6450,6 @@ def test_case_318_transition_from_timedout_to_timedout_via_reject(
         store.promises.reject(
             id="id318", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_319_transition_from_timedout_to_timedout_via_reject(
@@ -6788,7 +6473,6 @@ def test_case_319_transition_from_timedout_to_timedout_via_reject(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_320_transition_from_timedout_to_timedout_via_cancel(
     store: Store,
 ) -> None:
@@ -6805,7 +6489,6 @@ def test_case_320_transition_from_timedout_to_timedout_via_cancel(
         store.promises.cancel(
             id="id320", ikey=None, strict=True, headers=None, data=None
         )
-
 
 
 def test_case_321_transition_from_timedout_to_timedout_via_cancel(
@@ -6829,7 +6512,6 @@ def test_case_321_transition_from_timedout_to_timedout_via_cancel(
     assert promise_record.ikey_for_complete is None
 
 
-
 def test_case_322_transition_from_timedout_to_timedout_via_cancel(
     store: Store,
 ) -> None:
@@ -6846,7 +6528,6 @@ def test_case_322_transition_from_timedout_to_timedout_via_cancel(
         store.promises.cancel(
             id="id322", ikey="iku", strict=True, headers=None, data=None
         )
-
 
 
 def test_case_323_transition_from_timedout_to_timedout_via_cancel(

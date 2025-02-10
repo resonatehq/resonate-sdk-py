@@ -2,22 +2,26 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, final
+from typing import TYPE_CHECKING, Literal, Protocol, final
 
 from resonate.encoders.base64 import Base64Encoder
 from resonate.errors import ResonateError
-from resonate.models.durable_promise import DurablePromise
-from resonate.models.encoder import Encoder
+from resonate.models.durable_promise import DurablePromise, DurablePromiseValue
 from resonate.models.message import InvokeMesg, Mesg, ResumeMesg, TaskMesg
 from resonate.models.task import Task
+
+if TYPE_CHECKING:
+    from resonate.models.encoder import Encoder
 
 # Fake it till you make it
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 type Recv = str
 
+
 class Router(Protocol):
     def route(self, promise: DurablePromiseRecord) -> Recv | None: ...
+
 
 class TagRouter:
     def __init__(self, tag: str = "resonate:invoke") -> None:
@@ -26,13 +30,17 @@ class TagRouter:
     def route(self, promise: DurablePromiseRecord) -> Recv | None:
         return (promise.tags or {}).get(self.tag)
 
+
 class Sender(Protocol):
     def send(self, recv: Recv, mesg: Mesg) -> None: ...
 
+
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
 
 def now() -> int:
     return int(time.time() * 1000)
+
 
 class LocalStore:
     def __init__(self, encoder: Encoder[str | None, str | None] | None = None) -> None:
@@ -45,7 +53,9 @@ class LocalStore:
 
     @property
     def promises(self) -> LocalPromiseStore:
-        return LocalPromiseStore(self, self._promises, self._tasks, self._routers, self._senders)
+        return LocalPromiseStore(
+            self, self._promises, self._tasks, self._routers, self._senders
+        )
 
     @property
     def tasks(self) -> LocalTaskStore:
@@ -61,6 +71,7 @@ class LocalStore:
     def rmv_sender(self, recv: str) -> None:
         assert recv in self._senders
         del self._senders[recv]
+
 
 class LocalPromiseStore:
     def __init__(
@@ -182,7 +193,9 @@ class LocalPromiseStore:
                     if state == "INIT" and (sender := self._senders.get(recv)):
                         sender.send(
                             recv=recv,
-                            mesg=InvokeMesg(type="invoke", task=TaskMesg(id=task_id, counter=1)),
+                            mesg=InvokeMesg(
+                                type="invoke", task=TaskMesg(id=task_id, counter=1)
+                            ),
                         )
                         state = "ENQUEUED"
 
@@ -212,7 +225,23 @@ class LocalPromiseStore:
         new_item = self._timeout(record)
         self._promises[id] = new_item
 
-        return DurablePromise(store=self._store, **new_item.__dict__), task
+        return DurablePromise(
+            store=self._store,
+            id=new_item.id,
+            state=new_item.state,
+            timeout=new_item.timeout,
+            ikey_for_create=new_item.ikey_for_create,
+            ikey_for_complete=new_item.ikey_for_complete,
+            param=DurablePromiseValue(
+                headers=new_item.param.headers, data=new_item.param.data
+            ),
+            value=DurablePromiseValue(
+                headers=new_item.value.headers, data=new_item.value.data
+            ),
+            tags=new_item.tags or {},
+            created_on=new_item.created_on,
+            completed_on=new_item.completed_on,
+        ), task
 
     def resolve(
         self,
@@ -252,7 +281,23 @@ class LocalPromiseStore:
 
         new_item = self._timeout(record)
         self._promises[id] = new_item
-        return DurablePromise(store=self._store, **new_item.__dict__)
+        return DurablePromise(
+            store=self._store,
+            id=new_item.id,
+            state=new_item.state,
+            timeout=new_item.timeout,
+            ikey_for_create=new_item.ikey_for_create,
+            ikey_for_complete=new_item.ikey_for_complete,
+            param=DurablePromiseValue(
+                headers=new_item.param.headers, data=new_item.param.data
+            ),
+            value=DurablePromiseValue(
+                headers=new_item.value.headers, data=new_item.value.data
+            ),
+            tags=new_item.tags or {},
+            created_on=new_item.created_on,
+            completed_on=new_item.completed_on,
+        )
 
     def reject(
         self,
@@ -292,7 +337,23 @@ class LocalPromiseStore:
 
         new_item = self._timeout(record)
         self._promises[id] = new_item
-        return DurablePromise(store=self._store, **new_item.__dict__)
+        return DurablePromise(
+            store=self._store,
+            id=new_item.id,
+            state=new_item.state,
+            timeout=new_item.timeout,
+            ikey_for_create=new_item.ikey_for_create,
+            ikey_for_complete=new_item.ikey_for_complete,
+            param=DurablePromiseValue(
+                headers=new_item.param.headers, data=new_item.param.data
+            ),
+            value=DurablePromiseValue(
+                headers=new_item.value.headers, data=new_item.value.data
+            ),
+            tags=new_item.tags or {},
+            created_on=new_item.created_on,
+            completed_on=new_item.completed_on,
+        )
 
     def cancel(
         self,
@@ -332,7 +393,23 @@ class LocalPromiseStore:
 
         new_item = self._timeout(record)
         self._promises[id] = new_item
-        return DurablePromise(store=self._store, **new_item.__dict__)
+        return DurablePromise(
+            store=self._store,
+            id=new_item.id,
+            state=new_item.state,
+            timeout=new_item.timeout,
+            ikey_for_create=new_item.ikey_for_create,
+            ikey_for_complete=new_item.ikey_for_complete,
+            param=DurablePromiseValue(
+                headers=new_item.param.headers, data=new_item.param.data
+            ),
+            value=DurablePromiseValue(
+                headers=new_item.value.headers, data=new_item.value.data
+            ),
+            tags=new_item.tags or {},
+            created_on=new_item.created_on,
+            completed_on=new_item.completed_on,
+        )
 
     def _timeout(self, promise: DurablePromiseRecord) -> DurablePromiseRecord:
         new_state = "REJECTED_TIMEDOUT"
@@ -365,7 +442,9 @@ class LocalTaskStore:
         self._promises = promises
         self._tasks = tasks
 
-    def claim(self, *, id: str, counter: int, pid: str, ttl: int) -> InvokeMesg | ResumeMesg:
+    def claim(
+        self, *, id: str, counter: int, pid: str, ttl: int
+    ) -> InvokeMesg | ResumeMesg:
         if task_record := self._tasks.get(id):
             if (
                 task_record.state in ("INIT", "ENQUEUED")
@@ -387,9 +466,15 @@ class LocalTaskStore:
                 self._tasks[id] = task_record
                 assert task_record.type != "notify"
                 if task_record.type == "invoke":
-                    return InvokeMesg(type=task_record.type, task=Task(task_record.id, task_record.counter, store=self._store))
+                    return InvokeMesg(
+                        type=task_record.type,
+                        task={"id": task_record.id, "counter": task_record.counter},
+                    )
                 if task_record.type == "resume":
-                    return ResumeMesg(type=task_record.type, task=Task(task_record.id, task_record.counter, store=self._store))
+                    return ResumeMesg(
+                        type=task_record.type,
+                        task={"id": task_record.id, "counter": task_record.counter},
+                    )
             msg = "Task already claimed, completed, or invalid counter"
             raise ResonateError(
                 msg,
@@ -434,11 +519,14 @@ class LocalTaskStore:
                 affected_tasks += 1
         return affected_tasks
 
+
 @final
 @dataclass(frozen=True)
 class DurablePromiseRecord:
     id: str
-    state: Literal["PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"]
+    state: Literal[
+        "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
+    ]
     timeout: int
     ikey_for_create: str | None
     ikey_for_complete: str | None
@@ -454,6 +542,7 @@ class DurablePromiseRecord:
 class DurablePromiseRecordValue:
     headers: dict[str, str] | None
     data: str | None
+
 
 @final
 @dataclass(frozen=True)

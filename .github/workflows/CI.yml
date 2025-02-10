@@ -1,26 +1,29 @@
-name: CI
+name: ci
+
+permissions:
+  contents: read
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - README.md
   pull_request:
     branches: [main]
-    paths:
-      - ".github/workflows/CI.yml"
-      - "src/**"
-      - "tests/**"
+    paths-ignore:
+      - README.md
 
 jobs:
   run:
     name: On ${{ startsWith(matrix.os, 'macos-') && 'macOS' || startsWith(matrix.os, 'windows-') && 'Windows' || 'Linux' }} with python version ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
+    timeout-minutes: 3
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.12", "3.13"]
+        python-version: [3.13]
 
     steps:
       - uses: actions/checkout@v4
@@ -28,15 +31,38 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "0.5.23"
+          version: 0.5.23
 
-      - name: "Set up Python"
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{matrix.python-version}}
 
-      - name: Install the project
+      - name: Install
         run: uv sync --dev
 
-      - name: "Run tests"
+      - name: Check linting
+        run: uv run ruff check
+
+      - name: Check types
+        run: uv run pyright src tests
+
+      - name: Checkout resonate repository
+        uses: actions/checkout@v4
+        with:
+          repository: resonatehq/resonate
+          path: server
+
+      - name: Build resonate
+        run: go build -o resonate
+        working-directory: server
+
+      - name: Start resonate server
+        run: ./resonate serve &
+        working-directory: server
+
+      - name: Run tests
+        env:
+          RESONATE_STORE_URL: http://localhost:8001
+          RESONATE_TASKS_URL: http://localhost:8002
         run: uv run pytest tests

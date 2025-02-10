@@ -2,19 +2,26 @@ from __future__ import annotations
 
 import os
 import time
+from typing import TYPE_CHECKING
 
 from requests import PreparedRequest, Request, Response, Session
 
 from resonate.encoders.base64 import Base64Encoder
 from resonate.errors import ResonateError
 from resonate.models.durable_promise import DurablePromise
-from resonate.models.encoder import Encoder
-from resonate.models.message import InvokeMesg, Mesg, ResumeMesg
 from resonate.models.task import Task
+
+if TYPE_CHECKING:
+    from resonate.models.encoder import Encoder
+    from resonate.models.message import InvokeMesg, ResumeMesg
 
 
 class RemoteStore:
-    def __init__(self, url: str | None = None, encoder: Encoder[str | None, str | None] | None = None) -> None:
+    def __init__(
+        self,
+        url: str | None = None,
+        encoder: Encoder[str | None, str | None] | None = None,
+    ) -> None:
         self.url = url or os.getenv("RESONATE_STORE_URL", "http://localhost:8001")
         self.encoder = encoder or Base64Encoder()
 
@@ -25,6 +32,7 @@ class RemoteStore:
     @property
     def tasks(self) -> RemoteTaskStore:
         return RemoteTaskStore(self)
+
 
 class RemotePromiseStore:
     def __init__(self, store: RemoteStore) -> None:
@@ -63,7 +71,6 @@ class RemotePromiseStore:
         )
 
         res = _call(req.prepare()).json()
-        # res.raise_for_status()
 
         return DurablePromise.from_dict(self._store, res)
 
@@ -101,9 +108,10 @@ class RemotePromiseStore:
             },
         )
         res = _call(req.prepare()).json()
-        # res.raise_for_status()
 
-        return DurablePromise.from_dict(self._store, res["promise"]), Task.from_dict(self._store, res["task"]) if "task" in res else None
+        return DurablePromise.from_dict(self._store, res["promise"]), Task.from_dict(
+            self._store, res["task"]
+        ) if "task" in res else None
 
     def resolve(
         self,
@@ -128,9 +136,8 @@ class RemotePromiseStore:
         )
 
         res = _call(req.prepare()).json()
-        # res.raise_for_status()
 
-        return DurablePromise.from_dict(self, res)
+        return DurablePromise.from_dict(self._store, res)
 
     def reject(
         self,
@@ -155,7 +162,6 @@ class RemotePromiseStore:
         )
 
         res = _call(req.prepare()).json()
-        # res.raise_for_status()
 
         return DurablePromise.from_dict(self._store, res)
 
@@ -182,7 +188,6 @@ class RemotePromiseStore:
         )
 
         res = _call(req.prepare()).json()
-        # res.raise_for_status()
 
         return DurablePromise.from_dict(self._store, res)
 
@@ -210,13 +215,7 @@ class RemoteTaskStore:
             },
         )
 
-        res = _call(req.prepare()).json()
-        # msg = Mesg.from_dict(self._store, res)
-
-        # # TODO: handle this better
-        # assert isinstance(msg, (InvokeMesg, ResumeMesg))
-
-        return res
+        return _call(req.prepare()).json()
 
     def complete(self, *, id: str, counter: int) -> None:
         req = Request(
@@ -228,7 +227,6 @@ class RemoteTaskStore:
             },
         )
         _call(req.prepare())
-        # resp.raise_for_status()
 
     def heartbeat(
         self,
@@ -277,8 +275,5 @@ def _call(req: PreparedRequest) -> Response:
             if res.status_code == _status_codes.CONFLICT:
                 msg = "Already exists"
                 raise ResonateError(msg, "STORE_ALREADY_EXISTS")
-            # logger.warning(
-            #     "Unexpected code response from remote store: %s", res.status_code
-            # )
         time.sleep(1)
     raise NotImplementedError
