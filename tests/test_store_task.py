@@ -96,8 +96,8 @@ def task(store: Store) -> Generator[tuple[str, int]]:
             )
 
             yield cq.get()
-            store.promises.resolve(id=id)
             poller.stop()
+            store.promises.resolve(id=id)
 
 
 def test_case_5_transition_from_enqueue_to_claimed_via_claim(
