@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from resonate.models.store import Store
 
 # fake it till you make it
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 TICK_TIME = 1
 
@@ -43,6 +44,7 @@ class TaskTranslator:
         assert mesg["type"] == "invoke"
         self.cq.put((mesg["task"]["id"], mesg["task"]["counter"]))
 
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 stores: list[Store] = [
     LocalStore(),

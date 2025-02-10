@@ -45,7 +45,7 @@ jobs:
         run: uv run ruff check
 
       - name: Check types
-        run: uv run pyright src tests
+        run: uv run pyright
 
       - name: Checkout resonate repository
         uses: actions/checkout@v4
