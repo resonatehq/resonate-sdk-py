@@ -10,7 +10,9 @@ if TYPE_CHECKING:
 @dataclass
 class DurablePromise:
     id: str
-    state: Literal["PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"]
+    state: Literal[
+        "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
+    ]
     timeout: int
     ikey_for_create: str | None
     ikey_for_complete: str | None
@@ -52,9 +54,32 @@ class DurablePromise:
     def timedout(self) -> bool:
         return self.state == "REJECTED_TIMEDOUT"
 
-    def resolve(self, value: Any) -> None: ...
-    def reject(self, value: Any) -> None: ...
-    def cancel(self, value: Any) -> None: ...
+    def resolve(self, value: DurablePromiseValue) -> DurablePromise:
+        return self.store.promises.resolve(
+            id=self.id,
+            ikey=self.ikey_for_complete,
+            strict=False,
+            headers=value.headers,
+            data=value.data,
+        )
+
+    def reject(self, value: DurablePromiseValue) -> DurablePromise:
+        return self.store.promises.reject(
+            id=self.id,
+            ikey=self.ikey_for_complete,
+            strict=False,
+            headers=value.headers,
+            data=value.data,
+        )
+
+    def cancel(self, value: DurablePromiseValue) -> DurablePromise:
+        return self.store.promises.cancel(
+            id=self.id,
+            ikey=self.ikey_for_complete,
+            strict=False,
+            headers=value.headers,
+            data=value.data,
+        )
 
     @classmethod
     def from_dict(cls, store: Store, data: dict[str, Any]) -> DurablePromise:
@@ -71,6 +96,7 @@ class DurablePromise:
             created_on=data["createdOn"],
             completed_on=data.get("completedOn"),
         )
+
 
 @dataclass
 class DurablePromiseValue:

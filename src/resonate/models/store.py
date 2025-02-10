@@ -20,6 +20,7 @@ class Store(Protocol):
     @property
     def tasks(self) -> TaskStore: ...
 
+
 class PromiseStore(Protocol):
     def create(
         self,

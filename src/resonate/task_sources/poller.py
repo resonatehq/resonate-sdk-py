@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import _P
 import os
 import time
 from queue import Queue
@@ -8,14 +9,15 @@ from typing import Any, Protocol
 
 import requests
 
+from requests.sessions import HTTPAdapter
 from resonate.encoders.json import JsonEncoder
 from resonate.models.encoder import Encoder
 from resonate.models.message import InvokeMesg, Mesg
 
 
 class Enqueueable[T](Protocol):
-    def enqueue(self, item: T, /) -> None:
-        ...
+    def enqueue(self, item: T, /) -> None: ...
+
 
 class Poller:
     def __init__(
@@ -29,7 +31,7 @@ class Poller:
         self._encoder = encoder or JsonEncoder()
         self._thread: Thread | None = None
         self._stopped = False
-        self.connection = None
+        self._conn: HTTPAdapter | None = None
 
     def start(self, cq: Enqueueable[Mesg], pid: str) -> None:
         if self._thread is not None:
@@ -40,23 +42,19 @@ class Poller:
     def stop(self) -> None:
         self._stopped = True
 
-        if self.connection:
-            self.connection.close()
-
         if self._thread is not None:
             self._thread.join()
 
     # @threading.exit_on_exception
     def _run(self, cq: Enqueueable[Mesg], pid: str) -> None:
         url = f"{self._url}/{self.group}/{pid}"
-        while not self._stopped:
+
+        while True:
             try:
                 with requests.get(url, stream=True) as res:  # noqa: S113
                     if not res.ok:
                         break
-
-                    # fake it till you make it
-                    self.connection = res.connection
+                    self._conn = res.connection
 
                     for line in res.iter_lines(chunk_size=None, decode_unicode=True):
                         if not line:
@@ -77,6 +75,7 @@ class Poller:
                 # logger.warning("Connection to poller failed, reconnecting")
 
             time.sleep(1)
+        print("OUT")
 
     # def recv(self, pid: str) -> str:
     #     return targets.poll(self.group, pid)

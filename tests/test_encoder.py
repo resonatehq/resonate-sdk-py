@@ -4,10 +4,8 @@ from typing import Any
 
 import pytest
 
-from resonate_sdk.encoder import (
-    Base64Encoder,
-    JsonAndExceptionEncoder,
-)
+from resonate.encoders.base64 import Base64Encoder
+from resonate.encoders.json import JsonEncoder
 
 
 @pytest.mark.parametrize(
@@ -30,7 +28,7 @@ class CustomError(Exception):
     "value", [{"value": 1}, CustomError("abc"), TypeError("HERE"), None]
 )
 def test_json_encoder(value: Any) -> None:
-    encoder = JsonAndExceptionEncoder()
+    encoder = JsonEncoder()
     encoded = encoder.encode(value)
 
     match encoder.decode(encoded):

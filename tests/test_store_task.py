@@ -41,6 +41,7 @@ class TaskTranslator:
         assert mesg["type"] == "invoke"
         self.cq.put((mesg["task"]["id"], mesg["task"]["counter"]))
 
+
 stores: list[Store] = [
     LocalStore(),
 ]
@@ -48,9 +49,11 @@ stores: list[Store] = [
 if "RESONATE_STORE_URL" in os.environ:
     stores.append(RemoteStore(os.environ["RESONATE_STORE_URL"]))
 
+
 @pytest.fixture(scope="module", params=stores)
 def store(request: pytest.FixtureRequest) -> Store:
     return request.param
+
 
 @pytest.fixture
 def task(store: Store) -> Generator[tuple[str, int]]:
@@ -95,12 +98,12 @@ def task(store: Store) -> Generator[tuple[str, int]]:
 
             poller.stop()
 
-def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task: tuple[str, int]) -> None:
-    id, counter = task
-    store.tasks.claim(
-        id=id, counter=counter, pid="task5", ttl=sys.maxsize
-    )
 
+def test_case_5_transition_from_enqueue_to_claimed_via_claim(
+    store: Store, task: tuple[str, int]
+) -> None:
+    id, counter = task
+    store.tasks.claim(id=id, counter=counter, pid="task5", ttl=sys.maxsize)
 
 
 # def test_case_6_transition_from_enqueue_to_enqueue_via_claim(store: Store, task: Task) -> None:
@@ -111,7 +114,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #             pid="task6",
 #             ttl=sys.maxsize,
 #         )
-
 
 
 # def test_case_8_transition_from_enqueue_to_enqueue_via_complete(store: Store, cq: Queue[TaskRecord]) -> None:
@@ -133,7 +135,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #         )
 
 
-
 # def test_case_10_transition_from_enqueue_to_enqueue_via_hearbeat(store: Store, cq: Queue[TaskRecord]) -> None:
 #     store.promises.create(
 #         id="task10",
@@ -146,7 +147,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #     )
 #     cq.get()
 #     assert store.tasks.heartbeat(pid="task10") == 0
-
 
 
 # def test_case_12_transition_from_claimed_to_claimed_via_claim(store: Store, cq: Queue[TaskRecord]) -> None:
@@ -175,7 +175,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 # @pytest.mark.skipif("RESONATE_STORE_URL" not in os.environ, reason="")
 # def test_case_13_transition_from_claimed_to_init_via_claim(store: Store, cq: Queue[TaskRecord]) -> None:
 #     raise NotImplementedError()
-
 
 
 # def test_case_14_transition_from_claimed_to_completed_via_complete(store: Store, cq: Queue[TaskRecord]) -> None:
@@ -215,7 +214,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #     time.sleep(TICK_TIME)
 #     with pytest.raises(ResonateError):
 #         store.tasks.complete(id=task_record.id, counter=task_record.counter)
-
 
 
 # def test_case_16_transition_from_claimed_to_claimed_via_complete(store: Store, cq: Queue[TaskRecord]) -> None:
@@ -258,7 +256,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #         store.tasks.complete(id=task_record.id, counter=task_record.counter)
 
 
-
 # def test_case_18_transition_from_claimed_to_claimed_via_heartbeat(store: Store, cq: Queue[TaskRecord]) -> None:
 #     store.promises.create(
 #         id="task18",
@@ -274,7 +271,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #         id=task_record.id, counter=task_record.counter, pid="pid", ttl=sys.maxsize
 #     )
 #     assert store.tasks.heartbeat(pid="pid") == 1
-
 
 
 # def test_case_19_transition_from_claimed_to_init_via_heartbeat(store: Store, cq: Queue[TaskRecord]) -> None:
@@ -293,7 +289,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #     )
 
 #     assert store.tasks.heartbeat(pid="pid") == 1
-
 
 
 # def test_case_20_transition_from_completed_to_completed_via_claim(store: Store, cq: Queue[TaskRecord]) -> None:
@@ -317,7 +312,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #         )
 
 
-
 # def test_case_21_transition_from_completed_to_completed_via_complete(store: Store, cq: Queue[TaskRecord]) -> None:
 #     store.promises.create(
 #         id="task21",
@@ -335,7 +329,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 #     store.tasks.complete(id=task_record.id, counter=task_record.counter)
 #     with pytest.raises(ResonateError):
 #         store.tasks.complete(id=task_record.id, counter=task_record.counter)
-
 
 
 # def test_case_22_transition_from_completed_to_completed_via_heartbeat(store: Store, cq: Queue[TaskRecord]) -> None:

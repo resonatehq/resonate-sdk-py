@@ -14,7 +14,11 @@ from resonate.models.task import Task
 
 
 class RemoteStore:
-    def __init__(self, url: str | None = None, encoder: Encoder[str | None, str | None] | None = None) -> None:
+    def __init__(
+        self,
+        url: str | None = None,
+        encoder: Encoder[str | None, str | None] | None = None,
+    ) -> None:
         self.url = url or os.getenv("RESONATE_STORE_URL", "http://localhost:8001")
         self.encoder = encoder or Base64Encoder()
 
@@ -25,6 +29,7 @@ class RemoteStore:
     @property
     def tasks(self) -> RemoteTaskStore:
         return RemoteTaskStore(self)
+
 
 class RemotePromiseStore:
     def __init__(self, store: RemoteStore) -> None:
@@ -103,7 +108,9 @@ class RemotePromiseStore:
         res = _call(req.prepare()).json()
         # res.raise_for_status()
 
-        return DurablePromise.from_dict(self._store, res["promise"]), Task.from_dict(self._store, res["task"]) if "task" in res else None
+        return DurablePromise.from_dict(self._store, res["promise"]), Task.from_dict(
+            self._store, res["task"]
+        ) if "task" in res else None
 
     def resolve(
         self,
@@ -130,7 +137,7 @@ class RemotePromiseStore:
         res = _call(req.prepare()).json()
         # res.raise_for_status()
 
-        return DurablePromise.from_dict(self, res)
+        return DurablePromise.from_dict(self._store, res)
 
     def reject(
         self,
