@@ -15,8 +15,13 @@ class Task:
 
     store: Store
 
-    def claim(self, pid: str, ttl: int) -> InvokeMesg | ResumeMesg: ...
-    def complete(self) -> None: ...
+    def claim(self, pid: str, ttl: int) -> InvokeMesg | ResumeMesg:
+        return self.store.tasks.claim(
+            id=self.id, counter=self.counter, pid=pid, ttl=ttl
+        )
+
+    def complete(self) -> None:
+        return self.store.tasks.complete(id=self.id, counter=self.counter)
 
     @classmethod
     def from_dict(cls, store: Store, data: dict[str, Any]) -> Task:

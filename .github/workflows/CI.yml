@@ -18,7 +18,7 @@ jobs:
   run:
     name: On ${{ startsWith(matrix.os, 'macos-') && 'macOS' || startsWith(matrix.os, 'windows-') && 'Windows' || 'Linux' }} with python version ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 1
+    timeout-minutes: 3
     strategy:
       fail-fast: true
       matrix:
@@ -47,5 +47,22 @@ jobs:
       - name: Check types
         run: uv run pyright src tests
 
+      - name: Checkout resonate repository
+        uses: actions/checkout@v4
+        with:
+          repository: resonatehq/resonate
+          path: server
+
+      - name: Build resonate
+        run: go build -o resonate
+        working-directory: server
+
+      - name: Start resonate server
+        run: ./resonate serve &
+        working-directory: server
+
       - name: Run tests
+        env:
+          RESONATE_STORE_URL: http://localhost:8001
+          RESONATE_TASKS_URL: http://localhost:8002
         run: uv run pytest tests

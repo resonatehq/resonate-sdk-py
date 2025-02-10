@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, final
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from resonate.models.durable_promise import DurablePromise

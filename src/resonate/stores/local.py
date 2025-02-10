@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, final
+from typing import TYPE_CHECKING, Literal, Protocol, final
 
 from resonate.encoders.base64 import Base64Encoder
 from resonate.errors import ResonateError
 from resonate.models.durable_promise import DurablePromise, DurablePromiseValue
-from resonate.models.encoder import Encoder
 from resonate.models.message import InvokeMesg, Mesg, ResumeMesg, TaskMesg
 from resonate.models.task import Task
+
+if TYPE_CHECKING:
+    from resonate.models.encoder import Encoder
 
 # Fake it till you make it
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>

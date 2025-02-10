@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import os
 import time
-from queue import Queue
 from threading import Thread
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import requests
 
-from requests.sessions import HTTPAdapter
 from resonate.encoders.json import JsonEncoder
-from resonate.models.encoder import Encoder
-from resonate.models.message import InvokeMesg, Mesg
-from requests import Response
+
+if TYPE_CHECKING:
+    from resonate.models.encoder import Encoder
+    from resonate.models.message import Mesg
 
 
 class Enqueueable[T](Protocol):
@@ -70,6 +69,3 @@ class Poller:
             if self._stopped:
                 break
             time.sleep(1)
-
-    # def recv(self, pid: str) -> str:
-    #     return targets.poll(self.group, pid)
