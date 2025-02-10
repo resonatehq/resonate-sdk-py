@@ -38,14 +38,14 @@ jobs:
         with:
           python-version: ${{matrix.python-version}}
 
-      - name: Install the cli
+      - name: Install
         run: uv sync --dev
 
-      - name: Check lint cli
+      - name: Check linting
         run: uv run ruff check
 
-      - name: Check types cli
+      - name: Check types
         run: uv run pyright src tests
 
-      - name: Run server and tests
+      - name: Run tests
         run: uv run pytest tests
