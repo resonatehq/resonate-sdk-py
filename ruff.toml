@@ -3,31 +3,29 @@ unsafe-fixes = true
 [lint]
 select = ["ALL"]
 ignore = [
-    "D211",
-    "D213",
-    "COM812",
-    "D203",
-    "S101",
+    "A002",
+    "A005",
+    "ANN401",
     "ARG001",
-    "D103",
+    "BLE001",
+    "COM812",
     "D100",
-    "D104",
     "D101",
     "D102",
-    "ANN401",
+    "D103",
+    "D104",
     "D107",
+    "D203",
+    "D211",
+    "D213",
+    "E501",
     "INP001",
-    "A002",
-    "PLR0913",
-    "A005",
-    "BLE001",
     "PLR0911",
+    "PLR0913",
+    "S101",
 ]
 logger-objects = ["resonate.logging.logger"]
 
 [lint.isort]
 combine-as-imports = true
 required-imports = ["from __future__ import annotations"]
-
-[lint.per-file-ignores]
-"scripts/*.py" = ["INP001"]

@@ -3,28 +3,26 @@ from __future__ import annotations
 
 import os
 import sys
-from functools import cache
-from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate_sdk.errors import ResonateError
-from resonate_sdk.stores import LocalStore, RemoteStore
+from resonate.models.store import Store
+from resonate.stores.local import LocalStore, ResonateError
+from resonate.stores.remote import RemoteStore
 
-if TYPE_CHECKING:
-    from resonate_sdk.stores.traits import IStore
+stores: list[Store] = [
+    LocalStore(),
+]
+
+if "RESONATE_STORE_URL" in os.environ:
+    stores.append(RemoteStore(os.environ["RESONATE_STORE_URL"]))
+
+@pytest.fixture(scope="module", params=stores)
+def store(request: pytest.FixtureRequest) -> Store:
+    return request.param
 
 
-@cache
-def _stores() -> list[IStore]:
-    stores: list[IStore] = [LocalStore()]
-    if "RESONATE_STORE_URL" in os.environ:
-        stores.append(RemoteStore())
-    return stores
-
-
-@pytest.mark.parametrize("store", _stores())
-def test_case_0_transition_from_init_to_pending_via_create(store: IStore) -> None:
+def test_case_0_transition_from_init_to_pending_via_create(store: Store) -> None:
     promise_record = store.promises.create(
         id="id0",
         ikey=None,
@@ -40,8 +38,8 @@ def test_case_0_transition_from_init_to_pending_via_create(store: IStore) -> Non
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_1_transition_from_init_to_pending_via_create(store: IStore) -> None:
+
+def test_case_1_transition_from_init_to_pending_via_create(store: Store) -> None:
     promise_record = store.promises.create(
         id="id1",
         ikey=None,
@@ -57,8 +55,8 @@ def test_case_1_transition_from_init_to_pending_via_create(store: IStore) -> Non
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_2_transition_from_init_to_pending_via_create(store: IStore) -> None:
+
+def test_case_2_transition_from_init_to_pending_via_create(store: Store) -> None:
     promise_record = store.promises.create(
         id="id2",
         ikey="ikc",
@@ -74,8 +72,8 @@ def test_case_2_transition_from_init_to_pending_via_create(store: IStore) -> Non
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_3_transition_from_init_to_pending_via_create(store: IStore) -> None:
+
+def test_case_3_transition_from_init_to_pending_via_create(store: Store) -> None:
     promise_record = store.promises.create(
         id="id3",
         ikey="ikc",
@@ -91,102 +89,102 @@ def test_case_3_transition_from_init_to_pending_via_create(store: IStore) -> Non
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_4_transition_from_init_to_init_via_resolve(store: IStore) -> None:
+
+def test_case_4_transition_from_init_to_init_via_resolve(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.resolve(
             id="id4", ikey=None, strict=True, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_5_transition_from_init_to_init_via_resolve(store: IStore) -> None:
+
+def test_case_5_transition_from_init_to_init_via_resolve(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.resolve(
             id="id5", ikey=None, strict=False, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_6_transition_from_init_to_init_via_resolve(store: IStore) -> None:
+
+def test_case_6_transition_from_init_to_init_via_resolve(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.resolve(
             id="id6", ikey="iku", strict=True, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_7_transition_from_init_to_init_via_resolve(store: IStore) -> None:
+
+def test_case_7_transition_from_init_to_init_via_resolve(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.resolve(
             id="id7", ikey="iku", strict=False, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_8_transition_from_init_to_init_via_reject(store: IStore) -> None:
+
+def test_case_8_transition_from_init_to_init_via_reject(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.reject(id="id8", ikey=None, strict=True, headers=None, data=None)
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_9_transition_from_init_to_init_via_reject(store: IStore) -> None:
+
+def test_case_9_transition_from_init_to_init_via_reject(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.reject(
             id="id9", ikey=None, strict=False, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_10_transition_from_init_to_init_via_reject(store: IStore) -> None:
+
+def test_case_10_transition_from_init_to_init_via_reject(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.reject(
             id="id10", ikey="iku", strict=True, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_11_transition_from_init_to_init_via_reject(store: IStore) -> None:
+
+def test_case_11_transition_from_init_to_init_via_reject(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.reject(
             id="id11", ikey="iku", strict=False, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_12_transition_from_init_to_init_via_cancel(store: IStore) -> None:
+
+def test_case_12_transition_from_init_to_init_via_cancel(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.cancel(
             id="id12", ikey=None, strict=True, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_13_transition_from_init_to_init_via_cancel(store: IStore) -> None:
+
+def test_case_13_transition_from_init_to_init_via_cancel(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.cancel(
             id="id13", ikey=None, strict=False, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_14_transition_from_init_to_init_via_cancel(store: IStore) -> None:
+
+def test_case_14_transition_from_init_to_init_via_cancel(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.cancel(
             id="id14", ikey="iku", strict=True, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_15_transition_from_init_to_init_via_cancel(store: IStore) -> None:
+
+def test_case_15_transition_from_init_to_init_via_cancel(store: Store) -> None:
     with pytest.raises(ResonateError):
         store.promises.cancel(
             id="id15", ikey="iku", strict=False, headers=None, data=None
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_16_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_16_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id16",
         ikey=None,
@@ -208,8 +206,8 @@ def test_case_16_transition_from_pending_to_pending_via_create(store: IStore) ->
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_17_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_17_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id17",
         ikey=None,
@@ -231,8 +229,8 @@ def test_case_17_transition_from_pending_to_pending_via_create(store: IStore) ->
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_18_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_18_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id18",
         ikey=None,
@@ -254,8 +252,8 @@ def test_case_18_transition_from_pending_to_pending_via_create(store: IStore) ->
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_19_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_19_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id19",
         ikey=None,
@@ -277,8 +275,8 @@ def test_case_19_transition_from_pending_to_pending_via_create(store: IStore) ->
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_20_transition_from_pending_to_resolved_via_resolve(store: IStore) -> None:
+
+def test_case_20_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id20",
         ikey=None,
@@ -297,8 +295,8 @@ def test_case_20_transition_from_pending_to_resolved_via_resolve(store: IStore) 
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_21_transition_from_pending_to_resolved_via_resolve(store: IStore) -> None:
+
+def test_case_21_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id21",
         ikey=None,
@@ -317,8 +315,8 @@ def test_case_21_transition_from_pending_to_resolved_via_resolve(store: IStore) 
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_22_transition_from_pending_to_resolved_via_resolve(store: IStore) -> None:
+
+def test_case_22_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id22",
         ikey=None,
@@ -337,8 +335,8 @@ def test_case_22_transition_from_pending_to_resolved_via_resolve(store: IStore) 
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_23_transition_from_pending_to_resolved_via_resolve(store: IStore) -> None:
+
+def test_case_23_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id23",
         ikey=None,
@@ -357,8 +355,8 @@ def test_case_23_transition_from_pending_to_resolved_via_resolve(store: IStore) 
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_24_transition_from_pending_to_rejected_via_reject(store: IStore) -> None:
+
+def test_case_24_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id24",
         ikey=None,
@@ -377,8 +375,8 @@ def test_case_24_transition_from_pending_to_rejected_via_reject(store: IStore) -
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_25_transition_from_pending_to_rejected_via_reject(store: IStore) -> None:
+
+def test_case_25_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id25",
         ikey=None,
@@ -397,8 +395,8 @@ def test_case_25_transition_from_pending_to_rejected_via_reject(store: IStore) -
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_26_transition_from_pending_to_rejected_via_reject(store: IStore) -> None:
+
+def test_case_26_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id26",
         ikey=None,
@@ -417,8 +415,8 @@ def test_case_26_transition_from_pending_to_rejected_via_reject(store: IStore) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_27_transition_from_pending_to_rejected_via_reject(store: IStore) -> None:
+
+def test_case_27_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id27",
         ikey=None,
@@ -437,8 +435,8 @@ def test_case_27_transition_from_pending_to_rejected_via_reject(store: IStore) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_28_transition_from_pending_to_canceled_via_cancel(store: IStore) -> None:
+
+def test_case_28_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id28",
         ikey=None,
@@ -457,8 +455,8 @@ def test_case_28_transition_from_pending_to_canceled_via_cancel(store: IStore) -
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_29_transition_from_pending_to_canceled_via_cancel(store: IStore) -> None:
+
+def test_case_29_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id29",
         ikey=None,
@@ -477,8 +475,8 @@ def test_case_29_transition_from_pending_to_canceled_via_cancel(store: IStore) -
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_30_transition_from_pending_to_canceled_via_cancel(store: IStore) -> None:
+
+def test_case_30_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id30",
         ikey=None,
@@ -497,8 +495,8 @@ def test_case_30_transition_from_pending_to_canceled_via_cancel(store: IStore) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_31_transition_from_pending_to_canceled_via_cancel(store: IStore) -> None:
+
+def test_case_31_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id31",
         ikey=None,
@@ -517,8 +515,8 @@ def test_case_31_transition_from_pending_to_canceled_via_cancel(store: IStore) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_32_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_32_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id32",
         ikey="ikc",
@@ -540,8 +538,8 @@ def test_case_32_transition_from_pending_to_pending_via_create(store: IStore) ->
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_33_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_33_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id33",
         ikey="ikc",
@@ -563,8 +561,8 @@ def test_case_33_transition_from_pending_to_pending_via_create(store: IStore) ->
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_34_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_34_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id34",
         ikey="ikc",
@@ -589,8 +587,8 @@ def test_case_34_transition_from_pending_to_pending_via_create(store: IStore) ->
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_35_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_35_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id35",
         ikey="ikc",
@@ -615,8 +613,8 @@ def test_case_35_transition_from_pending_to_pending_via_create(store: IStore) ->
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_36_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_36_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id36",
         ikey="ikc",
@@ -638,8 +636,8 @@ def test_case_36_transition_from_pending_to_pending_via_create(store: IStore) ->
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_37_transition_from_pending_to_pending_via_create(store: IStore) -> None:
+
+def test_case_37_transition_from_pending_to_pending_via_create(store: Store) -> None:
     store.promises.create(
         id="id37",
         ikey="ikc",
@@ -661,8 +659,8 @@ def test_case_37_transition_from_pending_to_pending_via_create(store: IStore) ->
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_38_transition_from_pending_to_resolved_via_resolve(store: IStore) -> None:
+
+def test_case_38_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id38",
         ikey="ikc",
@@ -681,8 +679,8 @@ def test_case_38_transition_from_pending_to_resolved_via_resolve(store: IStore) 
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_39_transition_from_pending_to_resolved_via_resolve(store: IStore) -> None:
+
+def test_case_39_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id39",
         ikey="ikc",
@@ -701,8 +699,8 @@ def test_case_39_transition_from_pending_to_resolved_via_resolve(store: IStore) 
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_40_transition_from_pending_to_resolved_via_resolve(store: IStore) -> None:
+
+def test_case_40_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id40",
         ikey="ikc",
@@ -721,8 +719,8 @@ def test_case_40_transition_from_pending_to_resolved_via_resolve(store: IStore) 
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_41_transition_from_pending_to_resolved_via_resolve(store: IStore) -> None:
+
+def test_case_41_transition_from_pending_to_resolved_via_resolve(store: Store) -> None:
     store.promises.create(
         id="id41",
         ikey="ikc",
@@ -741,8 +739,8 @@ def test_case_41_transition_from_pending_to_resolved_via_resolve(store: IStore) 
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_42_transition_from_pending_to_rejected_via_reject(store: IStore) -> None:
+
+def test_case_42_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id42",
         ikey="ikc",
@@ -761,8 +759,8 @@ def test_case_42_transition_from_pending_to_rejected_via_reject(store: IStore) -
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_43_transition_from_pending_to_rejected_via_reject(store: IStore) -> None:
+
+def test_case_43_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id43",
         ikey="ikc",
@@ -781,8 +779,8 @@ def test_case_43_transition_from_pending_to_rejected_via_reject(store: IStore) -
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_44_transition_from_pending_to_rejected_via_reject(store: IStore) -> None:
+
+def test_case_44_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id44",
         ikey="ikc",
@@ -801,8 +799,8 @@ def test_case_44_transition_from_pending_to_rejected_via_reject(store: IStore) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_45_transition_from_pending_to_rejected_via_reject(store: IStore) -> None:
+
+def test_case_45_transition_from_pending_to_rejected_via_reject(store: Store) -> None:
     store.promises.create(
         id="id45",
         ikey="ikc",
@@ -821,8 +819,8 @@ def test_case_45_transition_from_pending_to_rejected_via_reject(store: IStore) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_46_transition_from_pending_to_canceled_via_cancel(store: IStore) -> None:
+
+def test_case_46_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id46",
         ikey="ikc",
@@ -841,8 +839,8 @@ def test_case_46_transition_from_pending_to_canceled_via_cancel(store: IStore) -
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_47_transition_from_pending_to_canceled_via_cancel(store: IStore) -> None:
+
+def test_case_47_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id47",
         ikey="ikc",
@@ -861,8 +859,8 @@ def test_case_47_transition_from_pending_to_canceled_via_cancel(store: IStore) -
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_48_transition_from_pending_to_canceled_via_cancel(store: IStore) -> None:
+
+def test_case_48_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id48",
         ikey="ikc",
@@ -881,8 +879,8 @@ def test_case_48_transition_from_pending_to_canceled_via_cancel(store: IStore) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_49_transition_from_pending_to_canceled_via_cancel(store: IStore) -> None:
+
+def test_case_49_transition_from_pending_to_canceled_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id49",
         ikey="ikc",
@@ -901,8 +899,8 @@ def test_case_49_transition_from_pending_to_canceled_via_cancel(store: IStore) -
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_50_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_50_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id50",
         ikey=None,
@@ -925,8 +923,8 @@ def test_case_50_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_51_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_51_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id51",
         ikey=None,
@@ -949,8 +947,8 @@ def test_case_51_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_52_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_52_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id52",
         ikey=None,
@@ -973,8 +971,8 @@ def test_case_52_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_53_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_53_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id53",
         ikey=None,
@@ -997,9 +995,9 @@ def test_case_53_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_54_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id54",
@@ -1017,9 +1015,9 @@ def test_case_54_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_55_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id55",
@@ -1037,9 +1035,9 @@ def test_case_55_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_56_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id56",
@@ -1057,9 +1055,9 @@ def test_case_56_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_57_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id57",
@@ -1077,8 +1075,8 @@ def test_case_57_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_58_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_58_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id58",
         ikey=None,
@@ -1095,8 +1093,8 @@ def test_case_58_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_59_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_59_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id59",
         ikey=None,
@@ -1113,8 +1111,8 @@ def test_case_59_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_60_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_60_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id60",
         ikey=None,
@@ -1131,8 +1129,8 @@ def test_case_60_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_61_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_61_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id61",
         ikey=None,
@@ -1149,8 +1147,8 @@ def test_case_61_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_62_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_62_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id62",
         ikey=None,
@@ -1167,8 +1165,8 @@ def test_case_62_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_63_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_63_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id63",
         ikey=None,
@@ -1185,8 +1183,8 @@ def test_case_63_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_64_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_64_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id64",
         ikey=None,
@@ -1203,8 +1201,8 @@ def test_case_64_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_65_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_65_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id65",
         ikey=None,
@@ -1221,8 +1219,8 @@ def test_case_65_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_66_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_66_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id66",
         ikey=None,
@@ -1245,8 +1243,8 @@ def test_case_66_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_67_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_67_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id67",
         ikey=None,
@@ -1269,8 +1267,8 @@ def test_case_67_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_68_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_68_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id68",
         ikey=None,
@@ -1293,8 +1291,8 @@ def test_case_68_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_69_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_69_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id69",
         ikey=None,
@@ -1317,9 +1315,9 @@ def test_case_69_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_70_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id70",
@@ -1337,9 +1335,9 @@ def test_case_70_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_71_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id71",
@@ -1357,9 +1355,9 @@ def test_case_71_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_72_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id72",
@@ -1380,9 +1378,9 @@ def test_case_72_transition_from_resolved_to_resolved_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_73_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id73",
@@ -1403,9 +1401,9 @@ def test_case_73_transition_from_resolved_to_resolved_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_74_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id74",
@@ -1423,9 +1421,9 @@ def test_case_74_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_75_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id75",
@@ -1443,8 +1441,8 @@ def test_case_75_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_76_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_76_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id76",
         ikey=None,
@@ -1461,8 +1459,8 @@ def test_case_76_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_77_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_77_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id77",
         ikey=None,
@@ -1479,8 +1477,8 @@ def test_case_77_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_78_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_78_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id78",
         ikey=None,
@@ -1497,8 +1495,8 @@ def test_case_78_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_79_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_79_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id79",
         ikey=None,
@@ -1518,8 +1516,8 @@ def test_case_79_transition_from_resolved_to_resolved_via_reject(store: IStore) 
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_80_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_80_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id80",
         ikey=None,
@@ -1536,8 +1534,8 @@ def test_case_80_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_81_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_81_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id81",
         ikey=None,
@@ -1554,8 +1552,8 @@ def test_case_81_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_82_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_82_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id82",
         ikey=None,
@@ -1572,8 +1570,8 @@ def test_case_82_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_83_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_83_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id83",
         ikey=None,
@@ -1590,8 +1588,8 @@ def test_case_83_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_84_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_84_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id84",
         ikey=None,
@@ -1608,8 +1606,8 @@ def test_case_84_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_85_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_85_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id85",
         ikey=None,
@@ -1629,8 +1627,8 @@ def test_case_85_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_86_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_86_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id86",
         ikey=None,
@@ -1647,8 +1645,8 @@ def test_case_86_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_87_transition_from_resolved_to_resolved_via_cancel(store: IStore) -> None:
+
+def test_case_87_transition_from_resolved_to_resolved_via_cancel(store: Store) -> None:
     store.promises.create(
         id="id87",
         ikey=None,
@@ -1665,8 +1663,8 @@ def test_case_87_transition_from_resolved_to_resolved_via_cancel(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_88_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_88_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id88",
         ikey="ikc",
@@ -1689,8 +1687,8 @@ def test_case_88_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_89_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_89_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id89",
         ikey="ikc",
@@ -1713,8 +1711,8 @@ def test_case_89_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_90_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_90_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id90",
         ikey="ikc",
@@ -1737,8 +1735,8 @@ def test_case_90_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_91_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_91_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id91",
         ikey="ikc",
@@ -1764,8 +1762,8 @@ def test_case_91_transition_from_resolved_to_resolved_via_create(store: IStore) 
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_92_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_92_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id92",
         ikey="ikc",
@@ -1788,8 +1786,8 @@ def test_case_92_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_93_transition_from_resolved_to_resolved_via_create(store: IStore) -> None:
+
+def test_case_93_transition_from_resolved_to_resolved_via_create(store: Store) -> None:
     store.promises.create(
         id="id93",
         ikey="ikc",
@@ -1812,9 +1810,9 @@ def test_case_93_transition_from_resolved_to_resolved_via_create(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_94_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id94",
@@ -1832,9 +1830,9 @@ def test_case_94_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_95_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id95",
@@ -1852,9 +1850,9 @@ def test_case_95_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_96_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id96",
@@ -1872,9 +1870,9 @@ def test_case_96_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_97_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id97",
@@ -1892,8 +1890,8 @@ def test_case_97_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_98_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_98_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id98",
         ikey="ikc",
@@ -1910,8 +1908,8 @@ def test_case_98_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
-def test_case_99_transition_from_resolved_to_resolved_via_reject(store: IStore) -> None:
+
+def test_case_99_transition_from_resolved_to_resolved_via_reject(store: Store) -> None:
     store.promises.create(
         id="id99",
         ikey="ikc",
@@ -1928,9 +1926,9 @@ def test_case_99_transition_from_resolved_to_resolved_via_reject(store: IStore) 
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_100_transition_from_resolved_to_resolved_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id100",
@@ -1948,9 +1946,9 @@ def test_case_100_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_101_transition_from_resolved_to_resolved_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id101",
@@ -1968,9 +1966,9 @@ def test_case_101_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_102_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id102",
@@ -1988,9 +1986,9 @@ def test_case_102_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_103_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id103",
@@ -2008,9 +2006,9 @@ def test_case_103_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_104_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id104",
@@ -2028,9 +2026,9 @@ def test_case_104_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_105_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id105",
@@ -2048,9 +2046,9 @@ def test_case_105_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_106_transition_from_resolved_to_resolved_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id106",
@@ -2076,9 +2074,9 @@ def test_case_106_transition_from_resolved_to_resolved_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_107_transition_from_resolved_to_resolved_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id107",
@@ -2104,9 +2102,9 @@ def test_case_107_transition_from_resolved_to_resolved_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_108_transition_from_resolved_to_resolved_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id108",
@@ -2132,9 +2130,9 @@ def test_case_108_transition_from_resolved_to_resolved_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_109_transition_from_resolved_to_resolved_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id109",
@@ -2163,9 +2161,9 @@ def test_case_109_transition_from_resolved_to_resolved_via_create(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_110_transition_from_resolved_to_resolved_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id110",
@@ -2191,9 +2189,9 @@ def test_case_110_transition_from_resolved_to_resolved_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_111_transition_from_resolved_to_resolved_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id111",
@@ -2219,9 +2217,9 @@ def test_case_111_transition_from_resolved_to_resolved_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_112_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id112",
@@ -2241,9 +2239,9 @@ def test_case_112_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_113_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id113",
@@ -2263,9 +2261,9 @@ def test_case_113_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_114_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id114",
@@ -2288,9 +2286,9 @@ def test_case_114_transition_from_resolved_to_resolved_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_115_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id115",
@@ -2313,9 +2311,9 @@ def test_case_115_transition_from_resolved_to_resolved_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_116_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id116",
@@ -2335,9 +2333,9 @@ def test_case_116_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_117_transition_from_resolved_to_resolved_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id117",
@@ -2357,9 +2355,9 @@ def test_case_117_transition_from_resolved_to_resolved_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_118_transition_from_resolved_to_resolved_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id118",
@@ -2379,9 +2377,9 @@ def test_case_118_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_119_transition_from_resolved_to_resolved_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id119",
@@ -2401,9 +2399,9 @@ def test_case_119_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_120_transition_from_resolved_to_resolved_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id120",
@@ -2423,9 +2421,9 @@ def test_case_120_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_121_transition_from_resolved_to_resolved_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id121",
@@ -2448,9 +2446,9 @@ def test_case_121_transition_from_resolved_to_resolved_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_122_transition_from_resolved_to_resolved_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id122",
@@ -2470,9 +2468,9 @@ def test_case_122_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_123_transition_from_resolved_to_resolved_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id123",
@@ -2492,9 +2490,9 @@ def test_case_123_transition_from_resolved_to_resolved_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_124_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id124",
@@ -2514,9 +2512,9 @@ def test_case_124_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_125_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id125",
@@ -2536,9 +2534,9 @@ def test_case_125_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_126_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id126",
@@ -2558,9 +2556,9 @@ def test_case_126_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_127_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id127",
@@ -2583,9 +2581,9 @@ def test_case_127_transition_from_resolved_to_resolved_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_128_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id128",
@@ -2605,9 +2603,9 @@ def test_case_128_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_129_transition_from_resolved_to_resolved_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id129",
@@ -2627,9 +2625,9 @@ def test_case_129_transition_from_resolved_to_resolved_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_130_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id130",
@@ -2653,9 +2651,9 @@ def test_case_130_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_131_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id131",
@@ -2679,9 +2677,9 @@ def test_case_131_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_132_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id132",
@@ -2705,9 +2703,9 @@ def test_case_132_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_133_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id133",
@@ -2731,9 +2729,9 @@ def test_case_133_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_134_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id134",
@@ -2751,9 +2749,9 @@ def test_case_134_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_135_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id135",
@@ -2771,9 +2769,9 @@ def test_case_135_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_136_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id136",
@@ -2791,9 +2789,9 @@ def test_case_136_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_137_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id137",
@@ -2811,9 +2809,9 @@ def test_case_137_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_138_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id138",
@@ -2831,9 +2829,9 @@ def test_case_138_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_139_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id139",
@@ -2851,9 +2849,9 @@ def test_case_139_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_140_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id140",
@@ -2871,9 +2869,9 @@ def test_case_140_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_141_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id141",
@@ -2891,9 +2889,9 @@ def test_case_141_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_142_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id142",
@@ -2911,9 +2909,9 @@ def test_case_142_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_143_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id143",
@@ -2931,9 +2929,9 @@ def test_case_143_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_144_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id144",
@@ -2951,9 +2949,9 @@ def test_case_144_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_145_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id145",
@@ -2971,9 +2969,9 @@ def test_case_145_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_146_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id146",
@@ -2997,9 +2995,9 @@ def test_case_146_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_147_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id147",
@@ -3023,9 +3021,9 @@ def test_case_147_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_148_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id148",
@@ -3049,9 +3047,9 @@ def test_case_148_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_149_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id149",
@@ -3075,9 +3073,9 @@ def test_case_149_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_150_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id150",
@@ -3095,9 +3093,9 @@ def test_case_150_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_151_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id151",
@@ -3115,9 +3113,9 @@ def test_case_151_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_152_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id152",
@@ -3135,9 +3133,9 @@ def test_case_152_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_153_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id153",
@@ -3158,9 +3156,9 @@ def test_case_153_transition_from_rejected_to_rejected_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_154_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id154",
@@ -3178,9 +3176,9 @@ def test_case_154_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_155_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id155",
@@ -3198,9 +3196,9 @@ def test_case_155_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_156_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id156",
@@ -3218,9 +3216,9 @@ def test_case_156_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_157_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id157",
@@ -3238,9 +3236,9 @@ def test_case_157_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_158_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id158",
@@ -3261,9 +3259,9 @@ def test_case_158_transition_from_rejected_to_rejected_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_159_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id159",
@@ -3284,9 +3282,9 @@ def test_case_159_transition_from_rejected_to_rejected_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_160_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id160",
@@ -3304,9 +3302,9 @@ def test_case_160_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_161_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id161",
@@ -3324,9 +3322,9 @@ def test_case_161_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_162_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id162",
@@ -3344,9 +3342,9 @@ def test_case_162_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_163_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id163",
@@ -3364,9 +3362,9 @@ def test_case_163_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_164_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id164",
@@ -3384,9 +3382,9 @@ def test_case_164_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_165_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id165",
@@ -3407,9 +3405,9 @@ def test_case_165_transition_from_rejected_to_rejected_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_166_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id166",
@@ -3427,9 +3425,9 @@ def test_case_166_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_167_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id167",
@@ -3447,9 +3445,9 @@ def test_case_167_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_168_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id168",
@@ -3473,9 +3471,9 @@ def test_case_168_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_169_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id169",
@@ -3499,9 +3497,9 @@ def test_case_169_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_170_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id170",
@@ -3525,9 +3523,9 @@ def test_case_170_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_171_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id171",
@@ -3554,9 +3552,9 @@ def test_case_171_transition_from_rejected_to_rejected_via_create(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_172_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id172",
@@ -3580,9 +3578,9 @@ def test_case_172_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_173_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id173",
@@ -3606,9 +3604,9 @@ def test_case_173_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_174_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id174",
@@ -3626,9 +3624,9 @@ def test_case_174_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_175_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id175",
@@ -3646,9 +3644,9 @@ def test_case_175_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_176_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id176",
@@ -3666,9 +3664,9 @@ def test_case_176_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_177_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id177",
@@ -3686,9 +3684,9 @@ def test_case_177_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_178_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id178",
@@ -3706,9 +3704,9 @@ def test_case_178_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_179_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id179",
@@ -3726,9 +3724,9 @@ def test_case_179_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_180_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id180",
@@ -3746,9 +3744,9 @@ def test_case_180_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_181_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id181",
@@ -3766,9 +3764,9 @@ def test_case_181_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_182_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id182",
@@ -3786,9 +3784,9 @@ def test_case_182_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_183_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id183",
@@ -3806,9 +3804,9 @@ def test_case_183_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_184_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id184",
@@ -3826,9 +3824,9 @@ def test_case_184_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_185_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id185",
@@ -3846,9 +3844,9 @@ def test_case_185_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_186_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id186",
@@ -3872,9 +3870,9 @@ def test_case_186_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_187_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id187",
@@ -3898,9 +3896,9 @@ def test_case_187_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_188_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id188",
@@ -3924,9 +3922,9 @@ def test_case_188_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_189_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id189",
@@ -3953,9 +3951,9 @@ def test_case_189_transition_from_rejected_to_rejected_via_create(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_190_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id190",
@@ -3979,9 +3977,9 @@ def test_case_190_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_191_transition_from_rejected_to_rejected_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id191",
@@ -4005,9 +4003,9 @@ def test_case_191_transition_from_rejected_to_rejected_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_192_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id192",
@@ -4025,9 +4023,9 @@ def test_case_192_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_193_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id193",
@@ -4045,9 +4043,9 @@ def test_case_193_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_194_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id194",
@@ -4065,9 +4063,9 @@ def test_case_194_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_195_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id195",
@@ -4088,9 +4086,9 @@ def test_case_195_transition_from_rejected_to_rejected_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_196_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id196",
@@ -4108,9 +4106,9 @@ def test_case_196_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_197_transition_from_rejected_to_rejected_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id197",
@@ -4128,9 +4126,9 @@ def test_case_197_transition_from_rejected_to_rejected_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_198_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id198",
@@ -4148,9 +4146,9 @@ def test_case_198_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_199_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id199",
@@ -4168,9 +4166,9 @@ def test_case_199_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_200_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id200",
@@ -4191,9 +4189,9 @@ def test_case_200_transition_from_rejected_to_rejected_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_201_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id201",
@@ -4214,9 +4212,9 @@ def test_case_201_transition_from_rejected_to_rejected_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_202_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id202",
@@ -4234,9 +4232,9 @@ def test_case_202_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_203_transition_from_rejected_to_rejected_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id203",
@@ -4254,9 +4252,9 @@ def test_case_203_transition_from_rejected_to_rejected_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_204_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id204",
@@ -4274,9 +4272,9 @@ def test_case_204_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_205_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id205",
@@ -4294,9 +4292,9 @@ def test_case_205_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_206_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id206",
@@ -4314,9 +4312,9 @@ def test_case_206_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_207_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id207",
@@ -4337,9 +4335,9 @@ def test_case_207_transition_from_rejected_to_rejected_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_208_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id208",
@@ -4357,9 +4355,9 @@ def test_case_208_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_209_transition_from_rejected_to_rejected_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id209",
@@ -4377,9 +4375,9 @@ def test_case_209_transition_from_rejected_to_rejected_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_210_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id210",
@@ -4403,9 +4401,9 @@ def test_case_210_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_211_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id211",
@@ -4429,9 +4427,9 @@ def test_case_211_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_212_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id212",
@@ -4455,9 +4453,9 @@ def test_case_212_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_213_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id213",
@@ -4481,9 +4479,9 @@ def test_case_213_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_214_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id214",
@@ -4501,9 +4499,9 @@ def test_case_214_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_215_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id215",
@@ -4521,9 +4519,9 @@ def test_case_215_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_216_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id216",
@@ -4541,9 +4539,9 @@ def test_case_216_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_217_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id217",
@@ -4561,9 +4559,9 @@ def test_case_217_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_218_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id218",
@@ -4581,9 +4579,9 @@ def test_case_218_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_219_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id219",
@@ -4601,9 +4599,9 @@ def test_case_219_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_220_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id220",
@@ -4621,9 +4619,9 @@ def test_case_220_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_221_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id221",
@@ -4641,9 +4639,9 @@ def test_case_221_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_222_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id222",
@@ -4661,9 +4659,9 @@ def test_case_222_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_223_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id223",
@@ -4681,9 +4679,9 @@ def test_case_223_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_224_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id224",
@@ -4701,9 +4699,9 @@ def test_case_224_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_225_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id225",
@@ -4721,9 +4719,9 @@ def test_case_225_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_226_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id226",
@@ -4747,9 +4745,9 @@ def test_case_226_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_227_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id227",
@@ -4773,9 +4771,9 @@ def test_case_227_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_228_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id228",
@@ -4799,9 +4797,9 @@ def test_case_228_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_229_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id229",
@@ -4825,9 +4823,9 @@ def test_case_229_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_230_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id230",
@@ -4845,9 +4843,9 @@ def test_case_230_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_231_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id231",
@@ -4865,9 +4863,9 @@ def test_case_231_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_232_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id232",
@@ -4885,9 +4883,9 @@ def test_case_232_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_233_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id233",
@@ -4908,9 +4906,9 @@ def test_case_233_transition_from_canceled_to_canceled_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_234_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id234",
@@ -4928,9 +4926,9 @@ def test_case_234_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_235_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id235",
@@ -4948,9 +4946,9 @@ def test_case_235_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_236_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id236",
@@ -4968,9 +4966,9 @@ def test_case_236_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_237_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id237",
@@ -4988,9 +4986,9 @@ def test_case_237_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_238_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id238",
@@ -5008,9 +5006,9 @@ def test_case_238_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_239_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id239",
@@ -5031,9 +5029,9 @@ def test_case_239_transition_from_canceled_to_canceled_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_240_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id240",
@@ -5051,9 +5049,9 @@ def test_case_240_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_241_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id241",
@@ -5071,9 +5069,9 @@ def test_case_241_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_242_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id242",
@@ -5091,9 +5089,9 @@ def test_case_242_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_243_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id243",
@@ -5111,9 +5109,9 @@ def test_case_243_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_244_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id244",
@@ -5134,9 +5132,9 @@ def test_case_244_transition_from_canceled_to_canceled_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_245_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id245",
@@ -5157,9 +5155,9 @@ def test_case_245_transition_from_canceled_to_canceled_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_246_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id246",
@@ -5177,9 +5175,9 @@ def test_case_246_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_247_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id247",
@@ -5197,9 +5195,9 @@ def test_case_247_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_248_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id248",
@@ -5223,9 +5221,9 @@ def test_case_248_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_249_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id249",
@@ -5249,9 +5247,9 @@ def test_case_249_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_250_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id250",
@@ -5275,9 +5273,9 @@ def test_case_250_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_251_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id251",
@@ -5304,9 +5302,9 @@ def test_case_251_transition_from_canceled_to_canceled_via_create(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_252_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id252",
@@ -5330,9 +5328,9 @@ def test_case_252_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_253_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id253",
@@ -5356,9 +5354,9 @@ def test_case_253_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_254_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id254",
@@ -5376,9 +5374,9 @@ def test_case_254_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_255_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id255",
@@ -5396,9 +5394,9 @@ def test_case_255_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_256_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id256",
@@ -5416,9 +5414,9 @@ def test_case_256_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_257_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id257",
@@ -5436,9 +5434,9 @@ def test_case_257_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_258_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id258",
@@ -5456,9 +5454,9 @@ def test_case_258_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_259_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id259",
@@ -5476,9 +5474,9 @@ def test_case_259_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_260_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id260",
@@ -5496,9 +5494,9 @@ def test_case_260_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_261_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id261",
@@ -5516,9 +5514,9 @@ def test_case_261_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_262_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id262",
@@ -5536,9 +5534,9 @@ def test_case_262_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_263_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id263",
@@ -5556,9 +5554,9 @@ def test_case_263_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_264_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id264",
@@ -5576,9 +5574,9 @@ def test_case_264_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_265_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id265",
@@ -5596,9 +5594,9 @@ def test_case_265_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_266_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id266",
@@ -5622,9 +5620,9 @@ def test_case_266_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_267_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id267",
@@ -5648,9 +5646,9 @@ def test_case_267_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_268_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id268",
@@ -5674,9 +5672,9 @@ def test_case_268_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_269_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id269",
@@ -5703,9 +5701,9 @@ def test_case_269_transition_from_canceled_to_canceled_via_create(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_270_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id270",
@@ -5729,9 +5727,9 @@ def test_case_270_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_271_transition_from_canceled_to_canceled_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id271",
@@ -5755,9 +5753,9 @@ def test_case_271_transition_from_canceled_to_canceled_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_272_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id272",
@@ -5775,9 +5773,9 @@ def test_case_272_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_273_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id273",
@@ -5795,9 +5793,9 @@ def test_case_273_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_274_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id274",
@@ -5815,9 +5813,9 @@ def test_case_274_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_275_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id275",
@@ -5838,9 +5836,9 @@ def test_case_275_transition_from_canceled_to_canceled_via_resolve(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_276_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id276",
@@ -5858,9 +5856,9 @@ def test_case_276_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_277_transition_from_canceled_to_canceled_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id277",
@@ -5878,9 +5876,9 @@ def test_case_277_transition_from_canceled_to_canceled_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_278_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id278",
@@ -5898,9 +5896,9 @@ def test_case_278_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_279_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id279",
@@ -5918,9 +5916,9 @@ def test_case_279_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_280_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id280",
@@ -5938,9 +5936,9 @@ def test_case_280_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_281_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id281",
@@ -5961,9 +5959,9 @@ def test_case_281_transition_from_canceled_to_canceled_via_reject(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_282_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id282",
@@ -5981,9 +5979,9 @@ def test_case_282_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_283_transition_from_canceled_to_canceled_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id283",
@@ -6001,9 +5999,9 @@ def test_case_283_transition_from_canceled_to_canceled_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_284_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id284",
@@ -6021,9 +6019,9 @@ def test_case_284_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_285_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id285",
@@ -6041,9 +6039,9 @@ def test_case_285_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_286_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id286",
@@ -6064,9 +6062,9 @@ def test_case_286_transition_from_canceled_to_canceled_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_287_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id287",
@@ -6087,9 +6085,9 @@ def test_case_287_transition_from_canceled_to_canceled_via_cancel(
     assert promise_record.ikey_for_complete == "iku"
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_288_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id288",
@@ -6107,9 +6105,9 @@ def test_case_288_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_289_transition_from_canceled_to_canceled_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id289",
@@ -6127,9 +6125,9 @@ def test_case_289_transition_from_canceled_to_canceled_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_290_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id290",
@@ -6152,9 +6150,9 @@ def test_case_290_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_291_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id291",
@@ -6177,9 +6175,9 @@ def test_case_291_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_292_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id292",
@@ -6202,9 +6200,9 @@ def test_case_292_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_293_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id293",
@@ -6227,9 +6225,9 @@ def test_case_293_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_294_transition_from_timedout_to_timedout_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id294",
@@ -6246,9 +6244,9 @@ def test_case_294_transition_from_timedout_to_timedout_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_295_transition_from_timedout_to_timedout_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id295",
@@ -6268,9 +6266,9 @@ def test_case_295_transition_from_timedout_to_timedout_via_resolve(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_296_transition_from_timedout_to_timedout_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id296",
@@ -6287,9 +6285,9 @@ def test_case_296_transition_from_timedout_to_timedout_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_297_transition_from_timedout_to_timedout_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id297",
@@ -6309,9 +6307,9 @@ def test_case_297_transition_from_timedout_to_timedout_via_resolve(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_298_transition_from_timedout_to_timedout_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id298",
@@ -6328,9 +6326,9 @@ def test_case_298_transition_from_timedout_to_timedout_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_299_transition_from_timedout_to_timedout_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id299",
@@ -6350,9 +6348,9 @@ def test_case_299_transition_from_timedout_to_timedout_via_reject(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_300_transition_from_timedout_to_timedout_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id300",
@@ -6369,9 +6367,9 @@ def test_case_300_transition_from_timedout_to_timedout_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_301_transition_from_timedout_to_timedout_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id301",
@@ -6391,9 +6389,9 @@ def test_case_301_transition_from_timedout_to_timedout_via_reject(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_302_transition_from_timedout_to_timedout_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id302",
@@ -6410,9 +6408,9 @@ def test_case_302_transition_from_timedout_to_timedout_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_303_transition_from_timedout_to_timedout_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id303",
@@ -6432,9 +6430,9 @@ def test_case_303_transition_from_timedout_to_timedout_via_cancel(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_304_transition_from_timedout_to_timedout_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id304",
@@ -6451,9 +6449,9 @@ def test_case_304_transition_from_timedout_to_timedout_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_305_transition_from_timedout_to_timedout_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id305",
@@ -6473,9 +6471,9 @@ def test_case_305_transition_from_timedout_to_timedout_via_cancel(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_306_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id306",
@@ -6498,9 +6496,9 @@ def test_case_306_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_307_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id307",
@@ -6523,9 +6521,9 @@ def test_case_307_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_308_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id308",
@@ -6548,9 +6546,9 @@ def test_case_308_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_309_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id309",
@@ -6576,9 +6574,9 @@ def test_case_309_transition_from_timedout_to_timedout_via_create(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_310_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id310",
@@ -6601,9 +6599,9 @@ def test_case_310_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_311_transition_from_timedout_to_timedout_via_create(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id311",
@@ -6626,9 +6624,9 @@ def test_case_311_transition_from_timedout_to_timedout_via_create(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_312_transition_from_timedout_to_timedout_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id312",
@@ -6645,9 +6643,9 @@ def test_case_312_transition_from_timedout_to_timedout_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_313_transition_from_timedout_to_timedout_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id313",
@@ -6667,9 +6665,9 @@ def test_case_313_transition_from_timedout_to_timedout_via_resolve(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_314_transition_from_timedout_to_timedout_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id314",
@@ -6686,9 +6684,9 @@ def test_case_314_transition_from_timedout_to_timedout_via_resolve(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_315_transition_from_timedout_to_timedout_via_resolve(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id315",
@@ -6708,9 +6706,9 @@ def test_case_315_transition_from_timedout_to_timedout_via_resolve(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_316_transition_from_timedout_to_timedout_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id316",
@@ -6727,9 +6725,9 @@ def test_case_316_transition_from_timedout_to_timedout_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_317_transition_from_timedout_to_timedout_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id317",
@@ -6749,9 +6747,9 @@ def test_case_317_transition_from_timedout_to_timedout_via_reject(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_318_transition_from_timedout_to_timedout_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id318",
@@ -6768,9 +6766,9 @@ def test_case_318_transition_from_timedout_to_timedout_via_reject(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_319_transition_from_timedout_to_timedout_via_reject(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id319",
@@ -6790,9 +6788,9 @@ def test_case_319_transition_from_timedout_to_timedout_via_reject(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_320_transition_from_timedout_to_timedout_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id320",
@@ -6809,9 +6807,9 @@ def test_case_320_transition_from_timedout_to_timedout_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_321_transition_from_timedout_to_timedout_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id321",
@@ -6831,9 +6829,9 @@ def test_case_321_transition_from_timedout_to_timedout_via_cancel(
     assert promise_record.ikey_for_complete is None
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_322_transition_from_timedout_to_timedout_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id322",
@@ -6850,9 +6848,9 @@ def test_case_322_transition_from_timedout_to_timedout_via_cancel(
         )
 
 
-@pytest.mark.parametrize("store", _stores())
+
 def test_case_323_transition_from_timedout_to_timedout_via_cancel(
-    store: IStore,
+    store: Store,
 ) -> None:
     store.promises.create(
         id="id323",
