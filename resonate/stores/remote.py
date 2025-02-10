@@ -211,12 +211,12 @@ class RemoteTaskStore:
         )
 
         res = _call(req.prepare()).json()
-        msg = Mesg.from_dict(self._store, res)
+        # msg = Mesg.from_dict(self._store, res)
 
-        # TODO: handle this better
-        assert isinstance(msg, (InvokeMesg, ResumeMesg))
+        # # TODO: handle this better
+        # assert isinstance(msg, (InvokeMesg, ResumeMesg))
 
-        return msg
+        return res
 
     def complete(self, *, id: str, counter: int) -> None:
         req = Request(

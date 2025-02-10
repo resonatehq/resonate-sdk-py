@@ -24,26 +24,25 @@ TICK_TIME = 1
 
 
 class LocalSender:
-    def __init__(self, cq: Queue[Task]) -> None:
+    def __init__(self, cq: Queue[tuple[str, int]]) -> None:
         self.cq = cq
 
     def send(self, recv: str, mesg: Mesg) -> None:
-        assert isinstance(mesg, InvokeMesg)
-        self.cq.put(mesg.task)
+        assert mesg["type"] == "invoke"
+        self.cq.put((mesg["task"]["id"], mesg["task"]["counter"]))
 
 
 class TaskTranslator:
-    def __init__(self, store: Store, cq: Queue[Task]) -> None:
+    def __init__(self, store: Store, cq: Queue[tuple[str, int]]) -> None:
         self.store = store
         self.cq = cq
 
-    def enqueue(self, data: Any) -> None:
-        task = Task(data["task"]["id"], data["task"]["counter"], store=self.store)
-        print("Enqueueing", task)
-        self.cq.put(task)
+    def enqueue(self, mesg: Mesg) -> None:
+        assert mesg["type"] == "invoke"
+        self.cq.put((mesg["task"]["id"], mesg["task"]["counter"]))
 
 stores: list[Store] = [
-    # LocalStore(),
+    LocalStore(),
 ]
 
 if "RESONATE_STORE_URL" in os.environ:
@@ -54,8 +53,8 @@ def store(request: pytest.FixtureRequest) -> Store:
     return request.param
 
 @pytest.fixture
-def task(store: Store) -> Generator[Task]:
-    cq = Queue[Task]()
+def task(store: Store) -> Generator[tuple[str, int]]:
+    cq = Queue[tuple[str, int]]()
     assert isinstance(store, (LocalStore, RemoteStore))
 
     id = str(uuid.uuid4())
@@ -96,10 +95,10 @@ def task(store: Store) -> Generator[Task]:
 
             poller.stop()
 
-def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task: Task) -> None:
-    print("Test 5", task)
+def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task: tuple[str, int]) -> None:
+    id, counter = task
     store.tasks.claim(
-        id=task.id, counter=task.counter, pid="task5", ttl=sys.maxsize
+        id=id, counter=counter, pid="task5", ttl=sys.maxsize
     )
 
 

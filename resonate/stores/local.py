@@ -8,7 +8,7 @@ from resonate.encoders.base64 import Base64Encoder
 from resonate.errors import ResonateError
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.encoder import Encoder
-from resonate.models.message import InvokeMesg, Mesg, ResumeMesg
+from resonate.models.message import InvokeMesg, Mesg, ResumeMesg, TaskMesg
 from resonate.models.task import Task
 
 # Fake it till you make it
@@ -182,7 +182,7 @@ class LocalPromiseStore:
                     if state == "INIT" and (sender := self._senders.get(recv)):
                         sender.send(
                             recv=recv,
-                            mesg=InvokeMesg(type="invoke", task=task),
+                            mesg=InvokeMesg(type="invoke", task=TaskMesg(id=task_id, counter=1)),
                         )
                         state = "ENQUEUED"
 

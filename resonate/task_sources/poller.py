@@ -10,6 +10,7 @@ import requests
 
 from resonate.encoders.json import JsonEncoder
 from resonate.models.encoder import Encoder
+from resonate.models.message import InvokeMesg, Mesg
 
 
 class Enqueueable[T](Protocol):
@@ -28,8 +29,9 @@ class Poller:
         self._encoder = encoder or JsonEncoder()
         self._thread: Thread | None = None
         self._stopped = False
+        self.connection = None
 
-    def start(self, cq: Enqueueable[Any], pid: str) -> None:
+    def start(self, cq: Enqueueable[Mesg], pid: str) -> None:
         if self._thread is not None:
             return
         self._thread = Thread(target=self._run, args=(cq, pid), daemon=True)
@@ -38,17 +40,23 @@ class Poller:
     def stop(self) -> None:
         self._stopped = True
 
+        if self.connection:
+            self.connection.close()
+
         if self._thread is not None:
             self._thread.join()
 
     # @threading.exit_on_exception
-    def _run(self, cq: Enqueueable[Any], pid: str) -> None:
+    def _run(self, cq: Enqueueable[Mesg], pid: str) -> None:
         url = f"{self._url}/{self.group}/{pid}"
         while not self._stopped:
             try:
                 with requests.get(url, stream=True) as res:  # noqa: S113
                     if not res.ok:
                         break
+
+                    # fake it till you make it
+                    self.connection = res.connection
 
                     for line in res.iter_lines(chunk_size=None, decode_unicode=True):
                         if not line:
