@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import _P
 import os
 import time
 from queue import Queue
@@ -13,6 +12,7 @@ from requests.sessions import HTTPAdapter
 from resonate.encoders.json import JsonEncoder
 from resonate.models.encoder import Encoder
 from resonate.models.message import InvokeMesg, Mesg
+from requests import Response
 
 
 class Enqueueable[T](Protocol):
@@ -24,6 +24,7 @@ class Poller:
         self,
         url: str | None = None,
         group: str = "default",
+        timeout: int | None = None,
         encoder: Encoder[Any, str] | None = None,
     ) -> None:
         self._url = url or os.getenv("RESONATE_TASKS_URL", "http://localhost:8002")
@@ -31,7 +32,7 @@ class Poller:
         self._encoder = encoder or JsonEncoder()
         self._thread: Thread | None = None
         self._stopped = False
-        self._conn: HTTPAdapter | None = None
+        self._timeout = timeout
 
     def start(self, cq: Enqueueable[Mesg], pid: str) -> None:
         if self._thread is not None:
@@ -41,22 +42,18 @@ class Poller:
 
     def stop(self) -> None:
         self._stopped = True
+        assert self._thread
+        self._thread.join()
 
-        if self._thread is not None:
-            self._thread.join()
-
-    # @threading.exit_on_exception
     def _run(self, cq: Enqueueable[Mesg], pid: str) -> None:
         url = f"{self._url}/{self.group}/{pid}"
-
-        while True:
+        while not self._stopped:
             try:
-                with requests.get(url, stream=True) as res:  # noqa: S113
-                    if not res.ok:
-                        break
-                    self._conn = res.connection
-
+                with requests.get(url, stream=True, timeout=self._timeout) as res:
                     for line in res.iter_lines(chunk_size=None, decode_unicode=True):
+                        if self._stopped:
+                            break
+
                         if not line:
                             continue
 
@@ -65,17 +62,14 @@ class Poller:
                             continue
 
                         info = self._encoder.decode(stripped[5:])
-                        # if "task" not in info:
-                        #     continue
-
                         cq.enqueue(info)
 
             except requests.exceptions.ConnectionError:
-                print("Connection to poller failed, reconnecting")
-                # logger.warning("Connection to poller failed, reconnecting")
+                pass
 
+            if self._stopped:
+                break
             time.sleep(1)
-        print("OUT")
 
     # def recv(self, pid: str) -> str:
     #     return targets.poll(self.group, pid)

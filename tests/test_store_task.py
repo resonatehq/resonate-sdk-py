@@ -80,7 +80,7 @@ def task(store: Store) -> Generator[tuple[str, int]]:
             store.promises.resolve(id=id)
             store.rmv_sender("default")
         case RemoteStore():
-            poller = Poller(group="default")
+            poller = Poller(group="default", timeout=2)
             poller.start(cq=TaskTranslator(store, cq), pid=id)
 
             store.promises.create(
