@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
+    from resonate.models.callback import Callback
     from resonate.models.store import Store
 
 
@@ -62,10 +63,7 @@ class DurablePromise:
             headers=headers,
             data=data,
         )
-        self.state = resolved.state
-        self.ikey_for_complete = resolved.ikey_for_complete
-        self.value = resolved.value
-        self.completed_on = resolved.completed_on
+        self._complete(resolved)
 
     def reject(self, headers: dict[str, str] | None, data: str | None) -> None:
         rejected = self.store.promises.reject(
@@ -75,10 +73,7 @@ class DurablePromise:
             headers=headers,
             data=data,
         )
-        self.state = rejected.state
-        self.ikey_for_complete = rejected.ikey_for_complete
-        self.value = rejected.value
-        self.completed_on = rejected.completed_on
+        self._complete(rejected)
 
     def cancel(self, headers: dict[str, str] | None, data: str | None) -> None:
         canceled = self.store.promises.cancel(
@@ -88,10 +83,26 @@ class DurablePromise:
             headers=headers,
             data=data,
         )
-        self.state = canceled.state
-        self.ikey_for_complete = canceled.ikey_for_complete
-        self.value = canceled.value
-        self.completed_on = canceled.completed_on
+        self._complete(canceled)
+
+    def callback(self, id: str, root_promise_id: str, recv: str) -> Callback | None:
+        promise, callback = self.store.promises.callback(
+            id=id,
+            promise_id=self.id,
+            root_promise_id=root_promise_id,
+            timeout=self.timeout,
+            recv=recv,
+        )
+        if callback is None:
+            self._complete(promise)
+        return callback
+
+    def _complete(self, promise: DurablePromise) -> None:
+        assert promise.completed
+        self.state = promise.state
+        self.ikey_for_complete = promise.ikey_for_complete
+        self.value = promise.value
+        self.completed_on = promise.completed_on
 
     @classmethod
     def from_dict(

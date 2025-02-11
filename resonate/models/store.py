@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from resonate.models.callback import Callback
     from resonate.models.durable_promise import DurablePromise
     from resonate.models.message import InvokeMesg, ResumeMesg
     from resonate.models.task import Task
@@ -72,6 +73,16 @@ class PromiseStore(Protocol):
         headers: dict[str, str] | None = None,
         data: Any = None,
     ) -> DurablePromise: ...
+
+    def callback(
+        self,
+        *,
+        id: str,
+        promise_id: str,
+        root_promise_id: str,
+        timeout: int,
+        recv: str,
+    ) -> tuple[DurablePromise, Callback | None]: ...
 
 
 class TaskStore(Protocol):

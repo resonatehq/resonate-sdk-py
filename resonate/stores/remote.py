@@ -10,6 +10,7 @@ from resonate.encoders.base64 import Base64Encoder
 from resonate.encoders.chain import ChainEncoder
 from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateError
+from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.task import Task
 
@@ -219,6 +220,35 @@ class RemotePromiseStore:
             self._encoder.decode(res["param"].get("data")),
             self._encoder.decode(res["value"].get("data")),
         )
+
+    def callback(
+        self,
+        *,
+        id: str,
+        promise_id: str,
+        root_promise_id: str,
+        timeout: int,
+        recv: str,
+    ) -> tuple[DurablePromise, Callback | None]:
+        req = Request(
+            method="post",
+            url=f"{self._store.url}/callbacks",
+            json={
+                "id": id,
+                "promiseId": promise_id,
+                "rootPromiseId": root_promise_id,
+                "timeout": timeout,
+                "recv": recv,
+            },
+        )
+        res = _call(req.prepare()).json()
+
+        return DurablePromise.from_dict(
+            self._store,
+            res["promise"],
+            self._encoder.decode(res["promise"]["param"].get("data")),
+            self._encoder.decode(res["promise"]["value"].get("data")),
+        ), Callback.from_dict(res["callback"]) if "callback" in res else None
 
 
 class RemoteTaskStore:
