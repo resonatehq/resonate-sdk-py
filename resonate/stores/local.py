@@ -48,7 +48,7 @@ def now() -> int:
 
 class LocalStore:
     def __init__(self, encoder: Encoder[Any, str | None] | None = None) -> None:
-        self.encoder = encoder or ChainEncoder(
+        self._encoder = encoder or ChainEncoder(
             JsonEncoder(),
             Base64Encoder(),
         )
@@ -61,7 +61,12 @@ class LocalStore:
     @property
     def promises(self) -> LocalPromiseStore:
         return LocalPromiseStore(
-            self, self._promises, self._tasks, self._routers, self._senders
+            self,
+            self._encoder,
+            self._promises,
+            self._tasks,
+            self._routers,
+            self._senders,
         )
 
     @property
@@ -84,12 +89,14 @@ class LocalPromiseStore:
     def __init__(
         self,
         store: LocalStore,
+        encoder: Encoder[Any, str | None],
         promises: dict[str, DurablePromiseRecord],
         tasks: dict[str, TaskRecord],
         routers: list[Router],
         senders: dict[str, Sender],
     ) -> None:
         self._store = store
+        self._encoder = encoder
         self._promises = promises
         self._tasks = tasks
         self._routers = routers
@@ -166,7 +173,7 @@ class LocalPromiseStore:
                 timeout=timeout,
                 param=DurablePromiseRecordValue(
                     headers=headers or {},
-                    data=self._store.encoder.encode(data),
+                    data=self._encoder.encode(data),
                 ),
                 value=DurablePromiseRecordValue(headers={}, data=None),
                 created_on=now(),
@@ -241,11 +248,11 @@ class LocalPromiseStore:
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
                 headers=new_item.param.headers,
-                data=self._store.encoder.decode(new_item.param.data),
+                data=self._encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
                 headers=new_item.value.headers,
-                data=self._store.encoder.decode(new_item.value.data),
+                data=self._encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -273,7 +280,7 @@ class LocalPromiseStore:
                 param=record.param,
                 value=DurablePromiseRecordValue(
                     headers=headers or {},
-                    data=self._store.encoder.encode(data),
+                    data=self._encoder.encode(data),
                 ),
                 created_on=record.created_on,
                 completed_on=now(),
@@ -299,11 +306,11 @@ class LocalPromiseStore:
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
                 headers=new_item.param.headers,
-                data=self._store.encoder.decode(new_item.param.data),
+                data=self._encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
                 headers=new_item.value.headers,
-                data=self._store.encoder.decode(new_item.value.data),
+                data=self._encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -331,7 +338,7 @@ class LocalPromiseStore:
                 param=record.param,
                 value=DurablePromiseRecordValue(
                     headers=headers or {},
-                    data=self._store.encoder.encode(data),
+                    data=self._encoder.encode(data),
                 ),
                 created_on=record.created_on,
                 completed_on=now(),
@@ -357,11 +364,11 @@ class LocalPromiseStore:
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
                 headers=new_item.param.headers,
-                data=self._store.encoder.decode(new_item.param.data),
+                data=self._encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
                 headers=new_item.value.headers,
-                data=self._store.encoder.decode(new_item.value.data),
+                data=self._encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -389,7 +396,7 @@ class LocalPromiseStore:
                 param=record.param,
                 value=DurablePromiseRecordValue(
                     headers=headers or {},
-                    data=self._store.encoder.encode(data),
+                    data=self._encoder.encode(data),
                 ),
                 created_on=record.created_on,
                 completed_on=now(),
@@ -415,11 +422,11 @@ class LocalPromiseStore:
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
                 headers=new_item.param.headers,
-                data=self._store.encoder.decode(new_item.param.data),
+                data=self._encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
                 headers=new_item.value.headers,
-                data=self._store.encoder.decode(new_item.value.data),
+                data=self._encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,

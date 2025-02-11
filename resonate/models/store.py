@@ -4,15 +4,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from resonate.models.durable_promise import DurablePromise
-    from resonate.models.encoder import Encoder
     from resonate.models.message import InvokeMesg, ResumeMesg
     from resonate.models.task import Task
 
 
 class Store(Protocol):
-    @property
-    def encoder(self) -> Encoder: ...
-
     @property
     def promises(self) -> PromiseStore: ...
 

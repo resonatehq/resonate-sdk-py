@@ -25,14 +25,14 @@ class RemoteStore:
         encoder: Encoder[Any, str | None] | None = None,
     ) -> None:
         self.url = url or os.getenv("RESONATE_STORE_URL", "http://localhost:8001")
-        self.encoder = encoder or ChainEncoder(
+        self._encoder = encoder or ChainEncoder(
             JsonEncoder(),
             Base64Encoder(),
         )
 
     @property
     def promises(self) -> RemotePromiseStore:
-        return RemotePromiseStore(self)
+        return RemotePromiseStore(self, self._encoder)
 
     @property
     def tasks(self) -> RemoteTaskStore:
@@ -40,8 +40,9 @@ class RemoteStore:
 
 
 class RemotePromiseStore:
-    def __init__(self, store: RemoteStore) -> None:
+    def __init__(self, store: RemoteStore, encoder: Encoder[Any, str | None]) -> None:
         self._store = store
+        self._encoder = encoder
 
     def _headers(self, *, strict: bool, ikey: str | None) -> dict[str, str]:
         headers: dict[str, str] = {"strict": str(strict)}
@@ -68,7 +69,7 @@ class RemotePromiseStore:
                 "id": id,
                 "param": {
                     "headers": headers or {},
-                    "data": self._store.encoder.encode(data),
+                    "data": self._encoder.encode(data),
                 },
                 "timeout": timeout,
                 "tags": tags or {},
@@ -80,8 +81,8 @@ class RemotePromiseStore:
         return DurablePromise.from_dict(
             self._store,
             res,
-            self._store.encoder.decode(res["param"].get("data")),
-            self._store.encoder.decode(res["value"].get("data")),
+            self._encoder.decode(res["param"].get("data")),
+            self._encoder.decode(res["value"].get("data")),
         )
 
     def create_with_task(
@@ -106,7 +107,7 @@ class RemotePromiseStore:
                     "id": id,
                     "param": {
                         "headers": headers or {},
-                        "data": self._store.encoder.encode(data),
+                        "data": self._encoder.encode(data),
                     },
                     "timeout": timeout,
                     "tags": tags or {},
@@ -122,8 +123,8 @@ class RemotePromiseStore:
         return DurablePromise.from_dict(
             self._store,
             res["promise"],
-            self._store.encoder.decode(res["promise"]["param"].get("data")),
-            self._store.encoder.decode(res["promise"]["value"].get("data")),
+            self._encoder.decode(res["promise"]["param"].get("data")),
+            self._encoder.decode(res["promise"]["value"].get("data")),
         ), Task.from_dict(self._store, res["task"]) if "task" in res else None
 
     def resolve(
@@ -143,7 +144,7 @@ class RemotePromiseStore:
                 "state": "RESOLVED",
                 "value": {
                     "headers": headers or {},
-                    "data": self._store.encoder.encode(data),
+                    "data": self._encoder.encode(data),
                 },
             },
         )
@@ -153,8 +154,8 @@ class RemotePromiseStore:
         return DurablePromise.from_dict(
             self._store,
             res,
-            self._store.encoder.decode(res["param"].get("data")),
-            self._store.encoder.decode(res["value"].get("data")),
+            self._encoder.decode(res["param"].get("data")),
+            self._encoder.decode(res["value"].get("data")),
         )
 
     def reject(
@@ -174,7 +175,7 @@ class RemotePromiseStore:
                 "state": "REJECTED",
                 "value": {
                     "headers": headers or {},
-                    "data": self._store.encoder.encode(data),
+                    "data": self._encoder.encode(data),
                 },
             },
         )
@@ -184,8 +185,8 @@ class RemotePromiseStore:
         return DurablePromise.from_dict(
             self._store,
             res,
-            param=self._store.encoder.decode(res["param"].get("data")),
-            value=self._store.encoder.decode(res["value"].get("data")),
+            param=self._encoder.decode(res["param"].get("data")),
+            value=self._encoder.decode(res["value"].get("data")),
         )
 
     def cancel(
@@ -205,7 +206,7 @@ class RemotePromiseStore:
                 "state": "REJECTED_CANCELED",
                 "value": {
                     "headers": headers or {},
-                    "data": self._store.encoder.encode(data),
+                    "data": self._encoder.encode(data),
                 },
             },
         )
@@ -215,8 +216,8 @@ class RemotePromiseStore:
         return DurablePromise.from_dict(
             self._store,
             res,
-            self._store.encoder.decode(res["param"].get("data")),
-            self._store.encoder.decode(res["value"].get("data")),
+            self._encoder.decode(res["param"].get("data")),
+            self._encoder.decode(res["value"].get("data")),
         )
 
 
