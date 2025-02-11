@@ -25,10 +25,10 @@ class DurablePromise:
     store: Store
 
     def params(self) -> Any:
-        return self.store.encoder.decode(self.param.data)
+        return self.param.data
 
     def result(self) -> Any:
-        return self.store.encoder.decode(self.value.data)
+        return self.value.data
 
     @property
     def pending(self) -> bool:
