@@ -54,32 +54,44 @@ class DurablePromise:
     def timedout(self) -> bool:
         return self.state == "REJECTED_TIMEDOUT"
 
-    def resolve(self, value: DurablePromiseValue) -> DurablePromise:
-        return self.store.promises.resolve(
+    def resolve(self, headers: dict[str, str] | None, data: str | None) -> None:
+        resolved = self.store.promises.resolve(
             id=self.id,
             ikey=self.ikey_for_complete,
             strict=False,
-            headers=value.headers,
-            data=value.data,
+            headers=headers,
+            data=data,
         )
+        self.state = resolved.state
+        self.ikey_for_complete = resolved.ikey_for_complete
+        self.value = resolved.value
+        self.completed_on = resolved.completed_on
 
-    def reject(self, value: DurablePromiseValue) -> DurablePromise:
-        return self.store.promises.reject(
+    def reject(self, headers: dict[str, str] | None, data: str | None) -> None:
+        rejected = self.store.promises.reject(
             id=self.id,
             ikey=self.ikey_for_complete,
             strict=False,
-            headers=value.headers,
-            data=value.data,
+            headers=headers,
+            data=data,
         )
+        self.state = rejected.state
+        self.ikey_for_complete = rejected.ikey_for_complete
+        self.value = rejected.value
+        self.completed_on = rejected.completed_on
 
-    def cancel(self, value: DurablePromiseValue) -> DurablePromise:
-        return self.store.promises.cancel(
+    def cancel(self, headers: dict[str, str] | None, data: str | None) -> None:
+        canceled = self.store.promises.cancel(
             id=self.id,
             ikey=self.ikey_for_complete,
             strict=False,
-            headers=value.headers,
-            data=value.data,
+            headers=headers,
+            data=data,
         )
+        self.state = canceled.state
+        self.ikey_for_complete = canceled.ikey_for_complete
+        self.value = canceled.value
+        self.completed_on = canceled.completed_on
 
     @classmethod
     def from_dict(cls, store: Store, data: dict[str, Any]) -> DurablePromise:
