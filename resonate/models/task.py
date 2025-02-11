@@ -16,9 +16,7 @@ class Task:
     store: Store
 
     def claim(self, pid: str, ttl: int) -> InvokeMesg | ResumeMesg:
-        return self.store.tasks.claim(
-            id=self.id, counter=self.counter, pid=pid, ttl=ttl
-        )
+        return self.store.tasks.claim(id=self.id, counter=self.counter, pid=pid, ttl=ttl)
 
     def complete(self) -> None:
         return self.store.tasks.complete(id=self.id, counter=self.counter)

@@ -1,4 +1,5 @@
 unsafe-fixes = true
+line-length = 200
 
 [lint]
 select = ["ALL"]

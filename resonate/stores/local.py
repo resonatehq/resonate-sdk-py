@@ -209,9 +209,7 @@ class LocalPromiseStore:
                     if state == "INIT" and (sender := self._senders.get(recv)):
                         sender.send(
                             recv=recv,
-                            mesg=InvokeMesg(
-                                type="invoke", task=TaskMesg(id=task_id, counter=1)
-                            ),
+                            mesg=InvokeMesg(type="invoke", task=TaskMesg(id=task_id, counter=1)),
                         )
                         state = "ENQUEUED"
 
@@ -291,10 +289,7 @@ class LocalPromiseStore:
                 tags=record.tags,
                 callbacks=record.callbacks,
             )
-        elif (strict and record.state != "RESOLVED") or (
-            record.state != "REJECTED_TIMEDOUT"
-            and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)
-        ):
+        elif (strict and record.state != "RESOLVED") or (record.state != "REJECTED_TIMEDOUT" and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)):
             msg = "Forbidden request"
             raise ResonateError(msg, "STORE_FORBIDDEN")
 
@@ -350,10 +345,7 @@ class LocalPromiseStore:
                 tags=record.tags,
                 callbacks=record.callbacks,
             )
-        elif (strict and record.state != "REJECTED") or (
-            record.state != "REJECTED_TIMEDOUT"
-            and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)
-        ):
+        elif (strict and record.state != "REJECTED") or (record.state != "REJECTED_TIMEDOUT" and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)):
             msg = "Forbidden request"
             raise ResonateError(msg, "STORE_FORBIDDEN")
 
@@ -409,10 +401,7 @@ class LocalPromiseStore:
                 tags=record.tags,
                 callbacks=record.callbacks,
             )
-        elif (strict and record.state != "REJECTED_CANCELED") or (
-            record.state != "REJECTED_TIMEDOUT"
-            and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)
-        ):
+        elif (strict and record.state != "REJECTED_CANCELED") or (record.state != "REJECTED_TIMEDOUT" and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)):
             msg = "Forbidden request"
             raise ResonateError(msg, "STORE_FORBIDDEN")
 
@@ -521,14 +510,9 @@ class LocalTaskStore:
         self._promises = promises
         self._tasks = tasks
 
-    def claim(
-        self, *, id: str, counter: int, pid: str, ttl: int
-    ) -> InvokeMesg | ResumeMesg:
+    def claim(self, *, id: str, counter: int, pid: str, ttl: int) -> InvokeMesg | ResumeMesg:
         if task_record := self._tasks.get(id):
-            if (
-                task_record.state in ("INIT", "ENQUEUED")
-                and counter == task_record.counter
-            ):
+            if task_record.state in ("INIT", "ENQUEUED") and counter == task_record.counter:
                 task_record = TaskRecord(
                     id=task_record.id,
                     counter=task_record.counter,
@@ -603,9 +587,7 @@ class LocalTaskStore:
 @dataclass(frozen=True)
 class DurablePromiseRecord:
     id: str
-    state: Literal[
-        "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
-    ]
+    state: Literal["PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"]
     timeout: int
     ikey_for_create: str | None
     ikey_for_complete: str | None

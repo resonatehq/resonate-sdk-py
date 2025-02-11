@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from resonate.models.result import Ko, Ok, Result
+
 if TYPE_CHECKING:
     from resonate.models.callback import Callback
     from resonate.models.store import Store
@@ -11,9 +13,7 @@ if TYPE_CHECKING:
 @dataclass
 class DurablePromise:
     id: str
-    state: Literal[
-        "PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"
-    ]
+    state: Literal["PENDING", "RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"]
     timeout: int
     ikey_for_create: str | None
     ikey_for_complete: str | None
@@ -25,11 +25,17 @@ class DurablePromise:
 
     store: Store
 
+    @property
     def params(self) -> Any:
         return self.param.data
 
-    def result(self) -> Any:
-        return self.value.data
+    @property
+    def result(self) -> Result:
+        assert self.completed, "Promise must be completed"
+        if self.resolved:
+            return Ok(self.value.data)
+
+        return Ko(self.value.data)
 
     @property
     def pending(self) -> bool:
@@ -105,9 +111,7 @@ class DurablePromise:
         self.completed_on = promise.completed_on
 
     @classmethod
-    def from_dict(
-        cls, store: Store, data: dict[str, Any], param: Any, value: Any
-    ) -> DurablePromise:
+    def from_dict(cls, store: Store, data: dict[str, Any], param: Any, value: Any) -> DurablePromise:
         return cls(
             store=store,
             id=data["id"],

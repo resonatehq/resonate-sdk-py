@@ -103,9 +103,7 @@ def task(store: Store) -> Generator[tuple[str, int]]:
             store.promises.resolve(id=id)
 
 
-def test_case_5_transition_from_enqueue_to_claimed_via_claim(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task5", ttl=sys.maxsize)
 
@@ -113,9 +111,7 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(
     # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
-def test_case_6_transition_from_enqueue_to_enqueue_via_claim(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_6_transition_from_enqueue_to_enqueue_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     with pytest.raises(ResonateError):
         store.tasks.claim(
@@ -126,9 +122,7 @@ def test_case_6_transition_from_enqueue_to_enqueue_via_claim(
         )
 
 
-def test_case_8_transition_from_enqueue_to_enqueue_via_complete(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_8_transition_from_enqueue_to_enqueue_via_complete(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     with pytest.raises(ResonateError):
         store.tasks.complete(
@@ -137,16 +131,12 @@ def test_case_8_transition_from_enqueue_to_enqueue_via_complete(
         )
 
 
-def test_case_10_transition_from_enqueue_to_enqueue_via_hearbeat(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_10_transition_from_enqueue_to_enqueue_via_hearbeat(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     assert store.tasks.heartbeat(pid="task10") == 0
 
 
-def test_case_12_transition_from_claimed_to_claimed_via_claim(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_12_transition_from_claimed_to_claimed_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task12", ttl=sys.maxsize)
     with pytest.raises(ResonateError):
@@ -161,9 +151,7 @@ def test_case_12_transition_from_claimed_to_claimed_via_claim(
     # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
-def test_case_13_transition_from_claimed_to_init_via_claim(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_13_transition_from_claimed_to_init_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task13", ttl=0)
     with pytest.raises(ResonateError):
@@ -178,17 +166,13 @@ def test_case_13_transition_from_claimed_to_init_via_claim(
     # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
-def test_case_14_transition_from_claimed_to_completed_via_complete(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_14_transition_from_claimed_to_completed_via_complete(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task14", ttl=sys.maxsize)
     store.tasks.complete(id=id, counter=counter)
 
 
-def test_case_15_transition_from_claimed_to_init_via_complete(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_15_transition_from_claimed_to_init_via_complete(store: Store, task: tuple[str, int]) -> None:
     if isinstance(store, LocalStore):
         return
     id, counter = task
@@ -198,9 +182,7 @@ def test_case_15_transition_from_claimed_to_init_via_complete(
         store.tasks.complete(id=id, counter=counter)
 
 
-def test_case_16_transition_from_claimed_to_claimed_via_complete(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_16_transition_from_claimed_to_claimed_via_complete(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task16", ttl=sys.maxsize)
     with pytest.raises(ResonateError):
@@ -210,9 +192,7 @@ def test_case_16_transition_from_claimed_to_claimed_via_complete(
     # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
-def test_case_17_transition_from_claimed_to_init_via_complete(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_17_transition_from_claimed_to_init_via_complete(store: Store, task: tuple[str, int]) -> None:
     if isinstance(store, LocalStore):
         return
     id, counter = task
@@ -222,9 +202,7 @@ def test_case_17_transition_from_claimed_to_init_via_complete(
         store.tasks.complete(id=id, counter=counter)
 
 
-def test_case_18_transition_from_claimed_to_claimed_via_heartbeat(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_18_transition_from_claimed_to_claimed_via_heartbeat(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task18", ttl=sys.maxsize)
     assert store.tasks.heartbeat(pid="task18") == 1
@@ -233,17 +211,13 @@ def test_case_18_transition_from_claimed_to_claimed_via_heartbeat(
     # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
-def test_case_19_transition_from_claimed_to_init_via_heartbeat(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_19_transition_from_claimed_to_init_via_heartbeat(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task19", ttl=0)
     assert store.tasks.heartbeat(pid="task19") == 1
 
 
-def test_case_20_transition_from_completed_to_completed_via_claim(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_20_transition_from_completed_to_completed_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task20", ttl=sys.maxsize)
     store.tasks.complete(id=id, counter=counter)
@@ -251,9 +225,7 @@ def test_case_20_transition_from_completed_to_completed_via_claim(
         store.tasks.claim(id=id, counter=counter, pid="task20", ttl=0)
 
 
-def test_case_21_transition_from_completed_to_completed_via_complete(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_21_transition_from_completed_to_completed_via_complete(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task21", ttl=sys.maxsize)
     store.tasks.complete(id=id, counter=counter)
@@ -261,9 +233,7 @@ def test_case_21_transition_from_completed_to_completed_via_complete(
         store.tasks.complete(id=id, counter=counter)
 
 
-def test_case_22_transition_from_completed_to_completed_via_heartbeat(
-    store: Store, task: tuple[str, int]
-) -> None:
+def test_case_22_transition_from_completed_to_completed_via_heartbeat(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task22", ttl=sys.maxsize)
     store.tasks.complete(id=id, counter=counter)
