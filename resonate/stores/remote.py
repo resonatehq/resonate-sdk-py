@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import os
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from requests import PreparedRequest, Request, Response, Session
 
 from resonate.encoders.base64 import Base64Encoder
+from resonate.encoders.chain import ChainEncoder
+from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateError
+from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.task import Task
 
@@ -20,14 +23,17 @@ class RemoteStore:
     def __init__(
         self,
         url: str | None = None,
-        encoder: Encoder[str | None, str | None] | None = None,
+        encoder: Encoder[Any, str | None] | None = None,
     ) -> None:
         self.url = url or os.getenv("RESONATE_STORE_URL", "http://localhost:8001")
-        self.encoder = encoder or Base64Encoder()
+        self._encoder = encoder or ChainEncoder(
+            JsonEncoder(),
+            Base64Encoder(),
+        )
 
     @property
     def promises(self) -> RemotePromiseStore:
-        return RemotePromiseStore(self)
+        return RemotePromiseStore(self, self._encoder)
 
     @property
     def tasks(self) -> RemoteTaskStore:
@@ -35,8 +41,9 @@ class RemoteStore:
 
 
 class RemotePromiseStore:
-    def __init__(self, store: RemoteStore) -> None:
+    def __init__(self, store: RemoteStore, encoder: Encoder[Any, str | None]) -> None:
         self._store = store
+        self._encoder = encoder
 
     def _headers(self, *, strict: bool, ikey: str | None) -> dict[str, str]:
         headers: dict[str, str] = {"strict": str(strict)}
@@ -52,7 +59,7 @@ class RemotePromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> DurablePromise:
         req = Request(
@@ -63,7 +70,7 @@ class RemotePromiseStore:
                 "id": id,
                 "param": {
                     "headers": headers or {},
-                    "data": self._store.encoder.encode(data),
+                    "data": self._encoder.encode(data),
                 },
                 "timeout": timeout,
                 "tags": tags or {},
@@ -72,7 +79,12 @@ class RemotePromiseStore:
 
         res = _call(req.prepare()).json()
 
-        return DurablePromise.from_dict(self._store, res)
+        return DurablePromise.from_dict(
+            self._store,
+            res,
+            self._encoder.decode(res["param"].get("data")),
+            self._encoder.decode(res["value"].get("data")),
+        )
 
     def create_with_task(
         self,
@@ -84,7 +96,7 @@ class RemotePromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> tuple[DurablePromise, Task | None]:
         req = Request(
@@ -96,7 +108,7 @@ class RemotePromiseStore:
                     "id": id,
                     "param": {
                         "headers": headers or {},
-                        "data": self._store.encoder.encode(data),
+                        "data": self._encoder.encode(data),
                     },
                     "timeout": timeout,
                     "tags": tags or {},
@@ -109,9 +121,12 @@ class RemotePromiseStore:
         )
         res = _call(req.prepare()).json()
 
-        return DurablePromise.from_dict(self._store, res["promise"]), Task.from_dict(
-            self._store, res["task"]
-        ) if "task" in res else None
+        return DurablePromise.from_dict(
+            self._store,
+            res["promise"],
+            self._encoder.decode(res["promise"]["param"].get("data")),
+            self._encoder.decode(res["promise"]["value"].get("data")),
+        ), Task.from_dict(self._store, res["task"]) if "task" in res else None
 
     def resolve(
         self,
@@ -120,7 +135,7 @@ class RemotePromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         req = Request(
             method="patch",
@@ -130,14 +145,19 @@ class RemotePromiseStore:
                 "state": "RESOLVED",
                 "value": {
                     "headers": headers or {},
-                    "data": self._store.encoder.encode(data),
+                    "data": self._encoder.encode(data),
                 },
             },
         )
 
         res = _call(req.prepare()).json()
 
-        return DurablePromise.from_dict(self._store, res)
+        return DurablePromise.from_dict(
+            self._store,
+            res,
+            self._encoder.decode(res["param"].get("data")),
+            self._encoder.decode(res["value"].get("data")),
+        )
 
     def reject(
         self,
@@ -146,7 +166,7 @@ class RemotePromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         req = Request(
             method="patch",
@@ -156,14 +176,19 @@ class RemotePromiseStore:
                 "state": "REJECTED",
                 "value": {
                     "headers": headers or {},
-                    "data": self._store.encoder.encode(data),
+                    "data": self._encoder.encode(data),
                 },
             },
         )
 
         res = _call(req.prepare()).json()
 
-        return DurablePromise.from_dict(self._store, res)
+        return DurablePromise.from_dict(
+            self._store,
+            res,
+            param=self._encoder.decode(res["param"].get("data")),
+            value=self._encoder.decode(res["value"].get("data")),
+        )
 
     def cancel(
         self,
@@ -172,7 +197,7 @@ class RemotePromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         req = Request(
             method="patch",
@@ -182,14 +207,48 @@ class RemotePromiseStore:
                 "state": "REJECTED_CANCELED",
                 "value": {
                     "headers": headers or {},
-                    "data": self._store.encoder.encode(data),
+                    "data": self._encoder.encode(data),
                 },
             },
         )
 
         res = _call(req.prepare()).json()
 
-        return DurablePromise.from_dict(self._store, res)
+        return DurablePromise.from_dict(
+            self._store,
+            res,
+            self._encoder.decode(res["param"].get("data")),
+            self._encoder.decode(res["value"].get("data")),
+        )
+
+    def callback(
+        self,
+        *,
+        id: str,
+        promise_id: str,
+        root_promise_id: str,
+        timeout: int,
+        recv: str,
+    ) -> tuple[DurablePromise, Callback | None]:
+        req = Request(
+            method="post",
+            url=f"{self._store.url}/callbacks",
+            json={
+                "id": id,
+                "promiseId": promise_id,
+                "rootPromiseId": root_promise_id,
+                "timeout": timeout,
+                "recv": recv,
+            },
+        )
+        res = _call(req.prepare()).json()
+
+        return DurablePromise.from_dict(
+            self._store,
+            res["promise"],
+            self._encoder.decode(res["promise"]["param"].get("data")),
+            self._encoder.decode(res["promise"]["value"].get("data")),
+        ), Callback.from_dict(res["callback"]) if "callback" in res else None
 
 
 class RemoteTaskStore:

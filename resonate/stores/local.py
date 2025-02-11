@@ -4,8 +4,13 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, final
 
+from typing_extensions import Any
+
 from resonate.encoders.base64 import Base64Encoder
+from resonate.encoders.chain import ChainEncoder
+from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateError
+from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise, DurablePromiseValue
 from resonate.models.message import InvokeMesg, Mesg, ResumeMesg, TaskMesg
 from resonate.models.task import Task
@@ -43,8 +48,11 @@ def now() -> int:
 
 
 class LocalStore:
-    def __init__(self, encoder: Encoder[str | None, str | None] | None = None) -> None:
-        self.encoder = encoder or Base64Encoder()
+    def __init__(self, encoder: Encoder[Any, str | None] | None = None) -> None:
+        self._encoder = encoder or ChainEncoder(
+            JsonEncoder(),
+            Base64Encoder(),
+        )
         self._promises: dict[str, DurablePromiseRecord] = {}
         self._tasks: dict[str, TaskRecord] = {}
 
@@ -54,7 +62,12 @@ class LocalStore:
     @property
     def promises(self) -> LocalPromiseStore:
         return LocalPromiseStore(
-            self, self._promises, self._tasks, self._routers, self._senders
+            self,
+            self._encoder,
+            self._promises,
+            self._tasks,
+            self._routers,
+            self._senders,
         )
 
     @property
@@ -77,12 +90,14 @@ class LocalPromiseStore:
     def __init__(
         self,
         store: LocalStore,
+        encoder: Encoder[Any, str | None],
         promises: dict[str, DurablePromiseRecord],
         tasks: dict[str, TaskRecord],
         routers: list[Router],
         senders: dict[str, Sender],
     ) -> None:
         self._store = store
+        self._encoder = encoder
         self._promises = promises
         self._tasks = tasks
         self._routers = routers
@@ -96,7 +111,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> DurablePromise:
         promise, _ = self._create(
@@ -121,7 +136,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> tuple[DurablePromise, Task | None]:
         return self._create(
@@ -143,7 +158,7 @@ class LocalPromiseStore:
         ikey: str | None,
         strict: bool,
         headers: dict[str, str] | None,
-        data: str | None,
+        data: Any,
         timeout: int,
         tags: dict[str, str] | None,
         pid: str | None = None,
@@ -159,7 +174,7 @@ class LocalPromiseStore:
                 timeout=timeout,
                 param=DurablePromiseRecordValue(
                     headers=headers or {},
-                    data=self._store.encoder.encode(data),
+                    data=self._encoder.encode(data),
                 ),
                 value=DurablePromiseRecordValue(headers={}, data=None),
                 created_on=now(),
@@ -167,6 +182,7 @@ class LocalPromiseStore:
                 ikey_for_create=ikey,
                 ikey_for_complete=None,
                 tags=tags,
+                callbacks=[],
             )
 
             for r in self._routers:
@@ -233,10 +249,12 @@ class LocalPromiseStore:
             ikey_for_create=new_item.ikey_for_create,
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
-                headers=new_item.param.headers, data=new_item.param.data
+                headers=new_item.param.headers,
+                data=self._encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
-                headers=new_item.value.headers, data=new_item.value.data
+                headers=new_item.value.headers,
+                data=self._encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -250,7 +268,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         record = self._promises.get(id)
         if record is None:
@@ -264,13 +282,14 @@ class LocalPromiseStore:
                 param=record.param,
                 value=DurablePromiseRecordValue(
                     headers=headers or {},
-                    data=self._store.encoder.encode(data),
+                    data=self._encoder.encode(data),
                 ),
                 created_on=record.created_on,
                 completed_on=now(),
                 ikey_for_create=record.ikey_for_create,
                 ikey_for_complete=ikey,
                 tags=record.tags,
+                callbacks=record.callbacks,
             )
         elif (strict and record.state != "RESOLVED") or (
             record.state != "REJECTED_TIMEDOUT"
@@ -289,10 +308,12 @@ class LocalPromiseStore:
             ikey_for_create=new_item.ikey_for_create,
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
-                headers=new_item.param.headers, data=new_item.param.data
+                headers=new_item.param.headers,
+                data=self._encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
-                headers=new_item.value.headers, data=new_item.value.data
+                headers=new_item.value.headers,
+                data=self._encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -306,7 +327,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         record = self._promises.get(id)
         if record is None:
@@ -320,13 +341,14 @@ class LocalPromiseStore:
                 param=record.param,
                 value=DurablePromiseRecordValue(
                     headers=headers or {},
-                    data=self._store.encoder.encode(data),
+                    data=self._encoder.encode(data),
                 ),
                 created_on=record.created_on,
                 completed_on=now(),
                 ikey_for_create=record.ikey_for_create,
                 ikey_for_complete=ikey,
                 tags=record.tags,
+                callbacks=record.callbacks,
             )
         elif (strict and record.state != "REJECTED") or (
             record.state != "REJECTED_TIMEDOUT"
@@ -345,10 +367,12 @@ class LocalPromiseStore:
             ikey_for_create=new_item.ikey_for_create,
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
-                headers=new_item.param.headers, data=new_item.param.data
+                headers=new_item.param.headers,
+                data=self._encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
-                headers=new_item.value.headers, data=new_item.value.data
+                headers=new_item.value.headers,
+                data=self._encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -362,7 +386,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         record = self._promises.get(id)
         if record is None:
@@ -376,13 +400,14 @@ class LocalPromiseStore:
                 param=record.param,
                 value=DurablePromiseRecordValue(
                     headers=headers or {},
-                    data=self._store.encoder.encode(data),
+                    data=self._encoder.encode(data),
                 ),
                 created_on=record.created_on,
                 completed_on=now(),
                 ikey_for_create=record.ikey_for_create,
                 ikey_for_complete=ikey,
                 tags=record.tags,
+                callbacks=record.callbacks,
             )
         elif (strict and record.state != "REJECTED_CANCELED") or (
             record.state != "REJECTED_TIMEDOUT"
@@ -401,14 +426,67 @@ class LocalPromiseStore:
             ikey_for_create=new_item.ikey_for_create,
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
-                headers=new_item.param.headers, data=new_item.param.data
+                headers=new_item.param.headers,
+                data=self._encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
-                headers=new_item.value.headers, data=new_item.value.data
+                headers=new_item.value.headers,
+                data=self._encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
             completed_on=new_item.completed_on,
+        )
+
+    def callback(
+        self,
+        *,
+        id: str,
+        promise_id: str,
+        root_promise_id: str,
+        timeout: int,
+        recv: str,
+    ) -> tuple[DurablePromise, Callback | None]:
+        promise = self._promises.get(promise_id)
+        if promise is None:
+            msg = "Task not found"
+            raise ResonateError(msg, "STORE_NOT_FOUND")
+
+        durable_promise = DurablePromise(
+            store=self._store,
+            id=promise.id,
+            state=promise.state,
+            timeout=promise.timeout,
+            ikey_for_create=promise.ikey_for_create,
+            ikey_for_complete=promise.ikey_for_complete,
+            param=DurablePromiseValue(
+                headers=promise.param.headers,
+                data=self._encoder.decode(promise.param.data),
+            ),
+            value=DurablePromiseValue(
+                headers=promise.value.headers,
+                data=self._encoder.decode(promise.value.data),
+            ),
+            tags=promise.tags or {},
+            created_on=promise.created_on,
+            completed_on=promise.completed_on,
+        )
+        if promise.completed_on is not None:
+            return durable_promise, None
+
+        callback = CallbackRecord(
+            id=id,
+            promise_id=promise_id,
+            root_promise_id=root_promise_id,
+            timeout=timeout,
+            created_on=now(),
+        )
+        promise.callbacks.append(callback)
+        return durable_promise, Callback(
+            id=callback.id,
+            promise_id=callback.promise_id,
+            timeout=callback.timeout,
+            created_on=callback.created_on,
         )
 
     def _timeout(self, promise: DurablePromiseRecord) -> DurablePromiseRecord:
@@ -427,6 +505,7 @@ class LocalPromiseStore:
                 completed_on=promise.timeout,
                 ikey_for_create=promise.ikey_for_create,
                 ikey_for_complete=None,
+                callbacks=promise.callbacks,
             )
         return promise
 
@@ -535,6 +614,7 @@ class DurablePromiseRecord:
     tags: dict[str, str] | None
     created_on: int
     completed_on: int | None
+    callbacks: list[CallbackRecord]
 
 
 @final
@@ -542,6 +622,16 @@ class DurablePromiseRecord:
 class DurablePromiseRecordValue:
     headers: dict[str, str] | None
     data: str | None
+
+
+@final
+@dataclass(frozen=True)
+class CallbackRecord:
+    id: str
+    root_promise_id: str
+    promise_id: str
+    timeout: int
+    created_on: int
 
 
 @final

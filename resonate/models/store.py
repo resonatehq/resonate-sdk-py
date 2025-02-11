@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from resonate.models.callback import Callback
     from resonate.models.durable_promise import DurablePromise
-    from resonate.models.encoder import Encoder
     from resonate.models.message import InvokeMesg, ResumeMesg
     from resonate.models.task import Task
 
 
 class Store(Protocol):
-    @property
-    def encoder(self) -> Encoder: ...
-
     @property
     def promises(self) -> PromiseStore: ...
 
@@ -29,7 +26,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> DurablePromise: ...
 
@@ -43,7 +40,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> tuple[DurablePromise, Task | None]: ...
 
@@ -54,7 +51,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise: ...
 
     def reject(
@@ -64,7 +61,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise: ...
 
     def cancel(
@@ -74,8 +71,18 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise: ...
+
+    def callback(
+        self,
+        *,
+        id: str,
+        promise_id: str,
+        root_promise_id: str,
+        timeout: int,
+        recv: str,
+    ) -> tuple[DurablePromise, Callback | None]: ...
 
 
 class TaskStore(Protocol):
