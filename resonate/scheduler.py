@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from logging import root
 import queue
 import sys
 import threading
@@ -24,11 +25,42 @@ from resonate.models.context import (
     Yieldable,
 )
 from resonate.models.durable_promise import DurablePromise
+from resonate.models.enqueuable import Enqueueable
+from resonate.models.message import Mesg
 from resonate.models.result import Ko, Ok, Result
+from resonate.models.store import Store
 from resonate.models.task import Task
 from resonate.processor import Processor
 from resonate.registry import Registry
 from resonate.stores import LocalStore
+from resonate.stores.local import Recv
+
+# Sender
+
+
+class LocalSender:
+    def __init__(self, pid: str, ttl: int,registry: Registry, store: Store, cq: Enqueueable[Invoke | Resume | Notify]) -> None:
+        self._store = store
+        self._q = cq
+        self._pid = pid
+        self._ttl = ttl
+        self._registry = registry
+
+    def send(self, recv: Recv, mesg: Mesg) -> None:
+        print(mesg)
+        assert False, "We are here"
+        # translates a msg into a cmd
+        match mesg:
+            case {"type": "invoke", "task": task_mesg}:
+                root, leaf = self._store.tasks.claim(task_mesg["id"], task_mesg["counter"], self._pid, self._ttl)
+                assert leaf is None
+                self._registry.get(root.params)
+                self._q.enqueue(Invoke(id=roo))
+            case {"type": "resume", "task": task_mesg}:
+                self._q.enqueue((task_mesg["id"], task_mesg["counter"]))
+            case {"type": "notify", "task": task_mesg}:
+                raise NotImplementedError
+
 
 # Commands
 
@@ -96,7 +128,7 @@ class Scheduler:
         ctx: type[Contextual] = Context,
         processor: Processor | None = None,
         registry: Registry | None = None,
-        store: LocalStore | None = None,
+        store: Store | None = None,
     ) -> None:
         # command queue
         self.cq = cq or queue.Queue[Command | tuple[Command, Future] | None]()
@@ -118,6 +150,8 @@ class Scheduler:
 
         # store
         self.store = store or LocalStore()
+        if isinstance(self.store, LocalStore):
+            self.store.add_sender(self.pid, LocalSender(self.store, self))
 
         # scheduler thread
         self.thread = threading.Thread(target=self.loop, daemon=True)

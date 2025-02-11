@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 if TYPE_CHECKING:
     from resonate.models.callback import Callback
     from resonate.models.durable_promise import DurablePromise
-    from resonate.models.message import InvokeMesg, ResumeMesg
     from resonate.models.task import Task
 
 
@@ -93,7 +92,7 @@ class TaskStore(Protocol):
         counter: int,
         pid: str,
         ttl: int,
-    ) -> InvokeMesg | ResumeMesg: ...
+    ) -> tuple[DurablePromise, DurablePromise | None]: ...
 
     def complete(
         self,

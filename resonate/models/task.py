@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from resonate.models.durable_promise import DurablePromise
+
 if TYPE_CHECKING:
-    from resonate.models.message import InvokeMesg, ResumeMesg
     from resonate.models.store import Store
 
 
@@ -15,7 +16,7 @@ class Task:
 
     store: Store
 
-    def claim(self, pid: str, ttl: int) -> InvokeMesg | ResumeMesg:
+    def claim(self, pid: str, ttl: int) -> tuple[DurablePromise, DurablePromise | None]:
         return self.store.tasks.claim(id=self.id, counter=self.counter, pid=pid, ttl=ttl)
 
     def complete(self) -> None:

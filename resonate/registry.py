@@ -6,6 +6,7 @@ from typing import Any, Concatenate, overload
 
 from resonate.models.context import Contextual
 from resonate.models.handle import Handle
+from resonate.task_sources.poller import Enqueueable
 
 #####################################################################
 ## Registry

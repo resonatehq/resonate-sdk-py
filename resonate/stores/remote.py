@@ -16,7 +16,6 @@ from resonate.models.task import Task
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
-    from resonate.models.message import InvokeMesg, ResumeMesg
 
 
 class RemoteStore:
@@ -262,7 +261,7 @@ class RemoteTaskStore:
         counter: int,
         pid: str,
         ttl: int,
-    ) -> InvokeMesg | ResumeMesg:
+    ) -> tuple[DurablePromise, DurablePromise | None]:
         req = Request(
             method="post",
             url=f"{self._store.url}/tasks/claim",
