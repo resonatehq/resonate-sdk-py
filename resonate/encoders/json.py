@@ -4,10 +4,8 @@ import importlib
 import json
 from typing import Any
 
-from resonate.models.encoder import Encoder
 
-
-class JsonEncoder(Encoder[Any, str | None]):
+class JsonEncoder:
     def encode(self, obj: Any) -> str | None:
         if obj is None:
             return None

@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from resonate.encoders.base64 import Base64Encoder
+from resonate.encoders.chain import ChainEncoder
 from resonate.encoders.json import JsonEncoder
 
 
@@ -31,6 +32,20 @@ def test_json_encoder(value: Any) -> None:
     encoder = JsonEncoder()
     encoded = encoder.encode(value)
 
+    match encoder.decode(encoded):
+        case Exception() as decoded:
+            assert isinstance(decoded, type(value))
+            assert decoded.args == value.args
+        case _ as decoded:
+            assert value == decoded
+
+
+@pytest.mark.parametrize(
+    "value", [{"value": 1}, CustomError("abc"), TypeError("HERE"), None]
+)
+def test_chain_encoder(value: Any) -> None:
+    encoder = ChainEncoder(JsonEncoder(), Base64Encoder())
+    encoded = encoder.encode(value)
     match encoder.decode(encoded):
         case Exception() as decoded:
             assert isinstance(decoded, type(value))

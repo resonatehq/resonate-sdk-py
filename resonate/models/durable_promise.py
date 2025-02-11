@@ -94,7 +94,9 @@ class DurablePromise:
         self.completed_on = canceled.completed_on
 
     @classmethod
-    def from_dict(cls, store: Store, data: dict[str, Any]) -> DurablePromise:
+    def from_dict(
+        cls, store: Store, data: dict[str, Any], param: Any, value: Any
+    ) -> DurablePromise:
         return cls(
             store=store,
             id=data["id"],
@@ -102,8 +104,8 @@ class DurablePromise:
             timeout=data["timeout"],
             ikey_for_create=data.get("idempotencyKeyForCreate"),
             ikey_for_complete=data.get("idempotencyKeyForComplete"),
-            param=DurablePromiseValue.from_dict(data["param"]),
-            value=DurablePromiseValue.from_dict(data["value"]),
+            param=DurablePromiseValue(data["param"].get("headers"), param),
+            value=DurablePromiseValue(data["value"].get("headers"), value),
             tags=data.get("tags", {}),
             created_on=data["createdOn"],
             completed_on=data.get("completedOn"),
@@ -113,8 +115,4 @@ class DurablePromise:
 @dataclass
 class DurablePromiseValue:
     headers: dict[str, str] | None
-    data: str | None
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> DurablePromiseValue:
-        return cls(headers=data.get("headers"), data=data.get("data"))
+    data: Any

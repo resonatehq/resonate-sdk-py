@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from resonate.models.durable_promise import DurablePromise
@@ -29,7 +29,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> DurablePromise: ...
 
@@ -43,7 +43,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> tuple[DurablePromise, Task | None]: ...
 
@@ -54,7 +54,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise: ...
 
     def reject(
@@ -64,7 +64,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise: ...
 
     def cancel(
@@ -74,7 +74,7 @@ class PromiseStore(Protocol):
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise: ...
 
 

@@ -4,7 +4,11 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, final
 
+from typing_extensions import Any
+
 from resonate.encoders.base64 import Base64Encoder
+from resonate.encoders.chain import ChainEncoder
+from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateError
 from resonate.models.durable_promise import DurablePromise, DurablePromiseValue
 from resonate.models.message import InvokeMesg, Mesg, ResumeMesg, TaskMesg
@@ -43,8 +47,11 @@ def now() -> int:
 
 
 class LocalStore:
-    def __init__(self, encoder: Encoder[str | None, str | None] | None = None) -> None:
-        self.encoder = encoder or Base64Encoder()
+    def __init__(self, encoder: Encoder[Any, str | None] | None = None) -> None:
+        self.encoder = encoder or ChainEncoder(
+            JsonEncoder(),
+            Base64Encoder(),
+        )
         self._promises: dict[str, DurablePromiseRecord] = {}
         self._tasks: dict[str, TaskRecord] = {}
 
@@ -96,7 +103,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> DurablePromise:
         promise, _ = self._create(
@@ -121,7 +128,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> tuple[DurablePromise, Task | None]:
         return self._create(
@@ -143,7 +150,7 @@ class LocalPromiseStore:
         ikey: str | None,
         strict: bool,
         headers: dict[str, str] | None,
-        data: str | None,
+        data: Any,
         timeout: int,
         tags: dict[str, str] | None,
         pid: str | None = None,
@@ -233,10 +240,12 @@ class LocalPromiseStore:
             ikey_for_create=new_item.ikey_for_create,
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
-                headers=new_item.param.headers, data=new_item.param.data
+                headers=new_item.param.headers,
+                data=self._store.encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
-                headers=new_item.value.headers, data=new_item.value.data
+                headers=new_item.value.headers,
+                data=self._store.encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -250,7 +259,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         record = self._promises.get(id)
         if record is None:
@@ -289,10 +298,12 @@ class LocalPromiseStore:
             ikey_for_create=new_item.ikey_for_create,
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
-                headers=new_item.param.headers, data=new_item.param.data
+                headers=new_item.param.headers,
+                data=self._store.encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
-                headers=new_item.value.headers, data=new_item.value.data
+                headers=new_item.value.headers,
+                data=self._store.encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -306,7 +317,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         record = self._promises.get(id)
         if record is None:
@@ -345,10 +356,12 @@ class LocalPromiseStore:
             ikey_for_create=new_item.ikey_for_create,
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
-                headers=new_item.param.headers, data=new_item.param.data
+                headers=new_item.param.headers,
+                data=self._store.encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
-                headers=new_item.value.headers, data=new_item.value.data
+                headers=new_item.value.headers,
+                data=self._store.encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
@@ -362,7 +375,7 @@ class LocalPromiseStore:
         ikey: str | None = None,
         strict: bool = False,
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Any = None,
     ) -> DurablePromise:
         record = self._promises.get(id)
         if record is None:
@@ -401,10 +414,12 @@ class LocalPromiseStore:
             ikey_for_create=new_item.ikey_for_create,
             ikey_for_complete=new_item.ikey_for_complete,
             param=DurablePromiseValue(
-                headers=new_item.param.headers, data=new_item.param.data
+                headers=new_item.param.headers,
+                data=self._store.encoder.decode(new_item.param.data),
             ),
             value=DurablePromiseValue(
-                headers=new_item.value.headers, data=new_item.value.data
+                headers=new_item.value.headers,
+                data=self._store.encoder.decode(new_item.value.data),
             ),
             tags=new_item.tags or {},
             created_on=new_item.created_on,
