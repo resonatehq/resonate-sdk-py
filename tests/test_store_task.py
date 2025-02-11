@@ -44,6 +44,7 @@ class TaskTranslator:
         assert mesg["type"] == "invoke"
         self.cq.put((mesg["task"]["id"], mesg["task"]["counter"]))
 
+
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 stores: list[Store] = [
