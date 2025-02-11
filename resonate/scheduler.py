@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from logging import root
 import queue
 import sys
 import threading
 import uuid
 from collections.abc import Callable, Generator
 from concurrent.futures import Future
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from inspect import isgeneratorfunction
 from typing import Any, Literal
 
 from resonate.context import Context
 from resonate.graph import Graph, Node
+from resonate.models.commands import Command, Invoke, Notify, Resume
 from resonate.models.context import (
     AWT,
     LFC,
@@ -39,7 +39,7 @@ from resonate.stores.local import Recv
 
 
 class LocalSender:
-    def __init__(self, pid: str, ttl: int,registry: Registry, store: Store, cq: Enqueueable[Invoke | Resume | Notify]) -> None:
+    def __init__(self, pid: str, ttl: int, registry: Registry, store: Store, cq: Enqueueable[Invoke | Resume | Notify]) -> None:
         self._store = store
         self._q = cq
         self._pid = pid
@@ -48,11 +48,10 @@ class LocalSender:
 
     def send(self, recv: Recv, mesg: Mesg) -> None:
         print(mesg)
-        assert False, "We are here"
         # translates a msg into a cmd
         match mesg:
             case {"type": "invoke", "task": task_mesg}:
-                root, leaf = self._store.tasks.claim(task_mesg["id"], task_mesg["counter"], self._pid, self._ttl)
+                root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=self._pid, ttl=self._ttl)
                 assert leaf is None
                 self._registry.get(root.params)
                 self._q.enqueue(Invoke(id=roo))
@@ -60,61 +59,6 @@ class LocalSender:
                 self._q.enqueue((task_mesg["id"], task_mesg["counter"]))
             case {"type": "notify", "task": task_mesg}:
                 raise NotImplementedError
-
-
-# Commands
-
-type Command = Invoke | Resume | Return | Listen | Notify
-
-
-@dataclass
-class Invoke:
-    id: str
-    name: str
-    func: Callable[..., Any]
-    args: tuple[Any, ...] = field(default_factory=tuple)
-    kwargs: dict[str, Any] = field(default_factory=dict)
-    promise: DurablePromise | None = None
-    task: Task | None = None
-
-    @property
-    def cid(self) -> str:
-        return self.id
-
-
-@dataclass
-class Resume:
-    id: str
-    cid: str
-    promise: DurablePromise
-    task: Task
-    invoke: Invoke
-
-
-@dataclass
-class Return:
-    id: str
-    cid: str
-    result: Result
-
-
-@dataclass
-class Listen:
-    id: str
-
-    @property
-    def cid(self) -> str:
-        return self.id
-
-
-@dataclass
-class Notify:
-    id: str
-    promise: DurablePromise
-
-    @property
-    def cid(self) -> str:
-        return self.id
 
 
 # Scheduler
@@ -151,7 +95,7 @@ class Scheduler:
         # store
         self.store = store or LocalStore()
         if isinstance(self.store, LocalStore):
-            self.store.add_sender(self.pid, LocalSender(self.store, self))
+            self.store.add_sender(self.pid, LocalSender(self.pid, sys.maxsize, self.registry, self.store, self))
 
         # scheduler thread
         self.thread = threading.Thread(target=self.loop, daemon=True)
@@ -691,7 +635,7 @@ class Computation:
                     assert node.id == self.id, "Node id must match computation id."
 
                     # create new command
-                    commands.append(LFX(node.id, func, args, kwargs))  # TODO: map to different command
+                    commands.append(LFX(node.id, func, args, kwargs))
 
                     # RunnableCoro -> Internal
                     node.transition(Internal(promise))
@@ -745,7 +689,7 @@ class Coroutine:
         self.done = False
         self.unyielded: list[AWT | TRM] = []
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Coroutine(done={self.done})"
 
     def send(self, value: Result) -> Yieldable | TRM:

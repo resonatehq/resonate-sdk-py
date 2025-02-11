@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from resonate.encoders.json import JsonEncoder
-from resonate.models.enqueuable import Enqueueable
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
+    from resonate.models.enqueuable import Enqueueable
     from resonate.models.message import Mesg
 
 

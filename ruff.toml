@@ -16,15 +16,18 @@ ignore = [
     "D102",
     "D103",
     "D104",
+    "D105",
     "D107",
     "D203",
     "D211",
     "D213",
     "E501",
+    "FIX002",
     "INP001",
     "PLR0911",
     "PLR0913",
     "S101",
+    "TD003",
 ]
 logger-objects = ["resonate.logging.logger"]
 

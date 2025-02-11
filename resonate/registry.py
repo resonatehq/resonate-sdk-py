@@ -4,6 +4,7 @@ from collections.abc import Callable, Generator
 from concurrent.futures import Future
 from typing import Any, Concatenate, overload
 
+from resonate.models.commands import Invoke, Listen
 from resonate.models.context import Contextual
 from resonate.models.handle import Handle
 from resonate.task_sources.poller import Enqueueable
