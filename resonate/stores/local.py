@@ -105,6 +105,84 @@ class LocalStore:
                 raise NotImplementedError
         return True
 
+    def _transition_task(self, source: TaskRecord | None, target: ToInit | ToClaimed | ToEnqueued | ToCompleted) -> TaskRecord:
+        new_task: TaskRecord
+        match source, target:
+            case None, ToInit(type, recv, created_on, root_promise_id, leaf_promise_id):
+                new_task = TaskRecord(
+                    id=str(len(self._tasks) + 1),
+                    counter=1,
+                    state="INIT",
+                    type=type,
+                    recv=recv,
+                    root_promise_id=root_promise_id,
+                    leaf_promise_id=leaf_promise_id,
+                    pid=None,
+                    ttl=0,
+                    created_on=created_on,
+                    completed_on=None,
+                )
+            case TaskRecord(state="INIT"), ToClaimed(pid, ttl):
+                new_task = TaskRecord(
+                    id=source.id,
+                    counter=source.counter,
+                    state="CLAIMED",
+                    type=source.type,
+                    recv=source.recv,
+                    root_promise_id=source.root_promise_id,
+                    leaf_promise_id=source.leaf_promise_id,
+                    pid=pid,
+                    ttl=ttl,
+                    created_on=source.created_on,
+                    completed_on=source.completed_on,
+                )
+            case TaskRecord(state="INIT"), ToEnqueued():
+                new_task = TaskRecord(
+                    id=source.id,
+                    counter=source.counter,
+                    state="ENQUEUED",
+                    type=source.type,
+                    recv=source.recv,
+                    root_promise_id=source.root_promise_id,
+                    leaf_promise_id=source.leaf_promise_id,
+                    pid=source.pid,
+                    ttl=source.ttl,
+                    created_on=source.created_on,
+                    completed_on=source.completed_on,
+                )
+            case TaskRecord(state="ENQUEUED"), ToClaimed(pid, ttl):
+                new_task = TaskRecord(
+                    id=source.id,
+                    counter=source.counter,
+                    state="CLAIMED",
+                    type=source.type,
+                    recv=source.recv,
+                    root_promise_id=source.root_promise_id,
+                    leaf_promise_id=source.leaf_promise_id,
+                    pid=pid,
+                    ttl=ttl,
+                    created_on=source.created_on,
+                    completed_on=source.completed_on,
+                )
+            case TaskRecord(state="CLAIMED"), ToCompleted(completed_on):
+                new_task = TaskRecord(
+                    id=source.id,
+                    counter=source.counter,
+                    state="COMPLETED",
+                    type=source.type,
+                    recv=source.recv,
+                    root_promise_id=source.root_promise_id,
+                    leaf_promise_id=source.leaf_promise_id,
+                    pid=None,
+                    ttl=None,
+                    created_on=source.created_on,
+                    completed_on=completed_on,
+                )
+            case _:
+                raise RuntimeError("Transition unknown")
+
+        return new_task
+
 
 class LocalPromiseStore:
     def __init__(
@@ -205,7 +283,7 @@ class LocalPromiseStore:
                 tags=tags,
                 callbacks=[],
             )
-            was_created= True
+            was_created = True
         elif strict and record.state != "PENDING":
             msg = "Forbidden request: Durable promise previously created"
             raise ResonateError(msg, "STORE_FORBIDDEN")
@@ -220,17 +298,17 @@ class LocalPromiseStore:
         if was_created:
             for r in self._routers:
                 if recv := r.route(record):
-                    new_task = self._transition_task(
+                    new_task = self._store._transition_task(
                         None,
-                        ToInit("invoke", recv, created_on, id),
+                        ToInit("invoke", recv, created_on, record.id, record.id),
                     )
                     if pid is not None:
-                        new_task = self._transition_task(new_task, ToClaimed(pid, ttl))
+                        new_task = self._store._transition_task(new_task, ToClaimed(pid, ttl))
 
                     self._tasks[new_task.id] = new_task
                     if new_task.state == "INIT":
                         assert self._store.send_task(new_task)
-                        new_task = self._transition_task(new_task, ToEnqueued())
+                        new_task = self._store._transition_task(new_task, ToEnqueued())
 
                     self._tasks[new_task.id] = new_task
                     task = Task.from_dict(self._store, new_task.to_dict())
@@ -491,88 +569,6 @@ class LocalPromiseStore:
             )
         return promise
 
-    def _transition_task(self, source: TaskRecord | None, target: ToInit | ToClaimed | ToEnqueued | ToCompleted) -> TaskRecord:
-        match source, target:
-            case None, ToInit(type, recv, created_on, promise_id):
-                task_id = str(len(self._tasks))
-                new_task = TaskRecord(
-                    id=task_id,
-                    counter=1,
-                    state="INIT",
-                    type=type,
-                    recv=recv,
-                    root_promise_id=promise_id,
-                    leaf_promise_id=promise_id,
-                    pid=None,
-                    ttl=0,
-                    created_on=created_on,
-                    completed_on=None,
-                )
-            case TaskRecord(state="INIT"), ToClaimed(pid, ttl):
-                assert source.completed_on is None
-                new_task = TaskRecord(
-                    id=source.id,
-                    counter=source.counter,
-                    state="CLAIMED",
-                    type=source.type,
-                    recv=source.recv,
-                    root_promise_id=source.root_promise_id,
-                    leaf_promise_id=source.leaf_promise_id,
-                    pid=pid,
-                    ttl=ttl,
-                    created_on=source.created_on,
-                    completed_on=source.completed_on,
-                )
-            case TaskRecord(state="INIT"), ToEnqueued():
-                assert source.completed_on is None
-                new_task = TaskRecord(
-                    id=source.id,
-                    counter=source.counter,
-                    state="ENQUEUED",
-                    type=source.type,
-                    recv=source.recv,
-                    root_promise_id=source.root_promise_id,
-                    leaf_promise_id=source.leaf_promise_id,
-                    pid=source.pid,
-                    ttl=source.ttl,
-                    created_on=source.created_on,
-                    completed_on=source.completed_on,
-                )
-            case TaskRecord(state="ENQUEUED"), ToClaimed(pid, ttl):
-                assert source.completed_on is None
-                new_task = TaskRecord(
-                    id=source.id,
-                    counter=source.counter,
-                    state="CLAIMED",
-                    type=source.type,
-                    recv=source.recv,
-                    root_promise_id=source.root_promise_id,
-                    leaf_promise_id=source.leaf_promise_id,
-                    pid=pid,
-                    ttl=ttl,
-                    created_on=source.created_on,
-                    completed_on=source.completed_on,
-                )
-            case TaskRecord(state="CLAIMED"), ToCompleted(completed_on):
-                assert source.completed_on is None
-                new_task = TaskRecord(
-                    id=source.id,
-                    counter=source.counter,
-                    state="CLAIMED",
-                    type=source.type,
-                    recv=source.recv,
-                    root_promise_id=source.root_promise_id,
-                    leaf_promise_id=source.leaf_promise_id,
-                    pid=source.pid,
-                    ttl=source.ttl,
-                    created_on=source.created_on,
-                    completed_on=completed_on,
-                )
-            case _:
-                raise RuntimeError("Transition unknown")
-
-        return new_task
-
 
 class LocalTaskStore:
     def __init__(
@@ -590,19 +586,7 @@ class LocalTaskStore:
     def claim(self, *, id: str, counter: int, pid: str, ttl: int) -> tuple[DurablePromise, DurablePromise | None]:
         if task_record := self._tasks.get(id):
             if task_record.state in ("INIT", "ENQUEUED") and counter == task_record.counter:
-                task_record = TaskRecord(
-                    id=task_record.id,
-                    counter=task_record.counter,
-                    state="CLAIMED",
-                    type=task_record.type,
-                    recv=task_record.recv,
-                    root_promise_id=task_record.root_promise_id,
-                    leaf_promise_id=task_record.leaf_promise_id,
-                    created_on=task_record.created_on,
-                    completed_on=task_record.completed_on,
-                    ttl=ttl,
-                    pid=pid,
-                )
+                task_record = self._store._transition_task(task_record, ToClaimed(pid, ttl))
                 self._tasks[id] = task_record
                 assert task_record.type != "notify"
                 if task_record.type == "invoke":
@@ -639,20 +623,7 @@ class LocalTaskStore:
     def complete(self, *, id: str, counter: int) -> None:
         if task_record := self._tasks.get(id):
             if task_record.state == "CLAIMED" and counter == task_record.counter:
-                task_record = TaskRecord(
-                    id=id,
-                    counter=counter,
-                    state="COMPLETED",
-                    type=task_record.type,
-                    recv=task_record.recv,
-                    root_promise_id=task_record.root_promise_id,
-                    leaf_promise_id=task_record.leaf_promise_id,
-                    created_on=task_record.created_on,
-                    completed_on=now(),
-                    pid=None,
-                    ttl=None,
-                )
-                self._tasks[id] = task_record
+                self._tasks[id] = self._store._transition_task(task_record, ToCompleted(now()))
             else:
                 msg = "Task already claimed, completed, or invalid counter"
                 raise ResonateError(
@@ -750,7 +721,8 @@ class ToInit:
     type: Literal["invoke", "resume", "notify"]
     recv: Recv
     created_on: int
-    promise_id: str
+    root_promise_id: str
+    leaf_promise_id: str
 
 
 @final
