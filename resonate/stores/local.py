@@ -321,98 +321,6 @@ class LocalPromiseStore:
             self._encoder.decode(record.value.data),
         ), task
 
-    def _create_v1(
-        self,
-        *,
-        id: str,
-        ikey: str | None,
-        strict: bool,
-        headers: dict[str, str] | None,
-        data: Any,
-        timeout: int,
-        tags: dict[str, str] | None,
-        pid: str | None = None,
-        ttl: int = 0,
-    ) -> tuple[DurablePromise, Task | None]:
-        created_on = now()
-        record = self._promises.get(id)
-        task: Task | None = None
-
-        if record is None:
-            record = DurablePromiseRecord(
-                state="PENDING",
-                id=id,
-                timeout=timeout,
-                param=DurablePromiseRecordValue(
-                    headers=headers or {},
-                    data=self._encoder.encode(data),
-                ),
-                value=DurablePromiseRecordValue(headers={}, data=None),
-                created_on=created_on,
-                completed_on=None,
-                ikey_for_create=ikey,
-                ikey_for_complete=None,
-                tags=tags,
-                callbacks=[],
-            )
-
-            for r in self._routers:
-                if recv := r.route(record):
-                    task_id = str(len(self._tasks))
-                    state = "INIT" if not pid else "CLAIMED"
-                    new_task = TaskRecord(
-                        id=task_id,
-                        counter=1,
-                        state=state,
-                        type="invoke",
-                        recv=recv,
-                        root_promise_id=record.id,
-                        leaf_promise_id=record.id,
-                        pid=pid,
-                        ttl=ttl,
-                        created_on=created_on,
-                        completed_on=None,
-                    )
-
-                    task = Task.from_dict(self._store, new_task.to_dict())
-
-                    self._tasks[task_id] = new_task
-                    if state == "INIT":
-                        assert self._store.send_task(new_task)
-                        state = "ENQUEUED"
-
-                    self._tasks[task_id] = TaskRecord(
-                        id=new_task.id,
-                        counter=new_task.counter,
-                        state=state,
-                        type=new_task.type,
-                        recv=new_task.recv,
-                        root_promise_id=new_task.root_promise_id,
-                        leaf_promise_id=new_task.leaf_promise_id,
-                        pid=new_task.pid,
-                        ttl=new_task.ttl,
-                        created_on=new_task.created_on,
-                        completed_on=new_task.completed_on,
-                    )
-
-                    break
-
-        elif strict and record.state != "PENDING":
-            msg = "Forbidden request: Durable promise previously created"
-            raise ResonateError(msg, "STORE_FORBIDDEN")
-        elif record.ikey_for_create is None or ikey != record.ikey_for_create:
-            msg = "Forbidden request: Missing idempotency key for create"
-            raise ResonateError(msg, "STORE_FORBIDDEN")
-
-        new_item = self._timeout(record)
-        self._promises[id] = new_item
-        return DurablePromise.from_dict(
-            self._store,
-            new_item.to_dict(),
-            self._encoder.decode(new_item.param.data),
-            self._encoder.decode(new_item.value.data),
-        ), task
-
     def resolve(
         self,
         *,
@@ -450,11 +358,11 @@ class LocalPromiseStore:
         self, *, id: str, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None, data: Any = None, new_state: Literal["REJECTED_CANCELED", "REJECTED", "RESOLVED"]
     ) -> DurablePromise:
         record = self._promises.get(id)
+        promise_completed_on = now()
         if record is None:
             msg = "Not Found"
             raise ResonateError(msg, "STORE_NOT_FOUND")
         if record.state == "PENDING":
-            promise_completed_on = now()
             record = DurablePromiseRecord(
                 state=new_state,
                 id=record.id,
@@ -472,36 +380,20 @@ class LocalPromiseStore:
                 callbacks=record.callbacks,
             )
             for callback in record.callbacks:
-                task_id = str(len(self._tasks))
-                new_task = TaskRecord(
-                    id=task_id,
-                    counter=1,
-                    state="INIT",
-                    type=callback.type,
-                    recv=callback.recv,
-                    root_promise_id=record.id,
-                    leaf_promise_id=record.id,
-                    pid=None,
-                    ttl=None,
-                    created_on=promise_completed_on,
-                    completed_on=None,
+                new_task = self._store._transition_task(
+                    None,
+                    ToInit(
+                        callback.type,
+                        callback.recv,
+                        promise_completed_on,
+                        callback.root_promise_id,
+                        callback.promise_id,
+                    ),
                 )
-                self._tasks[task_id] = new_task
+                self._tasks[new_task.id] = new_task
                 self._store.send_task(new_task)
-
-                self._tasks[task_id] = TaskRecord(
-                    id=new_task.id,
-                    counter=new_task.counter,
-                    state="ENQUEUED",
-                    type=new_task.type,
-                    recv=new_task.recv,
-                    root_promise_id=new_task.root_promise_id,
-                    leaf_promise_id=new_task.leaf_promise_id,
-                    pid=new_task.pid,
-                    ttl=new_task.ttl,
-                    created_on=new_task.created_on,
-                    completed_on=new_task.completed_on,
-                )
+                new_task = self._store._transition_task(new_task, ToEnqueued())
+                self._tasks[new_task.id] = new_task
 
             record.callbacks.clear()
         elif (strict and record.state != new_state) or (record.state != "REJECTED_TIMEDOUT" and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)):
