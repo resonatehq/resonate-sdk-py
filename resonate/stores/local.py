@@ -201,12 +201,15 @@ class LocalStore:
                     created_on=record.created_on,
                     completed_on=completed_on,
                 )
-
-        msg = "Task already claimed, completed, or invalid counter"
-        raise ResonateError(
-            msg,
-            "STORE_FORBIDDEN",
-        )
+            case None, _:
+                msg = "Task not found"
+                raise ResonateError(msg, "STORE_NOT_FOUND")
+            case _:
+                msg = "Task already claimed, completed, or invalid counter"
+                raise ResonateError(
+                    msg,
+                    "STORE_FORBIDDEN",
+                )
 
 
 class LocalPromiseStore:
@@ -509,11 +512,12 @@ class LocalTaskStore:
         self._tasks = tasks
 
     def claim(self, *, id: str, counter: int, pid: str, ttl: int) -> tuple[DurablePromise, DurablePromise | None]:
-        if task_record := self._tasks.get(id):
-            task_record = self._store._transition_task(id=task_record.id, to="CLAIMED", pid=pid, ttl=ttl, counter=counter)
-            self._tasks[id] = task_record
-            assert task_record.type != "notify"
-            if task_record.type == "invoke":
+        task_record = self._store._transition_task(id=id, to="CLAIMED", pid=pid, ttl=ttl, counter=counter)
+        self._tasks[id] = task_record
+        match task_record.type:
+            case "notify":
+                raise NotImplementedError
+            case "invoke":
                 promise = self._promises[task_record.root_promise_id]
                 return DurablePromise.from_dict(
                     self._store,
@@ -521,8 +525,7 @@ class LocalTaskStore:
                     self._encoder.decode(promise.param.data),
                     self._encoder.decode(promise.value.data),
                 ), None
-
-            if task_record.type == "resume":
+            case "resume":
                 root_promise = self._promises[task_record.root_promise_id]
                 leaf_promise = self._promises[task_record.leaf_promise_id]
                 return DurablePromise.from_dict(
@@ -536,20 +539,9 @@ class LocalTaskStore:
                     self._encoder.decode(leaf_promise.param.data),
                     self._encoder.decode(leaf_promise.value.data),
                 )
-            msg = "Task already claimed, completed, or invalid counter"
-            raise ResonateError(
-                msg,
-                "STORE_FORBIDDEN",
-            )
-        msg = "Task not found"
-        raise ResonateError(msg, "STORE_NOT_FOUND")
 
     def complete(self, *, id: str, counter: int) -> None:
-        if task_record := self._tasks.get(id):
-            self._tasks[id] = self._store._transition_task(id=task_record.id, counter=counter, to="COMPLETED", completed_on=now())
-        else:
-            msg = "Task not found"
-            raise ResonateError(msg, "STORE_NOT_FOUND")
+        self._tasks[id] = self._store._transition_task(id=id, counter=counter, to="COMPLETED", completed_on=now())
 
     def heartbeat(self, *, pid: str) -> int:
         affected_tasks = 0
