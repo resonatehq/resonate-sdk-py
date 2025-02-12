@@ -183,8 +183,9 @@ class LocalPromiseStore:
         pid: str | None = None,
         ttl: int = 0,
     ) -> tuple[DurablePromise, Task | None]:
+        created_on = now()
         record = self._promises.get(id)
-        task = None
+        task: Task | None = None
 
         if record is None:
             record = DurablePromiseRecord(
@@ -196,7 +197,7 @@ class LocalPromiseStore:
                     data=self._encoder.encode(data),
                 ),
                 value=DurablePromiseRecordValue(headers={}, data=None),
-                created_on=now(),
+                created_on=created_on,
                 completed_on=None,
                 ikey_for_create=ikey,
                 ikey_for_complete=None,
@@ -208,10 +209,6 @@ class LocalPromiseStore:
                 if recv := r.route(record):
                     task_id = str(len(self._tasks))
                     state = "INIT" if not pid else "CLAIMED"
-
-                    task = Task(task_id, 1, store=self._store)
-
-                    created_on = now()
                     new_task = TaskRecord(
                         id=task_id,
                         counter=1,
@@ -225,6 +222,9 @@ class LocalPromiseStore:
                         created_on=created_on,
                         completed_on=None,
                     )
+
+                    task = Task.from_dict(self._store, new_task.to_dict())
+
                     self._tasks[task_id] = new_task
                     if state == "INIT":
                         assert self._store.send_task(new_task)
@@ -255,25 +255,11 @@ class LocalPromiseStore:
 
         new_item = self._timeout(record)
         self._promises[id] = new_item
-
-        return DurablePromise(
-            store=self._store,
-            id=new_item.id,
-            state=new_item.state,
-            timeout=new_item.timeout,
-            ikey_for_create=new_item.ikey_for_create,
-            ikey_for_complete=new_item.ikey_for_complete,
-            param=DurablePromiseValue(
-                headers=new_item.param.headers,
-                data=self._encoder.decode(new_item.param.data),
-            ),
-            value=DurablePromiseValue(
-                headers=new_item.value.headers,
-                data=self._encoder.decode(new_item.value.data),
-            ),
-            tags=new_item.tags or {},
-            created_on=new_item.created_on,
-            completed_on=new_item.completed_on,
+        return DurablePromise.from_dict(
+            self._store,
+            new_item.to_dict(),
+            self._encoder.decode(new_item.param.data),
+            self._encoder.decode(new_item.value.data),
         ), task
 
     def resolve(
@@ -373,25 +359,11 @@ class LocalPromiseStore:
 
         new_item = self._timeout(record)
         self._promises[id] = new_item
-
-        return DurablePromise(
-            store=self._store,
-            id=new_item.id,
-            state=new_item.state,
-            timeout=new_item.timeout,
-            ikey_for_create=new_item.ikey_for_create,
-            ikey_for_complete=new_item.ikey_for_complete,
-            param=DurablePromiseValue(
-                headers=new_item.param.headers,
-                data=self._encoder.decode(new_item.param.data),
-            ),
-            value=DurablePromiseValue(
-                headers=new_item.value.headers,
-                data=self._encoder.decode(new_item.value.data),
-            ),
-            tags=new_item.tags or {},
-            created_on=new_item.created_on,
-            completed_on=new_item.completed_on,
+        return DurablePromise.from_dict(
+            self._store,
+            new_item.to_dict(),
+            self._encoder.decode(new_item.param.data),
+            self._encoder.decode(new_item.value.data),
         )
 
     def callback(
@@ -408,24 +380,11 @@ class LocalPromiseStore:
             msg = "Task not found"
             raise ResonateError(msg, "STORE_NOT_FOUND")
 
-        durable_promise = DurablePromise(
-            store=self._store,
-            id=promise.id,
-            state=promise.state,
-            timeout=promise.timeout,
-            ikey_for_create=promise.ikey_for_create,
-            ikey_for_complete=promise.ikey_for_complete,
-            param=DurablePromiseValue(
-                headers=promise.param.headers,
-                data=self._encoder.decode(promise.param.data),
-            ),
-            value=DurablePromiseValue(
-                headers=promise.value.headers,
-                data=self._encoder.decode(promise.value.data),
-            ),
-            tags=promise.tags or {},
-            created_on=promise.created_on,
-            completed_on=promise.completed_on,
+        durable_promise = DurablePromise.from_dict(
+            self._store,
+            promise.to_dict(),
+            self._encoder.decode(promise.param.data),
+            self._encoder.decode(promise.value.data),
         )
         if promise.completed_on is not None:
             return durable_promise, None
@@ -493,66 +452,26 @@ class LocalTaskStore:
                 assert task_record.type != "notify"
                 if task_record.type == "invoke":
                     promise = self._promises[task_record.root_promise_id]
-
-                    return DurablePromise(
-                        store=self._store,
-                        id=promise.id,
-                        state=promise.state,
-                        timeout=promise.timeout,
-                        ikey_for_create=promise.ikey_for_create,
-                        ikey_for_complete=promise.ikey_for_complete,
-                        param=DurablePromiseValue(
-                            headers=promise.param.headers,
-                            data=self._encoder.decode(promise.param.data),
-                        ),
-                        value=DurablePromiseValue(
-                            headers=promise.value.headers,
-                            data=self._encoder.decode(promise.value.data),
-                        ),
-                        tags=promise.tags or {},
-                        created_on=promise.created_on,
-                        completed_on=promise.completed_on,
+                    return DurablePromise.from_dict(
+                        self._store,
+                        promise.to_dict(),
+                        self._encoder.decode(promise.param.data),
+                        self._encoder.decode(promise.value.data),
                     ), None
 
                 if task_record.type == "resume":
                     root_promise = self._promises[task_record.root_promise_id]
                     leaf_promise = self._promises[task_record.leaf_promise_id]
-                    return DurablePromise(
-                        store=self._store,
-                        id=root_promise.id,
-                        state=root_promise.state,
-                        timeout=root_promise.timeout,
-                        ikey_for_create=root_promise.ikey_for_create,
-                        ikey_for_complete=root_promise.ikey_for_complete,
-                        param=DurablePromiseValue(
-                            headers=root_promise.param.headers,
-                            data=self._encoder.decode(root_promise.param.data),
-                        ),
-                        value=DurablePromiseValue(
-                            headers=root_promise.value.headers,
-                            data=self._encoder.decode(root_promise.value.data),
-                        ),
-                        tags=root_promise.tags or {},
-                        created_on=root_promise.created_on,
-                        completed_on=root_promise.completed_on,
-                    ), DurablePromise(
-                        store=self._store,
-                        id=leaf_promise.id,
-                        state=leaf_promise.state,
-                        timeout=leaf_promise.timeout,
-                        ikey_for_create=leaf_promise.ikey_for_create,
-                        ikey_for_complete=leaf_promise.ikey_for_complete,
-                        param=DurablePromiseValue(
-                            headers=leaf_promise.param.headers,
-                            data=self._encoder.decode(leaf_promise.param.data),
-                        ),
-                        value=DurablePromiseValue(
-                            headers=leaf_promise.value.headers,
-                            data=self._encoder.decode(leaf_promise.value.data),
-                        ),
-                        tags=leaf_promise.tags or {},
-                        created_on=leaf_promise.created_on,
-                        completed_on=leaf_promise.completed_on,
+                    return DurablePromise.from_dict(
+                        self._store,
+                        root_promise.to_dict(),
+                        self._encoder.decode(root_promise.param.data),
+                        self._encoder.decode(root_promise.value.data),
+                    ), DurablePromise.from_dict(
+                        self._store,
+                        leaf_promise.to_dict(),
+                        self._encoder.decode(leaf_promise.param.data),
+                        self._encoder.decode(leaf_promise.value.data),
                     )
             msg = "Task already claimed, completed, or invalid counter"
             raise ResonateError(
@@ -614,12 +533,29 @@ class DurablePromiseRecord:
     completed_on: int | None
     callbacks: list[CallbackRecord]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "state": self.state,
+            "timeout": self.timeout,
+            "idempotencyKeyForCreate": self.ikey_for_create,
+            "idempotencyKeyForComplete": self.ikey_for_complete,
+            "param": self.param.to_dict(),
+            "value": self.value.to_dict(),
+            "tags": self.tags or {},
+            "createdOn": self.created_on,
+            "completedOn": self.completed_on,
+        }
+
 
 @final
 @dataclass(frozen=True)
 class DurablePromiseRecordValue:
     headers: dict[str, str] | None
     data: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"headers": self.headers, "data": self.data}
 
 
 @final
@@ -648,3 +584,6 @@ class TaskRecord:
     ttl: int | None
     created_on: int
     completed_on: int | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "counter": self.counter}
