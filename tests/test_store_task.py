@@ -80,13 +80,12 @@ def task(store: Store) -> Generator[tuple[str, int]]:
                 tags={"resonate:invoke": "default"},
             )
 
-            yield cq.get()
+            yield cq.get_nowait()
 
             store.promises.resolve(id=id)
             store.rmv_sender("default")
         case RemoteStore():
             poller = Poller(group=id, timeout=2)
-            poller.start(cq=TaskTranslator(store, cq), pid=id)
 
             store.promises.create(
                 id=id,
@@ -98,7 +97,9 @@ def task(store: Store) -> Generator[tuple[str, int]]:
                 tags={"resonate:invoke": f"poll://{id}"},
             )
 
-            yield cq.get()
+            poller.step(cq=TaskTranslator(store, cq), pid=id)
+
+            yield cq.get_nowait()
             poller.stop()
             store.promises.resolve(id=id)
 

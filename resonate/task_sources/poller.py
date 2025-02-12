@@ -27,42 +27,44 @@ class Poller:
         self.group = group
         self._encoder = encoder or JsonEncoder()
         self._thread: Thread | None = None
-        self._stopped = False
         self._timeout = timeout
 
     def start(self, cq: Enqueueable[Mesg], pid: str) -> None:
         if self._thread is not None:
             return
-        self._thread = Thread(target=self._run, args=(cq, pid), daemon=True)
+        self._thread = Thread(target=self.loop, args=(cq, pid), daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
-        self._stopped = True
-        assert self._thread
-        self._thread.join()
+        pass
 
-    def _run(self, cq: Enqueueable[Mesg], pid: str) -> None:
-        url = f"{self._url}/{self.group}/{pid}"
-        while not self._stopped:
-            try:
-                with requests.get(url, stream=True, timeout=self._timeout) as res:
-                    for line in res.iter_lines(chunk_size=None, decode_unicode=True):
-                        if self._stopped:
-                            break
+    def url(self, pid: str) -> str:
+        return f"{self._url}/{self.group}/{pid}"
 
-                        if not line:
-                            continue
+    def loop(self, cq: Enqueueable[Mesg], pid: str) -> None:
+        try:
+            while True:
+                with requests.get(self.url(pid), stream=True, timeout=self._timeout) as res:
+                    while True:
+                        if msg := self._step(res):
+                            cq.enqueue(msg)
+        except requests.exceptions.ConnectionError:
+            pass
 
-                        stripped = line.strip()
-                        if not stripped.startswith("data:"):
-                            continue
+    def step(self, cq: Enqueueable[Mesg], pid: str) -> None:
+        with requests.get(self.url(pid), stream=True, timeout=self._timeout) as res:
+            if msg := self._step(res):
+                cq.enqueue(msg)
 
-                        info = self._encoder.decode(stripped[5:])
-                        cq.enqueue(info)
+    def _step(self, res: requests.Response) -> Any:
+        for line in res.iter_lines(chunk_size=None, decode_unicode=True):
+            if not line:
+                continue
 
-            except requests.exceptions.ConnectionError:
-                pass
+            stripped = line.strip()
+            if not stripped.startswith("data:"):
+                continue
 
-            if self._stopped:
-                break
-            time.sleep(1)
+            return self._encoder.decode(stripped[5:])
+
+        return None
