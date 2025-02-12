@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from os import pardir
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, final
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, final
 
 from typing_extensions import Any
 
@@ -171,6 +172,78 @@ class LocalPromiseStore:
         )
 
     def _create(
+        self,
+        *,
+        id: str,
+        ikey: str | None,
+        strict: bool,
+        headers: dict[str, str] | None,
+        data: Any,
+        timeout: int,
+        tags: dict[str, str] | None,
+        pid: str | None = None,
+        ttl: int = 0,
+    ) -> tuple[DurablePromise, Task | None]:
+        created_on = now()
+        was_created: bool = False
+        record = self._promises.get(id)
+
+        if record is None:
+            self._promises[id] = DurablePromiseRecord(
+                state="PENDING",
+                id=id,
+                timeout=timeout,
+                param=DurablePromiseRecordValue(
+                    headers=headers or {},
+                    data=self._encoder.encode(data),
+                ),
+                value=DurablePromiseRecordValue(headers={}, data=None),
+                created_on=created_on,
+                completed_on=None,
+                ikey_for_create=ikey,
+                ikey_for_complete=None,
+                tags=tags,
+                callbacks=[],
+            )
+            was_created= True
+        elif strict and record.state != "PENDING":
+            msg = "Forbidden request: Durable promise previously created"
+            raise ResonateError(msg, "STORE_FORBIDDEN")
+        elif record.ikey_for_create is None or ikey != record.ikey_for_create:
+            msg = "Forbidden request: Missing idempotency key for create"
+            raise ResonateError(msg, "STORE_FORBIDDEN")
+
+        record = self._timeout(self._promises[id])
+        self._promises[id] = record
+
+        task: Task | None = None
+        if was_created:
+            for r in self._routers:
+                if recv := r.route(record):
+                    new_task = self._transition_task(
+                        None,
+                        ToInit("invoke", recv, created_on, id),
+                    )
+                    if pid is not None:
+                        new_task = self._transition_task(new_task, ToClaimed(pid, ttl))
+
+                    self._tasks[new_task.id] = new_task
+                    if new_task.state == "INIT":
+                        assert self._store.send_task(new_task)
+                        new_task = self._transition_task(new_task, ToEnqueued())
+
+                    self._tasks[new_task.id] = new_task
+                    task = Task.from_dict(self._store, new_task.to_dict())
+
+                    break
+        return DurablePromise.from_dict(
+            self._store,
+            record.to_dict(),
+            self._encoder.decode(record.param.data),
+            self._encoder.decode(record.value.data),
+        ), task
+
+    def _create_v1(
         self,
         *,
         id: str,
@@ -418,6 +491,88 @@ class LocalPromiseStore:
             )
         return promise
 
+    def _transition_task(self, source: TaskRecord | None, target: ToInit | ToClaimed | ToEnqueued | ToCompleted) -> TaskRecord:
+        match source, target:
+            case None, ToInit(type, recv, created_on, promise_id):
+                task_id = str(len(self._tasks))
+                new_task = TaskRecord(
+                    id=task_id,
+                    counter=1,
+                    state="INIT",
+                    type=type,
+                    recv=recv,
+                    root_promise_id=promise_id,
+                    leaf_promise_id=promise_id,
+                    pid=None,
+                    ttl=0,
+                    created_on=created_on,
+                    completed_on=None,
+                )
+            case TaskRecord(state="INIT"), ToClaimed(pid, ttl):
+                assert source.completed_on is None
+                new_task = TaskRecord(
+                    id=source.id,
+                    counter=source.counter,
+                    state="CLAIMED",
+                    type=source.type,
+                    recv=source.recv,
+                    root_promise_id=source.root_promise_id,
+                    leaf_promise_id=source.leaf_promise_id,
+                    pid=pid,
+                    ttl=ttl,
+                    created_on=source.created_on,
+                    completed_on=source.completed_on,
+                )
+            case TaskRecord(state="INIT"), ToEnqueued():
+                assert source.completed_on is None
+                new_task = TaskRecord(
+                    id=source.id,
+                    counter=source.counter,
+                    state="ENQUEUED",
+                    type=source.type,
+                    recv=source.recv,
+                    root_promise_id=source.root_promise_id,
+                    leaf_promise_id=source.leaf_promise_id,
+                    pid=source.pid,
+                    ttl=source.ttl,
+                    created_on=source.created_on,
+                    completed_on=source.completed_on,
+                )
+            case TaskRecord(state="ENQUEUED"), ToClaimed(pid, ttl):
+                assert source.completed_on is None
+                new_task = TaskRecord(
+                    id=source.id,
+                    counter=source.counter,
+                    state="CLAIMED",
+                    type=source.type,
+                    recv=source.recv,
+                    root_promise_id=source.root_promise_id,
+                    leaf_promise_id=source.leaf_promise_id,
+                    pid=pid,
+                    ttl=ttl,
+                    created_on=source.created_on,
+                    completed_on=source.completed_on,
+                )
+            case TaskRecord(state="CLAIMED"), ToCompleted(completed_on):
+                assert source.completed_on is None
+                new_task = TaskRecord(
+                    id=source.id,
+                    counter=source.counter,
+                    state="CLAIMED",
+                    type=source.type,
+                    recv=source.recv,
+                    root_promise_id=source.root_promise_id,
+                    leaf_promise_id=source.leaf_promise_id,
+                    pid=source.pid,
+                    ttl=source.ttl,
+                    created_on=source.created_on,
+                    completed_on=completed_on,
+                )
+            case _:
+                raise RuntimeError("Transition unknown")
+
+        return new_task
+
 
 class LocalTaskStore:
     def __init__(
@@ -587,3 +742,31 @@ class TaskRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "counter": self.counter}
+
+
+@final
+@dataclass(frozen=True)
+class ToInit:
+    type: Literal["invoke", "resume", "notify"]
+    recv: Recv
+    created_on: int
+    promise_id: str
+
+
+@final
+@dataclass(frozen=True)
+class ToClaimed:
+    pid: str
+    ttl: int
+
+
+@final
+@dataclass(frozen=True)
+class ToEnqueued:
+    pass
+
+
+@final
+@dataclass(frozen=True)
+class ToCompleted:
+    completed_on: int
