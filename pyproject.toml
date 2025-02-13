@@ -11,7 +11,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-http",
 ]
 readme = "README.md"
-requires-python = ">= 3.9"
+requires-python = ">= 3.10"
 license = { text = "Apache-2.0" }
 
 [project.urls]
@@ -27,11 +27,7 @@ build-backend = "hatchling.build"
 packages = ["src/resonate"]
 
 [dependency-groups]
-dev = [
-    "pyright[nodejs]>=1.1.394",
-    "pytest>=8.3.4",
- "ruff>=0.9.6",
-]
+dev = ["pyright[nodejs]>=1.1.394", "pytest>=8.3.4", "ruff>=0.9.6"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

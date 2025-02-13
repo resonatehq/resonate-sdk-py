@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from queue import Queue
 import sys
 import uuid
 
@@ -10,6 +11,7 @@ import pytest
 from resonate.stores.remote import (
     RemoteStore,
 )
+from resonate.task_sources.poller import Poller
 
 
 @pytest.mark.skipif(
@@ -111,3 +113,32 @@ def test_case_3_create_durable_promise_with_task() -> None:
     assert task_record.counter == 1
     store.tasks.heartbeat(pid=pid)
     store.tasks.complete(task_id=task_record.task_id, counter=task_record.counter)
+
+
+def test_case_4_subscribe_and_get_notified() -> None:
+    store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
+    pid = uuid.uuid4().hex
+    ttl = 5 * 1000
+    id = "test4"
+    promise_record = store.promises.create(
+        id=id,
+        ikey=None,
+        strict=False,
+        headers={},
+        data=None,
+        timeout=sys.maxsize,
+        tags=None,
+    )
+    assert promise_record.is_pending()
+    promise_record, callback_record = store.subscriptions.create(
+        id=id + id,
+        promise_id=id,
+        timeout=sys.maxsize,
+        recv=f"poll://test4/{pid}",
+    )
+    assert callback_record
+    assert promise_record.is_pending()
+    # poller = Poller(url=os.environ["RESONATE_TASKS_URL"], group=id)
+    # cq = Queue()
+    # poller.start(cq, pid)
+    # cq.get()
