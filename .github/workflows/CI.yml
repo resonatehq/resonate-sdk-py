@@ -6,13 +6,13 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - ".github/workflows/CI.yml"
-      - "src/**"
-      - "tests/**"
+      - .github/workflows/CI.yml
+      - src/**
+      - tests/**
 
 env:
-  PYTHONUNBUFFERED: "1"
-  FORCE_COLOR: "1"
+  PYTHONUNBUFFERED: 1
+  FORCE_COLOR: 1
 
 jobs:
   run:
@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: [3.9, 3.10, 3.11, 3.12]
 
     steps:
       - uses: actions/checkout@v4

@@ -1,5 +1,3 @@
-unsafe-fixes = true
-
 [lint]
 select = ["ALL"]
 ignore = [
