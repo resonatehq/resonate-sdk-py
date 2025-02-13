@@ -339,15 +339,18 @@ class LocalPromiseStore:
                         ttl=None,
                         completed_on=None,
                     )
+                    self._tasks[new_task.id] = new_task
                     if pid is not None:
                         new_task = self._store._transition_task(id=new_task.id, to="CLAIMED", pid=pid, ttl=ttl, counter=1)
+                        self._tasks[new_task.id] = new_task
 
-                    self._tasks[new_task.id] = new_task
                     if new_task.state == "INIT":
                         assert self._store.send_task(new_task)
-                        new_task = self._store._transition_task(id=new_task.id, to="ENQUEUED")
+                        new_task = self._tasks[new_task.id]
+                        if new_task.state == "INIT":
+                            new_task = self._store._transition_task(id=new_task.id, to="ENQUEUED")
+                            self._tasks[new_task.id] = new_task
 
-                    self._tasks[new_task.id] = new_task
                     task = Task.from_dict(self._store, new_task.to_dict())
 
                     break
@@ -399,6 +402,7 @@ class LocalPromiseStore:
         if record is None:
             msg = "Not Found"
             raise ResonateError(msg, "STORE_NOT_FOUND")
+
         if record.state == "PENDING":
             record = DurablePromiseRecord(
                 state=new_state,
@@ -416,6 +420,8 @@ class LocalPromiseStore:
                 tags=record.tags,
                 callbacks=record.callbacks,
             )
+            new_item = self._timeout(record)
+            self._promises[id] = new_item
             for callback in record.callbacks:
                 new_task = self._store._transition_task(
                     id=str(len(self._tasks) + 1),
@@ -427,9 +433,11 @@ class LocalPromiseStore:
                     leaf_promise_id=callback.promise_id,
                 )
                 self._tasks[new_task.id] = new_task
-                self._store.send_task(new_task)
-                new_task = self._store._transition_task(id=new_task.id, to="ENQUEUED")
-                self._tasks[new_task.id] = new_task
+                assert self._store.send_task(new_task)
+                new_task = self._tasks[new_task.id]
+                if new_task.state == "INIT":
+                    new_task = self._store._transition_task(id=new_task.id, to="ENQUEUED")
+                    self._tasks[new_task.id] = new_task
 
             record.callbacks.clear()
         elif (strict and record.state != new_state) or (record.state != "REJECTED_TIMEDOUT" and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)):

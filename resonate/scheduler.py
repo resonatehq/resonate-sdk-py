@@ -72,6 +72,7 @@ class LocalSender:
             case {"type": "resume", "task": task_mesg}:
                 root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=self._pid, ttl=self._ttl)
                 assert leaf is not None
+                assert leaf.completed
                 root_info = self._get_information(root)
                 self._q.enqueue(
                     Resume(
