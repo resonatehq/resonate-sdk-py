@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from resonate.context import Context
 from resonate.graph import Graph, Node
-from resonate.models.commands import Command, Invoke, Notify, Resume
+from resonate.models.commands import Command, Invoke, Listen, Notify, Resume, Return
 from resonate.models.context import (
     AWT,
     LFC,
@@ -53,12 +53,60 @@ class LocalSender:
             case {"type": "invoke", "task": task_mesg}:
                 root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=self._pid, ttl=self._ttl)
                 assert leaf is None
-                self._registry.get(root.params)
-                self._q.enqueue(Invoke(id=roo))
+                info = self._get_information(root)
+                self._q.enqueue(
+                    Invoke(
+                        root.id,
+                        info["name"],
+                        info["func"],
+                        info["args"],
+                        info["kwargs"],
+                        root,
+                        Task(
+                            id=task_mesg["id"],
+                            counter=task_mesg["counter"],
+                            store=self._store,
+                        ),
+                    )
+                )
             case {"type": "resume", "task": task_mesg}:
-                self._q.enqueue((task_mesg["id"], task_mesg["counter"]))
+                root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=self._pid, ttl=self._ttl)
+                assert leaf is not None
+                assert leaf.completed
+                root_info = self._get_information(root)
+                self._q.enqueue(
+                    Resume(
+                        id=leaf.id,
+                        cid=root.id,
+                        promise=leaf,
+                        task=Task(id=task_mesg["id"], counter=task_mesg["counter"], store=self._store),
+                        invoke=Invoke(
+                            root.id,
+                            root_info["name"],
+                            root_info["func"],
+                            root_info["args"],
+                            root_info["kwargs"],
+                            root,
+                            Task(
+                                id=task_mesg["id"],
+                                counter=task_mesg["counter"],
+                                store=self._store,
+                            ),
+                        ),
+                    )
+                )
             case {"type": "notify", "task": task_mesg}:
                 raise NotImplementedError
+
+    def _get_information(self, promise: DurablePromise) -> dict[str, Any]:
+        params = promise.params
+        assert isinstance(params, dict)
+        assert params, "data must be in promise param"
+        assert "func" in params, "func must be in promise param data"
+        assert "args" in params, "args must be in promise param data"
+        assert "kwargs" in params, "func must be in promise param data"
+
+        return {"name": params["func"], "func": self._registry.get(params["func"]), "args": params["args"], "kwargs": params["kwargs"]}
 
 
 # Scheduler

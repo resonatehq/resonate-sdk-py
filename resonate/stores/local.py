@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from os import pardir
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, final
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, final
 
 from typing_extensions import Any
 
@@ -104,6 +105,112 @@ class LocalStore:
                 raise NotImplementedError
         return True
 
+    def _transition_task(
+        self,
+        id: str,
+        to: Literal["INIT", "ENQUEUED", "CLAIMED", "COMPLETED"],
+        counter: int | None = None,
+        pid: str | None = None,
+        ttl: int | None = None,
+        completed_on: int | None = None,
+        type: Literal["invoke", "resume", "notify"] | None = None,
+        recv: Recv | None = None,
+        created_on: int | None = None,
+        root_promise_id: str | None = None,
+        leaf_promise_id: str | None = None,
+    ) -> TaskRecord:
+        record = self._tasks.get(id)
+        match record, to:
+            case None, "INIT":
+                assert type is not None
+                assert recv is not None
+                assert root_promise_id is not None
+                assert leaf_promise_id is not None
+                assert created_on is not None
+                return TaskRecord(
+                    id=id,
+                    counter=1,
+                    state=to,
+                    type=type,
+                    recv=recv,
+                    root_promise_id=root_promise_id,
+                    leaf_promise_id=leaf_promise_id,
+                    pid=None,
+                    ttl=None,
+                    created_on=created_on,
+                    completed_on=None,
+                )
+            case TaskRecord(state="INIT"), "CLAIMED" if record.counter == counter:
+                assert pid is not None
+                assert ttl is not None
+                return TaskRecord(
+                    id=record.id,
+                    counter=record.counter,
+                    state=to,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=pid,
+                    ttl=ttl,
+                    created_on=record.created_on,
+                    completed_on=record.completed_on,
+                )
+            case TaskRecord(state="INIT"), "ENQUEUED":
+                return TaskRecord(
+                    id=record.id,
+                    counter=record.counter,
+                    state=to,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=record.pid,
+                    ttl=record.ttl,
+                    created_on=record.created_on,
+                    completed_on=record.completed_on,
+                )
+            case TaskRecord(state="ENQUEUED"), "CLAIMED" if record.counter == counter:
+                assert pid is not None
+                assert ttl is not None
+                return TaskRecord(
+                    id=record.id,
+                    counter=record.counter,
+                    state=to,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=pid,
+                    ttl=ttl,
+                    created_on=record.created_on,
+                    completed_on=record.completed_on,
+                )
+            case TaskRecord(state="CLAIMED"), "COMPLETED" if record.counter == counter:
+                assert completed_on is not None
+                return TaskRecord(
+                    id=record.id,
+                    counter=record.counter,
+                    state=to,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=None,
+                    ttl=None,
+                    created_on=record.created_on,
+                    completed_on=completed_on,
+                )
+            case None, _:
+                msg = "Task not found"
+                raise ResonateError(msg, "STORE_NOT_FOUND")
+            case _:
+                msg = "Task already claimed, completed, or invalid counter"
+                raise ResonateError(
+                    msg,
+                    "STORE_FORBIDDEN",
+                )
+
 
 class LocalPromiseStore:
     def __init__(
@@ -183,11 +290,12 @@ class LocalPromiseStore:
         pid: str | None = None,
         ttl: int = 0,
     ) -> tuple[DurablePromise, Task | None]:
+        created_on = now()
+        was_created: bool = False
         record = self._promises.get(id)
-        task = None
 
         if record is None:
-            record = DurablePromiseRecord(
+            self._promises[id] = DurablePromiseRecord(
                 state="PENDING",
                 id=id,
                 timeout=timeout,
@@ -196,56 +304,14 @@ class LocalPromiseStore:
                     data=self._encoder.encode(data),
                 ),
                 value=DurablePromiseRecordValue(headers={}, data=None),
-                created_on=now(),
+                created_on=created_on,
                 completed_on=None,
                 ikey_for_create=ikey,
                 ikey_for_complete=None,
                 tags=tags,
                 callbacks=[],
             )
-
-            for r in self._routers:
-                if recv := r.route(record):
-                    task_id = str(len(self._tasks))
-                    state = "INIT" if not pid else "CLAIMED"
-
-                    task = Task(task_id, 1, store=self._store)
-
-                    created_on = now()
-                    new_task = TaskRecord(
-                        id=task_id,
-                        counter=1,
-                        state=state,
-                        type="invoke",
-                        recv=recv,
-                        root_promise_id=record.id,
-                        leaf_promise_id=record.id,
-                        pid=pid,
-                        ttl=ttl,
-                        created_on=created_on,
-                        completed_on=None,
-                    )
-                    self._tasks[task_id] = new_task
-                    if state == "INIT":
-                        assert self._store.send_task(new_task)
-                        state = "ENQUEUED"
-
-                    self._tasks[task_id] = TaskRecord(
-                        id=new_task.id,
-                        counter=new_task.counter,
-                        state=state,
-                        type=new_task.type,
-                        recv=new_task.recv,
-                        root_promise_id=new_task.root_promise_id,
-                        leaf_promise_id=new_task.leaf_promise_id,
-                        pid=new_task.pid,
-                        ttl=new_task.ttl,
-                        created_on=new_task.created_on,
-                        completed_on=new_task.completed_on,
-                    )
-
-                    break
-
+            was_created = True
         elif strict and record.state != "PENDING":
             msg = "Forbidden request: Durable promise previously created"
             raise ResonateError(msg, "STORE_FORBIDDEN")
@@ -253,27 +319,46 @@ class LocalPromiseStore:
             msg = "Forbidden request: Missing idempotency key for create"
             raise ResonateError(msg, "STORE_FORBIDDEN")
 
-        new_item = self._timeout(record)
-        self._promises[id] = new_item
+        record = self._timeout(self._promises[id])
+        self._promises[id] = record
 
-        return DurablePromise(
-            store=self._store,
-            id=new_item.id,
-            state=new_item.state,
-            timeout=new_item.timeout,
-            ikey_for_create=new_item.ikey_for_create,
-            ikey_for_complete=new_item.ikey_for_complete,
-            param=DurablePromiseValue(
-                headers=new_item.param.headers,
-                data=self._encoder.decode(new_item.param.data),
-            ),
-            value=DurablePromiseValue(
-                headers=new_item.value.headers,
-                data=self._encoder.decode(new_item.value.data),
-            ),
-            tags=new_item.tags or {},
-            created_on=new_item.created_on,
-            completed_on=new_item.completed_on,
+        task: Task | None = None
+        if was_created:
+            for r in self._routers:
+                if recv := r.route(record):
+                    new_task = self._store._transition_task(
+                        id=str(len(self._tasks) + 1),
+                        to="INIT",
+                        type="invoke",
+                        recv=recv,
+                        created_on=created_on,
+                        root_promise_id=record.id,
+                        leaf_promise_id=record.id,
+                        counter=None,
+                        pid=None,
+                        ttl=None,
+                        completed_on=None,
+                    )
+                    self._tasks[new_task.id] = new_task
+                    if pid is not None:
+                        new_task = self._store._transition_task(id=new_task.id, to="CLAIMED", pid=pid, ttl=ttl, counter=1)
+                        self._tasks[new_task.id] = new_task
+
+                    if new_task.state == "INIT":
+                        assert self._store.send_task(new_task)
+                        new_task = self._tasks[new_task.id]
+                        if new_task.state == "INIT":
+                            new_task = self._store._transition_task(id=new_task.id, to="ENQUEUED")
+                            self._tasks[new_task.id] = new_task
+
+                    task = Task.from_dict(self._store, new_task.to_dict())
+
+                    break
+        return DurablePromise.from_dict(
+            self._store,
+            record.to_dict(),
+            self._encoder.decode(record.param.data),
+            self._encoder.decode(record.value.data),
         ), task
 
     def resolve(
@@ -313,11 +398,12 @@ class LocalPromiseStore:
         self, *, id: str, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None, data: Any = None, new_state: Literal["REJECTED_CANCELED", "REJECTED", "RESOLVED"]
     ) -> DurablePromise:
         record = self._promises.get(id)
+        promise_completed_on = now()
         if record is None:
             msg = "Not Found"
             raise ResonateError(msg, "STORE_NOT_FOUND")
+
         if record.state == "PENDING":
-            promise_completed_on = now()
             record = DurablePromiseRecord(
                 state=new_state,
                 id=record.id,
@@ -334,37 +420,24 @@ class LocalPromiseStore:
                 tags=record.tags,
                 callbacks=record.callbacks,
             )
+            new_item = self._timeout(record)
+            self._promises[id] = new_item
             for callback in record.callbacks:
-                task_id = str(len(self._tasks))
-                new_task = TaskRecord(
-                    id=task_id,
-                    counter=1,
-                    state="INIT",
+                new_task = self._store._transition_task(
+                    id=str(len(self._tasks) + 1),
+                    to="INIT",
                     type=callback.type,
                     recv=callback.recv,
-                    root_promise_id=record.id,
-                    leaf_promise_id=record.id,
-                    pid=None,
-                    ttl=None,
                     created_on=promise_completed_on,
-                    completed_on=None,
+                    root_promise_id=callback.root_promise_id,
+                    leaf_promise_id=callback.promise_id,
                 )
-                self._tasks[task_id] = new_task
-                self._store.send_task(new_task)
-
-                self._tasks[task_id] = TaskRecord(
-                    id=new_task.id,
-                    counter=new_task.counter,
-                    state="ENQUEUED",
-                    type=new_task.type,
-                    recv=new_task.recv,
-                    root_promise_id=new_task.root_promise_id,
-                    leaf_promise_id=new_task.leaf_promise_id,
-                    pid=new_task.pid,
-                    ttl=new_task.ttl,
-                    created_on=new_task.created_on,
-                    completed_on=new_task.completed_on,
-                )
+                self._tasks[new_task.id] = new_task
+                assert self._store.send_task(new_task)
+                new_task = self._tasks[new_task.id]
+                if new_task.state == "INIT":
+                    new_task = self._store._transition_task(id=new_task.id, to="ENQUEUED")
+                    self._tasks[new_task.id] = new_task
 
             record.callbacks.clear()
         elif (strict and record.state != new_state) or (record.state != "REJECTED_TIMEDOUT" and (record.ikey_for_complete is None or ikey != record.ikey_for_complete)):
@@ -373,25 +446,11 @@ class LocalPromiseStore:
 
         new_item = self._timeout(record)
         self._promises[id] = new_item
-
-        return DurablePromise(
-            store=self._store,
-            id=new_item.id,
-            state=new_item.state,
-            timeout=new_item.timeout,
-            ikey_for_create=new_item.ikey_for_create,
-            ikey_for_complete=new_item.ikey_for_complete,
-            param=DurablePromiseValue(
-                headers=new_item.param.headers,
-                data=self._encoder.decode(new_item.param.data),
-            ),
-            value=DurablePromiseValue(
-                headers=new_item.value.headers,
-                data=self._encoder.decode(new_item.value.data),
-            ),
-            tags=new_item.tags or {},
-            created_on=new_item.created_on,
-            completed_on=new_item.completed_on,
+        return DurablePromise.from_dict(
+            self._store,
+            new_item.to_dict(),
+            self._encoder.decode(new_item.param.data),
+            self._encoder.decode(new_item.value.data),
         )
 
     def callback(
@@ -408,24 +467,11 @@ class LocalPromiseStore:
             msg = "Task not found"
             raise ResonateError(msg, "STORE_NOT_FOUND")
 
-        durable_promise = DurablePromise(
-            store=self._store,
-            id=promise.id,
-            state=promise.state,
-            timeout=promise.timeout,
-            ikey_for_create=promise.ikey_for_create,
-            ikey_for_complete=promise.ikey_for_complete,
-            param=DurablePromiseValue(
-                headers=promise.param.headers,
-                data=self._encoder.decode(promise.param.data),
-            ),
-            value=DurablePromiseValue(
-                headers=promise.value.headers,
-                data=self._encoder.decode(promise.value.data),
-            ),
-            tags=promise.tags or {},
-            created_on=promise.created_on,
-            completed_on=promise.completed_on,
+        durable_promise = DurablePromise.from_dict(
+            self._store,
+            promise.to_dict(),
+            self._encoder.decode(promise.param.data),
+            self._encoder.decode(promise.value.data),
         )
         if promise.completed_on is not None:
             return durable_promise, None
@@ -474,120 +520,36 @@ class LocalTaskStore:
         self._tasks = tasks
 
     def claim(self, *, id: str, counter: int, pid: str, ttl: int) -> tuple[DurablePromise, DurablePromise | None]:
-        if task_record := self._tasks.get(id):
-            if task_record.state in ("INIT", "ENQUEUED") and counter == task_record.counter:
-                task_record = TaskRecord(
-                    id=task_record.id,
-                    counter=task_record.counter,
-                    state="CLAIMED",
-                    type=task_record.type,
-                    recv=task_record.recv,
-                    root_promise_id=task_record.root_promise_id,
-                    leaf_promise_id=task_record.leaf_promise_id,
-                    created_on=task_record.created_on,
-                    completed_on=task_record.completed_on,
-                    ttl=ttl,
-                    pid=pid,
+        task_record = self._store._transition_task(id=id, to="CLAIMED", pid=pid, ttl=ttl, counter=counter)
+        self._tasks[id] = task_record
+        match task_record.type:
+            case "notify":
+                raise NotImplementedError
+            case "invoke":
+                promise = self._promises[task_record.root_promise_id]
+                return DurablePromise.from_dict(
+                    self._store,
+                    promise.to_dict(),
+                    self._encoder.decode(promise.param.data),
+                    self._encoder.decode(promise.value.data),
+                ), None
+            case "resume":
+                root_promise = self._promises[task_record.root_promise_id]
+                leaf_promise = self._promises[task_record.leaf_promise_id]
+                return DurablePromise.from_dict(
+                    self._store,
+                    root_promise.to_dict(),
+                    self._encoder.decode(root_promise.param.data),
+                    self._encoder.decode(root_promise.value.data),
+                ), DurablePromise.from_dict(
+                    self._store,
+                    leaf_promise.to_dict(),
+                    self._encoder.decode(leaf_promise.param.data),
+                    self._encoder.decode(leaf_promise.value.data),
                 )
-                self._tasks[id] = task_record
-                assert task_record.type != "notify"
-                if task_record.type == "invoke":
-                    promise = self._promises[task_record.root_promise_id]
-
-                    return DurablePromise(
-                        store=self._store,
-                        id=promise.id,
-                        state=promise.state,
-                        timeout=promise.timeout,
-                        ikey_for_create=promise.ikey_for_create,
-                        ikey_for_complete=promise.ikey_for_complete,
-                        param=DurablePromiseValue(
-                            headers=promise.param.headers,
-                            data=self._encoder.decode(promise.param.data),
-                        ),
-                        value=DurablePromiseValue(
-                            headers=promise.value.headers,
-                            data=self._encoder.decode(promise.value.data),
-                        ),
-                        tags=promise.tags or {},
-                        created_on=promise.created_on,
-                        completed_on=promise.completed_on,
-                    ), None
-
-                if task_record.type == "resume":
-                    root_promise = self._promises[task_record.root_promise_id]
-                    leaf_promise = self._promises[task_record.leaf_promise_id]
-                    return DurablePromise(
-                        store=self._store,
-                        id=root_promise.id,
-                        state=root_promise.state,
-                        timeout=root_promise.timeout,
-                        ikey_for_create=root_promise.ikey_for_create,
-                        ikey_for_complete=root_promise.ikey_for_complete,
-                        param=DurablePromiseValue(
-                            headers=root_promise.param.headers,
-                            data=self._encoder.decode(root_promise.param.data),
-                        ),
-                        value=DurablePromiseValue(
-                            headers=root_promise.value.headers,
-                            data=self._encoder.decode(root_promise.value.data),
-                        ),
-                        tags=root_promise.tags or {},
-                        created_on=root_promise.created_on,
-                        completed_on=root_promise.completed_on,
-                    ), DurablePromise(
-                        store=self._store,
-                        id=leaf_promise.id,
-                        state=leaf_promise.state,
-                        timeout=leaf_promise.timeout,
-                        ikey_for_create=leaf_promise.ikey_for_create,
-                        ikey_for_complete=leaf_promise.ikey_for_complete,
-                        param=DurablePromiseValue(
-                            headers=leaf_promise.param.headers,
-                            data=self._encoder.decode(leaf_promise.param.data),
-                        ),
-                        value=DurablePromiseValue(
-                            headers=leaf_promise.value.headers,
-                            data=self._encoder.decode(leaf_promise.value.data),
-                        ),
-                        tags=leaf_promise.tags or {},
-                        created_on=leaf_promise.created_on,
-                        completed_on=leaf_promise.completed_on,
-                    )
-            msg = "Task already claimed, completed, or invalid counter"
-            raise ResonateError(
-                msg,
-                "STORE_FORBIDDEN",
-            )
-        msg = "Task not found"
-        raise ResonateError(msg, "STORE_NOT_FOUND")
 
     def complete(self, *, id: str, counter: int) -> None:
-        if task_record := self._tasks.get(id):
-            if task_record.state == "CLAIMED" and counter == task_record.counter:
-                task_record = TaskRecord(
-                    id=id,
-                    counter=counter,
-                    state="COMPLETED",
-                    type=task_record.type,
-                    recv=task_record.recv,
-                    root_promise_id=task_record.root_promise_id,
-                    leaf_promise_id=task_record.leaf_promise_id,
-                    created_on=task_record.created_on,
-                    completed_on=now(),
-                    pid=None,
-                    ttl=None,
-                )
-                self._tasks[id] = task_record
-            else:
-                msg = "Task already claimed, completed, or invalid counter"
-                raise ResonateError(
-                    msg,
-                    "STORE_FORBIDDEN",
-                )
-        else:
-            msg = "Task not found"
-            raise ResonateError(msg, "STORE_NOT_FOUND")
+        self._tasks[id] = self._store._transition_task(id=id, counter=counter, to="COMPLETED", completed_on=now())
 
     def heartbeat(self, *, pid: str) -> int:
         affected_tasks = 0
@@ -614,12 +576,29 @@ class DurablePromiseRecord:
     completed_on: int | None
     callbacks: list[CallbackRecord]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "state": self.state,
+            "timeout": self.timeout,
+            "idempotencyKeyForCreate": self.ikey_for_create,
+            "idempotencyKeyForComplete": self.ikey_for_complete,
+            "param": self.param.to_dict(),
+            "value": self.value.to_dict(),
+            "tags": self.tags or {},
+            "createdOn": self.created_on,
+            "completedOn": self.completed_on,
+        }
+
 
 @final
 @dataclass(frozen=True)
 class DurablePromiseRecordValue:
     headers: dict[str, str] | None
     data: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"headers": self.headers, "data": self.data}
 
 
 @final
@@ -648,3 +627,35 @@ class TaskRecord:
     ttl: int | None
     created_on: int
     completed_on: int | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "counter": self.counter}
+
+
+@final
+@dataclass(frozen=True)
+class ToInit:
+    type: Literal["invoke", "resume", "notify"]
+    recv: Recv
+    created_on: int
+    root_promise_id: str
+    leaf_promise_id: str
+
+
+@final
+@dataclass(frozen=True)
+class ToClaimed:
+    pid: str
+    ttl: int
+
+
+@final
+@dataclass(frozen=True)
+class ToEnqueued:
+    pass
+
+
+@final
+@dataclass(frozen=True)
+class ToCompleted:
+    completed_on: int
