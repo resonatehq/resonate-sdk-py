@@ -65,4 +65,4 @@ jobs:
         timeout-minutes: 10
         env:
           RESONATE_STORE_URL: http://localhost:8001
-        run: pytest
+        run: uv run pytest
