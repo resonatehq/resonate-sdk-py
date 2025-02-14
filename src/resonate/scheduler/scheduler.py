@@ -316,9 +316,9 @@ class Scheduler(IScheduler):
         # Get function name from registry
         assert not isinstance(fork_or_join.invocation.fn, str)
         fn_name = self._registry.get_from_value(fork_or_join.invocation.fn)
-        assert (
-            fn_name is not None
-        ), f"Function {fork_or_join.invocation.fn.__name__} must be registered"
+        assert fn_name is not None, (
+            f"Function {fork_or_join.invocation.fn.__name__} must be registered"
+        )
         func_with_options = self._registry.get(fn_name)
         assert func_with_options is not None
         opts = func_with_options[-1]
@@ -481,17 +481,17 @@ class Scheduler(IScheduler):
             self._add_to_awaiting_local(promise_record.id, record.id)
         elif isinstance(promise_record.invocation, RFI):
             assert isinstance(self._store, RemoteStore)
-            assert (
-                promise_record.is_root
-            ), "Callbacks can only be registered partition roots"
+            assert promise_record.is_root, (
+                "Callbacks can only be registered partition roots"
+            )
 
             root = record.root()
             leaf_id = promise_record.id
 
             assert self._recv
-            assert (
-                promise_record.durable_promise
-            ), f"Record {promise_record.id} not backed by a promise"
+            assert promise_record.durable_promise, (
+                f"Record {promise_record.id} not backed by a promise"
+            )
             durable_promise, callback = self._store.callbacks.create(
                 id=utils.string_to_uuid(record.id),
                 promise_id=leaf_id,
