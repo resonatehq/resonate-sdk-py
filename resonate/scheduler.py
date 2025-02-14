@@ -25,7 +25,7 @@ from resonate.models.context import (
     Yieldable,
 )
 from resonate.models.durable_promise import DurablePromise
-from resonate.models.enqueuable import Enqueueable
+from resonate.models.enqueueable import Enqueueable
 from resonate.models.message import Mesg
 from resonate.models.result import Ko, Ok, Result
 from resonate.models.store import Store
@@ -33,81 +33,7 @@ from resonate.models.task import Task
 from resonate.processor import Processor
 from resonate.registry import Registry
 from resonate.stores import LocalStore
-from resonate.stores.local import Recv
-
-# Sender
-
-
-class LocalSender:
-    def __init__(self, pid: str, ttl: int, registry: Registry, store: Store, cq: Enqueueable[Invoke | Resume | Notify]) -> None:
-        self._store = store
-        self._q = cq
-        self._pid = pid
-        self._ttl = ttl
-        self._registry = registry
-
-    def send(self, recv: Recv, mesg: Mesg) -> None:
-        print(mesg)
-        # translates a msg into a cmd
-        match mesg:
-            case {"type": "invoke", "task": task_mesg}:
-                root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=self._pid, ttl=self._ttl)
-                assert leaf is None
-                info = self._get_information(root)
-                self._q.enqueue(
-                    Invoke(
-                        root.id,
-                        info["name"],
-                        info["func"],
-                        info["args"],
-                        info["kwargs"],
-                        root,
-                        Task(
-                            id=task_mesg["id"],
-                            counter=task_mesg["counter"],
-                            store=self._store,
-                        ),
-                    )
-                )
-            case {"type": "resume", "task": task_mesg}:
-                root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=self._pid, ttl=self._ttl)
-                assert leaf is not None
-                assert leaf.completed
-                root_info = self._get_information(root)
-                self._q.enqueue(
-                    Resume(
-                        id=leaf.id,
-                        cid=root.id,
-                        promise=leaf,
-                        task=Task(id=task_mesg["id"], counter=task_mesg["counter"], store=self._store),
-                        invoke=Invoke(
-                            root.id,
-                            root_info["name"],
-                            root_info["func"],
-                            root_info["args"],
-                            root_info["kwargs"],
-                            root,
-                            Task(
-                                id=task_mesg["id"],
-                                counter=task_mesg["counter"],
-                                store=self._store,
-                            ),
-                        ),
-                    )
-                )
-            case {"type": "notify", "task": task_mesg}:
-                raise NotImplementedError
-
-    def _get_information(self, promise: DurablePromise) -> dict[str, Any]:
-        params = promise.params
-        assert isinstance(params, dict)
-        assert params, "data must be in promise param"
-        assert "func" in params, "func must be in promise param data"
-        assert "args" in params, "args must be in promise param data"
-        assert "kwargs" in params, "func must be in promise param data"
-
-        return {"name": params["func"], "func": self._registry.get(params["func"]), "args": params["args"], "kwargs": params["kwargs"]}
-
+from resonate.stores.local import LocalSender, Recv
 
 # Scheduler
 
@@ -142,8 +68,10 @@ class Scheduler:
 
         # store
         self.store = store or LocalStore()
+
+        # fake it until you make it
         if isinstance(self.store, LocalStore):
-            self.store.add_sender(self.pid, LocalSender(self.pid, sys.maxsize, self.registry, self.store, self))
+            self.store.add_sender(self.pid, LocalSender(self, self.registry, self.store))
 
         # scheduler thread
         self.thread = threading.Thread(target=self.loop, daemon=True)
@@ -425,6 +353,12 @@ class Computation:
         while not self.blocked():
             for node in self.graph.traverse():
                 commands.extend(self._run_until_blocked(node))
+
+                # state, command = self.run_until_blocked(node)
+                # node.transition(state)
+                # commands.append(command)
+
+            # look for cicular dependencies here
 
         # complete task
         if self.done_or_blocked_on_external() and self.task:

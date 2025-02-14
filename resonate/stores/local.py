@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from os import pardir
+import sys
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, final
+from typing import TYPE_CHECKING, Literal, Protocol, final
 
 from typing_extensions import Any
 
@@ -12,12 +12,16 @@ from resonate.encoders.chain import ChainEncoder
 from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateError
 from resonate.models.callback import Callback
-from resonate.models.durable_promise import DurablePromise, DurablePromiseValue
+from resonate.models.commands import Invoke, Notify, Resume
+from resonate.models.durable_promise import DurablePromise
 from resonate.models.message import InvokeMesg, Mesg, ResumeMesg, TaskMesg
 from resonate.models.task import Task
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
+    from resonate.models.enqueueable import Enqueueable
+    from resonate.models.store import Store
+    from resonate.registry import Registry
 
 # Fake it till you make it
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -40,6 +44,73 @@ class TagRouter:
 class Sender(Protocol):
     def send(self, recv: Recv, mesg: Mesg) -> None: ...
 
+class LocalSender:
+    def __init__(self, q: Enqueueable[Invoke | Resume | Notify], registry: Registry, store: Store, ttl: int=sys.maxsize) -> None:
+        self._q = q
+        self._registry = registry
+        self._store = store
+        self._ttl = ttl
+
+    def send(self, recv: Recv, mesg: Mesg) -> None:
+        # translates a msg into a cmd
+        match mesg:
+            case {"type": "invoke", "task": task_mesg}:
+                root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=recv, ttl=self._ttl)
+                assert leaf is None
+                info = self._get_information(root)
+                self._q.enqueue(
+                    Invoke(
+                        root.id,
+                        info["name"],
+                        info["func"],
+                        info["args"],
+                        info["kwargs"],
+                        root,
+                        Task(
+                            id=task_mesg["id"],
+                            counter=task_mesg["counter"],
+                            store=self._store,
+                        ),
+                    )
+                )
+            case {"type": "resume", "task": task_mesg}:
+                root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=recv, ttl=self._ttl)
+                assert leaf is not None
+                assert leaf.completed
+                root_info = self._get_information(root)
+                self._q.enqueue(
+                    Resume(
+                        id=leaf.id,
+                        cid=root.id,
+                        promise=leaf,
+                        task=Task(id=task_mesg["id"], counter=task_mesg["counter"], store=self._store),
+                        invoke=Invoke(
+                            root.id,
+                            root_info["name"],
+                            root_info["func"],
+                            root_info["args"],
+                            root_info["kwargs"],
+                            root,
+                            Task(
+                                id=task_mesg["id"],
+                                counter=task_mesg["counter"],
+                                store=self._store,
+                            ),
+                        ),
+                    )
+                )
+            case {"type": "notify", "task": task_mesg}:
+                raise NotImplementedError
+
+    def _get_information(self, promise: DurablePromise) -> dict[str, Any]:
+        params = promise.params
+        assert isinstance(params, dict)
+        assert params, "data must be in promise param"
+        assert "func" in params, "func must be in promise param data"
+        assert "args" in params, "args must be in promise param data"
+        assert "kwargs" in params, "func must be in promise param data"
+
+        return {"name": params["func"], "func": self._registry.get(params["func"]), "args": params["args"], "kwargs": params["kwargs"]}
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 

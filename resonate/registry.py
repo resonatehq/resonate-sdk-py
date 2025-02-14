@@ -6,9 +6,8 @@ from typing import Any, Concatenate, overload
 
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import Contextual
-from resonate.models.enqueuable import Enqueueable
+from resonate.models.enqueueable import Enqueueable
 from resonate.models.handle import Handle
-
 
 #####################################################################
 ## Registry
