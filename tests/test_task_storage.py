@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-from queue import Queue
 import sys
 import uuid
 
 import pytest
 
+from resonate.cmd_queue import CommandQ, Notify
 from resonate.stores.remote import (
     RemoteStore,
 )
@@ -118,7 +118,6 @@ def test_case_3_create_durable_promise_with_task() -> None:
 def test_case_4_subscribe_and_get_notified() -> None:
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     pid = uuid.uuid4().hex
-    ttl = 5 * 1000
     id = "test4"
     promise_record = store.promises.create(
         id=id,
@@ -138,7 +137,12 @@ def test_case_4_subscribe_and_get_notified() -> None:
     )
     assert callback_record
     assert promise_record.is_pending()
-    # poller = Poller(url=os.environ["RESONATE_TASKS_URL"], group=id)
-    # cq = Queue()
-    # poller.start(cq, pid)
-    # cq.get()
+    poller = Poller(url=os.environ["RESONATE_TASKS_URL"], group=id)
+    cq = CommandQ()
+    store.promises.resolve(
+        id=id, ikey=None, strict=False, headers=None, data=json.dumps("Done")
+    )
+    poller.start(cq, pid)
+    cmd = cq.get()
+    assert isinstance(cmd, Notify)
+    assert cmd.id == id
