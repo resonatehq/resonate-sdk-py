@@ -115,6 +115,9 @@ def test_case_3_create_durable_promise_with_task() -> None:
     store.tasks.complete(task_id=task_record.task_id, counter=task_record.counter)
 
 
+@pytest.mark.skipif(
+    os.getenv("RESONATE_STORE_URL") is None, reason="env variable is not set"
+)
 def test_case_4_subscribe_and_get_notified() -> None:
     store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
     pid = uuid.uuid4().hex

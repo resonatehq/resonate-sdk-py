@@ -370,6 +370,18 @@ class Scheduler(IScheduler):
         return [Invoke(record.id), Subscribe(record.id, fork_or_join.handle)]
 
     def _handle_subscribe(self, subscribe: Subscribe) -> list[Command]:
+        if isinstance(self._store, RemoteStore):
+            promise, callback = self._store.subscriptions.create(
+                id=f"{self._pid}.{subscribe.id}",
+                promise_id=subscribe.id,
+                timeout=sys.maxsize,
+                recv=self._recv,
+            )
+            if promise.is_completed():
+                assert callback is None
+                self._subsriptions.setdefault(subscribe.id, []).append(subscribe.handle)
+                return [Notify(subscribe.id, promise.get_value(self._encoder))]
+
         self._subsriptions.setdefault(subscribe.id, []).append(subscribe.handle)
         return []
 
