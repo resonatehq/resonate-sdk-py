@@ -24,26 +24,18 @@ class Graph[V, E]:
     def traverse_with_level(self, edge: E | None = None) -> Generator[tuple[Node[V, E], int], None, None]:
         return self.root.traverse_with_level(edge or self._default_edge)
 
-
 class Node[V, E]:
     def __init__(self, id: str, value: V) -> None:
-        self._id = id
-        self._value = value
+        self.id = id
+        self.value = value
         self._edges: dict[E, list[Node[V, E]]] = {}
 
-    @property
-    def id(self) -> str:
-        return self._id
-
-    @property
-    def value(self) -> V:
-        return self._value
-
     def __repr__(self) -> str:
-        return f"Node({self.id}, {self.value})"
+        edges = {edge: [n.id for n in nodes] for edge, nodes in self._edges.items()}
+        return f"Node({self.id}, {self.value}, {edges})"
 
     def transition(self, value: V) -> None:
-        self._value = value
+        self.value = value
 
     def add_edge(self, edge: E, node: Node[V, E]) -> None:
         self._edges.setdefault(edge, []).append(node)

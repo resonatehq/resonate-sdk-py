@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import functools
 import queue
+import re
 import sys
 import threading
 import uuid
 from collections.abc import Callable, Generator
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from resonate.context import Context
 from resonate.graph import Graph, Node
-from resonate.models.commands import Command, Invoke, Listen, Notify, Resume, Return
+from resonate.models.commands import CallbackEffect, Command, Invoke, Listen, Network, Function, Notify, PromiseEffect, Request, Resume, Return, Return
 from resonate.models.context import (
     AWT,
     LFC,
@@ -25,12 +27,13 @@ from resonate.models.context import (
     Yieldable,
 )
 from resonate.models.durable_promise import DurablePromise
+from resonate.models.callback import Callback
 from resonate.models.enqueueable import Enqueueable
 from resonate.models.message import Mesg
 from resonate.models.result import Ko, Ok, Result
 from resonate.models.store import Store
 from resonate.models.task import Task
-from resonate.processor import Processor
+from resonate.processor import Cb, Processor
 from resonate.registry import Registry
 from resonate.stores import LocalStore
 from resonate.stores.local import LocalSender, Recv
@@ -70,8 +73,8 @@ class Scheduler:
         self.store = store or LocalStore()
 
         # fake it until you make it
-        if isinstance(self.store, LocalStore):
-            self.store.add_sender(self.pid, LocalSender(self, self.registry, self.store))
+        # if isinstance(self.store, LocalStore):
+        #     self.store.add_sender(self.pid, LocalSender(self, self.registry, self.store))
 
         # scheduler thread
         self.thread = threading.Thread(target=self.loop, daemon=True)
@@ -129,21 +132,16 @@ class Scheduler:
     def _step(self, cmd: Command, future: Future | None = None) -> None:
         computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.pid, self.ctx, self.registry, self.store))
 
-        # apply the command
-        computation.apply(cmd)
+        reqs = [
+            *computation.apply(cmd),
+            *computation.run_until_blocked(),
+        ]
 
-        # run generators until blocked
-        for f in computation.run_until_blocked():
-            match f:
-                case LFX(id, func, args, kwargs):
-                    # enqueue the function
-                    # note: bind arguments to lambdas to avoid late binding issues
-                    self.processor.enqueue(
-                        lambda func=func, args=args, kwargs=kwargs: func(*args, **kwargs),
-                        lambda r, id=id: self.enqueue(Return(id, computation.id, r)),
-                    )
-                case RFX(id):
-                    pass
+        for req in reqs:
+            self.processor.enqueue(
+                req.func,
+                lambda r, cmd=cmd, cont=req.cont: self.enqueue(Return(cmd.id, cmd.cid, cont, r)),
+            )
 
         # subscribe to the computation
         if future:
@@ -167,54 +165,84 @@ class Scheduler:
 
 # Computation
 
-type V = Init | Done | Internal | External | RunnableFunc | RunnableCoro | AwaitingCoro
+type V = Init | Done | Internal | External | Func | Coro
 
-type E = Literal["spawned", "waiting"]
-
+type E = Literal["spawned", "waiting_p", "waiting_v"]
 
 @dataclass
 class Init:
-    pass
+    @property
+    def runnable(self) -> bool:
+        return False
 
+    @property
+    def suspended(self) -> bool:
+        return False
 
 @dataclass
 class Done:
     result: Result
 
+    @property
+    def runnable(self) -> bool:
+        return False
+
+    @property
+    def suspended(self) -> bool:
+        return True
 
 @dataclass
-class Internal:
-    promise: DurablePromise
+class Coro:
+    coro: Coroutine
+    next: Result | None = None
+    term: bool = False
 
+    @property
+    def runnable(self) -> bool:
+        return self.next is not None
+
+    @property
+    def suspended(self) -> bool:
+        return self.next is None and not self.term
 
 @dataclass
-class External:
-    promise: DurablePromise
-
-
-@dataclass
-class RunnableFunc:
+class Func:
     func: Callable[..., Any]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
-    promise: DurablePromise
 
+    @property
+    def runnable(self) -> bool:
+        return True
+
+    @property
+    def suspended(self) -> bool:
+        return False
 
 @dataclass
-class RunnableCoro:
-    coro: Coroutine
-    next: Result
-    promise: DurablePromise
+class Internal:
+    @property
+    def runnable(self) -> bool:
+        return False
 
+    @property
+    def suspended(self) -> bool:
+        return False
 
 @dataclass
-class AwaitingCoro:
-    coro: Coroutine
-    promise: DurablePromise
+class External:
+    awaited: bool = False
 
+    @property
+    def runnable(self) -> bool:
+        return False
+
+    @property
+    def suspended(self) -> bool:
+        return True
 
 class Computation:
-    def __init__(self, id: str, pid: str, ctx: type[Contextual], registry: Registry, store: LocalStore) -> None:
+    def __init__(self, id: str, pid: str, ctx: type[Contextual], registry: Registry, store: Store) -> None:
         self.id = id
         self.pid = pid
         self.ctx = ctx
@@ -222,23 +250,20 @@ class Computation:
         self.store = store
         self.graph = Graph[V, E](Node(id, Init()), "spawned")
 
-        self.callback: Any | None = None
+        self.task: Task | None = None
         self.subscriptions: list[Future] = []
 
-        self.task: Task | None = None
+        self.invoked = False
+        self.subscribed = False
 
     def done(self) -> bool:
         return isinstance(self.graph.root.value, Done)
 
-    def blocked(self) -> bool:
-        return not self.graph.find(lambda n: isinstance(n.value, (RunnableCoro, RunnableFunc)))
+    def runnable(self) -> bool:
+        return self.graph.find(lambda n: n.value.runnable) is not None
 
-    def done_or_blocked_on_external(self) -> bool:
-        for node in self.graph.traverse():
-            if isinstance(node.value, (Internal, RunnableCoro, RunnableFunc)):
-                return False
-
-        return True
+    def suspendable(self) -> bool:
+        return self.graph.find(lambda n: n.value.suspended) is not None
 
     def subscribe(self, future: Future) -> None:
         self.subscriptions.append(future)
@@ -250,403 +275,324 @@ class Computation:
             case _:
                 return None
 
-    def apply(self, cmd: Command) -> None:
+    def apply(self, cmd: Command) -> Sequence[Request]:
         print(cmd)
 
-        match cmd, self.graph.root.value:
-            case Invoke(id, name, func, args, kwargs, promise, task), Init():
-                assert id == cmd.cid == self.graph.root.id, "Invoke, computation, and root ids must all be the same."
+        match cmd, self.invoked:
+            case Invoke(id, name, func, args, kwargs), False:
+                self.invoked = True
+                assert isinstance(self.graph.root.value, Init), "Graph root must be init"
 
-                if task:
-                    assert promise, "Promise must be set if task is set."
-                    self.task = task  # task is pre-claimed
-                else:
-                    # create promise and task
-                    promise, self.task = self.store.promises.create_with_task(
-                        id=id,
-                        timeout=sys.maxsize,
-                        pid=self.pid,
-                        ttl=0,
-                        ikey=id,
-                        data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.pid, "resonate:scope": "global"},
-                    )
+                return [
+                    Network(
+                        functools.partial(
+                            self.store.promises.create_with_task,
+                            id=id,
+                            ikey=id,
+                            timeout=sys.maxsize,
+                            data={"func": name, "args": args, "kwargs": kwargs},
+                            tags={"resonate:invoke": self.pid, "resonate:scope": "global"},
+                            pid=self.pid,
+                            ttl=0,
+                        ),
+                        self.transition_coro_or_func(
+                            self.graph.root,
+                            func,
+                            args,
+                            kwargs,
+                        )
+                    ),
+                ]
 
-                    # If the promise was created on the local event loop it could cause
-                    # deadlock, so throw an assertion error for now.
-                    assert promise.tags.get("resonate:scope") == "global", "Scope must be global."
-
-                match promise.pending, isgeneratorfunction(func):
-                    case True, True:
-                        # Init -> RunnableCoro
-                        self.graph.root.transition(RunnableCoro(Coroutine(id, cmd.id, func(self.ctx(id, self.registry), *args, **kwargs)), Ok(None), promise))
-                    case True, False:
-                        # Init -> RunnableFunc
-                        self.graph.root.transition(RunnableFunc(func, args, kwargs, promise))
-                    case _:
-                        # Init -> Done
-                        self.graph.root.transition(Done(promise.result))
-
-            case Resume(invoke=invoke), Init():
+            case Resume(invoke=invoke), False:
                 # restart
-                self.apply(invoke)
+                return self.apply(invoke)
 
-            case Resume(id, cid, promise, task), _:
-                assert id == promise.id, "Resume id must match promise id."
-                assert promise.completed, "Promise must be completed."
+            case Resume(id, cid, result), _:
+                # assert id == promise.id, "Resume id must match promise id."
+                # assert promise.completed, "Promise must be completed."
 
                 # set task, task is pre-claimed
-                self.task = task
+                # self.task = task
 
                 # a resume command "wins" because we know the promise is complete
                 if node := self.graph.find(lambda n: n.id == id and not isinstance(n.value, Done)):
-                    assert isinstance(node.value, (Internal, External, AwaitingCoro)), "Resumed node must be internal, external or awaiting."
+                    assert isinstance(node.value, (Coro, Internal, External)), "Resumed node must be coro, internal, or external."
 
-                    # Internal/External/AwaitingCoro -> Done
-                    node.transition(Done(promise.result))
+                    node.transition(Done(result))
+                    self.unblock(node, "waiting_v", result)
 
-                    # AwaitingCoro -> RunnableCoro
-                    self.unblock(node)
+                    return []
 
-            case Return(id, cid, result), _:
+            case Return(id, cid, cont, result), _:
                 assert cid == self.graph.root.id, "Computation and root id must be the same."
+                return cont(result)
 
-                # a return command can only apply to an internal node
-                node = self.graph.find(lambda n: n.id == id)
-                assert node, "Returned node must exist."
-                assert isinstance(node.value, Internal), "Returned node must be internal."
+            # case Listen(id), Init():
+            #     assert id == cmd.cid == self.graph.root.id, "Listen, computation, and root ids must all be the same."
 
-                # complete promise
-                assert id == node.value.promise.id, "Return id must match promise id."
+            #     if not self.callback:
+            #         # TODO: call subscribe
+            #         self.callback = True
 
-                match result:
-                    case Ok(r):
-                        node.value.promise = self.store.promises.resolve(id=id, ikey=id, data=r)
-                    case Ko(e):
-                        node.value.promise = self.store.promises.reject(id=id, ikey=id, data=e)
+            # case Notify(id, promise), Init():
+                # assert id == cmd.cid == promise.id == self.graph.root.id, "Notify, computation, promise and root ids must all be the same."
+                # assert promise.completed, "Promise must be completed."
 
-                assert node.value.promise.completed, "Promise must be completed."
+                # # Init -> Done
+                # self.graph.root.transition(Done(promise.result))
 
-                # RunnableCoro -> Done
-                node.transition(Done(node.value.promise.result))
+            case _:
+                raise NotImplementedError
 
-                # AwaitingCoro -> RunnableCoro
-                self.unblock(node)
+        return []
 
-            case Listen(id), Init():
-                assert id == cmd.cid == self.graph.root.id, "Listen, computation, and root ids must all be the same."
+    def run_until_blocked(self) -> Sequence[Request]:
+        requests: Sequence[Request] = []
 
-                if not self.callback:
-                    # TODO: call subscribe
-                    self.callback = True
-
-            case Notify(id, promise), Init():
-                assert id == cmd.cid == promise.id == self.graph.root.id, "Notify, computation, promise and root ids must all be the same."
-                assert promise.completed, "Promise must be completed."
-
-                # Init -> Done
-                self.graph.root.transition(Done(promise.result))
-
-    def run_until_blocked(self) -> list[LFX | RFX]:  # TODO: should we really return RFX here?
-        commands = []
-
-        while not self.blocked():
+        while self.runnable():
             for node in self.graph.traverse():
-                commands.extend(self._run_until_blocked(node))
-
-                # state, command = self.run_until_blocked(node)
-                # node.transition(state)
-                # commands.append(command)
+                next, reqs = self._run_once(node)
+                node.transition(next)
+                requests.extend(reqs)
 
             # look for cicular dependencies here
 
         # complete task
-        if self.done_or_blocked_on_external() and self.task:
+        if self.suspendable() and self.task:
             self.store.tasks.complete(id=self.task.id, counter=self.task.counter)
             self.task = None
 
-        return commands
+        return requests
 
-    def _run_until_blocked(self, node: Node[V, E]) -> list[LFX | RFX]:
-        commands = []
+    def _run_once(self, node: Node[V, E]) -> tuple[V, Sequence[Request]]:
+        match node.value:
+            case Coro(coro, next, term=False) if next is not None:
+                cmd = coro.send(next)
+                print(cmd)
 
-        while True:
-            match node.value:
-                case RunnableCoro(coro, next, promise):
-                    assert promise.pending, "Promise must be pending."
+                match cmd, self.graph.find(lambda n: n.id == cmd.id):
+                    case LFI(id, func, args, kwargs) | LFC(id, func, args, kwargs), None:
+                        child = Node[V, E](id, Init())
+                        node.add_edge("spawned", child)
+                        node.add_edge("waiting_p" if isinstance(cmd, LFI) else "waiting_v", child)
 
-                    cmd = coro.send(next)
-                    print(cmd)
+                        return Coro(coro), [
+                            Network(
+                                functools.partial(
+                                    self.store.promises.create,
+                                    id=id,
+                                    ikey=id,
+                                    timeout=sys.maxsize,
+                                    tags={"resonate:scope": "local"},
+                                ),
+                                self.transition_coro_or_func(
+                                    child,
+                                    func,
+                                    args,
+                                    kwargs,
+                                ),
+                            ),
+                        ]
 
-                    child = self.graph.find(lambda n: n.id == cmd.id) or Node[V, E](cmd.id, Init())
+                    case RFI(id, func, args, kwargs), None:
+                        child = Node[V, E](id, Init())
+                        node.add_edge("spawned", child)
+                        node.add_edge("waiting_p", child)
 
-                    match cmd, child.value:
-                        case LFI(id, func, args, kwargs), Init():
-                            # create promise
-                            child_promise = self.store.promises.create(id=id, ikey=id, timeout=sys.maxsize, tags={"resonate:scope": "local"})
+                        return Coro(coro), [
+                            Network(
+                                functools.partial(
+                                    self.store.promises.create,
+                                    id=id,
+                                    ikey=id,
+                                    timeout=sys.maxsize,
+                                    data={"func": func, "args": args, "kwargs": kwargs},
+                                    tags={"resonate:scope": "global"},
+                                ),
+                                self.transition(
+                                    child,
+                                    External(awaited=False),
+                                ),
+                            ),
+                        ]
 
-                            match child_promise.pending, isgeneratorfunction(func):
-                                case True, True:
-                                    # Init -> RunnableCoro
-                                    child.transition(RunnableCoro(Coroutine(id, self.id, func(self.ctx(id, self.registry), *args, **kwargs)), Ok(None), child_promise))
+                    case RFC(id, func, args, kwargs), None:
+                        child = Node[V, E](id, Init())
+                        node.add_edge("spawned", child)
+                        node.add_edge("waiting_v", child)
 
-                                    # RunnableCoro -> RunnableCoro
-                                    node.transition(RunnableCoro(coro, Ok(AWT(id, self.id)), promise))
-                                    node.add_edge("spawned", child)
-                                case True, False:
-                                    # Init -> Internal
-                                    child.transition(Internal(child_promise))
-
-                                    # RunnableCoro -> RunnableCoro
-                                    node.transition(RunnableCoro(coro, Ok(AWT(id, self.id)), promise))
-                                    node.add_edge("spawned", child)
-
-                                    # add command
-                                    commands.append(LFX(id, func, args, kwargs))
-                                case _:
-                                    # Init -> Done
-                                    child.transition(Done(child_promise.result))
-
-                                    # RunnableCoro -> RunnableCoro
-                                    node.transition(RunnableCoro(coro, Ok(AWT(id, self.id)), promise))
-                                    node.add_edge("spawned", child)
-
-                        case LFC(id, func, args, kwargs), Init():
-                            # create promise
-                            child_promise = self.store.promises.create(id=id, ikey=id, timeout=sys.maxsize, tags={"resonate:scope": "local"})
-
-                            match child_promise.pending, isgeneratorfunction(func):
-                                case True, True:
-                                    # Init -> RunnableCoro
-                                    child.transition(RunnableCoro(Coroutine(id, self.id, func(self.ctx(id, self.registry), *args, **kwargs)), Ok(None), child_promise))
-
-                                    # RunnableCoro -> AwaitingCoro
-                                    node.transition(AwaitingCoro(coro, promise))
-                                    node.add_edge("spawned", child)
-                                    node.add_edge("waiting", child)
-                                case True, False:
-                                    # Init -> Internal
-                                    child.transition(Internal(child_promise))
-
-                                    # RunnableCoro -> AwaitingCoro
-                                    node.transition(AwaitingCoro(coro, promise))
-                                    node.add_edge("spawned", child)
-                                    node.add_edge("waiting", child)
-
-                                    # add command
-                                    commands.append(LFX(id, func, args, kwargs))
-                                case _:
-                                    # Init -> Done
-                                    child.transition(Done(child_promise.result))
-
-                                    # RunnableCoro -> RunnableCoro
-                                    node.transition(RunnableCoro(coro, child_promise.result, promise))
-                                    node.add_edge("spawned", child)
-
-                        case RFI(id, func, args, kwargs), Init():
-                            # create promise
-                            child_promise = self.store.promises.create(
-                                id=id,
-                                ikey=id,
-                                timeout=sys.maxsize,
-                                data={"func": func, "args": args, "kwargs": kwargs},
-                                tags={"resonate:invoke": self.pid, "resonate:scope": "global"},
-                            )
-
-                            # If the promise was created on the local event loop it could cause
-                            # deadlock, so throw an assertion error for now.
-                            assert child_promise.tags.get("resonate:scope") == "global", "Scope must be global."
-
-                            match child_promise.pending:
-                                case True:
-                                    # Init -> External
-                                    child.transition(External(child_promise))
-
-                                    # RunnableCoro -> RunnableCoro
-                                    node.transition(RunnableCoro(coro, Ok(AWT(id, self.id)), promise))
-                                    node.add_edge("spawned", child)
-
-                                    # add command
-                                    commands.append(RFX(id, func, args, kwargs))
-
-                                case False:
-                                    # Init -> Done
-                                    child.transition(Done(child_promise.result))
-
-                                    # RunnableCoro -> RunnableCoro
-                                    node.transition(RunnableCoro(coro, Ok(AWT(id, self.id)), promise))
-                                    node.add_edge("spawned", child)
-
-                        case RFC(id, func, args, kwargs), Init():
-                            # create promise
-                            child_promise = self.store.promises.create(
-                                id=id,
-                                ikey=id,
-                                timeout=promise.timeout,
-                                data={"func": func, "args": args, "kwargs": kwargs},
-                                tags={"resonate:invoke": self.pid, "resonate:scope": "global"},
-                            )
-
-                            # If the promise was created on the local event loop it could cause
-                            # deadlock, so throw an assertion error for now.
-                            assert child_promise.tags.get("resonate:scope") == "global", "Scope must be global."
-
-                            match child_promise.pending:
-                                case True:
-                                    # create callback
-                                    child_promise, callback = self.store.promises.callback(
-                                        id=f"{self.id}.{id}",
-                                        promise_id=id,
-                                        root_promise_id=self.id,
-                                        timeout=promise.timeout,
-                                        recv=self.pid,
+                        return Coro(coro), [
+                            Network(
+                                functools.partial(
+                                    self.store.promises.create,
+                                    id=id,
+                                    ikey=id,
+                                    timeout=sys.maxsize,
+                                    data={"func": func, "args": args, "kwargs": kwargs},
+                                    tags={"resonate:scope": "global"},
+                                ),
+                                lambda _: [
+                                    Network(
+                                        functools.partial(
+                                            self.store.promises.callback,
+                                            id=f"{self.id}.{id}",
+                                            promise_id=id,
+                                            root_promise_id=self.id,
+                                            timeout=sys.maxsize,
+                                            recv=self.pid,
+                                        ),
+                                        self.transition(
+                                            child,
+                                            External(awaited=True),
+                                        ),
                                     )
+                                ]
+                            ),
+                        ]
 
-                                    match child_promise.pending:
-                                        case True:
-                                            assert callback, "Callback must be set."
+                    case LFI() | LFC() | RFI() | RFC(), Node(value=Init()) as child:
+                        node.add_edge("spawned", child)
+                        node.add_edge("waiting_p" if isinstance(cmd, LFI) else "waiting_v", child)
+                        return Coro(coro), []
 
-                                            # Init -> External
-                                            child.transition(External(child_promise))
+                    case LFC() | RFC(), Node(value=Done(result)) as child:
+                        node.add_edge("spawned", child)
+                        return Coro(coro, result), []
 
-                                            # RunnableCoro -> AwaitingCoro
-                                            node.transition(AwaitingCoro(coro, promise))
-                                            node.add_edge("spawned", child)
-                                            node.add_edge("waiting", child)
+                    case LFI(id) | RFI(id), child:
+                        node.add_edge("spawned", child)
+                        return Coro(coro, Ok(AWT(id, self.id))), []
 
-                                            # add command
-                                            commands.append(RFX(id, func, args, kwargs))
-                                        case False:
-                                            # Init -> Done
-                                            child.transition(Done(child_promise.result))
+                    case LFC() | RFC(), child:
+                        node.add_edge("spawned", child)
+                        node.add_edge("waiting_v", child)
+                        return Coro(coro), []
 
-                                            # RunnableCoro -> RunnableCoro
-                                            node.transition(RunnableCoro(coro, child_promise.result, promise))
-                                            node.add_edge("spawned", child)
+                    case AWT(id, cid), None | Node(value=Init()):
+                        assert cid == self.id, "Await id must match computation id."
+                        raise NotImplementedError
 
-                                case False:
-                                    # Init -> Done
-                                    child.transition(Done(child_promise.result))
-
-                                    # RunnableCoro -> RunnableCoro
-                                    node.transition(RunnableCoro(coro, child_promise.result, promise))
-                                    node.add_edge("spawned", child)
-
-                        case LFI(id) | RFI(id), _:
-                            # RunnableCoro -> RunnableCoro
-                            node.transition(RunnableCoro(coro, Ok(AWT(id, self.id)), promise))
-                            node.add_edge("spawned", child)
-
-                        case LFC() | RFC(), Done(result):
-                            # RunnableCoro -> RunnableCoro
-                            node.transition(RunnableCoro(coro, result, promise))
-                            node.add_edge("spawned", child)
-
-                        case LFC() | RFC(), _:
-                            # RunnableCoro -> AwaitingCoro
-                            node.transition(AwaitingCoro(coro, promise))
-                            node.add_edge("spawned", child)
-                            node.add_edge("waiting", child)
-
-                        case AWT(id, cid), External():
-                            assert cid == self.id, "Await id must match computation id."
-
-                            # create callback
-                            child_promise, callback = self.store.promises.callback(
-                                id=f"{self.id}.{id}",
-                                promise_id=id,
-                                root_promise_id=self.id,
-                                timeout=promise.timeout,
-                                recv=self.pid,
+                    case AWT(id, cid), Node(value=External(awaited=False)) as child:
+                        assert cid == self.id, "Await id must match computation id."
+                        node.add_edge("waiting_v", child)
+                        return Coro(coro), [
+                            Network(
+                                functools.partial(
+                                    self.store.promises.callback,
+                                    id=f"{self.id}.{id}",
+                                    promise_id=id,
+                                    root_promise_id=self.id,
+                                    timeout=sys.maxsize,
+                                    recv=self.pid,
+                                ),
+                                self.transition(
+                                    child,
+                                    External(awaited=True),
+                                ),
                             )
+                        ]
 
-                            match child_promise.pending:
-                                case True:
-                                    assert callback, "Callback must be set."
+                    case AWT(id, cid), Node(value=Done(result)):
+                        assert cid == self.id, "Await id must match computation id."
+                        return Coro(coro, result), []
 
-                                    # RunnableCoro -> AwaitingCoro
-                                    node.transition(AwaitingCoro(coro, promise))
-                                    node.add_edge("waiting", child)
-                                case False:
-                                    # External -> Done
-                                    child.transition(Done(child_promise.result))
+                    case AWT(id, cid), child:
+                        assert cid == self.id, "Await id must match computation id."
+                        node.add_edge("waiting_v", child)
+                        return Coro(coro), []
 
-                                    # RunnableCoro -> RunnableCoro
-                                    node.transition(RunnableCoro(coro, child_promise.result, promise))
+                    case TRM(id, result), _:
+                        assert id == node.id, "Terminate id must match node id."
 
-                        case AWT(id, cid), Done(result):
-                            assert cid == self.id, "Await id must match computation id."
+                        return Coro(coro, term=True), [
+                            Network(
+                                functools.partial(
+                                    self.store.promises.resolve if isinstance(result, Ok) else self.store.promises.reject,
+                                    id=id,
+                                    ikey=id,
+                                    data=result.value
+                                ),
+                                self.transition(
+                                    node,
+                                ),
+                            ),
+                        ]
 
-                            # RunnableCoro -> RunnableCoro
-                            node.transition(RunnableCoro(coro, result, promise))
+                    case _:
+                        raise NotImplementedError
 
-                        case AWT(id, cid), _:
-                            assert cid == self.id, "Await id must match computation id."
-                            assert not isinstance(child.value, Init), "Child must not be init."
+            case Func(func, args, kwargs):
+                return Internal(), [
+                    Function(
+                        lambda: func(*args, **kwargs),
+                        lambda result: [
+                            Network(
+                                functools.partial(
+                                    self.store.promises.resolve if isinstance(result, Ok) else self.store.promises.reject,
+                                    id=node.id,
+                                    ikey=node.id,
+                                    data=result.value
+                                ),
+                                self.transition(
+                                    node,
+                                ),
+                            ),
+                        ]
+                    ),
+                ]
 
-                            # RunnableCoro -> AwaitingCoro
-                            node.transition(AwaitingCoro(coro, promise))
-                            node.add_edge("waiting", child)
-
-                        case TRM(id, result), _:
-                            assert id == node.id, "Terminate id must match node id."
-                            assert id == promise.id, "Terminate id must match promise id."
-
-                            match result:
-                                case Ok(r):
-                                    promise = self.store.promises.resolve(id=id, ikey=id, data=r)
-                                case Ko(e):
-                                    promise = self.store.promises.reject(id=id, ikey=id, data=e)
-
-                            assert promise.completed, "Promise must be completed."
-
-                            # RunnableCoro -> Done
-                            node.transition(Done(promise.result))
-
-                            # AwaitingCoro -> RunnableCoro
-                            self.unblock(node)
-
-                        case _, _:
-                            print("************")
-                            print("This we could not handle")
-                            print(cmd, child)
-                            print("************")
-                            assert False, "no way jose"
-
-                case RunnableFunc(func, args, kwargs, promise):
-                    assert node.id == self.id, "Node id must match computation id."
-
-                    # create new command
-                    commands.append(LFX(node.id, func, args, kwargs))
-
-                    # RunnableCoro -> Internal
-                    node.transition(Internal(promise))
-
-                case _:
-                    break
+        return node.value, []
 
         # Detect cycle
 
-        waiting = node.get_edge("waiting")
-        assert len(waiting) <= 1, "Must have at most a single waiting edge."
+        # waiting = node.get_edge("waiting")
+        # assert len(waiting) <= 1, "Must have at most a single waiting edge."
 
-        if waiting:
-            path = [n.id for n in waiting[0].traverse("waiting")]
-            assert node.id not in path, f"Cycle detected: {node.id} -> {' -> '.join(path)}."
+        # if waiting:
+        #     path = [n.id for n in waiting[0].traverse("waiting")]
+        #     assert node.id not in path, f"Cycle detected: {node.id} -> {' -> '.join(path)}."
 
-        return commands
+    def transition_coro_or_func(
+        self,
+        node: Node[V, E], func: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Callable[[Result[DurablePromise] | Result[tuple[DurablePromise, Callback | Task | None]]], Sequence[Request]]:
+        match isgeneratorfunction(func):
+            case True:
+                return self.transition(node, Coro(Coroutine(node.id, self.id, func(self.ctx(node.id, self.registry), *args, **kwargs)), Ok(None)))
+            case False:
+                return self.transition(node, Func(func, args, kwargs))
 
-    def unblock(self, node: Node) -> None:
-        assert isinstance(node.value, Done), "Node must be done."
+    def transition(
+        self,
+        node: Node[V, E],
+        value: V | None = None,
+    ) -> Callable[[Result[DurablePromise] | Result[tuple[DurablePromise, Callback | Task | None]]], Sequence[Request]]:
+        def _transition(result: Result[DurablePromise] | Result[tuple[DurablePromise, Callback | Task | None]]) -> Sequence[Request]:
+            match result:
+                case Ok((promise, _)) | Ok(promise):
+                    match promise.pending:
+                        case True:
+                            assert value, "Value must be provided unless completing a promise."
+                            self.unblock(node, "waiting_p", Ok(AWT(node.id, self.id)))
+                            node.transition(value)
+                            return []
+                        case False:
+                            self.unblock(node, "waiting_p", Ok(AWT(node.id, self.id)))
+                            self.unblock(node, "waiting_v", promise.result)
+                            node.transition(Done(promise.result))
+                            return []
+                case Ko():
+                    raise NotImplementedError
+        return _transition
 
-        for blocked in self.graph.filter(lambda n: n.has_edge("waiting", node)):
-            assert isinstance(blocked.value, AwaitingCoro), "Blocked must be awaiting."
-
-            # remove waiting edge
-            blocked.rmv_edge("waiting", node)
-
-            # AwaitingCoro -> RunnableCoro
-            blocked.transition(RunnableCoro(blocked.value.coro, node.value.result, blocked.value.promise))
+    def unblock(self, node: Node, edge: E, next: Result) -> None:
+        for blocked in self.graph.filter(lambda n: n.has_edge(edge, node)):
+            assert isinstance(blocked.value, Coro), "Blocked must be coro."
+            blocked.rmv_edge(edge, node)
+            blocked.transition(Coro(blocked.value.coro, next))
 
     def print(self) -> None:
         for node, level in self.graph.traverse_with_level():
@@ -655,12 +601,10 @@ class Computation:
 
 # Coroutine
 
-
 @dataclass
 class TRM:
     id: str
     result: Result
-
 
 class Coroutine:
     def __init__(self, id: str, cid: str, gen: Generator[Yieldable, Any, Any]) -> None:

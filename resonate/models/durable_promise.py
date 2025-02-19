@@ -61,35 +61,37 @@ class DurablePromise:
     def timedout(self) -> bool:
         return self.state == "REJECTED_TIMEDOUT"
 
-    def resolve(self, headers: dict[str, str] | None, data: str | None) -> None:
-        resolved = self.store.promises.resolve(
+    def resolve(self, data: str | None, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
+        print("WE ARE HERE!!!!!!!!!")
+        promise = self.store.promises.resolve(
             id=self.id,
-            ikey=self.ikey_for_complete,
-            strict=False,
+            ikey=ikey,
+            strict=strict,
             headers=headers,
             data=data,
         )
-        self._complete(resolved)
+        print("WE ARE HERE!!!!!!!!!", promise)
+        self._complete(promise)
 
-    def reject(self, headers: dict[str, str] | None, data: str | None) -> None:
-        rejected = self.store.promises.reject(
+    def reject(self, data: str | None, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
+        promise = self.store.promises.reject(
             id=self.id,
-            ikey=self.ikey_for_complete,
-            strict=False,
+            ikey=ikey,
+            strict=strict,
             headers=headers,
             data=data,
         )
-        self._complete(rejected)
+        self._complete(promise)
 
-    def cancel(self, headers: dict[str, str] | None, data: str | None) -> None:
-        canceled = self.store.promises.cancel(
+    def cancel(self, data: str | None, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
+        promise = self.store.promises.cancel(
             id=self.id,
-            ikey=self.ikey_for_complete,
-            strict=False,
+            ikey=ikey,
+            strict=strict,
             headers=headers,
             data=data,
         )
-        self._complete(canceled)
+        self._complete(promise)
 
     def callback(self, id: str, root_promise_id: str, recv: str) -> Callback | None:
         promise, callback = self.store.promises.callback(
