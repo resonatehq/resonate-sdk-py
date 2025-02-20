@@ -53,7 +53,7 @@ class LocalSender:
 
     def send(self, recv: Recv, mesg: Mesg) -> None:
         pass
-        # # translates a msg into a cmd
+        # translates a msg into a cmd
         # match mesg:
         #     case {"type": "invoke", "task": task_mesg}:
         #         root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=recv, ttl=self._ttl)
@@ -66,12 +66,12 @@ class LocalSender:
         #                 info["func"],
         #                 info["args"],
         #                 info["kwargs"],
-        #                 root,
-        #                 Task(
-        #                     id=task_mesg["id"],
-        #                     counter=task_mesg["counter"],
-        #                     store=self._store,
-        #                 ),
+        #                 # root,
+        #                 # Task(
+        #                 #     id=task_mesg["id"],
+        #                 #     counter=task_mesg["counter"],
+        #                 #     store=self._store,
+        #                 # ),
         #             )
         #         )
         #     case {"type": "resume", "task": task_mesg}:
@@ -83,20 +83,21 @@ class LocalSender:
         #             Resume(
         #                 id=leaf.id,
         #                 cid=root.id,
-        #                 promise=leaf,
-        #                 task=Task(id=task_mesg["id"], counter=task_mesg["counter"], store=self._store),
+        #                 result=leaf.result,
+        #                 # promise=leaf,
+        #                 # task=Task(id=task_mesg["id"], counter=task_mesg["counter"], store=self._store),
         #                 invoke=Invoke(
         #                     root.id,
         #                     root_info["name"],
         #                     root_info["func"],
         #                     root_info["args"],
         #                     root_info["kwargs"],
-        #                     root,
-        #                     Task(
-        #                         id=task_mesg["id"],
-        #                         counter=task_mesg["counter"],
-        #                         store=self._store,
-        #                     ),
+        #                     # root,
+        #                     # Task(
+        #                     #     id=task_mesg["id"],
+        #                     #     counter=task_mesg["counter"],
+        #                     #     store=self._store,
+        #                     # ),
         #                 ),
         #             )
         #         )
@@ -159,24 +160,23 @@ class LocalStore:
         del self._senders[recv]
 
     def send_task(self, task: TaskRecord) -> bool:
+        sender = self._senders.get(task.recv)
+        if sender is None:
+            return False
+        match task.type:
+            case "invoke":
+                sender.send(
+                    recv=task.recv,
+                    mesg=InvokeMesg(type="invoke", task=TaskMesg(id=task.id, counter=task.counter)),
+                )
+            case "resume":
+                sender.send(
+                    recv=task.recv,
+                    mesg=ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter)),
+                )
+            case "notify":
+                raise NotImplementedError
         return True
-        # sender = self._senders.get(task.recv)
-        # if sender is None:
-        #     return False
-        # match task.type:
-        #     case "invoke":
-        #         sender.send(
-        #             recv=task.recv,
-        #             mesg=InvokeMesg(type="invoke", task=TaskMesg(id=task.id, counter=task.counter)),
-        #         )
-        #     case "resume":
-        #         sender.send(
-        #             recv=task.recv,
-        #             mesg=ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter)),
-        #         )
-        #     case "notify":
-        #         raise NotImplementedError
-        # return True
 
     def _transition_task(
         self,

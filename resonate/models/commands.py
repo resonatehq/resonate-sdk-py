@@ -33,14 +33,14 @@ class Resume:
     result: Result
     # promise: DurablePromise
     # task: Task
-    # invoke: Invoke
+    invoke: Invoke
 
 
 @dataclass
 class Return:
     id: str
     cid: str
-    cont: Callable[[Result], Sequence[Request]] = field(repr=False)
+    cont: Callable[[Result], None] = field(repr=False)
     result: Result
 
 @dataclass
