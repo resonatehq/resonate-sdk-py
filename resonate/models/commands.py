@@ -19,7 +19,7 @@ class Invoke:
     args: tuple[Any, ...] = field(default_factory=tuple)
     kwargs: dict[str, Any] = field(default_factory=dict)
     # promise: DurablePromise | None = None
-    # task: Task | None = None
+    task: Task | None = None
 
     @property
     def cid(self) -> str:
@@ -32,7 +32,7 @@ class Resume:
     cid: str
     result: Result
     # promise: DurablePromise
-    # task: Task
+    task: Task
     invoke: Invoke
 
 

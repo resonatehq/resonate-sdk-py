@@ -52,57 +52,56 @@ class LocalSender:
         self._ttl = ttl
 
     def send(self, recv: Recv, mesg: Mesg) -> None:
-        pass
         # translates a msg into a cmd
-        # match mesg:
-        #     case {"type": "invoke", "task": task_mesg}:
-        #         root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=recv, ttl=self._ttl)
-        #         assert leaf is None
-        #         info = self._get_information(root)
-        #         self._q.enqueue(
-        #             Invoke(
-        #                 root.id,
-        #                 info["name"],
-        #                 info["func"],
-        #                 info["args"],
-        #                 info["kwargs"],
-        #                 # root,
-        #                 # Task(
-        #                 #     id=task_mesg["id"],
-        #                 #     counter=task_mesg["counter"],
-        #                 #     store=self._store,
-        #                 # ),
-        #             )
-        #         )
-        #     case {"type": "resume", "task": task_mesg}:
-        #         root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=recv, ttl=self._ttl)
-        #         assert leaf is not None
-        #         assert leaf.completed
-        #         root_info = self._get_information(root)
-        #         self._q.enqueue(
-        #             Resume(
-        #                 id=leaf.id,
-        #                 cid=root.id,
-        #                 result=leaf.result,
-        #                 # promise=leaf,
-        #                 # task=Task(id=task_mesg["id"], counter=task_mesg["counter"], store=self._store),
-        #                 invoke=Invoke(
-        #                     root.id,
-        #                     root_info["name"],
-        #                     root_info["func"],
-        #                     root_info["args"],
-        #                     root_info["kwargs"],
-        #                     # root,
-        #                     # Task(
-        #                     #     id=task_mesg["id"],
-        #                     #     counter=task_mesg["counter"],
-        #                     #     store=self._store,
-        #                     # ),
-        #                 ),
-        #             )
-        #         )
-        #     case {"type": "notify", "task": task_mesg}:
-        #         raise NotImplementedError
+        match mesg:
+            case {"type": "invoke", "task": task_mesg}:
+                root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=recv, ttl=self._ttl)
+                assert leaf is None
+                info = self._get_information(root)
+                self._q.enqueue(
+                    Invoke(
+                        root.id,
+                        info["name"],
+                        info["func"],
+                        info["args"],
+                        info["kwargs"],
+                        # root,
+                        Task(
+                            id=task_mesg["id"],
+                            counter=task_mesg["counter"],
+                            store=self._store,
+                        ),
+                    )
+                )
+            case {"type": "resume", "task": task_mesg}:
+                root, leaf = self._store.tasks.claim(id=task_mesg["id"], counter=task_mesg["counter"], pid=recv, ttl=self._ttl)
+                assert leaf is not None
+                assert leaf.completed
+                root_info = self._get_information(root)
+                self._q.enqueue(
+                    Resume(
+                        id=leaf.id,
+                        cid=root.id,
+                        result=leaf.result,
+                        # promise=leaf,
+                        task=Task(id=task_mesg["id"], counter=task_mesg["counter"], store=self._store),
+                        invoke=Invoke(
+                            root.id,
+                            root_info["name"],
+                            root_info["func"],
+                            root_info["args"],
+                            root_info["kwargs"],
+                            # root,
+                            Task(
+                                id=task_mesg["id"],
+                                counter=task_mesg["counter"],
+                                store=self._store,
+                            ),
+                        ),
+                    )
+                )
+            case {"type": "notify", "task": task_mesg}:
+                raise NotImplementedError
 
     def _get_information(self, promise: DurablePromise) -> dict[str, Any]:
         params = promise.params
@@ -537,7 +536,7 @@ class LocalPromiseStore:
     ) -> tuple[DurablePromise, Callback | None]:
         promise = self._promises.get(promise_id)
         if promise is None:
-            msg = "Task not found"
+            msg = "Promise not found"
             raise ResonateError(msg, "STORE_NOT_FOUND")
 
         durable_promise = DurablePromise.from_dict(

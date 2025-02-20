@@ -189,12 +189,28 @@ class Enabled[T: E]:
     def __repr__(self) -> str:
         return f"Enabled::{self.value}"
 
+    @property
+    def running(self) -> bool:
+        return self.value.running
+
+    @property
+    def suspended(self) -> bool:
+        return self.value.suspended
+
 @dataclass
 class Blocked[T: E]:
     value: T
 
     def __repr__(self) -> str:
         return f"Blocked::{self.value}"
+
+    @property
+    def running(self) -> bool:
+        return False
+
+    @property
+    def suspended(self) -> bool:
+        return False
 
 @dataclass
 class Running[T: N]:
@@ -203,12 +219,28 @@ class Running[T: N]:
     def __repr__(self) -> str:
         return f"Running::{self.value}"
 
+    @property
+    def running(self) -> bool:
+        return True
+
+    @property
+    def suspended(self) -> bool:
+        return False
+
 @dataclass
 class Suspended[T: N]:
     value: T
 
     def __repr__(self) -> str:
         return f"Suspended::{self.value}"
+
+    @property
+    def running(self) -> bool:
+        return False
+
+    @property
+    def suspended(self) -> bool:
+        return True
 
 @dataclass
 class Completed[T: N]:
@@ -218,22 +250,30 @@ class Completed[T: N]:
     def __repr__(self) -> str:
         return f"Completed::{self.value}"
 
+    @property
+    def running(self) -> bool:
+        return False
+
+    @property
+    def suspended(self) -> bool:
+        return True
+
 @dataclass
 class Init:
     pass
 
 @dataclass
 class Pend:
-    next: tuple[Literal["top_level", "local"], Func | Coro] | tuple[Literal["remote"], Func]
+    next: Func | Coro
 
 @dataclass
 class Func:
     id: str
-    type: Literal["local", "remote"]
     name: str | None
     func: Callable[..., Any] | None
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
+    type: Literal["local", "remote"]
     result: Result | None = None
 
     def __repr__(self) -> str:
@@ -270,19 +310,18 @@ class Computation:
         self.graph = Graph[S, R](Node(id, Enabled(Suspended(Init()))), "spawned")
 
         self.task: Task | None = None
-        self.subscriptions: list[Future] = []
+        self.callbacks: dict[str, Callback] = {}
 
-        self.invoked = False
-        self.subscribed = False
+        self.subscriptions: list[Future] = []
 
     # def done(self) -> bool:
     #     return isinstance(self.graph.root.value, Done)
 
-    # def runnable(self) -> bool:
-    #     return self.graph.find(lambda n: n.value.runnable) is not None
+    def runnable(self) -> bool:
+        return any(n.value.running for n in self.graph.traverse())
 
-    # def suspendable(self) -> bool:
-    #     return self.graph.find(lambda n: n.value.suspended) is not None
+    def suspendable(self) -> bool:
+        return all(n.value.suspended for n in self.graph.traverse())
 
     def subscribe(self, future: Future) -> None:
         self.subscriptions.append(future)
@@ -298,7 +337,7 @@ class Computation:
         print(cmd)
 
         match cmd:
-            case Invoke(id, name, func, args, kwargs):
+            case Invoke(id, name, func, args, kwargs, task):
                 next = Coro(
                     id,
                     name,
@@ -308,19 +347,26 @@ class Computation:
                     Coroutine(id, self.id, func(self.ctx(id, self.registry), *args, **kwargs)),
                 ) if isgeneratorfunction(func) else Func(
                     id,
-                    "local",
                     name,
                     func,
                     args,
                     kwargs,
+                    "local",
                 )
-                self.graph.root.transition(Enabled(Running(Pend(("top_level", next)))))
 
-            case Resume(id, _, result, invoke):
+                if task:
+                    assert not self.task, "Task must not be set."
+                    self.task = task
+                    self.graph.root.transition(Enabled(Running(next)))
+                else:
+                    self.graph.root.transition(Enabled(Running(Pend(next))))
+
+            case Resume(id, _, result, task, invoke):
                 if node := self.graph.find(lambda n: n.id == id):
                     node.transition(Enabled(Completed(node.value.value.value, result)))
-                    self.unblock(node, "waiting_p", Ok(AWT(id, self.id)))
+                    self.unblock(node, "waiting_p", AWT(id, self.id))
                     self.unblock(node, "waiting_v", result)
+                    self.task = task
                 else:
                     self.apply(invoke)
 
@@ -330,15 +376,26 @@ class Computation:
     def eval(self) -> Sequence[Request]:
         reqs: Sequence[Request] = []
 
-        for node in self.graph.traverse():
-            reqs.extend(self._eval(node))
+        while self.runnable():
+            for node in self.graph.traverse():
+                reqs.extend(self._eval(node))
+
+        if self.suspendable():
+            print("!!!!!!! We are suspending", self.id)
+            assert self.task, "Task must be set."
+            self.task.complete()
+
+            # teeheehee
+            # self.graph = Graph[S, R](Node(self.id, Enabled(Suspended(Init()))), "spawned")
+            # self.task = None
+            # self.callbacks = {}
 
         return reqs
 
     def _eval(self, node: Node[S, R]) -> Sequence[Request]:
         match node.value:
-            case Enabled(Running(Pend(("top_level", Func(id, name, args=args, kwargs=kwargs) | Coro(id, name, args=args, kwargs=kwargs) as next))) as exec):
-                assert name is not None, "Name is required for top level invocation."
+            case Enabled(Running(Pend(Func(id, name, args=args, kwargs=kwargs, type="local") | Coro(id, name, args=args, kwargs=kwargs) as next)) as exec):
+                assert id == node.id, "Id must match node id."
                 node.transition(Blocked(exec))
 
                 return [
@@ -359,12 +416,7 @@ class Computation:
                             Running(next),
                         ),
                     ),
-                ]
-
-            case Enabled(Running(Pend(("local", Func(id) | Coro(id) as next))) as exec):
-                node.transition(Blocked(exec))
-
-                return [
+                ] if node == self.graph.root else [
                     Request(
                         functools.partial(
                             self.store.promises.create,
@@ -381,7 +433,8 @@ class Computation:
                     ),
                 ]
 
-            case Enabled(Running(Pend(("remote", Func(id, name, args=args, kwargs=kwargs) as next))) as exec):
+            case Enabled(Running(Pend(Func(id, name, args=args, kwargs=kwargs, type="remote") as next)) as exec):
+                assert id == node.id, "Id must match node id."
                 assert name is not None, "Name is required for remote invocation."
                 node.transition(Blocked(exec))
 
@@ -403,7 +456,8 @@ class Computation:
                     ),
                 ]
 
-            case Enabled(Running(Func(id, type, name, func, args, kwargs, result) as f) as exec):
+            case Enabled(Running(Func(id, name, func, args, kwargs, type, result) as f) as exec):
+                assert id == node.id, "Id must match node id."
                 assert type == "local", "Only local functions are runnable."
                 assert func is not None, "Func is required for local function."
                 node.transition(Blocked(exec))
@@ -413,7 +467,7 @@ class Computation:
                         return [
                             Request(
                                 lambda: func(*args, **kwargs),
-                                lambda r: node.transition(Enabled(Running(Func(id, type, name, func, args, kwargs, r)))),
+                                lambda r: node.transition(Enabled(Running(Func(id, name, func, args, kwargs, type, r)))),
                             ),
                         ]
                     case Ok(v):
@@ -457,7 +511,7 @@ class Computation:
                 print(cmd)
 
                 match cmd, child.value.value:
-                    case LFI(id, func, args, kwargs) | LFC(id, func, args, kwargs), Running(Init()):
+                    case LFI(id, func, args, kwargs), Running(Init()):
                         next = Coro(
                             id,
                             None,
@@ -467,48 +521,43 @@ class Computation:
                             Coroutine(id, self.id, func(self.ctx(id, self.registry), *args, **kwargs)),
                         ) if isgeneratorfunction(func) else Func(
                             id,
-                            "local",
                             None,
                             func,
                             args,
                             kwargs,
+                            "local",
                         )
 
-                        child.transition(Enabled(Running(Pend(("local", next)))))
+                        child.transition(Enabled(Running(Pend(next))))
 
                         node.add_edge("spawned", child)
-                        node.add_edge("waiting_p" if isinstance(cmd, LFI) else "waiting_v", child)
-                        node.transition(Blocked(Running(c)) if isinstance(cmd, LFI) else Enabled(Suspended(c)))
+                        node.add_edge("waiting_p", child)
+                        node.transition(Enabled(Suspended(c)))
 
                         return []
 
-                    case RFI(id, func, args, kwargs) | RFC(id, func, args, kwargs), Running(Init()):
+                    case RFI(id, func, args, kwargs), Running(Init()):
                         next = Func(
                             id,
-                            "remote",
                             func,
                             None,
                             args,
                             kwargs,
+                            "remote",
                         )
 
-                        child.transition(Enabled(Running(Pend(("remote", next)))))
+                        child.transition(Enabled(Running(Pend(next))))
 
                         node.add_edge("spawned", child)
-                        node.add_edge("waiting_p" if isinstance(cmd, RFI) else "waiting_v", child)
-                        node.transition(Blocked(Running(c)) if isinstance(cmd, RFI) else Enabled(Suspended(c)))
-
-                        return []
-
-                    case LFI() | LFC() | RFI() | RFC(), Running(Pend()) | Suspended(Pend()):
-                        node.add_edge("spawned", child)
-                        node.add_edge("waiting_p" if isinstance(cmd, LFI) else "waiting_v", child)
+                        node.add_edge("waiting_p", child)
                         node.transition(Enabled(Suspended(c)))
+
                         return []
 
-                    case LFC() | RFC(), Completed(result=result):
+                    case LFI() | RFI(), Running(Pend()) | Suspended(Pend()):
                         node.add_edge("spawned", child)
-                        c.next = result
+                        node.add_edge("waiting_p", child)
+                        node.transition(Enabled(Suspended(c)))
                         return []
 
                     case LFI(id) | RFI(id), _:
@@ -516,26 +565,29 @@ class Computation:
                         c.next = AWT(id, self.id)
                         return []
 
-                    case LFC() | RFC(), _:
-                        node.add_edge("spawned", child)
-                        node.add_edge("waiting_v", child)
-                        node.transition(Enabled(Suspended(c)))
-                        return []
-
                     case AWT(id, cid), Completed(result=result):
                         assert cid == self.id, "Await id must match computation id."
                         c.next = result
                         return []
 
-                    case AWT(id, cid), Running(Func(type="remote")) | Suspended(Func(type="remote")):
+                    case AWT(id, cid), Suspended(Func(type="remote") as f):
                         assert cid == self.id, "Await id must match computation id."
+
+                        callback_id = f"{self.id}:{id}"
                         node.add_edge("waiting_v", child)
-                        node.transition(Blocked(Suspended(c)))
+                        node.transition(Enabled(Suspended(c)))
+
+                        # nothing to do if there is already a callback
+                        if callback_id in self.callbacks:
+                            return []
+
+                        child.transition(Blocked(Suspended(f)))
+
                         return [
                             Request(
                                 functools.partial(
                                     self.store.promises.callback,
-                                    id=f"{self.id}.{id}",
+                                    id=callback_id,
                                     promise_id=id,
                                     root_promise_id=self.id,
                                     timeout=sys.maxsize,
@@ -543,8 +595,8 @@ class Computation:
                                 ),
                                 functools.partial(
                                     self.transition,
-                                    node,
-                                    Suspended(c),
+                                    child,
+                                    Suspended(f),
                                 ),
                             )
                         ]
@@ -556,7 +608,7 @@ class Computation:
                         return []
 
                     case TRM(id, result), _:
-                        assert id == node.id, "Terminate id must match node id."
+                        assert id == node.id, "Id must match node id."
 
                         match result:
                             case Ok(v):
@@ -609,6 +661,15 @@ class Computation:
         return []
 
     def print(self) -> None:
+        print("Computation", self.id)
+        print("Task:")
+        print("\t", self.task)
+
+        print("Callbacks:")
+        for callback in self.callbacks.values():
+            print("\t", callback)
+
+        print("Graph:")
         for node, level in self.graph.traverse_with_level():
             print(f"{'  ' * level}{node}")
 
@@ -616,18 +677,34 @@ class Computation:
         self,
         node: Node[S, R],
         next: E,
-        result: Result[DurablePromise] | Result[tuple[DurablePromise, Callback | Task | None]]
+        result: Result[DurablePromise] | Result[tuple[DurablePromise, Task | Callback | None]]
     ) -> None:
         match result:
-            case Ok((promise, _)) | Ok(promise):
-                match promise.pending:
-                    case True:
-                        self.unblock(node, "waiting_p", AWT(node.id, self.id))
-                        node.transition(Enabled(next))
-                    case False:
-                        self.unblock(node, "waiting_p", AWT(node.id, self.id))
-                        self.unblock(node, "waiting_v", promise.result)
-                        node.transition(Enabled(Completed(next.value, promise.result)))
+            case Ok(v):
+
+                # Extract promise
+                match v:
+                    case (promise, _) | promise:
+                        assert node.id == promise.id, "Node id must match promise id."
+
+                        match promise.pending:
+                            case True:
+                                self.unblock(node, "waiting_p", AWT(node.id, self.id))
+                                node.transition(Enabled(next))
+                            case False:
+                                self.unblock(node, "waiting_p", AWT(node.id, self.id))
+                                self.unblock(node, "waiting_v", promise.result)
+                                node.transition(Enabled(Completed(next.value, promise.result)))
+
+                # Extract task/callback
+                match v:
+                    case (_, Task() as task):
+                        assert node == self.graph.root, "A task is only applicable on the root node."
+                        assert not self.task, "Task must not be set."
+                        self.task = task
+                    case (_, Callback() as callback):
+                        self.callbacks[callback.id] = callback
+
             case Ko():
                 raise NotImplementedError
 
@@ -653,15 +730,16 @@ class Coroutine:
         self.cid = cid
         self.gen = gen
 
-        self.next: type[None | AWT] | tuple[type[Result], ...] = type(None)
         self.done = False
+        self.skip = False
+        self.next: type[None | AWT] | tuple[type[Result], ...] = type(None)
         self.unyielded: list[AWT | TRM] = []
 
     def __repr__(self) -> str:
         return f"Coroutine(done={self.done})"
 
-    def send(self, value: None | AWT | Result) -> Yieldable | TRM:
-        assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow LFC/RFC/AWT."
+    def send(self, value: None | AWT | Result) -> LFI | RFI | AWT | TRM:
+        assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow AWT."
 
         if self.done:
             match self.unyielded:
@@ -672,11 +750,15 @@ class Coroutine:
                     raise StopIteration
 
         try:
-            match value:
-                case Ok(v):
+            match value, self.skip:
+                case Ok(v), False:
                     yielded = self.gen.send(v)
-                case Ko(e):
+                case Ko(e), False:
                     yielded = self.gen.throw(e)
+                case awt, True:
+                    assert isinstance(awt, AWT), "Skipped value must be an AWT."
+                    self.skip = False
+                    yielded = awt
                 case _:
                     yielded = self.gen.send(value)
 
@@ -684,8 +766,14 @@ class Coroutine:
                 case LFI(id) | RFI(id, mode="attached"):
                     self.next = AWT
                     self.unyielded.append(AWT(id, self.cid))
-                case LFC() | RFC():
-                    self.next = (Ok, Ko)
+                case LFC(id, func, args, kwargs, opts, name, task):
+                    self.next = AWT
+                    self.skip = True
+                    yielded = LFI(id, func, args, kwargs, opts, name, task)
+                case RFC(id, func, args, kwargs, opts):
+                    self.next = AWT
+                    self.skip = True
+                    yielded = RFI(id, func, args, kwargs, opts)
                 case AWT(id):
                     self.next = (Ok, Ko)
                     self.unyielded = [y for y in self.unyielded if y.id != id]
