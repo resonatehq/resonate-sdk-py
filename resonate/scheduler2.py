@@ -10,7 +10,7 @@ from collections.abc import Callable, Generator
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Sequence, TypeGuard
 
 from resonate.context import Context
 from resonate.graph import Graph, Node
@@ -44,7 +44,7 @@ from resonate.stores.local import LocalSender, Recv
 class Scheduler:
     def __init__(
         self,
-        cq: queue.Queue[Command | tuple[Command, Future] | None] | None = None,
+        cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
         pid: str | None = None,
         ctx: type[Contextual] = Context,
         processor: Processor | None = None,
@@ -52,7 +52,7 @@ class Scheduler:
         store: Store | None = None,
     ) -> None:
         # command queue
-        self.cq = cq or queue.Queue[Command | tuple[Command, Future] | None]()
+        self.cq = cq or queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None]()
 
         # pid
         self.pid = pid or uuid.uuid4().hex
@@ -79,46 +79,38 @@ class Scheduler:
         # scheduler thread
         self.thread = threading.Thread(target=self.loop, daemon=True)
 
-    # def start(self) -> None:
-    #     # connect to the store, must be done after instantiation to avoid race
-    #     # condition with registered functions
-    #     if isinstance(self.store, LocalStore):
-    #         self.store.connect(self.pid, LocalSender(self, self.store, self.registry, self.pid))
+    def start(self) -> None:
+        self.processor.start()
 
-    #     self.processor.start()
+        if not self.thread.is_alive():
+            self.thread.start()
 
-    #     if not self.thread.is_alive():
-    #         self.thread.start()
+    def stop(self) -> None:
+        self.processor.stop()
 
-    # def stop(self) -> None:
-    #     if isinstance(self.store, LocalStore):
-    #         self.store.disconnect(self.pid)
+        if self.thread.is_alive():
+            self.cq.put(None)
+            self.thread.join()
 
-    #     self.processor.stop()
-
-    #     if self.thread.is_alive():
-    #         self.cq.put(None)
-    #         self.thread.join()
-
-    def enqueue(self, cmd: Command, future: Future | None = None) -> None:
-        if future:
-            self.cq.put((cmd, future))
+    def enqueue(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> None:
+        if futures:
+            self.cq.put((cmd, futures))
         else:
             self.cq.put(cmd)
 
     def loop(self) -> None:
         while cqe := self.cq.get():
             match cqe:
-                case (cmd, future):
-                    self._step(cmd, future)
+                case (cmd, futures):
+                    self._step(cmd, futures)
                 case cmd:
                     self._step(cmd)
 
     def step(self) -> None:
         if cqe := self.cq.get_nowait():
             match cqe:
-                case (cmd, future):
-                    self._step(cmd, future)
+                case (cmd, futures):
+                    self._step(cmd, futures)
                 case cmd:
                     self._step(cmd)
 
@@ -129,42 +121,22 @@ class Scheduler:
             except queue.Empty:
                 pass
 
-    def _step(self, cmd: Command, future: Future | None = None) -> None:
+    def _step(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> None:
         computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.pid, self.ctx, self.registry, self.store))
 
+        # subscribe
+        if futures:
+            computation.subscribe(*futures)
+
+        # apply
         computation.apply(cmd)
 
+        # eval
         for req in computation.eval():
             self.processor.enqueue(
                 req.func,
-                lambda r, cmd=cmd, req=req: self.enqueue(Return(cmd.id, cmd.cid, req.cont, r)),
+                lambda r, cmd=cmd, req=req: self.enqueue(Return(cmd.id, cmd.cid, lambda: req.cont(r))),
             )
-        # reqs = [
-        #     *computation.apply(cmd),
-        #     *computation.run_until_blocked(),
-        # ]
-
-        # for req in reqs:
-        #     self.processor.enqueue(
-        #         req.func,
-        #         lambda r, cmd=cmd, cont=req.cont: self.enqueue(Return(cmd.id, cmd.cid, cont, r)),
-        #     )
-
-        # # subscribe to the computation
-        # if future:
-        #     computation.subscribe(future)
-
-        # # resolve handles is computation has a result
-        # if done:
-        #     for f in computation.subscriptions:
-        #         match computation.result():
-        #             case Ok(r):
-        #                 f.set_result(r)
-        #             case Ko(e):
-        #                 f.set_exception(e)
-
-        #     # clear the subscriptions because futures cannot be set more than once
-        #     computation.subscriptions.clear()
 
         # print the computation
         computation.print()
@@ -312,10 +284,8 @@ class Computation:
         self.task: Task | None = None
         self.callbacks: dict[str, Callback] = {}
 
-        self.subscriptions: list[Future] = []
-
-    # def done(self) -> bool:
-    #     return isinstance(self.graph.root.value, Done)
+        self._fp: list[Future] = []
+        self._fv: list[Future] = []
 
     def runnable(self) -> bool:
         return any(n.value.running for n in self.graph.traverse())
@@ -323,21 +293,29 @@ class Computation:
     def suspendable(self) -> bool:
         return all(n.value.suspended for n in self.graph.traverse())
 
-    def subscribe(self, future: Future) -> None:
-        self.subscriptions.append(future)
+    def subscribe(self, fp: Future, fv: Future) -> None:
+        self._fp.append(fp)
+        self._fv.append(fv)
 
-    # def result(self) -> Result | None:
-    #     match self.graph.root.value:
-    #         case Done(result):
-    #             return result
-    #         case _:
-    #             return None
+    @property
+    def promised(self) -> bool:
+        return isinstance(self.graph.root.value.value.value, (Func, Coro))
+
+    @property
+    def completed(self) -> bool:
+        return isinstance(self.graph.root.value.value, Completed)
+
+    def value(self) -> Result:
+        if not isinstance(self.graph.root.value.value, Completed):
+            raise RuntimeError("Computation is not completed")
+
+        return self.graph.root.value.value.result
 
     def apply(self, cmd: Command) -> None:
         print(cmd)
 
-        match cmd:
-            case Invoke(id, name, func, args, kwargs, task):
+        match cmd, self.graph.root.value.value.value:
+            case Invoke(id, name, func, args, kwargs, task), Init():
                 next = Coro(
                     id,
                     name,
@@ -361,17 +339,21 @@ class Computation:
                 else:
                     self.graph.root.transition(Enabled(Running(Pend(next))))
 
-            case Resume(id, _, result, task, invoke):
+            case Resume(invoke=invoke), Init():
+                self.apply(invoke)
+
+            case Resume(id, result=result, task=task), _:
                 if node := self.graph.find(lambda n: n.id == id):
                     node.transition(Enabled(Completed(node.value.value.value, result)))
-                    self.unblock(node, "waiting_p", AWT(id, self.id))
-                    self.unblock(node, "waiting_v", result)
+                    self._unblock(node, "waiting_p", AWT(id, self.id))
+                    self._unblock(node, "waiting_v", result)
                     self.task = task
                 else:
-                    self.apply(invoke)
+                    # What should we do here?
+                    raise NotImplementedError
 
-            case Return(id, _, cont, result):
-                cont(result)
+            case Return(cont=cont), _:
+                cont()
 
     def eval(self) -> Sequence[Request]:
         reqs: Sequence[Request] = []
@@ -385,10 +367,15 @@ class Computation:
             assert self.task, "Task must be set."
             self.task.complete()
 
-            # teeheehee
-            # self.graph = Graph[S, R](Node(self.id, Enabled(Suspended(Init()))), "spawned")
-            # self.task = None
-            # self.callbacks = {}
+        if self.promised:
+            for future in self._fp:
+                future.set_result(True)
+            self._fp.clear()
+
+        if self.completed:
+            for future in self._fv:
+                future.set_result(self.value())
+            self._fv.clear()
 
         return reqs
 
@@ -411,7 +398,7 @@ class Computation:
                             ttl=0,
                         ),
                         functools.partial(
-                            self.transition,
+                            self._transition,
                             node,
                             Running(next),
                         ),
@@ -426,7 +413,7 @@ class Computation:
                             tags={"resonate:scope": "local"},
                         ),
                         functools.partial(
-                            self.transition,
+                            self._transition,
                             node,
                             Running(next),
                         ),
@@ -449,7 +436,7 @@ class Computation:
                             tags={"resonate:invoke": self.pid, "resonate:scope": "global"},
                         ),
                         functools.partial(
-                            self.transition,
+                            self._transition,
                             node,
                             Suspended(next),
                         ),
@@ -480,7 +467,7 @@ class Computation:
                                     data=v
                                 ),
                                 functools.partial(
-                                    self.transition,
+                                    self._transition,
                                     node,
                                     Running(f),
                                 ),
@@ -497,7 +484,7 @@ class Computation:
                                     data=v
                                 ),
                                 functools.partial(
-                                    self.transition,
+                                    self._transition,
                                     node,
                                     Running(f),
                                 ),
@@ -594,7 +581,7 @@ class Computation:
                                     recv=self.pid,
                                 ),
                                 functools.partial(
-                                    self.transition,
+                                    self._transition,
                                     child,
                                     Suspended(f),
                                 ),
@@ -623,7 +610,7 @@ class Computation:
                                             data=v
                                         ),
                                         functools.partial(
-                                            self.transition,
+                                            self._transition,
                                             node,
                                             Running(c),
                                         ),
@@ -642,7 +629,7 @@ class Computation:
                                             data=v
                                         ),
                                         functools.partial(
-                                            self.transition,
+                                            self._transition,
                                             node,
                                             Running(c),
                                         ),
@@ -673,7 +660,7 @@ class Computation:
         for node, level in self.graph.traverse_with_level():
             print(f"{'  ' * level}{node}")
 
-    def transition(
+    def _transition(
         self,
         node: Node[S, R],
         next: E,
@@ -689,11 +676,11 @@ class Computation:
 
                         match promise.pending:
                             case True:
-                                self.unblock(node, "waiting_p", AWT(node.id, self.id))
+                                self._unblock(node, "waiting_p", AWT(node.id, self.id))
                                 node.transition(Enabled(next))
                             case False:
-                                self.unblock(node, "waiting_p", AWT(node.id, self.id))
-                                self.unblock(node, "waiting_v", promise.result)
+                                self._unblock(node, "waiting_p", AWT(node.id, self.id))
+                                self._unblock(node, "waiting_v", promise.result)
                                 node.transition(Enabled(Completed(next.value, promise.result)))
 
                 # Extract task/callback
@@ -708,7 +695,7 @@ class Computation:
             case Ko():
                 raise NotImplementedError
 
-    def unblock(self, node: Node[S, R], edge: R, next: AWT | Result) -> None:
+    def _unblock(self, node: Node[S, R], edge: R, next: AWT | Result) -> None:
         for blocked in self.graph.filter(lambda n: n.has_edge(edge, node)):
             assert isinstance(blocked.value.value.value, Coro), "Blocked must be coro."
             blocked.rmv_edge(edge, node)

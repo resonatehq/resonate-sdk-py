@@ -40,8 +40,7 @@ class Resume:
 class Return:
     id: str
     cid: str
-    cont: Callable[[Result], None] = field(repr=False)
-    result: Result
+    cont: Callable[[], None] = field(repr=False)
 
 @dataclass
 class Listen:
