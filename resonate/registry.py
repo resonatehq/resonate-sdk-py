@@ -6,6 +6,7 @@ from typing import Any, Concatenate, overload
 
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import Contextual
+from resonate.models.durable_promise import DurablePromise
 from resonate.models.enqueueable import Enqueueable
 from resonate.models.handle import Handle
 
@@ -57,15 +58,17 @@ class Function[**P, R]:
         return self.name
 
     def get(self, id: str) -> Handle[R]:
-        future = Future[R]()
-        handle = Handle(future)
-        self._cq.enqueue(Listen(id), future)
+        fp, fv = Future[DurablePromise](), Future[R]()
+        handle = Handle(fv)
+        self._cq.enqueue(Listen(id), futures=(fp, fv))
 
+        fp.result()
         return handle
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
-        future = Future[R]()
-        handle = Handle(future)
-        self._cq.enqueue(Invoke(id, self.name, self.func, args, kwargs), future)
+        fp, fv = Future[DurablePromise](), Future[R]()
+        handle = Handle(fv)
+        self._cq.enqueue(Invoke(id, self.name, self.func, args, kwargs), futures=(fp, fv))
 
+        fp.result()
         return handle
