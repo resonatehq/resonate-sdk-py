@@ -83,15 +83,15 @@ class SimpleRunner:
         g = func(LocalContext(), *args, **kwargs)
         v = None
 
-        while True:
-            try:
+        try:
+            while True:
                 match g.send(v):
                     case LFI(_, func, args, kwargs):
                         v = (func, args, kwargs)
                     case LFC(_, func, args, kwargs) | (func, args, kwargs):
                         v = self._run(func, args, kwargs)
-            except StopIteration as e:
-                return e.value
+        except StopIteration as e:
+            return e.value
 
 
 class ResonateRunner:
@@ -105,13 +105,14 @@ class ResonateRunner:
         self.scheduler = Scheduler(registry=registry, store=store)
 
     def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-        future = Future[R]()
-        self.scheduler.enqueue(Invoke(id, self.registry.reverse_lookup(func), func, args, kwargs), future)
+        fp = Future()
+        fv = Future[R]()
+        self.scheduler.enqueue(Invoke(id, self.registry.reverse_lookup(func), func, args, kwargs), (fp, fv))
 
-        while not future.done():
+        while not fv.done():
             self.scheduler.step()
 
-        return future.result()
+        return fv.result()
 
 
 class ResonateLFXRunner:
@@ -122,13 +123,14 @@ class ResonateLFXRunner:
         self.scheduler = Scheduler(ctx=LocalContext, registry=registry)
 
     def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-        future = Future[R]()
-        self.scheduler.enqueue(Invoke(id, self.registry.reverse_lookup(func), func, args, kwargs), future)
+        fp = Future()
+        fv = Future[R]()
+        self.scheduler.enqueue(Invoke(id, self.registry.reverse_lookup(func), func, args, kwargs), (fp, fv))
 
-        while not future.done():
+        while not fv.done():
             self.scheduler.step()
 
-        return future.result()
+        return fv.result()
 
 
 class ResonateRFXRunner:
@@ -142,10 +144,11 @@ class ResonateRFXRunner:
         self.scheduler = Scheduler(ctx=RemoteContext, registry=registry, store=store)
 
     def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-        future = Future[R]()
-        self.scheduler.enqueue(Invoke(id, self.registry.reverse_lookup(func), func, args, kwargs), future)
+        fp = Future()
+        fv = Future[R]()
+        self.scheduler.enqueue(Invoke(id, self.registry.reverse_lookup(func), func, args, kwargs), (fp, fv))
 
-        while not future.done():
+        while not fv.done():
             self.scheduler.step()
 
-        return future.result()
+        return fv.result()

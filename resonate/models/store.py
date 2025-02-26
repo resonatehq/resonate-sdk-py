@@ -99,7 +99,7 @@ class TaskStore(Protocol):
         *,
         id: str,
         counter: int,
-    ) -> None: ...
+    ) -> bool: ...
 
     def heartbeat(
         self,

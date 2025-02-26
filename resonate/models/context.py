@@ -24,8 +24,6 @@ class LFX:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: dict[str, Any] = field(default_factory=dict)
-    name: str | None = None
-    task: bool = False
 
     def options(self, **opts: Any) -> Self:
         self.id = opts.get("id", self.id)  # quite possibly too clever

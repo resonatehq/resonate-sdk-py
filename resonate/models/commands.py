@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any, Callable
 
-from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.result import Result
 from resonate.models.task import Task
 
-type Command = Invoke | Resume | Return | Return | Listen | Notify | PromiseEffect | CallbackEffect
+type Command = Invoke | Resume | Return | Listen | Notify
 
 
 @dataclass
@@ -18,8 +17,7 @@ class Invoke:
     func: Callable[..., Any]
     args: tuple[Any, ...] = field(default_factory=tuple)
     kwargs: dict[str, Any] = field(default_factory=dict)
-    # promise: DurablePromise | None = None
-    task: Task | None = None
+    promise_and_task: tuple[DurablePromise, Task] | None = None
 
     @property
     def cid(self) -> str:
@@ -30,8 +28,7 @@ class Invoke:
 class Resume:
     id: str
     cid: str
-    result: Result
-    # promise: DurablePromise
+    promise: DurablePromise
     task: Task
     invoke: Invoke
 
@@ -60,32 +57,16 @@ class Notify:
     def cid(self) -> str:
         return self.id
 
-
-@dataclass
-class PromiseEffect:
-    id: str
-    cid: str
-    promise: DurablePromise
-    task: Task | None = None
-
-
-@dataclass
-class CallbackEffect:
-    id: str
-    cid: str
-    promise: DurablePromise
-    callback: Callback
-
 # Requests
 
-type Request = Network | Function
+type Request[T] = Network[T] | Function[T]
 
 @dataclass
 class Network[T]:
     func: Callable[[], T]
-    cont: Callable[[Result[T]], Sequence[Request]]
+    cont: Callable[[Result[T]], None]
 
 @dataclass
 class Function[T]:
     func: Callable[[], T]
-    cont: Callable[[Result[T]], Sequence[Request]]
+    cont: Callable[[Result[T]], None]

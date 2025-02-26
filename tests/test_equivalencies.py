@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import itertools
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -83,7 +85,7 @@ def runners(registry: Registry) -> tuple[Runner, ...]:
 
 
 @pytest.mark.parametrize(
-    "id, func, args, kwargs",
+    ("id", "func", "args", "kwargs"),
     [
         *((f"fib({n})", fib, (n,), {}) for n in range(20)),
         *((f"fac({n})", fac, (n,), {}) for n in range(20)),
@@ -91,10 +93,6 @@ def runners(registry: Registry) -> tuple[Runner, ...]:
         # *((f"rpt({s},{n})", rpt, (s, n), {}) for s, n in itertools.product("abc", range(10))),
     ],
 )
-def test_equivalencies(runners, id, func, args, kwargs):
-    results = []
-
-    for runner in runners:
-        results.append(runner.run(id, func, *args, **kwargs))
-
+def test_equivalencies(runners: tuple[Runner, ...], id: str, func: Callable, args: Any, kwargs: Any) -> None:
+    results = [runner.run(id, func, *args, **kwargs) for runner in runners]
     assert all(x == results[0] for x in results[1:])

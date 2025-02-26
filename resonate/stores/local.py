@@ -65,12 +65,11 @@ class LocalSender:
                         info["func"],
                         info["args"],
                         info["kwargs"],
-                        # root,
-                        Task(
+                        (root, Task(
                             id=task_mesg["id"],
                             counter=task_mesg["counter"],
                             store=self._store,
-                        ),
+                        )),
                     )
                 )
             case {"type": "resume", "task": task_mesg}:
@@ -82,8 +81,7 @@ class LocalSender:
                     Resume(
                         id=leaf.id,
                         cid=root.id,
-                        result=leaf.result,
-                        # promise=leaf,
+                        promise=leaf,
                         task=Task(id=task_mesg["id"], counter=task_mesg["counter"], store=self._store),
                         invoke=Invoke(
                             root.id,
@@ -91,12 +89,11 @@ class LocalSender:
                             root_info["func"],
                             root_info["args"],
                             root_info["kwargs"],
-                            # root,
-                            Task(
+                            (root, Task(
                                 id=task_mesg["id"],
                                 counter=task_mesg["counter"],
                                 store=self._store,
-                            ),
+                            )),
                         ),
                     )
                 )
@@ -620,8 +617,9 @@ class LocalTaskStore:
                     self._encoder.decode(leaf_promise.value.data),
                 )
 
-    def complete(self, *, id: str, counter: int) -> None:
+    def complete(self, *, id: str, counter: int) -> bool:
         self._tasks[id] = self._store._transition_task(id=id, counter=counter, to="COMPLETED", completed_on=now())
+        return True
 
     def heartbeat(self, *, pid: str) -> int:
         affected_tasks = 0

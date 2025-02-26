@@ -13,14 +13,19 @@ if TYPE_CHECKING:
 class Task:
     id: str
     counter: int
-
     store: Store
+
+    _completed: bool = False
+
+    @property
+    def completed(self) -> bool:
+        return self._completed
 
     def claim(self, pid: str, ttl: int) -> tuple[DurablePromise, DurablePromise | None]:
         return self.store.tasks.claim(id=self.id, counter=self.counter, pid=pid, ttl=ttl)
 
     def complete(self) -> None:
-        return self.store.tasks.complete(id=self.id, counter=self.counter)
+        self._completed = self.store.tasks.complete(id=self.id, counter=self.counter)
 
     @classmethod
     def from_dict(cls, store: Store, data: dict[str, Any]) -> Task:
