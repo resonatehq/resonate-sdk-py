@@ -14,7 +14,7 @@ from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateError
 from resonate.models.callback import Callback
 from resonate.models.commands import Invoke, Notify, Resume
-from resonate.models.durable_promise import DurablePromise
+from resonate.models.durable_promise import DurablePromise, DurablePromiseValue
 from resonate.models.message import Mesg
 from resonate.models.task import Task
 
@@ -157,6 +157,7 @@ class LocalStore:
 
     def step(self) -> None:
         assert self._cq
+        current_time = now()
         for task in self._tasks.values():
             match task:
                 case TaskRecord(state="INIT", type="invoke"):
@@ -165,8 +166,13 @@ class LocalStore:
                 case TaskRecord(state="INIT", type="resume"):
                     self._cq.enqueue({"type": "resume", "task": {"id": task.id, "counter": task.counter}})
                     self.tasks.transition(id=task.id, to="ENQUEUED")
-                case TaskRecord(state="CLAIMED") if task.ttl and task.ttl < now():
+                case TaskRecord(state="CLAIMED") if task.ttl and task.ttl < current_time:
                     self.tasks.transition(id=task.id, to="INIT")
+
+        for promise in self._promises.values():
+            match promise:
+                case DurablePromiseRecord(state="PENDING") if promise.timeout < current_time:
+                    self.promises.transition(id=promise.id, to="REJECTED_TIMEDOUT", current_time=current_time)
 
 
 class LocalPromiseStore:
