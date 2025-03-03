@@ -275,7 +275,7 @@ class RemoteTaskStore:
 
         return _call(req.prepare()).json()
 
-    def complete(self, *, id: str, counter: int) -> None:
+    def complete(self, *, id: str, counter: int) -> bool:
         req = Request(
             method="post",
             url=f"{self._store.url}/tasks/complete",
@@ -285,6 +285,7 @@ class RemoteTaskStore:
             },
         )
         _call(req.prepare())
+        return True
 
     def heartbeat(
         self,

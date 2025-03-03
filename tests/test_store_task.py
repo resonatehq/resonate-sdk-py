@@ -26,18 +26,8 @@ if TYPE_CHECKING:
 TICK_TIME = 1
 
 
-class LocalSender:
-    def __init__(self, cq: Queue[tuple[str, int]]) -> None:
-        self.cq = cq
-
-    def send(self, recv: str, mesg: Mesg) -> None:
-        assert mesg["type"] == "invoke"
-        self.cq.put((mesg["task"]["id"], mesg["task"]["counter"]))
-
-
 class TaskTranslator:
-    def __init__(self, store: Store, cq: Queue[tuple[str, int]]) -> None:
-        self.store = store
+    def __init__(self, cq: Queue[tuple[str, int]]) -> None:
         self.cq = cq
 
     def enqueue(self, mesg: Mesg) -> None:
@@ -69,7 +59,7 @@ def task(store: Store) -> Generator[tuple[str, int]]:
 
     match store:
         case LocalStore():
-            store.add_sender("default", LocalSender(cq=cq))
+            store.add_cq(TaskTranslator(cq))
             store.promises.create(
                 id=id,
                 ikey=None,
@@ -79,11 +69,11 @@ def task(store: Store) -> Generator[tuple[str, int]]:
                 timeout=sys.maxsize,
                 tags={"resonate:invoke": "default"},
             )
+            store.step()
 
             yield cq.get_nowait()
 
             store.promises.resolve(id=id)
-            store.rmv_sender("default")
         case RemoteStore():
             poller = Poller(group=id, timeout=2)
 
@@ -97,7 +87,7 @@ def task(store: Store) -> Generator[tuple[str, int]]:
                 tags={"resonate:invoke": f"poll://{id}"},
             )
 
-            poller.step(cq=TaskTranslator(store, cq), pid=id)
+            poller.step(cq=TaskTranslator(cq), pid=id)
 
             yield cq.get_nowait()
             poller.stop()
@@ -108,8 +98,6 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task5", ttl=sys.maxsize)
 
-    # # completing to clean up task. Not part of the actual test
-    # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
 def test_case_6_transition_from_enqueue_to_enqueue_via_claim(store: Store, task: tuple[str, int]) -> None:
@@ -148,8 +136,6 @@ def test_case_12_transition_from_claimed_to_claimed_via_claim(store: Store, task
             ttl=sys.maxsize,
         )
 
-    # # completing to clean up task. Not part of the actual test
-    # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
 def test_case_13_transition_from_claimed_to_init_via_claim(store: Store, task: tuple[str, int]) -> None:
@@ -163,8 +149,6 @@ def test_case_13_transition_from_claimed_to_init_via_claim(store: Store, task: t
             ttl=sys.maxsize,
         )
 
-    # # completing to clean up task. Not part of the actual test
-    # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
 def test_case_14_transition_from_claimed_to_completed_via_complete(store: Store, task: tuple[str, int]) -> None:
@@ -174,8 +158,6 @@ def test_case_14_transition_from_claimed_to_completed_via_complete(store: Store,
 
 
 def test_case_15_transition_from_claimed_to_init_via_complete(store: Store, task: tuple[str, int]) -> None:
-    if isinstance(store, LocalStore):
-        return
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task15", ttl=0)
     time.sleep(TICK_TIME)
@@ -189,13 +171,9 @@ def test_case_16_transition_from_claimed_to_claimed_via_complete(store: Store, t
     with pytest.raises(ResonateError):
         store.tasks.complete(id=id, counter=counter + 1)
 
-    # # completing to clean up task. Not part of the actual test
-    # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
 def test_case_17_transition_from_claimed_to_init_via_complete(store: Store, task: tuple[str, int]) -> None:
-    if isinstance(store, LocalStore):
-        return
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task17", ttl=0)
     time.sleep(TICK_TIME)
@@ -208,8 +186,6 @@ def test_case_18_transition_from_claimed_to_claimed_via_heartbeat(store: Store, 
     store.tasks.claim(id=id, counter=counter, pid="task18", ttl=sys.maxsize)
     assert store.tasks.heartbeat(pid="task18") == 1
 
-    # # completing to clean up task. Not part of the actual test
-    # store.tasks.complete(id=id, counter=counter)  # noqa: ERA001
 
 
 def test_case_19_transition_from_claimed_to_init_via_heartbeat(store: Store, task: tuple[str, int]) -> None:
