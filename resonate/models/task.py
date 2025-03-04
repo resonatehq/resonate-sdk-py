@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from resonate.models.durable_promise import DurablePromise
@@ -15,7 +15,7 @@ class Task:
     counter: int
     store: Store
 
-    _completed: bool = False
+    _completed: bool = field(default=False, init=False)
 
     @property
     def completed(self) -> bool:
