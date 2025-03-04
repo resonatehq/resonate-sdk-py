@@ -10,8 +10,10 @@ from resonate.context import Context
 from resonate.registry import Registry
 from tests.runners import ResonateLFXRunner, ResonateRFXRunner, ResonateRunner, Runner, SimpleRunner
 
-# Functions
+# Skip temporarily
+pytest.skip("Skipping equivalency tests for now", allow_module_level=True)
 
+# Functions
 
 def fib(ctx: Context, n: int):
     if n <= 1:

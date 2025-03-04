@@ -63,10 +63,14 @@ type Request[T] = Network[T] | Function[T]
 
 @dataclass
 class Network[T]:
+    id: str
+    cid: str
     func: Callable[[], T]
     cont: Callable[[Result[T]], None]
 
 @dataclass
 class Function[T]:
+    id: str
+    cid: str
     func: Callable[[], T]
     cont: Callable[[Result[T]], None]

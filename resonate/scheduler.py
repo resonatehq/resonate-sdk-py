@@ -28,7 +28,6 @@ from resonate.models.durable_promise import DurablePromise
 from resonate.models.result import Ko, Ok, Result
 from resonate.models.store import Store
 from resonate.models.task import Task
-from resonate.processor import Processor
 from resonate.registry import Registry
 from resonate.stores import LocalStore
 from resonate.stores.local import LocalSender
@@ -42,7 +41,6 @@ class Scheduler:
         cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
         pid: str | None = None,
         ctx: type[Contextual] = Context,
-        processor: Processor | None = None,
         registry: Registry | None = None,
         store: Store | None = None,
     ) -> None:
@@ -61,28 +59,21 @@ class Scheduler:
         # registry
         self.registry = registry or Registry()
 
-        # processor
-        self.processor = processor or Processor()
-
         # store
         self.store = store or LocalStore()
 
         # fake it until you make it
-        if isinstance(self.store, LocalStore):
-            self.store.add_sender(self.pid, LocalSender(self, self.registry, self.store))
+        # if isinstance(self.store, LocalStore):
+        #     self.store.add_sender(self.pid, LocalSender(self, self.registry, self.store))
 
         # scheduler thread
         self.thread = threading.Thread(target=self.loop, daemon=True)
 
     def start(self) -> None:
-        self.processor.start()
-
         if not self.thread.is_alive():
             self.thread.start()
 
     def stop(self) -> None:
-        self.processor.stop()
-
         if self.thread.is_alive():
             self.cq.put(None)
             self.thread.join()
@@ -101,22 +92,19 @@ class Scheduler:
                 case cmd:
                     self._step(cmd)
 
-    def step(self) -> None:
+    def step(self) -> Sequence[Request]:
+        reqs = []
+
         if cqe := self.cq.get_nowait():
             match cqe:
                 case (cmd, futures):
-                    self._step(cmd, futures)
+                    reqs = self._step(cmd, futures)
                 case cmd:
-                    self._step(cmd)
+                    reqs = self._step(cmd)
 
-            # TODO: should we do this here?
-            try:
-                while True:
-                    self.processor.step()
-            except queue.Empty:
-                pass
+        return reqs
 
-    def _step(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> None:
+    def _step(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> Sequence[Request]:
         computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.pid, self.ctx, self.registry, self.store))
 
         # subscribe
@@ -127,14 +115,12 @@ class Scheduler:
         computation.apply(cmd)
 
         # eval
-        for req in computation.eval():
-            self.processor.enqueue(
-                req.func,
-                lambda r, cmd=cmd, req=req: self.enqueue(Return(cmd.id, cmd.cid, lambda: req.cont(r))),
-            )
+        reqs = computation.eval()
 
         # print the computation
         computation.print()
+
+        return reqs
 
 
 #####################################################################
@@ -480,7 +466,7 @@ class Computation:
                         data={"func": name, "args": args, "kwargs": kwargs},
                         tags={"resonate:invoke": self.pid, "resonate:scope": "global"},
                         pid=self.pid,
-                        ttl=0,
+                        ttl=sys.maxsize,
                     )
                 else:
                     func = functools.partial(
@@ -493,6 +479,8 @@ class Computation:
 
                 return [
                     Network(
+                        id,
+                        self.id,
                         func,
                         functools.partial(
                             self._transition,
@@ -508,6 +496,8 @@ class Computation:
 
                 return [
                     Network(
+                        id,
+                        self.id,
                         functools.partial(
                             self.store.promises.create,
                             id=id,
@@ -533,6 +523,8 @@ class Computation:
                     case None:
                         return [
                             Function(
+                                id,
+                                self.id,
                                 lambda: func(*args, **kwargs),
                                 lambda result: node.transition(Enabled(Running(f.map(result=result)))),
                             ),
@@ -540,6 +532,8 @@ class Computation:
                     case Ok(v):
                         return [
                             Network(
+                                id,
+                                self.id,
                                 functools.partial(
                                     self.store.promises.resolve,
                                     id=id,
@@ -556,6 +550,8 @@ class Computation:
                         # TODO: retry if there is retry budget
                         return [
                             Network(
+                                id,
+                                self.id,
                                 functools.partial(
                                     self.store.promises.reject,
                                     id=id,
@@ -681,6 +677,8 @@ class Computation:
 
                         return [
                             Network(
+                                id,
+                                self.id,
                                 functools.partial(
                                     self.store.promises.callback,
                                     id=callback_id,
@@ -717,6 +715,8 @@ class Computation:
                             case Ok(v):
                                 return [
                                     Network(
+                                        id,
+                                        self.id,
                                         functools.partial(
                                             self.store.promises.resolve,
                                             id=id,
@@ -733,6 +733,8 @@ class Computation:
                                 # TODO: retry if there is retry budget
                                 return [
                                     Network(
+                                        id,
+                                        self.id,
                                         functools.partial(
                                             self.store.promises.reject,
                                             id=id,
@@ -795,8 +797,6 @@ class Computation:
 
                 # transition
                 node.transition(self.__transition(node.value, p, c))
-
-                # self.print()
 
             case Ko():
                 raise NotImplementedError
