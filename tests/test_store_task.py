@@ -59,7 +59,6 @@ def task(store: Store) -> Generator[tuple[str, int]]:
 
     match store:
         case LocalStore():
-            store.add_cq(TaskTranslator(cq))
             store.promises.create(
                 id=id,
                 ikey=None,
@@ -69,9 +68,12 @@ def task(store: Store) -> Generator[tuple[str, int]]:
                 timeout=sys.maxsize,
                 tags={"resonate:invoke": "default"},
             )
-            store.step()
+            msgs = store.step()
 
-            yield cq.get_nowait()
+            assert len(msgs) == 1
+            assert msgs[0]["type"] == "invoke"
+
+            yield (msgs[0]["task"]["id"], msgs[0]["task"]["counter"])
 
             store.promises.resolve(id=id)
         case RemoteStore():
