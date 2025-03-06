@@ -14,7 +14,7 @@ from resonate.errors import ResonateError
 from resonate.models.callback import Callback
 from resonate.models.commands import Invoke, Notify, Resume
 from resonate.models.durable_promise import DurablePromise, DurablePromiseValue
-from resonate.models.message import Mesg
+from resonate.models.message import InvokeMesg, Mesg, TaskMesg
 from resonate.models.task import Task
 
 if TYPE_CHECKING:
@@ -44,12 +44,14 @@ class TagRouter:
 class Clock(Protocol):
     def time(self) -> int: ...
 
+
 class WallClock:
     def time(self) -> int:
         return int(time.time() * 1000)
 
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
 
 class LocalStore:
     def __init__(self, encoder: Encoder[Any, str | None] | None = None, clock: Clock | None = None) -> None:
@@ -92,7 +94,7 @@ class LocalStore:
                     self.promises.transition(id=promise.id, to="REJECTED_TIMEDOUT")
 
         for task in self._tasks.values():
-            match task, self._clock.time() >= (task.ttl or 0):
+            match task, self._clock.time() >= (task.expiry or 0):
                 case TaskRecord(state="INIT", type="invoke" | "resume"), _:
                     _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
                     if applied:
@@ -104,6 +106,7 @@ class LocalStore:
 
     def freeze(self) -> str:
         return f"{self._promises}:{self._tasks}"
+
 
 class LocalPromiseStore:
     def __init__(self, store: LocalStore, encoder: Encoder[Any, str | None], promises: dict[str, DurablePromiseRecord], tasks: dict[str, TaskRecord], routers: list[Router], clock: Clock) -> None:
@@ -461,10 +464,25 @@ class LocalTaskStore:
 
     def heartbeat(self, *, pid: str) -> int:
         affected_tasks = 0
-        for task in self._tasks.values():
-            if task.state != "CLAIMED":
+        for record in self._tasks.values():
+            if record.state != "CLAIMED":
                 continue
-            if task.pid == pid:
+            if record.pid == pid:
+                assert record.ttl is not None
+                self._tasks[record.id] = TaskRecord(
+                    id=record.id,
+                    counter=record.counter,
+                    state=record.state,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=record.pid,
+                    ttl=record.ttl,
+                    expiry=self._clock.time() + record.ttl,
+                    created_on=record.created_on,
+                    completed_on=record.completed_on,
+                )
                 affected_tasks += 1
         return affected_tasks
 
@@ -498,6 +516,7 @@ class LocalTaskStore:
                     leaf_promise_id=leaf_promise_id,
                     pid=None,
                     ttl=None,
+                    expiry=None,
                     created_on=self._clock.time(),
                     completed_on=None,
                 )
@@ -515,6 +534,7 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=record.pid,
                     ttl=record.ttl,
+                    expiry=record.expiry,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
@@ -533,6 +553,7 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=pid,
                     ttl=ttl,
+                    expiry=self._clock.time() + ttl,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
@@ -552,6 +573,7 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=pid,
                     ttl=ttl,
+                    expiry=self._clock.time() + ttl,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
@@ -569,11 +591,31 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=None,
                     ttl=None,
+                    expiry=None,
                     created_on=record.created_on,
                     completed_on=self._clock.time(),
                 )
                 self._tasks[record.id] = record
                 return record, False
+            case TaskRecord(state="CLAIMED"), "INIT":
+                assert record.expiry is not None
+                assert self._clock.time() >= record.expiry
+                record = TaskRecord(
+                    id=record.id,
+                    counter=record.counter + 1,
+                    state=to,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=None,
+                    ttl=None,
+                    expiry=None,
+                    created_on=record.created_on,
+                    completed_on=None,
+                )
+                self._tasks[record.id] = record
+                return record, True
 
             case None, _:
                 msg = "Task not found"
@@ -648,6 +690,7 @@ class TaskRecord:
     leaf_promise_id: str
     pid: str | None
     ttl: int | None
+    expiry: int | None
     created_on: int
     completed_on: int | None
 

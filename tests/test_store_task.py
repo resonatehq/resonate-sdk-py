@@ -68,7 +68,11 @@ def task(store: Store) -> Generator[tuple[str, int]]:
                 timeout=sys.maxsize,
                 tags={"resonate:invoke": "default"},
             )
-            msgs = store.step()
+
+            msgs = []
+            for msg in store.step():
+                if msg["task"]["counter"] == 1:
+                    msgs.append(msg)
 
             assert len(msgs) == 1
             assert msgs[0]["type"] == "invoke"
@@ -76,6 +80,7 @@ def task(store: Store) -> Generator[tuple[str, int]]:
             yield (msgs[0]["task"]["id"], msgs[0]["task"]["counter"])
 
             store.promises.resolve(id=id)
+
         case RemoteStore():
             poller = Poller(group=id, timeout=2)
 
@@ -99,7 +104,6 @@ def task(store: Store) -> Generator[tuple[str, int]]:
 def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task5", ttl=sys.maxsize)
-
 
 
 def test_case_6_transition_from_enqueue_to_enqueue_via_claim(store: Store, task: tuple[str, int]) -> None:
@@ -139,7 +143,6 @@ def test_case_12_transition_from_claimed_to_claimed_via_claim(store: Store, task
         )
 
 
-
 def test_case_13_transition_from_claimed_to_init_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task13", ttl=0)
@@ -150,7 +153,6 @@ def test_case_13_transition_from_claimed_to_init_via_claim(store: Store, task: t
             pid="task12",
             ttl=sys.maxsize,
         )
-
 
 
 def test_case_14_transition_from_claimed_to_completed_via_complete(store: Store, task: tuple[str, int]) -> None:
@@ -174,7 +176,6 @@ def test_case_16_transition_from_claimed_to_claimed_via_complete(store: Store, t
         store.tasks.complete(id=id, counter=counter + 1)
 
 
-
 def test_case_17_transition_from_claimed_to_init_via_complete(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task17", ttl=0)
@@ -187,7 +188,6 @@ def test_case_18_transition_from_claimed_to_claimed_via_heartbeat(store: Store, 
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task18", ttl=sys.maxsize)
     assert store.tasks.heartbeat(pid="task18") == 1
-
 
 
 def test_case_19_transition_from_claimed_to_init_via_heartbeat(store: Store, task: tuple[str, int]) -> None:
