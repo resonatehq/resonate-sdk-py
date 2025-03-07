@@ -260,7 +260,7 @@ class LocalPromiseStore:
                         leaf_promise_id=record.id,
                     )
                     if pid is not None:
-                        task_record, _ = self._store.tasks.transition(id=task_record.id, to="CLAIMED", pid=pid, ttl=ttl, counter=1, expiry=self._clock.time() + ttl)
+                        task_record, _ = self._store.tasks.transition(id=task_record.id, to="CLAIMED", pid=pid, ttl=ttl, counter=1)
                         task = Task.from_dict(self._store, task_record.to_dict())
                     break
         return DurablePromise.from_dict(
@@ -283,10 +283,8 @@ class LocalPromiseStore:
         record, applied = self.transition(id=id, to=new_state, strict=strict, headers=headers, data=data, ikey=ikey)
         if applied:
             for task in self._tasks.values():
-                if (task.state == "COMPLETED" or task.state == "CLAIMED") or task.root_promise_id != record.id:
-                    continue
-
-                self._store.tasks.transition(id=task.id, to="COMPLETED", force=True)
+                if (task.state in ("INIT", "ENQUEUED")) and task.root_promise_id == record.id:
+                    self._store.tasks.transition(id=task.id, to="COMPLETED", force=True)
 
             for callback in record.callbacks:
                 self._store.tasks.transition(
@@ -425,7 +423,7 @@ class LocalTaskStore:
         pid: str,
         ttl: int,
     ) -> tuple[DurablePromise, DurablePromise | None]:
-        task_record, _ = self.transition(id=id, to="CLAIMED", pid=pid, ttl=ttl, counter=counter, expiry=self._clock.time() + ttl)
+        task_record, _ = self.transition(id=id, to="CLAIMED", pid=pid, ttl=ttl, counter=counter)
         match task_record.type:
             case "invoke":
                 root_promise = self._promises[task_record.root_promise_id]
@@ -464,7 +462,7 @@ class LocalTaskStore:
 
             assert record.ttl is not None
 
-            _, modified = self.transition(id=record.id, to=None, expiry=self._clock.time() + record.ttl)
+            _, modified = self.transition(id=record.id, to="CLAIMED", force=True)
             assert modified
             affected_tasks += 1
 
@@ -474,7 +472,7 @@ class LocalTaskStore:
         self,
         *,
         id: str,
-        to: Literal["INIT", "ENQUEUED", "CLAIMED", "COMPLETED"] | None,
+        to: Literal["INIT", "ENQUEUED", "CLAIMED", "COMPLETED"],
         type: Literal["invoke", "resume", "notify"] | None = None,
         recv: Recv | None = None,
         root_promise_id: str | None = None,
@@ -482,7 +480,6 @@ class LocalTaskStore:
         counter: int | None = None,
         pid: str | None = None,
         ttl: int | None = None,
-        expiry: int | None = None,
         force: bool = False,
     ) -> tuple[TaskRecord, bool]:
         match record := self._tasks.get(id), to:
@@ -539,7 +536,7 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=pid,
                     ttl=ttl,
-                    expiry=expiry,
+                    expiry=self._clock.time() + ttl,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
@@ -559,14 +556,14 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=pid,
                     ttl=ttl,
-                    expiry=expiry,
+                    expiry=self._clock.time() + ttl,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
                 self._tasks[record.id] = record
                 return record, False
 
-            case TaskRecord(state="CLAIMED"), "COMPLETED" if record.counter == counter and (record.ttl is not None and record.ttl >= self._clock.time()):
+            case TaskRecord(state="CLAIMED"), "COMPLETED" if record.counter == counter and (record.expiry is not None and record.expiry >= self._clock.time()):
                 record = TaskRecord(
                     id=record.id,
                     counter=record.counter,
@@ -620,7 +617,8 @@ class LocalTaskStore:
                 )
                 self._tasks[record.id] = record
                 return record, True
-            case TaskRecord(), None:
+            case TaskRecord(state="CLAIMED"), "CLAIMED" if force:
+                assert record.ttl is not None
                 record = TaskRecord(
                     id=record.id,
                     counter=record.counter,
@@ -631,7 +629,7 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=record.pid,
                     ttl=record.ttl,
-                    expiry=expiry if expiry is not None else record.expiry,
+                    expiry=self._clock.time() + record.ttl,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )

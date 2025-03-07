@@ -69,16 +69,15 @@ def task(store: Store) -> Generator[tuple[str, int]]:
                 tags={"resonate:invoke": "default"},
             )
 
-            msgs = []
-            for msg in store.step():
-                if msg["task"]["counter"] == 1:
-                    msgs.append(msg)
+            msgs = store.step()
 
             assert len(msgs) == 1
             assert msgs[0]["type"] == "invoke"
 
             yield (msgs[0]["task"]["id"], msgs[0]["task"]["counter"])
 
+            msgs = store.step()
+            assert len(msgs) == 0
             store.promises.resolve(id=id)
 
         case RemoteStore():
