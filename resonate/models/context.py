@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, Self
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from resonate.dependencies import Dependencies
+    from resonate.registry import Registry
 
 
 class Contextual(Protocol):
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def __init__(self, id: str, registry: Registry, deps: Dependencies) -> None: ...
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> Yieldable: ...
     def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> Yieldable: ...
     def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> Yieldable: ...

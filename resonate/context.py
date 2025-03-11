@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from resonate.models.context import LFC, LFI, RFC, RFI
 from resonate.registry import Function, Registry
 
+if TYPE_CHECKING:
+    from resonate.dependencies import Dependencies
+
 
 class Context:
-    def __init__(self, id: str, registry: Registry) -> None:
+    def __init__(self, id: str, registry: Registry, deps: Dependencies) -> None:
         self.id = id
+        self.deps = deps
         self._counter = 0
         self._registry = registry
 

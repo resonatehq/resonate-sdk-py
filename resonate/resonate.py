@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from concurrent.futures import Future
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Concatenate, Self, TypedDict, overload
+
+from resonate.dependencies import Dependencies
+from resonate.models.commands import Invoke, Listen
+from resonate.models.durable_promise import DurablePromise
+from resonate.models.handle import Handle
+from resonate.models.options import RunOptions
+from resonate.registry import Function, Registry
+from resonate.scheduler import Scheduler
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from resonate.context import Context
+
+
+
+class Resonate:
+    def __init__(
+        self,
+        pid: str | None = None,
+        registry: Registry | None = None,
+        deps: Dependencies | None = None,
+    ) -> None:
+        self.deps = deps or Dependencies()
+
+        # do this forces to add a lock?
+        # multiple threads calling resonate.run/rfc settings options.
+        self._opts = RunOptions()
+        self._registry = registry or Registry()
+        self._scheduler = Scheduler(pid=pid, registry=self._registry)
+
+
+    @overload
+    def register[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], /, *, name: str | None = None, version: int = 1) -> Function[P, R]: ...
+    @overload
+    def register[**P, R](self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, version: int = 1) -> Function[P, R]: ...
+    @overload
+    def register[**P, R](self, func: Callable[P, R], /, *, name: str | None = None, version: int = 1) -> Function[P, R]: ...
+    @overload
+    def register[**P, R](
+        self, *, name: str | None = None, version: int = 1
+    ) -> Callable[[Callable[P, R] | Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R]], Function[P, R]]: ...
+    def register[**P, R](
+        self, *args: Any, **kwargs: Any
+    ) -> Callable[[Callable[P, R] | Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R]], Function[P, R]] | Function[P, R]:
+        name: str | None = kwargs.get("name")
+        kwargs.get("version", 1)
+
+        def wrapper(func: Callable) -> Function[P, R]:
+            self._registry.add(name or func.__name__, func)
+            return Function(name or func.__name__, func, self._scheduler)
+
+        if args and callable(args[0]):
+            return wrapper(args[0])
+
+        return wrapper
+
+    def options(self, *, send_to: str = "default", version: int = 1) -> Self:
+        self._opts = RunOptions(send_to=send_to, version=version)
+        return self
+    @overload
+    def run[**P, R](self, id: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
+    @overload
+    def run[**P, R](self, id: str, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
+    @overload
+    def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
+    @overload
+    def run(self, id: str, func: str, *args: Any, **kwargs: Any) -> Handle[Any]: ...
+    def run[**P, R](
+        self, id: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | Callable[P, R] | str, *args: P.args, **kwargs: P.kwargs
+    ) -> Handle[R]:
+        match func:
+            case str():
+                name = func
+                func = self._registry.get(func)
+            case _:
+                name = self._registry.reverse_lookup(func)
+
+        fp, fv = Future[DurablePromise](), Future[R]()
+        self._scheduler.enqueue(Invoke(id, name, func, args, kwargs), futures=(fp, fv))
+        self._reset_options()
+
+        fp.result()
+        return Handle(fv)
+
+    @overload
+    def rpc[**P, R](self, id: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
+    @overload
+    def rpc[**P, R](self, id: str, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
+    @overload
+    def rpc[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
+    @overload
+    def rpc(self, id: str, func: str, *args: Any, **kwargs: Any) -> Handle[Any]: ...
+    def rpc[**P, R](
+        self, id: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | Callable[P, R] | str, *args: P.args, **kwargs: P.kwargs
+    ) -> Handle[R]:
+        match func:
+            case str():
+                name = func
+            case _:
+                name = self._registry.reverse_lookup(func)
+
+        fp, fv = Future[DurablePromise](), Future[R]()
+        self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, opts={"target": self._opts.send_to}), futures=(fp, fv))
+        self._reset_options()
+
+        fp.result()
+        return Handle(fv)
+
+    def get(self, id: str) -> Handle[Any]:
+        fp, fv = Future[DurablePromise](), Future[Any]()
+        self._scheduler.enqueue(Listen(id), futures=(fp, fv))
+        self._reset_options()
+
+        fp.result()
+        return Handle(fv)
+
+    def _reset_options(self) -> None:
+        self._opts = RunOptions()
