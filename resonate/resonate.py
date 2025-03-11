@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import threading
 from concurrent.futures import Future
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Concatenate, Self, TypedDict, overload
+from typing import TYPE_CHECKING, Any, Callable, Concatenate, Self, overload
 
 from resonate.dependencies import Dependencies
 from resonate.models.commands import Invoke, Listen
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from resonate.context import Context
 
 
-
 class Resonate:
     def __init__(
         self,
@@ -27,13 +26,10 @@ class Resonate:
         deps: Dependencies | None = None,
     ) -> None:
         self.deps = deps or Dependencies()
-
-        # do this forces to add a lock?
-        # multiple threads calling resonate.run/rfc settings options.
-        self._opts = RunOptions()
+        self._local = threading.local()
+        self._local.opts = RunOptions()
         self._registry = registry or Registry()
         self._scheduler = Scheduler(pid=pid, registry=self._registry)
-
 
     @overload
     def register[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], /, *, name: str | None = None, version: int = 1) -> Function[P, R]: ...
@@ -61,8 +57,9 @@ class Resonate:
         return wrapper
 
     def options(self, *, send_to: str = "default", version: int = 1) -> Self:
-        self._opts = RunOptions(send_to=send_to, version=version)
+        self._local.opts = RunOptions(send_to=send_to, version=version)
         return self
+
     @overload
     def run[**P, R](self, id: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
     @overload
@@ -106,7 +103,7 @@ class Resonate:
                 name = self._registry.reverse_lookup(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, opts={"target": self._opts.send_to}), futures=(fp, fv))
+        self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, opts={"target": self._local.opts.send_to}), futures=(fp, fv))
         self._reset_options()
 
         fp.result()
@@ -121,4 +118,4 @@ class Resonate:
         return Handle(fv)
 
     def _reset_options(self) -> None:
-        self._opts = RunOptions()
+        self._local.opts = RunOptions()

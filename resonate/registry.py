@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
@@ -51,7 +52,8 @@ class Function[**P, R]:
         self.name = name
         self.func = func
         self._cq = cq
-        self._opts = RunOptions()
+        self._local = threading.local()
+        self._local.opts = RunOptions()
 
     @overload
     def __call__(self, ctx: Context, *args: P.args, **kwargs: P.kwargs) -> Generator[Any, Any, R]: ...
@@ -65,7 +67,7 @@ class Function[**P, R]:
         return self.name
 
     def options(self, *, send_to: str = "default", version: int = 1) -> Self:
-        self._opts = RunOptions(send_to=send_to, version=version)
+        self._local.opts = RunOptions(send_to=send_to, version=version)
         return self
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
@@ -77,10 +79,10 @@ class Function[**P, R]:
 
     def rpc(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._cq.enqueue(Invoke(id, self.name, None, args, kwargs, opts={"target": self._opts.send_to}), futures=(fp, fv))
+        self._cq.enqueue(Invoke(id, self.name, None, args, kwargs, opts={"target": self._local.opts.send_to}), futures=(fp, fv))
         self._reset_options()
         fp.result()
         return Handle(fv)
 
     def _reset_options(self) -> None:
-        self._opts = RunOptions()
+        self._local.opts = RunOptions()
