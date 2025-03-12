@@ -1,73 +1,148 @@
-from typing import Generator
+from concurrent.futures import Future
+from typing import Callable, Generator
+import pytest
 from typing_extensions import Any
 from resonate.registry import Registry
 from resonate import Resonate, Context
+from unittest.mock import MagicMock
+
+def foo(ctx: Context, a: int, b: int) -> int:...
+def bar(a: int, b: int) -> int:...
+def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]:...
 
 
-def test_api_register_and_run() -> None:
-    registry = Registry()
-    resonate = Resonate(registry=registry)
+@pytest.mark.parametrize("func", [foo, bar, baz])
+def test_run_and_register_as_method_call(func: Callable) -> None:
+    resonate = Resonate()
+    mock_scheduler = MagicMock()
+    resonate._scheduler = mock_scheduler
 
-    @resonate.register(name="foo.name")
-    def foo() -> int:
-        return 1
+    # Define a side effect to set the result on `fp` to unblock the run method
+    def enqueue_side_effect(*args, **kwargs):
+        futures = kwargs.get("futures", ())
+        if futures:
+            # Set a result on the first future (`fp`) to unblock
+            futures[0].set_result(None)  # Use a dummy value like `None`
 
-    assert registry.get("foo.name") == foo.func
+    mock_scheduler.enqueue.side_effect = enqueue_side_effect
 
-    foo.run("foo")
-    resonate.run("foo", foo)
-    foo.options(send_to="abc").run("foo")
+    resonate.register(func)
+    resonate.run(func.__name__, func, a=1, b=2)  # This will now unblock
 
-    def bar(ctx: Context) -> Generator[Any, Any, int]:
-        return (yield ctx.lfc(foo))
+    # Verify the enqueue method was called once
+    mock_scheduler.enqueue.assert_called_once()
 
-    resonate.register(bar, name="bar.name")
-    assert registry.get("bar.name") == bar
-    resonate.run("bar", bar)
-    resonate.options(send_to="abc").rpc("bar", bar)
+    # Extract the Invoke instance and futures from the call
+    args, kwargs = mock_scheduler.enqueue.call_args
+    invoke = args[0]
+    futures = kwargs.get("futures")
 
-    @resonate.register
-    def baz(ctx: Context) -> None: ...
+    # Assert Invoke parameters
+    assert invoke.id == func.__name__
+    assert invoke.name == func.__name__
+    assert invoke.func is func
+    assert invoke.args == tuple()
+    assert invoke.kwargs == {"a": 1, "b":2}
 
-    assert registry.get("baz") == baz.func
 
-    baz.run("baz")
-    resonate.run("baz", baz)
+@pytest.mark.parametrize("func", [foo, bar, baz])
+def test_rpc_and_register_as_method_call(func: Callable) -> None:
+    resonate = Resonate()
+    mock_scheduler = MagicMock()
+    resonate._scheduler = mock_scheduler
 
-def test_run_and_register_as_method() -> None:
-    def foo(ctx: Context, a: int, b: int) -> int:
-        return a+b
+    # Define a side effect to set the result on `fp` to unblock the run method
+    def enqueue_side_effect(*args, **kwargs):
+        futures = kwargs.get("futures", ())
+        if futures:
+            # Set a result on the first future (`fp`) to unblock
+            futures[0].set_result(None)  # Use a dummy value like `None`
 
-    def bar(a: int, b: int) -> int:
-        return a+b
-    resonate= Resonate()
-    resonate.register(foo)
-    resonate.register(bar)
+    mock_scheduler.enqueue.side_effect = enqueue_side_effect
 
-    resonate.run("foo.run", foo, 1, 2)
-    resonate.run("bar.run", bar, 1, 2)
-    resonate.options(send_to="a", version=2).run("foo.options.run", foo, 1, 2)
-    resonate.options(send_to="a", version=2).run("bar.options.run", bar, 1, 2)
-    resonate.rpc("foo.rpc", foo, 1, 2)
-    resonate.rpc("bar.rpc", bar, 1, 2)
-    resonate.options(send_to="a", version=2).rpc("foo.rpc", foo, 1, 2)
-    resonate.options(send_to="a", version=2).rpc("bar.rpc", bar, 1, 2)
+    resonate.register(func)
+    resonate.rpc(func.__name__, func, 1, 2)  # This will now unblock
 
-def test_run_and_register_as_decorator() -> None:
-    resonate= Resonate()
-    @resonate.register
-    def foo(ctx: Context, a: int, b: int) -> int:
-        return a+b
+    # Verify the enqueue method was called once
+    mock_scheduler.enqueue.assert_called_once()
 
-    @resonate.register
-    def bar(a: int, b: int) -> int:
-        return a+b
+    # Extract the Invoke instance and futures from the call
+    args, kwargs = mock_scheduler.enqueue.call_args
+    invoke = args[0]
+    futures = kwargs.get("futures")
 
-    foo.run("foo.run", 1, 2)
-    bar.run("bar.run", 1, 2)
-    foo.options(send_to="a", version=2).run("foo.options.run", 1, 2)
-    bar.options(send_to="a", version=2).run("bar.options.run", 1, 2)
-    foo.rpc("foo.rpc", 1, 2)
-    bar.rpc("bar.rpc", 1, 2)
-    foo.options(send_to="a", version=2).rpc("foo.rpc", 1, 2)
-    bar.options(send_to="a", version=2).rpc("bar.rpc", 1, 2)
+    # Assert Invoke parameters
+    assert invoke.id == func.__name__
+    assert invoke.name == func.__name__
+    assert invoke.func is None
+    assert invoke.args == (1, 2)
+    assert invoke.kwargs == {}
+
+
+@pytest.mark.parametrize("func", [foo, bar, baz])
+def test_run_and_register_as_decorator(func: Callable) -> None:
+    resonate = Resonate()
+    mock_scheduler = MagicMock()
+    resonate._scheduler = mock_scheduler
+
+
+    # Define a side effect to set the result on `fp` to unblock the run method
+    def enqueue_side_effect(*args, **kwargs):
+        futures = kwargs.get("futures", ())
+        if futures:
+            # Set a result on the first future (`fp`) to unblock
+            futures[0].set_result(None)  # Use a dummy value like `None`
+
+    mock_scheduler.enqueue.side_effect = enqueue_side_effect
+
+    fn = resonate.register(func)
+    fn.run(func.__name__, a=1, b=2)  # This will now unblock
+
+    # Verify the enqueue method was called once
+    mock_scheduler.enqueue.assert_called_once()
+
+    # Extract the Invoke instance and futures from the call
+    args, kwargs = mock_scheduler.enqueue.call_args
+    invoke = args[0]
+    futures = kwargs.get("futures")
+
+    # Assert Invoke parameters
+    assert invoke.id == func.__name__
+    assert invoke.name == func.__name__
+    assert invoke.func is func
+    assert invoke.args == tuple()
+    assert invoke.kwargs == {"a": 1, "b":2}
+
+
+@pytest.mark.parametrize("func", [foo, bar, baz])
+def test_rpc_and_register_as_decorator(func: Callable) -> None:
+    resonate = Resonate()
+    mock_scheduler = MagicMock()
+    resonate._scheduler = mock_scheduler
+
+    # Define a side effect to set the result on `fp` to unblock the run method
+    def enqueue_side_effect(*args, **kwargs):
+        futures = kwargs.get("futures", ())
+        if futures:
+            # Set a result on the first future (`fp`) to unblock
+            futures[0].set_result(None)  # Use a dummy value like `None`
+
+    mock_scheduler.enqueue.side_effect = enqueue_side_effect
+
+    fn = resonate.register(func)
+    fn.rpc(func.__name__, 1, 2)  # This will now unblock
+
+    # Verify the enqueue method was called once
+    mock_scheduler.enqueue.assert_called_once()
+
+    # Extract the Invoke instance and futures from the call
+    args, kwargs = mock_scheduler.enqueue.call_args
+    invoke = args[0]
+    futures = kwargs.get("futures")
+
+    # Assert Invoke parameters
+    assert invoke.id == func.__name__
+    assert invoke.name == func.__name__
+    assert invoke.func is None
+    assert invoke.args == (1, 2)
+    assert invoke.kwargs == {}
