@@ -44,14 +44,15 @@ class Registry:
 
 class Function[**P, R]:
     @overload
-    def __init__(self, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], cq: Enqueueable[Invoke | Listen]) -> None: ...
+    def __init__(self, name: str, version: int, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], cq: Enqueueable[Invoke | Listen]) -> None: ...
     @overload
-    def __init__(self, name: str, func: Callable[Concatenate[Context, P], R], cq: Enqueueable[Invoke | Listen]) -> None: ...
+    def __init__(self, name: str, version: int, func: Callable[Concatenate[Context, P], R], cq: Enqueueable[Invoke | Listen]) -> None: ...
     @overload
-    def __init__(self, name: str, func: Callable[P, R], cq: Enqueueable[Invoke | Listen]) -> None: ...
-    def __init__(self, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | Callable[P, R], cq: Enqueueable[Invoke | Listen]) -> None:
+    def __init__(self, name: str, version: int, func: Callable[P, R], cq: Enqueueable[Invoke | Listen]) -> None: ...
+    def __init__(self, name: str, version: int, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | Callable[P, R], cq: Enqueueable[Invoke | Listen]) -> None:
         self.name = name
         self.func = func
+        self.version =version
         self._cq = cq
 
     @overload
@@ -65,7 +66,7 @@ class Function[**P, R]:
     def __name__(self) -> str:
         return self.name
 
-    def options(self, *, send_to: str = "default", version: int = 1) -> _Container:
+    def options(self, *, send_to: str = "default", version: int = 1) -> _Container[P, R]:
         return _Container(RunOptions(send_to=send_to, version=version), name=self.name, func=self.func, cq=self._cq)
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:

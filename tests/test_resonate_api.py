@@ -33,3 +33,41 @@ def test_api_register_and_run() -> None:
 
     baz.run("baz")
     resonate.run("baz", baz)
+
+def test_run_and_register_as_method() -> None:
+    def foo(ctx: Context, a: int, b: int) -> int:
+        return a+b
+
+    def bar(a: int, b: int) -> int:
+        return a+b
+    resonate= Resonate()
+    resonate.register(foo)
+    resonate.register(bar)
+
+    resonate.run("foo.run", foo, 1, 2)
+    resonate.run("bar.run", bar, 1, 2)
+    resonate.options(send_to="a", version=2).run("foo.options.run", foo, 1, 2)
+    resonate.options(send_to="a", version=2).run("bar.options.run", bar, 1, 2)
+    resonate.rpc("foo.rpc", foo, 1, 2)
+    resonate.rpc("bar.rpc", bar, 1, 2)
+    resonate.options(send_to="a", version=2).rpc("foo.rpc", foo, 1, 2)
+    resonate.options(send_to="a", version=2).rpc("bar.rpc", bar, 1, 2)
+
+def test_run_and_register_as_decorator() -> None:
+    resonate= Resonate()
+    @resonate.register
+    def foo(ctx: Context, a: int, b: int) -> int:
+        return a+b
+
+    @resonate.register
+    def bar(a: int, b: int) -> int:
+        return a+b
+
+    foo.run("foo.run", 1, 2)
+    bar.run("bar.run", 1, 2)
+    foo.options(send_to="a", version=2).run("foo.options.run", 1, 2)
+    bar.options(send_to="a", version=2).run("bar.options.run", 1, 2)
+    foo.rpc("foo.rpc", 1, 2)
+    bar.rpc("bar.rpc", 1, 2)
+    foo.options(send_to="a", version=2).rpc("foo.rpc", 1, 2)
+    bar.options(send_to="a", version=2).rpc("bar.rpc", 1, 2)

@@ -12,7 +12,7 @@ from resonate.registry import Registry
 from resonate.scheduler import Scheduler
 from resonate.stores.local import LocalStore
 
-# _Context
+# Context
 
 
 class LocalContext:

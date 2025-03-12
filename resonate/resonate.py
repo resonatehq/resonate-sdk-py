@@ -38,16 +38,16 @@ class Resonate:
     @overload
     def register[**P, R](
         self, *, name: str | None = None, version: int = 1
-    ) -> Callable[[Callable[P, R] | Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R]], Function[P, R]]: ...
+    ) -> Callable[[Callable], Function[P, Any]]: ...
     def register[**P, R](
         self, *args: Any, **kwargs: Any
-    ) -> Callable[[Callable[P, R] | Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R]], Function[P, R]] | Function[P, R]:
+    ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         name: str | None = kwargs.get("name")
-        kwargs.get("version", 1)
+        version = kwargs.get("version", 1)
 
         def wrapper(func: Callable) -> Function[P, R]:
             self._registry.add(name or func.__name__, func)
-            return Function(name or func.__name__, func, self._scheduler)
+            return Function(name or func.__name__, version, func, self._scheduler)
 
         if args and callable(args[0]):
             return wrapper(args[0])
