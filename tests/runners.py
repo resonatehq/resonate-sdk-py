@@ -6,13 +6,13 @@ from concurrent.futures import Future
 from inspect import isgeneratorfunction
 from typing import Protocol
 
-from resonate.context import LFC, LFI, RFC, RFI
 from resonate.models.commands import Invoke
+from resonate.models.context import LFC, LFI, RFC, RFI
 from resonate.registry import Registry
 from resonate.scheduler import Scheduler
 from resonate.stores.local import LocalStore
 
-# Context
+# _Context
 
 
 class LocalContext:

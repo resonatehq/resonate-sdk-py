@@ -5,14 +5,13 @@ from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
 from resonate.models.commands import Invoke, Listen
+from resonate.models.context import Context
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.handle import Handle
 from resonate.models.options import RunOptions
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
-
-    from resonate.context import Context
     from resonate.models.enqueueable import Enqueueable
 
 #####################################################################
@@ -41,6 +40,8 @@ class Registry:
 #####################################################################
 
 
+
+
 class Function[**P, R]:
     @overload
     def __init__(self, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], cq: Enqueueable[Invoke | Listen]) -> None: ...
@@ -52,8 +53,6 @@ class Function[**P, R]:
         self.name = name
         self.func = func
         self._cq = cq
-        self._local = threading.local()
-        self._local.opts = RunOptions()
 
     @overload
     def __call__(self, ctx: Context, *args: P.args, **kwargs: P.kwargs) -> Generator[Any, Any, R]: ...
@@ -66,23 +65,37 @@ class Function[**P, R]:
     def __name__(self) -> str:
         return self.name
 
-    def options(self, *, send_to: str = "default", version: int = 1) -> Self:
-        self._local.opts = RunOptions(send_to=send_to, version=version)
-        return self
+    def options(self, *, send_to: str = "default", version: int = 1) -> _Container:
+        return _Container(RunOptions(send_to=send_to, version=version), name=self.name, func=self.func, cq=self._cq)
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
         fp, fv = Future[DurablePromise](), Future[R]()
         self._cq.enqueue(Invoke(id, self.name, self.func, args, kwargs), futures=(fp, fv))
-        self._reset_options()
         fp.result()
         return Handle(fv)
 
     def rpc(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._cq.enqueue(Invoke(id, self.name, None, args, kwargs, opts={"target": self._local.opts.send_to}), futures=(fp, fv))
-        self._reset_options()
+        self._cq.enqueue(Invoke(id, self.name, None, args, kwargs, opts={"target": "default"}), futures=(fp, fv))
         fp.result()
         return Handle(fv)
 
-    def _reset_options(self) -> None:
-        self._local.opts = RunOptions()
+
+class _Container[**P, R]:
+    def __init__(self, opts: RunOptions, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | Callable[P, R], cq: Enqueueable[Invoke | Listen]) -> None:
+        self._opts = opts
+        self._cq = cq
+        self._name =name
+        self._func = func
+
+    def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
+        fp, fv = Future[DurablePromise](), Future[R]()
+        self._cq.enqueue(Invoke(id, self._name, self._func, args, kwargs), futures=(fp, fv))
+        fp.result()
+        return Handle(fv)
+
+    def rpc(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
+        fp, fv = Future[DurablePromise](), Future[R]()
+        self._cq.enqueue(Invoke(id, self._name, None, args, kwargs, opts={"target": self._opts.send_to}), futures=(fp, fv))
+        fp.result()
+        return Handle(fv)

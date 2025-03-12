@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
 from typing import Any, Final, Literal, Union
 
-from resonate.context import Context
 from resonate.dependencies import Dependencies
 from resonate.graph import Graph, Node
 from resonate.models.callback import Callback
@@ -36,7 +35,7 @@ from resonate.models.context import (
     LFI,
     RFC,
     RFI,
-    Contextual,
+    Context,
     Yieldable,
 )
 from resonate.models.durable_promise import DurablePromise
@@ -46,15 +45,60 @@ from resonate.models.task import Task
 from resonate.registry import Registry
 from resonate.stores import LocalStore
 
+# Context
+class _Context:
+    def __init__(self, id: str, registry: Registry, deps: Dependencies) -> None:
+        self.id = id
+        self.deps = deps
+        self._counter = 0
+        self._registry = registry
+
+    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
+        self._counter += 1
+        return LFI(f"{self.id}.{self._counter}", self._lfi_func(func), args, kwargs)
+
+    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
+        self._counter += 1
+        return LFC(f"{self.id}.{self._counter}", self._lfi_func(func), args, kwargs)
+
+    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        self._counter += 1
+        return RFI(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs)
+
+    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
+        self._counter += 1
+        return RFC(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs)
+
+    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        self._counter += 1
+        return RFI(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs, mode="detached")
+
+    def _lfi_func(self, f: str | Callable) -> Callable:
+        match f:
+            case str():
+                return self._registry.get(f)
+            case Function():
+                return f.func
+            case Callable():
+                return f
+
+    def _rfi_func(self, f: str | Callable) -> str:
+        match f:
+            case str():
+                return f
+            case Function():
+                return f.name
+            case Callable():
+                return self._registry.reverse_lookup(f)
+
+
 # Scheduler
-
-
 class Scheduler:
     def __init__(
         self,
         cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
         pid: str | None = None,
-        ctx: type[Contextual] = Context,
+        ctx: type[Context] = _Context,
         registry: Registry | None = None,
         deps: Dependencies | None = None,
     ) -> None:
@@ -361,7 +405,7 @@ class Coro:
         return f"Coro(id={self.id}, next={self.next}, suspends=[{s}], result={self.result})"
 
 class Computation:
-    def __init__(self, id: str, pid: str, ctx: type[Contextual], registry: Registry, deps: Dependencies) -> None:
+    def __init__(self, id: str, pid: str, ctx: type[Context], registry: Registry, deps: Dependencies) -> None:
         self.id = id
         self.pid = pid
         self.ctx = ctx

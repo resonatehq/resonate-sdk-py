@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from resonate.context import Context
+from resonate.models.context import Context
 from resonate.registry import Registry
 from tests.runners import ResonateLFXRunner, ResonateRFXRunner, ResonateRunner, Runner, SimpleRunner
 
