@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
 from typing import Any, Final, Literal, Union
 
-from resonate.context import Context
+from resonate.dependencies import Dependencies
 from resonate.graph import Graph, Node
 from resonate.models.callback import Callback
 from resonate.models.commands import Command, Function, Invoke, Network, Receive, Request, Resume, Return
@@ -35,7 +35,7 @@ from resonate.models.context import (
     LFI,
     RFC,
     RFI,
-    Contextual,
+    Context,
     Yieldable,
 )
 from resonate.models.durable_promise import DurablePromise
@@ -45,16 +45,62 @@ from resonate.models.task import Task
 from resonate.registry import Registry
 from resonate.stores import LocalStore
 
+# Context
+class _Context:
+    def __init__(self, id: str, registry: Registry, deps: Dependencies) -> None:
+        self.id = id
+        self.deps = deps
+        self._counter = 0
+        self._registry = registry
+
+    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
+        self._counter += 1
+        return LFI(f"{self.id}.{self._counter}", self._lfi_func(func), args, kwargs)
+
+    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
+        self._counter += 1
+        return LFC(f"{self.id}.{self._counter}", self._lfi_func(func), args, kwargs)
+
+    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        self._counter += 1
+        return RFI(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs)
+
+    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
+        self._counter += 1
+        return RFC(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs)
+
+    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        self._counter += 1
+        return RFI(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs, mode="detached")
+
+    def _lfi_func(self, f: str | Callable) -> Callable:
+        match f:
+            case str():
+                return self._registry.get(f)
+            case Function():
+                return f.func
+            case Callable():
+                return f
+
+    def _rfi_func(self, f: str | Callable) -> str:
+        match f:
+            case str():
+                return f
+            case Function():
+                return f.name
+            case Callable():
+                return self._registry.reverse_lookup(f)
+
+
 # Scheduler
-
-
 class Scheduler:
     def __init__(
         self,
         cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
         pid: str | None = None,
-        ctx: type[Contextual] = Context,
+        ctx: type[Context] = _Context,
         registry: Registry | None = None,
+        deps: Dependencies | None = None,
     ) -> None:
         # command queue
         self.cq = cq or queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None]()
@@ -70,6 +116,9 @@ class Scheduler:
 
         # registry
         self.registry = registry or Registry()
+
+        # global_dependencies
+        self.deps = deps or Dependencies()
 
         # store
         # self.store = store or LocalStore()
@@ -116,7 +165,7 @@ class Scheduler:
         return reqs
 
     def _step(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> Sequence[Request]:
-        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.pid, self.ctx, self.registry))
+        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.pid, self.ctx, self.registry, self.deps))
 
         # subscribe
         if futures:
@@ -302,6 +351,7 @@ class Func:
     func: Callable[..., Any] | None
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
+    opts: dict[str, Any]
 
     promise: DurablePromise | None = None
     suspends: list[Node[State]] = field(default_factory=list)
@@ -328,6 +378,7 @@ class Coro:
     func: Callable[..., Any]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
+    opts: dict[str, Any]
 
     coro: Coroutine
     next: None | AWT | Result = None
@@ -354,11 +405,12 @@ class Coro:
         return f"Coro(id={self.id}, next={self.next}, suspends=[{s}], result={self.result})"
 
 class Computation:
-    def __init__(self, id: str, pid: str, ctx: type[Contextual], registry: Registry) -> None:
+    def __init__(self, id: str, pid: str, ctx: type[Context], registry: Registry, deps: Dependencies) -> None:
         self.id = id
         self.pid = pid
         self.ctx = ctx
         self.registry = registry
+        self.deps = deps
         self.graph = Graph[State](id, Enabled(Suspended(Init())))
 
         self.task: Task | None = None
@@ -395,23 +447,14 @@ class Computation:
         print(cmd)
 
         match cmd, self.graph.root.value.func:
-            case Invoke(id, name, func, args, kwargs, promise_and_task), Init():
-                next = Coro(
-                    id,
-                    "local",
-                    name,
-                    func,
-                    args,
-                    kwargs,
-                    Coroutine(id, self.id, func(self.ctx(id, self.registry), *args, **kwargs)),
-                ) if isgeneratorfunction(func) else Func(
-                    id,
-                    "local",
-                    name,
-                    func,
-                    args,
-                    kwargs,
-                )
+            case Invoke(id, name, func, args, kwargs, promise_and_task, opts), Init():
+                next: Coro | Func
+                if func is None:
+                    next = Func(id, "remote", name, func, args, kwargs, opts)
+                elif isgeneratorfunction(func):
+                    next = Coro(id, "local", name, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id, self.registry, self.deps), *args, **kwargs)))
+                else:
+                    next = Func(id, "local", name, func, args, kwargs, opts)
 
                 if promise_and_task:
                     promise, task = promise_and_task
@@ -564,7 +607,7 @@ class Computation:
                     Network(id, self.id, req),
                 ]
 
-            case Enabled(Running(Init(Func(id, "remote", name, _, args, kwargs))) as exec):
+            case Enabled(Running(Init(Func(id, "remote", name, _, args, kwargs, opts))) as exec):
                 assert id == node.id, "Id must match node id."
                 assert name is not None, "Name is required for remote invocation."
                 node.transition(Blocked(exec))
@@ -575,7 +618,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.pid, "resonate:scope": "global"},
+                        tags={"resonate:invoke": opts.get("target", self.pid), "resonate:scope": "global"},
                     )),
                 ]
 
@@ -614,7 +657,7 @@ class Computation:
                 child = self.graph.find(lambda n: n.id == cmd.id) or Node(cmd.id, Enabled(Suspended(Init())))
 
                 match cmd, child.value:
-                    case LFI(id, func, args, kwargs), Enabled(Suspended(Init(next=None))):
+                    case LFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
                         next = Coro(
                             id,
                             "local",
@@ -622,7 +665,8 @@ class Computation:
                             func,
                             args,
                             kwargs,
-                            Coroutine(id, self.id, func(self.ctx(id, self.registry), *args, **kwargs)),
+                            opts,
+                            Coroutine(id, self.id, func(self.ctx(id, self.registry, self.deps), *args, **kwargs)),
                         ) if isgeneratorfunction(func) else Func(
                             id,
                             "local",
@@ -630,6 +674,7 @@ class Computation:
                             func,
                             args,
                             kwargs,
+                            opts
                         )
 
                         node.add_edge(child)
@@ -639,7 +684,7 @@ class Computation:
 
                         return []
 
-                    case RFI(id, func, args, kwargs), Enabled(Suspended(Init(next=None))):
+                    case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
                         next = Func(
                             id,
                             "remote",
@@ -647,6 +692,7 @@ class Computation:
                             None,
                             args,
                             kwargs,
+                            opts
                         )
 
                         node.add_edge(child)

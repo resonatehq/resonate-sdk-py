@@ -1,26 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
-from resonate.models.callback import Callback
-from resonate.models.durable_promise import DurablePromise
-from resonate.models.result import Result
-from resonate.models.task import Task
-
+if TYPE_CHECKING:
+    from resonate.models.callback import Callback
+    from resonate.models.durable_promise import DurablePromise
+    from resonate.models.result import Result
+    from resonate.models.task import Task
 
 # Commands
 
 type Command = Invoke | Resume | Return | Receive | Listen | Notify
 
+
 @dataclass
 class Invoke:
     id: str
     name: str
-    func: Callable[..., Any]
+    func: Callable[..., Any] | None
     args: tuple[Any, ...] = field(default_factory=tuple)
     kwargs: dict[str, Any] = field(default_factory=dict)
     promise_and_task: tuple[DurablePromise, Task] | None = None
+    opts: dict[str, Any] = field(default_factory=dict)
 
     @property
     def cid(self) -> str:
@@ -42,11 +44,13 @@ class Return:
     cid: str
     res: Result
 
+
 @dataclass
 class Receive:
     id: str
     cid: str
     res: tuple[DurablePromise, Task | None, Callback | None]
+
 
 @dataclass
 class Listen:
@@ -66,9 +70,11 @@ class Notify:
     def cid(self) -> str:
         return self.id
 
+
 # Requests
 
 type Request = Network | Function
+
 
 @dataclass
 class Network:
@@ -76,11 +82,13 @@ class Network:
     cid: str
     req: CreatePromiseReq | CreatePromiseWithTaskReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq
 
+
 @dataclass
 class Function:
     id: str
     cid: str
     func: Callable[[], Any]
+
 
 @dataclass
 class CreatePromiseReq:
@@ -92,9 +100,11 @@ class CreatePromiseReq:
     data: Any = None
     tags: dict[str, str] | None = None
 
+
 @dataclass
 class CreatePromiseRes:
     promise: DurablePromise
+
 
 @dataclass
 class CreatePromiseWithTaskReq:
@@ -108,10 +118,12 @@ class CreatePromiseWithTaskReq:
     data: Any = None
     tags: dict[str, str] | None = None
 
+
 @dataclass
 class CreatePromiseWithTaskRes:
     promise: DurablePromise
     task: Task | None
+
 
 @dataclass
 class ResolvePromiseReq:
@@ -121,9 +133,11 @@ class ResolvePromiseReq:
     headers: dict[str, str] | None = None
     data: Any = None
 
+
 @dataclass
 class ResolvePromiseRes:
     promise: DurablePromise
+
 
 @dataclass
 class RejectPromiseReq:
@@ -133,9 +147,11 @@ class RejectPromiseReq:
     headers: dict[str, str] | None = None
     data: Any = None
 
+
 @dataclass
 class RejectPromiseRes:
     promise: DurablePromise
+
 
 @dataclass
 class CancelPromiseReq:
@@ -145,9 +161,11 @@ class CancelPromiseReq:
     headers: dict[str, str] | None = None
     data: Any = None
 
+
 @dataclass
 class CancelPromiseRes:
     promise: DurablePromise
+
 
 @dataclass
 class CreateCallbackReq:
@@ -156,6 +174,7 @@ class CreateCallbackReq:
     root_promise_id: str
     timeout: int
     recv: str
+
 
 @dataclass
 class CreateCallbackRes:
