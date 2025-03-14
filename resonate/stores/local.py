@@ -95,6 +95,12 @@ class LocalStore:
                     _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
                     if applied:
                         messages.append((task.recv, ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter))))
+                        messages.append({"type": task.type, "task": {"id": task.id, "counter": task.counter}})
+                case TaskRecord(type="notify"), _:
+                    promise = self._promises.get(task.root_promise_id)
+                    _, applied = self.tasks.transition(id=task.id, to="COMPLETED")
+                    if applied:
+                        messages.append({"type": task.type, "promise": promise})
                 case TaskRecord(state="CLAIMED"), True:
                     self.tasks.transition(id=task.id, to="INIT")
 
@@ -205,7 +211,7 @@ class LocalPromiseStore:
     ) -> tuple[DurablePromise, Callback | None]:
         promise = self._promises.get(promise_id)
         if promise is None:
-            msg = "Task not found"
+            msg = "Promise not found"
             raise ResonateError(msg, "STORE_NOT_FOUND")
         durable_promise = DurablePromise.from_dict(
             self._store,
@@ -217,6 +223,36 @@ class LocalPromiseStore:
             return durable_promise, None
 
         callback = CallbackRecord(id=id, type="resume", promise_id=promise_id, root_promise_id=root_promise_id, timeout=timeout, created_on=self._clock.time(), recv=recv)
+        promise.callbacks.append(callback)
+        return durable_promise, Callback(
+            id=callback.id,
+            promise_id=callback.promise_id,
+            timeout=callback.timeout,
+            created_on=callback.created_on,
+        )
+
+    def subscribe(
+        self,
+        *,
+        id: str,
+        promise_id: str,
+        timeout: int,
+        recv: str,
+    ) -> tuple[DurablePromise, Callback | None]:
+        promise = self._promises.get(promise_id)
+        if promise is None:
+            msg = "Promise not found"
+            raise ResonateError(msg, "STORE_NOT_FOUND")
+        durable_promise = DurablePromise.from_dict(
+            self._store,
+            promise.to_dict(),
+            self._encoder.decode(promise.param.data),
+            self._encoder.decode(promise.value.data),
+        )
+        if promise.completed_on is not None:
+            return durable_promise, None
+
+        callback = CallbackRecord(id=id, type="notify", promise_id=promise_id, root_promise_id=promise_id, timeout=timeout, created_on=self._clock.time(), recv=recv)
         promise.callbacks.append(callback)
         return durable_promise, Callback(
             id=callback.id,
@@ -484,6 +520,10 @@ class LocalTaskStore:
         ttl: int | None = None,
         force: bool = False,
     ) -> tuple[TaskRecord, bool]:
+        """Transition a task.
+
+        Returns the task record that was transitioned and a boolean indicating if a message should be sent.
+        """
         match record := self._tasks.get(id), to:
             case None, "INIT":
                 assert type is not None
@@ -565,6 +605,23 @@ class LocalTaskStore:
                 self._tasks[record.id] = record
                 return record, False
 
+            case TaskRecord(state="INIT" | "ENQUEUED", type="notify"), "COMPLETED":
+                record = TaskRecord(
+                    id=record.id,
+                    counter=record.counter,
+                    state=to,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=None,
+                    ttl=None,
+                    expiry=None,
+                    created_on=record.created_on,
+                    completed_on=self._clock.time(),
+                )
+                self._tasks[record.id] = record
+                return record, True
             case TaskRecord(state="CLAIMED"), "INIT":
                 assert record.expiry is not None
                 assert self._clock.time() >= record.expiry
