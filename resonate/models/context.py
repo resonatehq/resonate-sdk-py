@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol, Self, Unpack
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from resonate.models.options import Options
 
@@ -29,9 +29,9 @@ class LFX:
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
 
-    def options(self, *, id: str | None = None, **opts: Unpack[Options]) -> Self:
+    def options(self, *, id: str | None = None, send_to: str | None = None, version: int | None = None) -> Self:
         self.id = id or self.id
-        self.opts = {**self.opts, **opts}
+        self.opts = self.opts.merge(send_to=send_to, version=version)
         return self
 
 
@@ -53,9 +53,9 @@ class RFX:
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
 
-    def options(self, *, id: str | None = None, **opts: Unpack[Options]) -> Self:
+    def options(self, *, id: str | None = None, send_to: str | None = None, version: int | None = None) -> Self:
         self.id = id or self.id
-        self.opts = {**self.opts, **opts}
+        self.opts = self.opts.merge(send_to=send_to, version=version)
         return self
 
 

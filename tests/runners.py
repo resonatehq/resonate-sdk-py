@@ -25,6 +25,7 @@ from resonate.models.commands import (
     Resume,
 )
 from resonate.models.context import LFC, LFI, RFC, RFI
+from resonate.models.options import Options
 from resonate.models.task import Task
 from resonate.scheduler import Scheduler
 from resonate.stores.local import LocalStore
@@ -236,7 +237,7 @@ class ResonateRunner:
                             self.registry.get(root.param.data["func"]),
                             root.param.data["args"],
                             root.param.data["kwargs"],
-                            {},
+                            Options(),
                             (root, task),
                         ))
 
@@ -258,7 +259,7 @@ class ResonateRunner:
                                 self.registry.get(root.param.data["func"]),
                                 root.param.data["args"],
                                 root.param.data["kwargs"],
-                                {},
+                                Options(),
                                 (root, task),
                             ),
                         ))

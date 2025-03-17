@@ -598,7 +598,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": opts.get("send_to", self.anycast(self.gid)), "resonate:scope": "global"},
+                        tags={"resonate:invoke": self.anycast(self.gid), "resonate:scope": "global"},
                         pid=self.pid,
                         ttl=sys.maxsize,
                     )
@@ -625,7 +625,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": opts.get("send_to", self.anycast(self.gid)), "resonate:scope": "global"},
+                        tags={"resonate:invoke": self.anycast(self.gid), "resonate:scope": "global"},
                     )),
                 ]
 

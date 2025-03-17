@@ -8,12 +8,12 @@ import pytest
 
 from resonate import Context, Resonate
 from resonate.models.commands import Invoke, Listen
+from resonate.models.options import Options
 from resonate.registry import Registry
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from resonate.models.options import Options
 
 
 def foo(ctx: Context, a: int, b: int) -> int: ...
@@ -91,32 +91,32 @@ def test_run(
     expected_name: str,
     expected_func: Callable,
 ) -> None:
-    opts: Options = {}
+    opts = Options()
     if send_to is not None:
-        opts["send_to"] = send_to
+        opts = opts.merge(send_to=send_to)
     if version is not None:
-        opts["version"] = version
+        opts = opts.merge(version=version)
 
-    invoke = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs, opts={})
+    invoke = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs)
     invoke_with_opts = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs, opts=opts)
 
     resonate.run("f", func, *args, **kwargs)
     assert cmd(scheduler) == invoke
 
-    resonate.options(**opts).run("f", func, *args, **kwargs)
-    assert cmd(scheduler) ==  invoke_with_opts
+    resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
 
     if isinstance(func, Callable):
         f = resonate.register(func)
         f.run("f", *args, **kwargs)
         assert cmd(scheduler) == invoke
 
-        f = resonate.register(func, **opts)
+        f = resonate.register(func, **opts.to_dict())
         f.run("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
 
         f = resonate.register(func)
-        f.options(**opts).run("f", *args, **kwargs)
+        f.options(**opts.to_dict()).run("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
@@ -146,19 +146,19 @@ def test_rpc(
     expected_name: str,
     expected_func: Callable,
 ) -> None:
-    opts: Options = {}
+    opts = Options()
     if send_to is not None:
-        opts["send_to"] = send_to
+        opts = opts.merge(send_to=send_to)
     if version is not None:
-        opts["version"] = version
+        opts = opts.merge(version=version)
 
-    invoke = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs, opts={})
+    invoke = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs)
     invoke_with_opts = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs, opts=opts)
 
     resonate.rpc("f", func, *args, **kwargs)
     assert cmd(scheduler) == invoke
 
-    resonate.options(**opts).rpc("f", func, *args, **kwargs)
+    resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
     assert cmd(scheduler) == invoke_with_opts
 
     if isinstance(func, Callable):
@@ -166,12 +166,12 @@ def test_rpc(
         f.rpc("f", *args, **kwargs)
         assert cmd(scheduler) == invoke
 
-        f = resonate.register(func, **opts)
+        f = resonate.register(func, **opts.to_dict())
         f.rpc("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
 
         f = resonate.register(func)
-        f.options(**opts).rpc("f", *args, **kwargs)
+        f.options(**opts.to_dict()).rpc("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
 
 @pytest.mark.parametrize("id", ["foo", "bar", "baz"])

@@ -31,6 +31,7 @@ from resonate.models.commands import (
     Resume,
     Return,
 )
+from resonate.models.options import Options
 from resonate.models.result import Ko, Ok, Result
 from resonate.models.task import Task
 from resonate.scheduler import Scheduler
@@ -380,7 +381,7 @@ class Worker(Component):
                     self.registry.get(res.root.param.data["func"]),
                     res.root.param.data["args"],
                     res.root.param.data["kwargs"],
-                    {},
+                    Options(),
                     (res.root, res.task),
                 )
 
