@@ -200,6 +200,6 @@ def test_get(resonate: Resonate, scheduler: MagicMock, id: str) -> None:
     ("func",),
     [(foo,), (bar,), (baz,), (foo,), (bar,), (baz,)],
 )
-def test_signatures(resonate: Resonate, scheduler: MagicMock, func: Callable) -> None:
+def test_signatures(resonate: Resonate, func: Callable) -> None:
     f = resonate.register(func)
     assert f.rpc.__annotations__ == f.run.__annotations__
