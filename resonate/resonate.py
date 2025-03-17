@@ -58,10 +58,6 @@ class Resonate:
 
     @overload
     def register[**P, R](
-        self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
-    ) -> Function[P, R]: ...
-    @overload
-    def register[**P, R](
         self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
     ) -> Function[P, R]: ...
     @overload
@@ -138,7 +134,6 @@ class Resonate:
 
 
 # Context
-
 
 class Context:
     def __init__(self, id: str, registry: Registry, dependencies: Dependencies) -> None:
