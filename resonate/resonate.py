@@ -65,8 +65,6 @@ class Resonate:
         self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
     ) -> Function[P, R]: ...
     @overload
-    def register[**P, R](self, func: Callable[P, R], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Function[P, R]: ...
-    @overload
     def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Callable[[Callable], Function[P, Any]]: ...
     def register[**P, R](
         self, *args: Callable | None, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
@@ -85,13 +83,11 @@ class Resonate:
     @overload
     def run[**P, R](self, id: str, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
     @overload
-    def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
-    @overload
     def run(self, id: str, func: str, *args: Any, **kwargs: Any) -> Handle[Any]: ...
     def run[**P, R](
         self,
         id: str,
-        func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | Callable[P, R] | str,
+        func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | str,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
@@ -113,13 +109,11 @@ class Resonate:
     @overload
     def rpc[**P, R](self, id: str, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
     @overload
-    def rpc[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
-    @overload
     def rpc(self, id: str, func: str, *args: Any, **kwargs: Any) -> Handle[Any]: ...
     def rpc[**P, R](
         self,
         id: str,
-        func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | Callable[P, R] | str,
+        func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | str,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
@@ -200,22 +194,16 @@ class Function[**P, R]:
     def __init__(self, resonate: Resonate, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], opts: Options) -> None: ...
     @overload
     def __init__(self, resonate: Resonate, name: str, func: Callable[Concatenate[Context, P], R], opts: Options) -> None: ...
-    @overload
-    def __init__(self, resonate: Resonate, name: str, func: Callable[P, R], opts: Options) -> None: ...
-    def __init__(self, resonate: Resonate, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R] | Callable[P, R], opts: Options) -> None:
+    def __init__(self, resonate: Resonate, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R], opts: Options) -> None:
         self._resonate = resonate
         self._name = name
         self._func = func
         self._opts = opts
 
-    @overload
-    def __call__(self, ctx: Context, *args: P.args, **kwargs: P.kwargs) -> Generator[Any, Any, R]: ...
-    @overload
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R: ...
-    def __call__(self, *args, **kwargs) -> Generator[Any, Any, R] | R:
-        return self._func(*args, **kwargs)
+    def __call__(self, ctx: Context, *args: P.args, **kwargs: P.kwargs) -> Generator[Any, Any, R] | R:
+        return self._func(ctx, *args, **kwargs)
 
-    def options(self, *, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Function[P, R]:
+    def options(self, *, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Function[P, R | Generator[Any, Any, R]]:
         return Function(self._resonate, self._name, self._func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
