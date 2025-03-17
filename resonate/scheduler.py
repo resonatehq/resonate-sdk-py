@@ -1,33 +1,39 @@
 from __future__ import annotations
 
-import functools
+import contextlib
 import queue
 import sys
 import threading
 import uuid
-from collections.abc import Callable, Generator, Sequence
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
-from typing import Any, Final, Literal, Union
+from typing import TYPE_CHECKING, Any, Final, Literal
 
-from resonate.dependencies import Dependencies
+from resonate.errors import ResonateError
 from resonate.graph import Graph, Node
-from resonate.models.callback import Callback
-from resonate.models.commands import Command, Function, Invoke, Network, Receive, Request, Resume, Return
+from resonate.logging import logger
 from resonate.models.commands import (
-    CancelPromiseReq,
     CancelPromiseRes,
+    Command,
     CreateCallbackReq,
     CreateCallbackRes,
     CreatePromiseReq,
     CreatePromiseRes,
     CreatePromiseWithTaskReq,
     CreatePromiseWithTaskRes,
+    Function,
+    Invoke,
+    Network,
+    Noop,
+    Receive,
     RejectPromiseReq,
     RejectPromiseRes,
+    Request,
     ResolvePromiseReq,
     ResolvePromiseRes,
+    Resume,
+    Return,
 )
 from resonate.models.context import (
     AWT,
@@ -38,93 +44,46 @@ from resonate.models.context import (
     Context,
     Yieldable,
 )
-from resonate.models.durable_promise import DurablePromise
 from resonate.models.result import Ko, Ok, Result
-from resonate.models.store import Store
-from resonate.models.task import Task
-from resonate.registry import Registry
-from resonate.stores import LocalStore
 
-# Context
-class _Context:
-    def __init__(self, id: str, registry: Registry, deps: Dependencies) -> None:
-        self.id = id
-        self.deps = deps
-        self._counter = 0
-        self._registry = registry
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator, Sequence
 
-    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
-        self._counter += 1
-        return LFI(f"{self.id}.{self._counter}", self._lfi_func(func), args, kwargs)
-
-    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
-        self._counter += 1
-        return LFC(f"{self.id}.{self._counter}", self._lfi_func(func), args, kwargs)
-
-    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
-        self._counter += 1
-        return RFI(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs)
-
-    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
-        self._counter += 1
-        return RFC(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs)
-
-    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
-        self._counter += 1
-        return RFI(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs, mode="detached")
-
-    def _lfi_func(self, f: str | Callable) -> Callable:
-        match f:
-            case str():
-                return self._registry.get(f)
-            case Function():
-                return f.func
-            case Callable():
-                return f
-
-    def _rfi_func(self, f: str | Callable) -> str:
-        match f:
-            case str():
-                return f
-            case Function():
-                return f.name
-            case Callable():
-                return self._registry.reverse_lookup(f)
-
+    from resonate.models.callback import Callback
+    from resonate.models.durable_promise import DurablePromise
+    from resonate.models.options import Options
+    from resonate.models.task import Task
 
 # Scheduler
+
 class Scheduler:
     def __init__(
         self,
+        ctx: Callable[[str], Context],
         cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
+        gid: str = "default",
         pid: str | None = None,
-        ctx: type[Context] = _Context,
-        registry: Registry | None = None,
-        deps: Dependencies | None = None,
     ) -> None:
-        # command queue
+        # ctx
+        self.ctx = ctx
+
+        # cq
         self.cq = cq or queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None]()
+
+        # gid
+        self.gid = gid
 
         # pid
         self.pid = pid or uuid.uuid4().hex
 
-        # ctx
-        self.ctx = ctx
-
         # computations
         self.computations: dict[str, Computation] = {}
 
-        # registry
-        self.registry = registry or Registry()
-
-        # global_dependencies
-        self.deps = deps or Dependencies()
-
-        # store
-        # self.store = store or LocalStore()
-
         # scheduler thread
         self.thread = threading.Thread(target=self.loop, daemon=True)
+
+    def __repr__(self) -> str:
+        return f"Scheduler(pid={self.pid}, computations={list(self.computations.values())})"
 
     def start(self) -> None:
         if not self.thread.is_alive():
@@ -150,22 +109,24 @@ class Scheduler:
                     self._step(cmd)
 
     def step(self, time: int) -> Sequence[Request]:
-        reqs = []
-
         try:
             if cqe := self.cq.get_nowait():
                 match cqe:
                     case (cmd, futures):
-                        reqs = self._step(cmd, futures)
+                        return self._step(cmd, futures)
                     case cmd:
-                        reqs = self._step(cmd)
+                        return self._step(cmd)
         except queue.Empty:
             pass
 
-        return reqs
+        return []
 
     def _step(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> Sequence[Request]:
-        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.pid, self.ctx, self.registry, self.deps))
+        # skip noop
+        if isinstance(cmd, Noop):
+            return []
+
+        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.gid, self.pid))
 
         # subscribe
         if futures:
@@ -175,25 +136,14 @@ class Scheduler:
         computation.apply(cmd)
 
         # eval
-        reqs = computation.eval()
-
-        # print the computation
-        computation.print()
-
-        return reqs
+        return computation.eval()
 
 
 #####################################################################
 ## Here We Go
 #####################################################################
 
-type State = Union[
-    Enabled[Running[Init | Func | Coro]],
-    Enabled[Suspended[Init | Func | Coro]],
-    Enabled[Completed[Func | Coro]],
-    Blocked[Running[Init | Func | Coro]],
-    Blocked[Suspended[Func]],
-]
+type State = Enabled[Running[Init | Func | Coro]] | Enabled[Suspended[Init | Func | Coro]] | Enabled[Completed[Func | Coro]] | Blocked[Running[Init | Func | Coro]] | Blocked[Suspended[Func]]
 
 @dataclass
 class Enabled[T: Running[Init | Func | Coro] | Suspended[Init | Func | Coro] | Completed[Func | Coro]]:
@@ -351,7 +301,7 @@ class Func:
     func: Callable[..., Any] | None
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
-    opts: dict[str, Any]
+    opts: Options
 
     promise: DurablePromise | None = None
     suspends: list[Node[State]] = field(default_factory=list)
@@ -378,7 +328,7 @@ class Coro:
     func: Callable[..., Any]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
-    opts: dict[str, Any]
+    opts: Options
 
     coro: Coroutine
     next: None | AWT | Result = None
@@ -404,18 +354,27 @@ class Coro:
         s = ", ".join([s.value.func.id for s in self.suspends])
         return f"Coro(id={self.id}, next={self.next}, suspends=[{s}], result={self.result})"
 
+class PoppableList[T](list[T]):
+    def spop(self) -> T | None:
+        return self.pop() if self else None
+
 class Computation:
-    def __init__(self, id: str, pid: str, ctx: type[Context], registry: Registry, deps: Dependencies) -> None:
+    def __init__(self, id: str, ctx: Callable[[str], Context], gid: str, pid: str) -> None:
         self.id = id
-        self.pid = pid
         self.ctx = ctx
-        self.registry = registry
-        self.deps = deps
+        self.gid = gid
+        self.pid = pid
         self.graph = Graph[State](id, Enabled(Suspended(Init())))
+
+        self.futures: tuple[PoppableList[Future], PoppableList[Future]] = (PoppableList(), PoppableList())
 
         self.task: Task | None = None
         self.callbacks: dict[str, Callback] = {}
-        self.subscriptions: tuple[list[Future], list[Future]] = ([], [])
+
+        self.history: list[Command | Request | tuple[str, None | AWT | Result, LFI | RFI | AWT | TRM] ] = []
+
+    def __repr__(self) -> str:
+        return f"Computation(id={self.id}, runnable={self.runnable()}, suspendable={self.suspendable()})"
 
     def runnable(self) -> bool:
         return any(n.value.running for n in self.graph.traverse())
@@ -424,8 +383,8 @@ class Computation:
         return all(n.value.suspended for n in self.graph.traverse())
 
     def subscribe(self, fp: Future, fv: Future) -> None:
-        self.subscriptions[0].append(fp)
-        self.subscriptions[1].append(fv)
+        self.futures[0].append(fp)
+        self.futures[1].append(fv)
 
     def promise(self) -> DurablePromise | None:
         match self.graph.root.value.func:
@@ -443,145 +402,193 @@ class Computation:
             case _:
                 return None
 
+    def unicast(self, gid: str, pid: str) -> str:
+        return f"poller://{gid}/{pid}"
+
+    def anycast(self, gid: str, pid: str | None = None) -> str:
+        return f"poller://{gid}/{pid}" if pid else f"poller://{gid}"
+
     def apply(self, cmd: Command) -> None:
-        print(cmd)
+        self.history.append(cmd)
 
         match cmd, self.graph.root.value.func:
-            case Invoke(id, name, func, args, kwargs, promise_and_task, opts), Init():
+            case Invoke(id, name, func, args, kwargs, opts, promise_and_task=None), Init(next=None):
+                assert not self.task, "Task must not be set."
+
                 next: Coro | Func
                 if func is None:
                     next = Func(id, "remote", name, func, args, kwargs, opts)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id, self.registry, self.deps), *args, **kwargs)))
+                    next = Coro(id, "local", name, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
                 else:
                     next = Func(id, "local", name, func, args, kwargs, opts)
 
-                if promise_and_task:
-                    promise, task = promise_and_task
-                    assert not self.task, "Task must not be set."
-                    self.task = task
-                    self.graph.root.transition(Enabled(Running(next.map(promise=promise))))
-                else:
-                    self.graph.root.transition(Enabled(Running(Init(next))))
+                self.graph.root.transition(Enabled(Running(Init(next=next))))
 
-            case Resume(invoke=invoke), Init():
+            case Invoke(id, name, func, args, kwargs, opts, promise_and_task=(promise, task)), Init():
+                assert not self.task, "Task must not be set."
+                assert promise.pending, "Promise must be pending."
+
+                next: Coro | Func
+                if func is None:
+                    next = Func(id, "remote", name, func, args, kwargs, opts)
+                elif isgeneratorfunction(func):
+                    next = Coro(id, "local", name, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                else:
+                    next = Func(id, "local", name, func, args, kwargs, opts)
+
+                self.task = task
+                self.graph.root.transition(Enabled(Running(next.map(promise=promise))))
+
+            case Invoke(), _:
+                # first invoke "wins", computation will be joined
+                pass
+
+            case Resume(invoke=invoke), Init(next=None):
                 self.apply(invoke)
 
             case Resume(id, promise=promise, task=task), _:
                 node = self.graph.find(lambda n: n.id == id)
                 assert node, "Node must exist."
 
-                self._apply(node, (promise, task, None))
+                self._apply_receive(node, (promise, task, None))
 
-            case Return(id, res=res) | Receive(id, res=res), _:
+            case Return(id, res=res), _:
                 node = self.graph.find(lambda n: n.id == id)
                 assert node, "Node must exist."
 
-                self._apply(node, res)
+                self._apply_return(node, res)
+
+            case Receive(id, res=CreatePromiseWithTaskRes(promise, task)), _:
+                assert id == self.id == self.graph.root.id, "Create promise with task is only applicable to root node."
+
+                self._apply_receive(self.graph.root, (promise, task, None))
+
+            case Receive(id, res=CreatePromiseRes(promise) | ResolvePromiseRes(promise) | RejectPromiseRes(promise) | CancelPromiseRes(promise)), _:
+                node = self.graph.find(lambda n: n.id == id)
+                assert node, "Node must exist."
+
+                self._apply_receive(node, (promise, None, None))
+
+            case Receive(id, res=CreateCallbackRes(promise, callback)), _:
+                node = self.graph.find(lambda n: n.id == id)
+                assert node, "Node must exist."
+
+                self._apply_receive(node, (promise, None, callback))
 
             case _:
                 raise NotImplementedError
 
-    def _apply(self, node: Node[State], data: Result | tuple[DurablePromise, Task | None, Callback | None]) -> None:
+    def _apply_return(self, node: Node[State], data: Result) -> None:
         match node.value, data:
-            case Blocked(Running(Func(type="local") as f)), Ok() | Ko() as result:
+            case Blocked(Running(Func(type="local") as f)), result:
                 node.transition(Enabled(Running(f.map(result=result))))
+            case _:
+                raise NotImplementedError
 
-            case Blocked(Running(Init(Func(type="local") | Coro(type="local") as next, suspends))), (promise, task, None) if promise.pending:
+    def _apply_receive(self, node: Node[State], data: tuple[DurablePromise, Task | None, Callback | None]) -> None:
+        match (self.task, node.value), data:
+            case (None, Blocked(Running(Init(Func(type="local") | Coro(type="local") as next, suspends)))), (promise, task, None) if promise.pending and task and not task.completed:
+                assert node == self.graph.root, "Node must be root."
+                assert not suspends, "Suspended must be empty for root."
                 assert not next.suspends, "Next suspends must be initially empty."
+
+                self.task = task
                 node.transition(Enabled(Running(next.map(promise=promise))))
 
-                if task:
-                    assert node is self.graph.root, "Node must be the root node."
-                    assert not self.task, "Task must not be set."
-                    self.task = task
+            case (None, _), _:
+                # TODO(dfarr): determine these specific cases
+                pass
+
+            case (task, Blocked(Running(Init(Func(type="local") | Coro(type="local") as next, suspends)))), (promise, None, None) if promise.pending and not task.completed:
+                assert not next.suspends, "Next suspends must be initially empty."
+                node.transition(Enabled(Running(next.map(promise=promise))))
 
                 # unblock waiting[p]
                 self._unblock(suspends, AWT(next.id, self.id))
 
-            case Blocked(Running(Init(Func(type="remote") as next, suspends))), (promise, None, None) if promise.pending:
+            case (task, Blocked(Running(Init(Func(type="remote") as next, suspends)))), (promise, None, None) if promise.pending and not task.completed:
                 assert not next.suspends, "Next suspends must be initially empty."
+                assert promise.tags.get("resonate:scope") == "global", "Scope must be global."
                 node.transition(Enabled(Suspended(next.map(promise=promise))))
 
                 # unblock waiting[p]
                 self._unblock(suspends, AWT(next.id, self.id))
 
-            case Blocked(Running(Init(Func(type="local" | "remote") | Coro(type="local") as next, suspends))), (promise, None, None) if promise.completed:
+            case (task, Blocked(Running(Init(Func(type="local" | "remote") | Coro(type="local") as next, suspends)))), (promise, None, None) if promise.completed and not task.completed:
                 assert not next.suspends, "Next suspends must be initially empty."
                 node.transition(Enabled(Completed(next.map(promise=promise, result=promise.result))))
 
-                # unblock waiting[v]
-                self._unblock(suspends, promise.result)
+                # unblock waiting[p]
+                self._unblock(suspends, AWT(next.id, self.id))
 
-            case Blocked(Running(Func(type="local", suspends=suspends) | Coro(type="local", suspends=suspends) as f)), (promise, None, None):
-                assert promise.completed, "Promise must be completed."
+            case (task, Blocked(Running(Func(type="local", suspends=suspends) | Coro(type="local", suspends=suspends) as f))), (promise, None, None) if promise.completed and not task.completed:
                 node.transition(Enabled(Completed(f.map(promise=promise, result=promise.result))))
 
                 # unblock waiting[v]
                 self._unblock(suspends, promise.result)
 
-            case Blocked(Suspended(Func(type="remote", suspends=suspends) as f)), (promise, None, None):
-                assert promise.completed, "Promise must be completed."
-                node.transition(Enabled(Suspended(f.map(promise=promise, result=promise.result))))
+            case (task, Blocked(Suspended(Func(type="remote", suspends=suspends) as f))), (promise, None, None) if promise.completed and not task.completed:
+                node.transition(Enabled(Completed(f.map(promise=promise, result=promise.result))))
 
                 # unblock waiting[v]
                 self._unblock(suspends, promise.result)
 
-            case Blocked(Suspended(Func(id, type="remote") as f)), (promise, None, callback):
-                assert promise.pending, "Promise must be pending."
+            case (task, Blocked(Suspended(Func(id, type="remote") as f))), (promise, None, callback) if promise.pending and not task.completed:
                 assert callback, "Callback must be set."
 
                 self.callbacks[id] = callback
                 node.transition(Enabled(Suspended(f)))
 
-            case Enabled(Suspended(Func(type="remote", suspends=suspends) as f)), (promise, task, None):
-                assert promise.completed, "Promise must be completed."
-                assert task, "Task must be set."
-                assert not task.completed, "Task must not be completed."
-
-                self.task = task
+            case (old_task, Enabled(Suspended(Func(type="remote", suspends=suspends) as f))), (promise, new_task, None) if promise.completed and old_task.completed and new_task and not new_task.completed:
+                self.task = new_task
                 node.transition(Enabled(Completed(f.map(promise=promise, result=promise.result))))
 
                 # unblock waiting[v]
                 self._unblock(suspends, promise.result)
 
-            case Enabled(Completed()), _:
-                pass
-
             case _:
-                raise NotImplementedError
+                # TODO(dfarr): determine these specific cases
+                pass
 
     def eval(self) -> Sequence[Request]:
         reqs: Sequence[Request] = []
 
         while self.runnable():
-            for node in self.graph.traverse():
-                reqs.extend(self._eval(node))
+            # assert (self.task and not self.task.completed) or isinstance(self.graph.root.value.func, Init)
 
-        if self.suspendable():
-            assert self.task, "Task must be set."
-            if not self.task.completed:
+            for node in self.graph.traverse():
+                r = self._eval(node)
+                reqs.extend(r)
+                self.history.extend(r)
+
+        # It is possible for an invoke command to correspond to an already completed promise,
+        # in this case there would either be:
+            # 1. No task to complete
+            # 2. A previously completed task
+
+        if self.suspendable() and self.task and not self.task.completed:
+            # It is possible for the task to have expired, in this case ignore the error
+            with contextlib.suppress(ResonateError):
                 self.task.complete()
 
         if promise := self.promise():
-            for future in self.subscriptions[0]:
+            while future := self.futures[0].spop():
                 future.set_result(promise)
-            self.subscriptions[0].clear()
 
         if result := self.result():
-            for future in self.subscriptions[1]:
+            while future := self.futures[1].spop():
                 match result:
                     case Ok(v):
                         future.set_result(v)
                     case Ko(e):
                         future.set_exception(e)
-            self.subscriptions[1].clear()
 
         return reqs
 
     def _eval(self, node: Node[State]) -> Sequence[Request]:
         match node.value:
-            case Enabled(Running(Init(Func(id, "local", name, _, args, kwargs) | Coro(id, "local", name, _, args, kwargs))) as exec):
+            case Enabled(Running(Init(Func(id, "local", name, _, args, kwargs, opts) | Coro(id, "local", name, _, args, kwargs, opts))) as exec):
                 assert id == node.id, "Id must match node id."
                 node.transition(Blocked(exec))
 
@@ -591,7 +598,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.pid, "resonate:scope": "global"},
+                        tags={"resonate:invoke": opts.get("send_to", self.anycast(self.gid)), "resonate:scope": "global"},
                         pid=self.pid,
                         ttl=sys.maxsize,
                     )
@@ -618,7 +625,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": opts.get("target", self.pid), "resonate:scope": "global"},
+                        tags={"resonate:invoke": opts.get("send_to", self.anycast(self.gid)), "resonate:scope": "global"},
                     )),
                 ]
 
@@ -642,7 +649,7 @@ class Computation:
                             )),
                         ]
                     case Ko(v):
-                        # TODO: retry if there is retry budget
+                        # TODO(dfarr): retry if there is retry budget
                         return [
                             Network(id, self.id, RejectPromiseReq(
                                 id=id,
@@ -651,55 +658,32 @@ class Computation:
                             )),
                         ]
 
-            case Enabled(Running(Coro(coro=coro, next=next) as c)):
-                cmd = coro.send(next)
-                print(cmd)
+            case Enabled(Running(Coro() as c)):
+                cmd = c.coro.send(c.next)
                 child = self.graph.find(lambda n: n.id == cmd.id) or Node(cmd.id, Enabled(Suspended(Init())))
+                self.history.append((c.coro.id, c.next, cmd))
 
                 match cmd, child.value:
-                    case LFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        next = Coro(
-                            id,
-                            "local",
-                            None,
-                            func,
-                            args,
-                            kwargs,
-                            opts,
-                            Coroutine(id, self.id, func(self.ctx(id, self.registry, self.deps), *args, **kwargs)),
-                        ) if isgeneratorfunction(func) else Func(
-                            id,
-                            "local",
-                            None,
-                            func,
-                            args,
-                            kwargs,
-                            opts
-                        )
+                    case LFI(id, func, args, kwargs), Enabled(Suspended(Init(next=None))):
+                        next: Coro | Func
+                        if isgeneratorfunction(func):
+                            next = Coro(id, "local", None, func, args, kwargs, {}, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                        else:
+                            next = Func(id, "local", None, func, args, kwargs, {})
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Enabled(Running(Init(next, suspends=[node]))))
-
                         return []
 
-                    case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        next = Func(
-                            id,
-                            "remote",
-                            func,
-                            None,
-                            args,
-                            kwargs,
-                            opts
-                        )
+                    case RFI(id, func, args, kwargs), Enabled(Suspended(Init(next=None))):
+                        next = Func(id, "remote", func, None, args, kwargs, {})
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Enabled(Running(Init(next, suspends=[node]))))
-
                         return []
 
                     case LFI() | RFI(), Enabled(Running(Init() as f)):
@@ -769,7 +753,7 @@ class Computation:
                                 promise_id=id,
                                 root_promise_id=self.id,
                                 timeout=sys.maxsize,
-                                recv=self.pid,
+                                recv=self.anycast(self.gid, self.pid),
                             ))
                         ]
 
@@ -800,7 +784,7 @@ class Computation:
                                     )),
                                 ]
                             case Ko(v):
-                                # TODO: retry if there is retry budget
+                                # TODO(dfarr): retry if there is retry budget
                                 return [
                                     Network(id, self.id, RejectPromiseReq(
                                         id=id,
@@ -829,17 +813,29 @@ class Computation:
                     raise NotImplementedError
 
     def print(self) -> None:
-        print("Computation", self.id)
-        print("Task:")
-        print("\t", self.task)
+        logger.info("=" * 40)
+        logger.info("Computation: %s", self.id)
+        logger.info("=" * 40)
 
-        print("Callbacks:")
-        for callback in self.callbacks.values():
-            print("\t", callback)
+        logger.info("\nTask:")
+        logger.info("  %s", self.task)
 
-        print("Graph:")
+        logger.info("\nCallbacks:")
+        if self.callbacks:
+            logger.info("  %s", "\n  ".join(str(cb) for cb in self.callbacks.values()))
+        else:
+            logger.info("  None")
+
+        logger.info("\nGraph:")
         for node, level in self.graph.traverse_with_level():
-            print(f"{'  ' * level}{node}")
+            logger.info("%s  %s", "  " * level, node)
+
+        logger.info("\nHistory:")
+        if self.history:
+            logger.info("  %s", "\n  ".join(str(event) for event in self.history))
+        else:
+            logger.info("  None")
+
 
 # Coroutine
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from concurrent.futures import Future
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from concurrent.futures import Future
 
 
 class Handle[T]:

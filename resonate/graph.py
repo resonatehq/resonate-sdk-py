@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Generator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
 
 
 class Graph[T]:
@@ -79,4 +82,4 @@ class Node[T]:
         yield self, level
 
         for node in self._edges.get(edge, []):
-            yield from node._traverse(edge, visited, level + 1)
+            yield from node._traverse(edge, visited, level + 1)  # noqa: SLF001

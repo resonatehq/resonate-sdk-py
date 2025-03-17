@@ -72,9 +72,9 @@ def task(store: Store) -> Generator[tuple[str, int]]:
             msgs = store.step()
 
             assert len(msgs) == 1
-            assert msgs[0]["type"] == "invoke"
+            assert msgs[0][1]["type"] == "invoke"
 
-            yield (msgs[0]["task"]["id"], msgs[0]["task"]["counter"])
+            yield (msgs[0][1]["task"]["id"], msgs[0][1]["task"]["counter"])
 
             msgs = store.step()
             assert len(msgs) == 0

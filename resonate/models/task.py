@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from resonate.models.durable_promise import DurablePromise
-
 if TYPE_CHECKING:
+    from resonate.models.durable_promise import DurablePromise
     from resonate.models.store import Store
 
 
@@ -13,7 +12,7 @@ if TYPE_CHECKING:
 class Task:
     id: str
     counter: int
-    store: Store
+    store: Store = field(repr=False)
 
     _completed: bool = field(default=False, init=False)
 

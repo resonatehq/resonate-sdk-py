@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from .models.context import Context
-from .resonate import Resonate
+from .resonate import Context, Resonate
 
 __all__ = ["Context", "Resonate"]

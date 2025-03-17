@@ -1,7 +1,8 @@
-from dataclasses import dataclass
+from __future__ import annotations
+
+from typing import NotRequired, TypedDict
 
 
-@dataclass(frozen=True)
-class RunOptions:
-    send_to: str = "default"
-    version: int = 1
+class Options(TypedDict):
+    send_to: NotRequired[str]
+    version: NotRequired[int]
