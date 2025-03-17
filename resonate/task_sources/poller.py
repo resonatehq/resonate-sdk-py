@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import os
-import time
 from threading import Thread
 from typing import TYPE_CHECKING, Any
 
 import requests
 
 from resonate.encoders.json import JsonEncoder
-from resonate.models.enqueueable import Enqueueable
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
+    from resonate.models.enqueueable import Enqueueable
     from resonate.models.message import Mesg
 
 

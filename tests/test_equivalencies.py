@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 import itertools
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from resonate.models.context import Context
 from resonate.registry import Registry
 from tests.runners import ResonateLFXRunner, ResonateRFXRunner, ResonateRunner, Runner, SimpleRunner
 
-# Skip temporarily
-pytest.skip("Skipping equivalency tests for now", allow_module_level=True)
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
+
+    from resonate.models.context import Context
 
 # Functions
 
-def fib(ctx: Context, n: int):
+def fib(ctx: Context, n: int) -> Generator[Any, Any, int]:
     if n <= 1:
         return n
 
@@ -28,21 +28,21 @@ def fib(ctx: Context, n: int):
     return v1 + v2
 
 
-def fac(ctx: Context, n: int):
+def fac(ctx: Context, n: int) -> Generator[Any, Any, int]:
     if n <= 1:
         return 1
 
     return n * (yield ctx.rfc(fac, n - 1).options(id=f"fac({n - 1})"))
 
 
-def gcd(ctx: Context, a: int, b: int):
+def gcd(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]:
     if b == 0:
         return a
 
     return (yield ctx.rfc(gcd, b, a % b).options(id=f"gcd({b},{a % b})"))
 
 
-def rpt(ctx: Context, s: str, n: int):
+def rpt(ctx: Context, s: str, n: int) -> Generator[Any, Any, Any]:
     v = ""
     p = yield ctx.lfi(idv, s)
 
@@ -52,11 +52,11 @@ def rpt(ctx: Context, s: str, n: int):
     return v
 
 
-def idv(x):
+def idv(x: Any) -> Any:
     return x
 
 
-def idp(c, p):
+def idp(c: Context, p: Any) -> Any:
     return (yield p)
 
 

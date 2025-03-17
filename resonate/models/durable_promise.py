@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from resonate.models.result import Ko, Ok, Result
@@ -23,7 +23,7 @@ class DurablePromise:
     created_on: int
     completed_on: int | None
 
-    store: Store
+    store: Store = field(repr=False)
 
     @property
     def params(self) -> Any:
@@ -61,8 +61,7 @@ class DurablePromise:
     def timedout(self) -> bool:
         return self.state == "REJECTED_TIMEDOUT"
 
-    def resolve(self, data: str | None, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
-        print("WE ARE HERE!!!!!!!!!")
+    def resolve(self, data: str | None, *, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
         promise = self.store.promises.resolve(
             id=self.id,
             ikey=ikey,
@@ -70,10 +69,9 @@ class DurablePromise:
             headers=headers,
             data=data,
         )
-        print("WE ARE HERE!!!!!!!!!", promise)
         self._complete(promise)
 
-    def reject(self, data: str | None, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
+    def reject(self, data: str | None, *, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
         promise = self.store.promises.reject(
             id=self.id,
             ikey=ikey,
@@ -83,7 +81,7 @@ class DurablePromise:
         )
         self._complete(promise)
 
-    def cancel(self, data: str | None, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
+    def cancel(self, data: str | None, *, ikey: str | None = None, strict: bool = False, headers: dict[str, str] | None = None) -> None:
         promise = self.store.promises.cancel(
             id=self.id,
             ikey=ikey,

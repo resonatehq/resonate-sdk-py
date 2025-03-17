@@ -5,7 +5,9 @@ description = "Distributed Async Await by Resonate HQ, Inc"
 readme = "README.md"
 authors = [{ name = "Resonate HQ, Inc", email = "contact@resonatehq.io" }]
 requires-python = ">=3.12"
-dependencies = ["requests>=2.32.3"]
+dependencies = [
+    "requests>=2.32.3",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -13,10 +15,10 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "pyright[nodejs]>=1.1.393",
-    "pytest>=8.3.4",
-    "ruff>=0.9.4",
-    "types-requests>=2.32.0.20241016",
+    "pyright>=1.1.396",
+    "pytest>=8.3.5",
+    "ruff>=0.11.0",
+    "types-requests>=2.32.0.20250306",
 ]
 
 [tool.pytest.ini_options]

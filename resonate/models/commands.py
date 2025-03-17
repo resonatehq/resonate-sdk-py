@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
+
+from resonate.models.options import Options
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from resonate.models.callback import Callback
     from resonate.models.durable_promise import DurablePromise
     from resonate.models.result import Result
@@ -11,7 +15,7 @@ if TYPE_CHECKING:
 
 # Commands
 
-type Command = Invoke | Resume | Return | Receive | Listen | Notify
+type Command = Invoke | Resume | Return | Receive | Listen | Notify | Noop
 
 
 @dataclass
@@ -21,8 +25,8 @@ class Invoke:
     func: Callable[..., Any] | None
     args: tuple[Any, ...] = field(default_factory=tuple)
     kwargs: dict[str, Any] = field(default_factory=dict)
+    opts: Options = field(default_factory=Options)
     promise_and_task: tuple[DurablePromise, Task] | None = None
-    opts: dict[str, Any] = field(default_factory=dict)
 
     @property
     def cid(self) -> str:
@@ -49,7 +53,7 @@ class Return:
 class Receive:
     id: str
     cid: str
-    res: tuple[DurablePromise, Task | None, Callback | None]
+    res: CreatePromiseRes | CreatePromiseWithTaskRes | ResolvePromiseRes | RejectPromiseRes | CancelPromiseRes | CreateCallbackRes
 
 
 @dataclass
@@ -70,6 +74,10 @@ class Notify:
     def cid(self) -> str:
         return self.id
 
+
+@dataclass
+class Noop:
+    pass
 
 # Requests
 
@@ -180,3 +188,16 @@ class CreateCallbackReq:
 class CreateCallbackRes:
     promise: DurablePromise
     callback: Callback | None
+
+@dataclass
+class ClaimTaskReq:
+    id: str
+    counter: int
+    pid: str
+    ttl: int
+
+@dataclass
+class ClaimTaskRes:
+    root: DurablePromise
+    leaf: DurablePromise | None
+    task: Task

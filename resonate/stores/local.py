@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, final
-
-from typing_extensions import Any
+from typing import TYPE_CHECKING, Any, Literal, Protocol, final
 
 from resonate.encoders.base64 import Base64Encoder
 from resonate.encoders.chain import ChainEncoder
@@ -12,6 +10,7 @@ from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateError
 from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise
+from resonate.models.message import InvokeMesg, Mesg, ResumeMesg, TaskMesg
 from resonate.models.task import Task
 
 if TYPE_CHECKING:
@@ -20,18 +19,17 @@ if TYPE_CHECKING:
 # Fake it till you make it
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-type Recv = str
-
+# type Recv = str
 
 class Router(Protocol):
-    def route(self, promise: DurablePromiseRecord) -> Recv | None: ...
+    def route(self, promise: DurablePromiseRecord) -> Any: ...
 
 
 class TagRouter:
     def __init__(self, tag: str = "resonate:invoke") -> None:
         self.tag = tag
 
-    def route(self, promise: DurablePromiseRecord) -> Recv | None:
+    def route(self, promise: DurablePromiseRecord) -> Any:
         return (promise.tags or {}).get(self.tag)
 
 
@@ -79,8 +77,8 @@ class LocalStore:
     def add_router(self, router: Router) -> None:
         self._routers.append(router)
 
-    def step(self) -> list[Any]:
-        messages = []
+    def step(self) -> list[tuple[str, Mesg]]:
+        messages: list[tuple[str, Mesg]] = []
 
         for promise in self._promises.values():
             match promise, self._clock.time() >= promise.timeout:
@@ -89,10 +87,14 @@ class LocalStore:
 
         for task in self._tasks.values():
             match task, self._clock.time() >= (task.expiry or 0):
-                case TaskRecord(state="INIT", type="invoke" | "resume"), _:
+                case TaskRecord(state="INIT", type="invoke"), _:
                     _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
                     if applied:
-                        messages.append({"type": task.type, "task": {"id": task.id, "counter": task.counter}})
+                        messages.append((task.recv, InvokeMesg(type="invoke", task=TaskMesg(id=task.id, counter=task.counter))))
+                case TaskRecord(state="INIT", type="resume"), _:
+                    _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
+                    if applied:
+                        messages.append((task.recv, ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter))))
                 case TaskRecord(state="CLAIMED"), True:
                     self.tasks.transition(id=task.id, to="INIT")
 
@@ -283,7 +285,7 @@ class LocalPromiseStore:
         record, applied = self.transition(id=id, to=new_state, strict=strict, headers=headers, data=data, ikey=ikey)
         if applied:
             for task in self._tasks.values():
-                if (task.state in ("INIT", "ENQUEUED")) and task.root_promise_id == record.id:
+                if (task.state in ("INIT", "ENQUEUED", "CLAIMED")) and task.root_promise_id == record.id:
                     self._store.tasks.transition(id=task.id, to="COMPLETED", force=True)
 
             for callback in record.callbacks:
@@ -474,7 +476,7 @@ class LocalTaskStore:
         id: str,
         to: Literal["INIT", "ENQUEUED", "CLAIMED", "COMPLETED"],
         type: Literal["invoke", "resume", "notify"] | None = None,
-        recv: Recv | None = None,
+        recv: str | None = None,
         root_promise_id: str | None = None,
         leaf_promise_id: str | None = None,
         counter: int | None = None,
@@ -563,41 +565,6 @@ class LocalTaskStore:
                 self._tasks[record.id] = record
                 return record, False
 
-            case TaskRecord(state="CLAIMED"), "COMPLETED" if record.counter == counter and (record.expiry is not None and record.expiry >= self._clock.time()):
-                record = TaskRecord(
-                    id=record.id,
-                    counter=record.counter,
-                    state=to,
-                    type=record.type,
-                    recv=record.recv,
-                    root_promise_id=record.root_promise_id,
-                    leaf_promise_id=record.leaf_promise_id,
-                    pid=None,
-                    ttl=None,
-                    expiry=None,
-                    created_on=record.created_on,
-                    completed_on=self._clock.time(),
-                )
-                self._tasks[record.id] = record
-                return record, False
-            case TaskRecord(state="INIT" | "ENQUEUED"), "COMPLETED" if force:
-                record = TaskRecord(
-                    id=record.id,
-                    counter=record.counter,
-                    state=to,
-                    type=record.type,
-                    recv=record.recv,
-                    root_promise_id=record.root_promise_id,
-                    leaf_promise_id=record.leaf_promise_id,
-                    pid=None,
-                    ttl=None,
-                    expiry=None,
-                    created_on=record.created_on,
-                    completed_on=self._clock.time(),
-                )
-                self._tasks[record.id] = record
-                return record, False
-
             case TaskRecord(state="CLAIMED"), "INIT":
                 assert record.expiry is not None
                 assert self._clock.time() >= record.expiry
@@ -617,6 +584,7 @@ class LocalTaskStore:
                 )
                 self._tasks[record.id] = record
                 return record, True
+
             case TaskRecord(state="CLAIMED"), "CLAIMED" if force:
                 assert record.ttl is not None
                 record = TaskRecord(
@@ -635,6 +603,46 @@ class LocalTaskStore:
                 )
                 self._tasks[record.id] = record
                 return record, True
+
+            case TaskRecord(state="CLAIMED"), "COMPLETED" if record.counter == counter and (record.expiry is not None and record.expiry >= self._clock.time()):
+                record = TaskRecord(
+                    id=record.id,
+                    counter=record.counter,
+                    state=to,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=None,
+                    ttl=None,
+                    expiry=None,
+                    created_on=record.created_on,
+                    completed_on=self._clock.time(),
+                )
+                self._tasks[record.id] = record
+                return record, False
+
+            case TaskRecord(state="INIT" | "ENQUEUED" | "CLAIMED"), "COMPLETED" if force:
+                record = TaskRecord(
+                    id=record.id,
+                    counter=record.counter,
+                    state=to,
+                    type=record.type,
+                    recv=record.recv,
+                    root_promise_id=record.root_promise_id,
+                    leaf_promise_id=record.leaf_promise_id,
+                    pid=None,
+                    ttl=None,
+                    expiry=None,
+                    created_on=record.created_on,
+                    completed_on=self._clock.time(),
+                )
+                self._tasks[record.id] = record
+                return record, False
+
+            # case TaskRecord(state="COMPLETED"), "COMPLETED":
+            #     return record, False
+
             case None, _:
                 msg = "Task not found"
                 raise ResonateError(msg, "STORE_NOT_FOUND")
