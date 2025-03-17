@@ -97,7 +97,7 @@ def fib_rfc(ctx: Context, n: int) -> Generator[Any, Any, int]:
 
     return v1 + v2
 
-def test_dst(seed: str, steps: int = 1000) -> None:
+def test_dst(seed: str, steps: int = 10000) -> None:
     logger.info("DST(seed=%s)", seed)
 
     # seed the random number generator
