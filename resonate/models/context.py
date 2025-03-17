@@ -51,7 +51,7 @@ class RFX:
     func: str
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
-    opts: dict[str, Any] = field(default_factory=dict)
+    opts: Options = field(default_factory=Options)
 
     def options(self, *, id: str | None = None, **opts: Unpack[Options]) -> Self:
         self.id = id or self.id

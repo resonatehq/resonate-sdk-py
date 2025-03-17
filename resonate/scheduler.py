@@ -664,12 +664,12 @@ class Computation:
                 self.history.append((c.coro.id, c.next, cmd))
 
                 match cmd, child.value:
-                    case LFI(id, func, args, kwargs), Enabled(Suspended(Init(next=None))):
+                    case LFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
                         next: Coro | Func
                         if isgeneratorfunction(func):
-                            next = Coro(id, "local", None, func, args, kwargs, {}, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                            next = Coro(id, "local", None, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
                         else:
-                            next = Func(id, "local", None, func, args, kwargs, {})
+                            next = Func(id, "local", None, func, args, kwargs, opts)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -677,8 +677,8 @@ class Computation:
                         child.transition(Enabled(Running(Init(next, suspends=[node]))))
                         return []
 
-                    case RFI(id, func, args, kwargs), Enabled(Suspended(Init(next=None))):
-                        next = Func(id, "remote", func, None, args, kwargs, {})
+                    case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
+                        next = Func(id, "remote", func, None, args, kwargs, opts)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
