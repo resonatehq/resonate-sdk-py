@@ -46,34 +46,34 @@ class Resonate:
             pid=pid,
         )
 
-    def options(self, *, send_to: str | None = None, version: int | None = None) -> Resonate:
+    def options(self, *, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Resonate:
         return Resonate(
             gid=self._gid,
             pid=self._pid,
-            opts = self._opts.merge(send_to=send_to, version=version),
+            opts=self._opts.merge(send_to=send_to, version=version, timeout=timeout),
             registry=self._registry,
             dependencies=self._dependencies,
             scheduler=self._scheduler,
         )
 
     @overload
-    def register[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None) -> Function[P, R]: ...
-    @overload
-    def register[**P, R](self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None) -> Function[P, R]: ...
-    @overload
-    def register[**P, R](self, func: Callable[P, R], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None) -> Function[P, R]: ...
-    @overload
-    def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, version: int | None = None) -> Callable[[Callable], Function[P, Any]]: ...
     def register[**P, R](
-        self,
-        *args: Callable | None,
-        name: str | None = None,
-        send_to: str | None = None,
-        version: int | None = None,
+        self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
+    ) -> Function[P, R]: ...
+    @overload
+    def register[**P, R](
+        self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
+    ) -> Function[P, R]: ...
+    @overload
+    def register[**P, R](self, func: Callable[P, R], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Function[P, R]: ...
+    @overload
+    def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Callable[[Callable], Function[P, Any]]: ...
+    def register[**P, R](
+        self, *args: Callable | None, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
             self._registry.add(name or func.__name__, func)
-            return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version))
+            return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
 
         if args and callable(args[0]):
             return wrapper(args[0])
@@ -145,6 +145,7 @@ class Resonate:
 
 # Context
 
+
 class Context:
     def __init__(self, id: str, registry: Registry, dependencies: Dependencies) -> None:
         self.id = id
@@ -190,7 +191,9 @@ class Context:
             case Callable():
                 return self._registry.reverse_lookup(f)
 
+
 # Function
+
 
 class Function[**P, R]:
     @overload
@@ -212,8 +215,8 @@ class Function[**P, R]:
     def __call__(self, *args, **kwargs) -> Generator[Any, Any, R] | R:
         return self._func(*args, **kwargs)
 
-    def options(self, *, send_to: str | None = None, version: int | None = None) -> Function[P, R]:
-        return Function(self._resonate, self._name, self._func, self._opts.merge(send_to=send_to, version=version))
+    def options(self, *, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Function[P, R]:
+        return Function(self._resonate, self._name, self._func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
         return self._resonate.options(**self._opts.to_dict()).run(id, self._name, *args, **kwargs)
