@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from operator import imod
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
-from typing import get_args
+
 import pytest
 
 from resonate import Context, Resonate
@@ -197,8 +196,8 @@ def test_get(resonate: Resonate, scheduler: MagicMock, id: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("func",),
-    [(foo,), (bar,), (baz,), (foo,), (bar,), (baz,)],
+    "func",
+    [foo, bar, baz],
 )
 def test_signatures(resonate: Resonate, func: Callable) -> None:
     f = resonate.register(func)
