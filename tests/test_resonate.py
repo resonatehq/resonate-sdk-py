@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from operator import imod
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
-
+from typing import get_args
 import pytest
 
 from resonate import Context, Resonate
@@ -193,3 +194,12 @@ def test_rpc(
 def test_get(resonate: Resonate, scheduler: MagicMock, id: str) -> None:
     resonate.get(id)
     assert cmd(scheduler) == Listen(id=id)
+
+
+@pytest.mark.parametrize(
+    ("func",),
+    [(foo,), (bar,), (baz,), (foo,), (bar,), (baz,)],
+)
+def test_signatures(resonate: Resonate, scheduler: MagicMock, func: Callable) -> None:
+    f = resonate.register(func)
+    assert f.rpc.__annotations__ == f.run.__annotations__
