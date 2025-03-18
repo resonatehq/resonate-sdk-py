@@ -218,7 +218,7 @@ class LocalPromiseStore:
             self._encoder.decode(promise.param.data),
             self._encoder.decode(promise.value.data),
         )
-        if promise.completed_on is not None:
+        if promise.state != "PENDING":
             return durable_promise, None
 
         callback = CallbackRecord(id=id, type="resume", promise_id=promise_id, root_promise_id=root_promise_id, timeout=timeout, created_on=self._clock.time(), recv=recv)
@@ -248,7 +248,7 @@ class LocalPromiseStore:
             self._encoder.decode(promise.param.data),
             self._encoder.decode(promise.value.data),
         )
-        if promise.completed_on is not None:
+        if promise.state != "PENDING":
             return durable_promise, None
 
         callback = CallbackRecord(id=id, type="notify", promise_id=promise_id, root_promise_id=promise_id, timeout=timeout, created_on=self._clock.time(), recv=recv)
