@@ -10,7 +10,7 @@ from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateError
 from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise
-from resonate.models.message import InvokeMesg, Mesg, ResumeMesg, TaskMesg
+from resonate.models.message import InvokeMesg, Mesg, NotifyMesg, ResumeMesg, TaskMesg
 from resonate.models.task import Task
 
 if TYPE_CHECKING:
@@ -95,12 +95,11 @@ class LocalStore:
                     _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
                     if applied:
                         messages.append((task.recv, ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter))))
-                        messages.append({"type": task.type, "task": {"id": task.id, "counter": task.counter}})
                 case TaskRecord(type="notify"), _:
                     promise = self._promises.get(task.root_promise_id)
                     _, applied = self.tasks.transition(id=task.id, to="COMPLETED")
                     if applied:
-                        messages.append({"type": task.type, "promise": promise})
+                        messages.append((task.recv, NotifyMesg(type="notify", promise=promise)))
                 case TaskRecord(state="CLAIMED"), True:
                     self.tasks.transition(id=task.id, to="INIT")
 
@@ -697,8 +696,8 @@ class LocalTaskStore:
                 self._tasks[record.id] = record
                 return record, False
 
-            # case TaskRecord(state="COMPLETED"), "COMPLETED":
-            #     return record, False
+            case TaskRecord(state="COMPLETED"), "COMPLETED":
+                return record, False
 
             case None, _:
                 msg = "Task not found"
