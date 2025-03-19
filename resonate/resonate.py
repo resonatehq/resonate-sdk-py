@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from sys import version
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
@@ -38,11 +37,11 @@ class Resonate:
         self._pid = pid or uuid.uuid4().hex
         self._opts = opts or Options()
 
-        self._registry = registry or Registry()
+        self.registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
         self._scheduler = scheduler or Scheduler(
-            ctx=lambda id: Context(id, self._registry, self._dependencies, self._opts),
+            ctx=lambda id: Context(id, self.registry, self._dependencies, self._opts),
             gid=gid,
             pid=pid,
         )
@@ -52,7 +51,7 @@ class Resonate:
             gid=self._gid,
             pid=self._pid,
             opts=self._opts.merge(send_to=send_to, version=version, timeout=timeout),
-            registry=self._registry,
+            registry=self.registry,
             dependencies=self._dependencies,
             scheduler=self._scheduler,
         )
@@ -67,7 +66,7 @@ class Resonate:
         self, *args: Callable | None, name: str | None = None, send_to: str | None = None, version: int = 1, timeout: int | None = None
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
-            self._registry.add(func, name or func.__name__, version)
+            self.registry.add(func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
 
         if args and callable(args[0]):
@@ -91,9 +90,9 @@ class Resonate:
         match func:
             case str():
                 name = func
-                func, _ = self._registry.get(func)
+                func, _ = self.registry.get(func)
             case _:
-                name, _ = self._registry.reverse_lookup(func)
+                name, _ = self.registry.reverse_lookup(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts), futures=(fp, fv))
@@ -118,7 +117,7 @@ class Resonate:
             case str():
                 name = func
             case _:
-                name, _ = self._registry.reverse_lookup(func)
+                name, _ = self.registry.reverse_lookup(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, opts=self._opts), futures=(fp, fv))
@@ -142,7 +141,7 @@ class Context:
         self.id = id
         self.deps = dependencies
         self._counter = 0
-        self._registry = registry
+        self.registry = registry
         self._opts = opts
 
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
@@ -173,16 +172,16 @@ class Context:
     def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:
             case str():
-                return *self._registry.get(f), self._registry.list(f)
+                return *self.registry.get(f), self.registry.list(f)
             case Callable():
-                return f, self._registry.reverse_latest(f), None
+                return f, self.registry.reverse_latest(f), None
 
     def _rfi_func(self, f: str | Callable) -> tuple[str, int, dict[int, str] | None]:
         match f:
             case str():
-                return f, self._registry.latest(f), None
+                return f, self.registry.latest(f), None
             case Callable():
-                return *self._registry.reverse_lookup(f), self._registry.reverse_list(f)
+                return *self.registry.reverse_lookup(f), self.registry.reverse_list(f)
 
 
 # Function

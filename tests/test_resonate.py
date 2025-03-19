@@ -113,27 +113,25 @@ def test_run(
         assert cmd(scheduler) == invoke
         resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
-        resonate._registry.remove(func.__name__)
+        resonate.registry.remove(func.__name__)
 
         f = resonate.register(func, **opts.to_dict())
         f.run("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
-        resonate._registry.remove(func.__name__, opts.version)
+        resonate.registry.remove(func.__name__, opts.version)
 
         f = resonate.register(func, **opts.to_dict())
         f.options(**opts.to_dict()).run("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
-        resonate._registry.remove(func.__name__, opts.version)
+        resonate.registry.remove(func.__name__, opts.version)
 
     else:
-        resonate.register(expected_func,name=func, version=version or 1)
+        resonate.register(expected_func, name=func, version=version or 1)
         resonate.run("f", func, *args, **kwargs)
         assert cmd(scheduler) == invoke
         resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
-        resonate._registry.remove(func, version=version or 1)
-
-
+        resonate.registry.remove(func, version=version or 1)
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
@@ -181,25 +179,23 @@ def test_rpc(
         assert cmd(scheduler) == invoke
         resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
-        resonate._registry.remove(func.__name__)
+        resonate.registry.remove(func.__name__)
 
         f = resonate.register(func, **opts.to_dict())
         f.rpc("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
-        resonate._registry.remove(func.__name__, opts.version)
+        resonate.registry.remove(func.__name__, opts.version)
 
         f = resonate.register(func, **opts.to_dict())
         f.options(**opts.to_dict()).rpc("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
-        resonate._registry.remove(func.__name__, opts.version)
+        resonate.registry.remove(func.__name__, opts.version)
 
     else:
-        resonate.register(expected_func, name=func, version=version or 1)
         resonate.rpc("f", func, *args, **kwargs)
         assert cmd(scheduler) == invoke
         resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
-        resonate._registry.remove(func, version=version or 1)
 
 
 @pytest.mark.parametrize("id", ["foo", "bar", "baz"])

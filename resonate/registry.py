@@ -16,9 +16,9 @@ class Registry:
 
     def add(self, func: Callable, name: str, version: int = 1) -> None:
         # Check for duplicate name and version in _registry
-        if name in self._registry:
-            if version in self._registry[name]:
-                raise ValueError(f"Name '{name}' with version {version} is already registered.")
+        if name in self._registry and version in self._registry[name]:
+            msg = f"Name '{name}' with version {version} is already registered."
+            raise ValueError(msg)
 
         # Check if the function is already registered with the same version under a different name
         if func in self._reverse_registry:
@@ -26,7 +26,8 @@ class Registry:
             if version in version_map:
                 existing_name = version_map[version]
                 if existing_name != name:
-                    raise ValueError(f"Function is already registered with version {version} under name '{existing_name}'.")
+                    msg = f"Function is already registered with version {version} under name '{existing_name}'."
+                    raise ValueError(msg)
 
         # Add to the _registry
         if name not in self._registry:
@@ -70,11 +71,13 @@ class Registry:
     def remove(self, name: str, version: int = 1) -> None:
         # Check if the name exists
         if name not in self._registry:
-            raise KeyError(f"Name '{name}' not found in registry.")
+            msg = f"Name '{name}' not found in registry."
+            raise KeyError(msg)
         # Check if the version exists for the name
         versions = self._registry[name]
         if version not in versions:
-            raise KeyError(f"Version {version} not found for name '{name}'.")
+            msg = f"Version {version} not found for name '{name}'."
+            raise KeyError(msg)
 
         # Retrieve the function associated with the name and version
         func = versions[version]
