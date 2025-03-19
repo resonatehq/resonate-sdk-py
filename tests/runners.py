@@ -147,7 +147,7 @@ class ResonateRunner:
 
         fp = Future()
         fv = Future[R]()
-        self.scheduler.enqueue(Invoke(id, self.registry.reverse_lookup(func), func, args, kwargs), (fp, fv))
+        self.scheduler.enqueue(Invoke(id, self.registry.reverse_lookup(func)[0], func, args, kwargs), (fp, fv))
 
         while not fv.done():
             time += 1
@@ -234,7 +234,7 @@ class ResonateRunner:
                         self.scheduler.enqueue(Invoke(
                             root.id,
                             root.param.data["func"],
-                            self.registry.get(root.param.data["func"]),
+                            self.registry.get(root.param.data["func"])[0],
                             root.param.data["args"],
                             root.param.data["kwargs"],
                             Options(),
@@ -256,7 +256,7 @@ class ResonateRunner:
                             invoke=Invoke(
                                 root.id,
                                 root.param.data["func"],
-                                self.registry.get(root.param.data["func"]),
+                                self.registry.get(root.param.data["func"])[0],
                                 root.param.data["args"],
                                 root.param.data["kwargs"],
                                 Options(),

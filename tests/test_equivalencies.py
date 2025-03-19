@@ -66,12 +66,12 @@ def idp(c: Context, p: Any) -> Any:
 @pytest.fixture(scope="module")
 def registry() -> Registry:
     registry = Registry()
-    registry.add("fib", fib)
-    registry.add("fac", fac)
-    registry.add("gcd", gcd)
-    registry.add("rpt", rpt)
-    registry.add("idv", idv)
-    registry.add("idp", idp)
+    registry.add(fib, "fib")
+    registry.add(fac, "fac")
+    registry.add(gcd, "gcd")
+    registry.add(rpt, "rpt")
+    registry.add(idv, "idv")
+    registry.add(idp, "idp")
 
     return registry
 

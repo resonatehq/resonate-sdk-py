@@ -333,7 +333,7 @@ class Worker(Component):
         super().__init__(uni, any)
         self.registry = registry
         self.dependencies = Dependencies()
-        self.scheduler = Scheduler(lambda id: Context(id, self.registry, self.dependencies))
+        self.scheduler = Scheduler(lambda id: Context(id, self.registry, self.dependencies, Options()))
 
     def on_message(self, msg: Message) -> None:
         match msg.data:
@@ -378,7 +378,7 @@ class Worker(Component):
                 return Invoke(
                     res.root.id,
                     res.root.param.data["func"],
-                    self.registry.get(res.root.param.data["func"]),
+                    self.registry.get(res.root.param.data["func"])[0],
                     res.root.param.data["args"],
                     res.root.param.data["kwargs"],
                     Options(),
