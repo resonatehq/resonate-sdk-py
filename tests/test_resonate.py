@@ -22,11 +22,7 @@ def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]: ...
 
 @pytest.fixture
 def registry() -> Registry:
-    registry = Registry()
-    registry.add(foo, "foo")
-    registry.add(bar, "bar")
-    registry.add(baz, "baz")
-    return registry
+    return Registry()
 
 
 @pytest.fixture
@@ -65,8 +61,9 @@ def test_register(func: Callable, name: str | None) -> None:
     resonate = Resonate(registry=registry)
 
     resonate.register(func, name=name)
-    assert registry.get(name or func.__name__) == func
-    assert registry.reverse_lookup(func) == name or func.__name__
+    assert registry.get(name or func.__name__) == (func, 1)
+    assert registry.reverse_lookup(func) == (name or func.__name__, 1)
+    registry.remove(name or func.__name__)
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
@@ -76,17 +73,17 @@ def test_register(func: Callable, name: str | None) -> None:
     ("func", "args", "kwargs", "expected_name", "expected_func"),
     [
         (foo, (1, 2), {}, "foo", foo),
-        # (bar, (1, 2), {}, "bar", bar),
-        # (baz, (1, 2), {}, "baz", baz),
-        # (foo, (), {"1": 1, "2": 2}, "foo", foo),
-        # (bar, (), {"1": 1, "2": 2}, "bar", bar),
-        # (baz, (), {"1": 1, "2": 2}, "baz", baz),
-        # ("foo", (1, 2), {}, "foo", foo),
-        # ("bar", (1, 2), {}, "bar", bar),
-        # ("baz", (1, 2), {}, "baz", baz),
-        # ("foo", (), {"1": 1, "2": 2}, "foo", foo),
-        # ("bar", (), {"1": 1, "2": 2}, "bar", bar),
-        # ("baz", (), {"1": 1, "2": 2}, "baz", baz),
+        (bar, (1, 2), {}, "bar", bar),
+        (baz, (1, 2), {}, "baz", baz),
+        (foo, (), {"1": 1, "2": 2}, "foo", foo),
+        (bar, (), {"1": 1, "2": 2}, "bar", bar),
+        (baz, (), {"1": 1, "2": 2}, "baz", baz),
+        ("foo", (1, 2), {}, "foo", foo),
+        ("bar", (1, 2), {}, "bar", bar),
+        ("baz", (1, 2), {}, "baz", baz),
+        ("foo", (), {"1": 1, "2": 2}, "foo", foo),
+        ("bar", (), {"1": 1, "2": 2}, "bar", bar),
+        ("baz", (), {"1": 1, "2": 2}, "baz", baz),
     ],
 )
 def test_run(
@@ -110,24 +107,33 @@ def test_run(
     invoke = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs)
     invoke_with_opts = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs, opts=opts)
 
-    resonate.run("f", func, *args, **kwargs)
-    assert cmd(scheduler) == invoke
-
-    resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
-    assert cmd(scheduler) == invoke_with_opts
-
     if isinstance(func, Callable):
-        f = resonate.register(func)
-        f.run("f", *args, **kwargs)
+        resonate.register(func)
+        resonate.run("f", func, *args, **kwargs)
         assert cmd(scheduler) == invoke
+        resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
+        assert cmd(scheduler) == invoke_with_opts
+        resonate._registry.remove(func.__name__)
 
         f = resonate.register(func, **opts.to_dict())
         f.run("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
+        resonate._registry.remove(func.__name__, opts.version)
 
-        f = resonate.register(func)
+        f = resonate.register(func, **opts.to_dict())
         f.options(**opts.to_dict()).run("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
+        resonate._registry.remove(func.__name__, opts.version)
+
+    else:
+        resonate.register(expected_func,name=func, version=version or 1)
+        resonate.run("f", func, *args, **kwargs)
+        assert cmd(scheduler) == invoke
+        resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
+        assert cmd(scheduler) == invoke_with_opts
+        resonate._registry.remove(func, version=version or 1)
+
+
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
@@ -169,24 +175,31 @@ def test_rpc(
     invoke = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs)
     invoke_with_opts = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs, opts=opts)
 
-    resonate.rpc("f", func, *args, **kwargs)
-    assert cmd(scheduler) == invoke
-
-    resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
-    assert cmd(scheduler) == invoke_with_opts
-
     if isinstance(func, Callable):
-        f = resonate.register(func)
-        f.rpc("f", *args, **kwargs)
+        resonate.register(func)
+        resonate.rpc("f", func, *args, **kwargs)
         assert cmd(scheduler) == invoke
+        resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
+        assert cmd(scheduler) == invoke_with_opts
+        resonate._registry.remove(func.__name__)
 
         f = resonate.register(func, **opts.to_dict())
         f.rpc("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
+        resonate._registry.remove(func.__name__, opts.version)
 
-        f = resonate.register(func)
+        f = resonate.register(func, **opts.to_dict())
         f.options(**opts.to_dict()).rpc("f", *args, **kwargs)
         assert cmd(scheduler) == invoke_with_opts
+        resonate._registry.remove(func.__name__, opts.version)
+
+    else:
+        resonate.register(expected_func, name=func, version=version or 1)
+        resonate.rpc("f", func, *args, **kwargs)
+        assert cmd(scheduler) == invoke
+        resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
+        assert cmd(scheduler) == invoke_with_opts
+        resonate._registry.remove(func, version=version or 1)
 
 
 @pytest.mark.parametrize("id", ["foo", "bar", "baz"])
@@ -200,5 +213,5 @@ def test_get(resonate: Resonate, scheduler: MagicMock, id: str) -> None:
     [foo, bar, baz],
 )
 def test_signatures(resonate: Resonate, func: Callable) -> None:
-    f = resonate.register(func)
+    f = resonate.register(func, version=2)
     assert f.rpc.__annotations__ == f.run.__annotations__

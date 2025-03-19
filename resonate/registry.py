@@ -42,7 +42,7 @@ class Registry:
     def get(self, name: str, version: int = -1) -> tuple[Callable, int]:
         match version:
             case -1:
-                version =max(self._registry[name].keys())
+                version = max(self._registry[name].keys())
                 return self._registry[name][version], version
             case _:
                 return self._registry[name][version], version
@@ -66,3 +66,28 @@ class Registry:
 
     def reverse_latest(self, func: Callable) -> int:
         return max(self._reverse_registry[func]) if func in self._reverse_registry else 0
+
+    def remove(self, name: str, version: int = 1) -> None:
+        # Check if the name exists
+        if name not in self._registry:
+            raise KeyError(f"Name '{name}' not found in registry.")
+        # Check if the version exists for the name
+        versions = self._registry[name]
+        if version not in versions:
+            raise KeyError(f"Version {version} not found for name '{name}'.")
+
+        # Retrieve the function associated with the name and version
+        func = versions[version]
+
+        # Remove from the main registry
+        del versions[version]
+        # If no versions left, remove the name entry
+        if not versions:
+            del self._registry[name]
+
+        # Remove from the reverse registry
+        func_versions = self._reverse_registry[func]
+        del func_versions[version]
+        # If no versions left, remove the function entry
+        if not func_versions:
+            del self._reverse_registry[func]
