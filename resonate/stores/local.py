@@ -97,7 +97,7 @@ class LocalStore:
                         messages.append((task.recv, ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter))))
                 case TaskRecord(type="notify"), _:
                     promise = self._promises.get(task.root_promise_id)
-                    _, applied = self.tasks.transition(id=task.id, to="COMPLETED", force=True)
+                    _, applied = self.tasks.transition(id=task.id, to="COMPLETED")
                     if applied:
                         messages.append((task.recv, NotifyMesg(type="notify", promise=promise)))
                 case TaskRecord(state="CLAIMED"), True:
@@ -696,7 +696,7 @@ class LocalTaskStore:
                 self._tasks[record.id] = record
                 return record, False
 
-            case TaskRecord(state="COMPLETED"), "COMPLETED" if force:
+            case TaskRecord(state="COMPLETED"), "COMPLETED":
                 return record, False
 
             case None, _:
