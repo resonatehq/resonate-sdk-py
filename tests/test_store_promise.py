@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.stores.local import LocalStore, ResonateError
+from resonate.stores.local import LocalStore, StoreError
 from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
@@ -91,62 +91,62 @@ def test_case_3_transition_from_init_to_pending_via_create(store: Store) -> None
 
 
 def test_case_4_transition_from_init_to_init_via_resolve(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id4", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_5_transition_from_init_to_init_via_resolve(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id5", ikey=None, strict=False, headers=None, data=None)
 
 
 def test_case_6_transition_from_init_to_init_via_resolve(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id6", ikey="iku", strict=True, headers=None, data=None)
 
 
 def test_case_7_transition_from_init_to_init_via_resolve(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id7", ikey="iku", strict=False, headers=None, data=None)
 
 
 def test_case_8_transition_from_init_to_init_via_reject(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id8", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_9_transition_from_init_to_init_via_reject(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id9", ikey=None, strict=False, headers=None, data=None)
 
 
 def test_case_10_transition_from_init_to_init_via_reject(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id10", ikey="iku", strict=True, headers=None, data=None)
 
 
 def test_case_11_transition_from_init_to_init_via_reject(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id11", ikey="iku", strict=False, headers=None, data=None)
 
 
 def test_case_12_transition_from_init_to_init_via_cancel(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id12", ikey=None, strict=True, headers=None, data=None)
 
 
 def test_case_13_transition_from_init_to_init_via_cancel(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id13", ikey=None, strict=False, headers=None, data=None)
 
 
 def test_case_14_transition_from_init_to_init_via_cancel(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id14", ikey="iku", strict=True, headers=None, data=None)
 
 
 def test_case_15_transition_from_init_to_init_via_cancel(store: Store) -> None:
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id15", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -160,7 +160,7 @@ def test_case_16_transition_from_pending_to_pending_via_create(store: Store) -> 
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id16",
             ikey=None,
@@ -182,7 +182,7 @@ def test_case_17_transition_from_pending_to_pending_via_create(store: Store) -> 
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id17",
             ikey=None,
@@ -204,7 +204,7 @@ def test_case_18_transition_from_pending_to_pending_via_create(store: Store) -> 
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id18",
             ikey="ikc",
@@ -226,7 +226,7 @@ def test_case_19_transition_from_pending_to_pending_via_create(store: Store) -> 
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id19",
             ikey="ikc",
@@ -452,7 +452,7 @@ def test_case_32_transition_from_pending_to_pending_via_create(store: Store) -> 
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id32",
             ikey=None,
@@ -474,7 +474,7 @@ def test_case_33_transition_from_pending_to_pending_via_create(store: Store) -> 
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id33",
             ikey=None,
@@ -546,7 +546,7 @@ def test_case_36_transition_from_pending_to_pending_via_create(store: Store) -> 
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id36",
             ikey="ikc*",
@@ -568,7 +568,7 @@ def test_case_37_transition_from_pending_to_pending_via_create(store: Store) -> 
         timeout=sys.maxsize,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id37",
             ikey="ikc*",
@@ -795,7 +795,7 @@ def test_case_50_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id50", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id50",
             ikey=None,
@@ -818,7 +818,7 @@ def test_case_51_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id51", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id51",
             ikey=None,
@@ -841,7 +841,7 @@ def test_case_52_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id52", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id52",
             ikey="ikc",
@@ -864,7 +864,7 @@ def test_case_53_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id53", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id53",
             ikey="ikc",
@@ -889,7 +889,7 @@ def test_case_54_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id54", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id54", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -906,7 +906,7 @@ def test_case_55_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id55", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id55", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -923,7 +923,7 @@ def test_case_56_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id56", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id56", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -940,7 +940,7 @@ def test_case_57_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id57", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id57", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -955,7 +955,7 @@ def test_case_58_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id58", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id58", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -970,7 +970,7 @@ def test_case_59_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id59", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id59", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -985,7 +985,7 @@ def test_case_60_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id60", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id60", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -1000,7 +1000,7 @@ def test_case_61_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id61", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id61", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -1015,7 +1015,7 @@ def test_case_62_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id62", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id62", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -1030,7 +1030,7 @@ def test_case_63_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id63", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id63", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -1045,7 +1045,7 @@ def test_case_64_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id64", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id64", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -1060,7 +1060,7 @@ def test_case_65_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id65", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id65", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -1075,7 +1075,7 @@ def test_case_66_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id66", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id66",
             ikey=None,
@@ -1098,7 +1098,7 @@ def test_case_67_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id67", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id67",
             ikey=None,
@@ -1121,7 +1121,7 @@ def test_case_68_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id68", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id68",
             ikey="ikc",
@@ -1144,7 +1144,7 @@ def test_case_69_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id69", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id69",
             ikey="ikc",
@@ -1169,7 +1169,7 @@ def test_case_70_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id70", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id70", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -1186,7 +1186,7 @@ def test_case_71_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id71", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id71", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -1243,7 +1243,7 @@ def test_case_74_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id74", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id74", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -1260,7 +1260,7 @@ def test_case_75_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id75", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id75", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -1275,7 +1275,7 @@ def test_case_76_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id76", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id76", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -1290,7 +1290,7 @@ def test_case_77_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id77", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id77", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -1305,7 +1305,7 @@ def test_case_78_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id78", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id78", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -1338,7 +1338,7 @@ def test_case_80_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id80", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id80", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -1353,7 +1353,7 @@ def test_case_81_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id81", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id81", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -1368,7 +1368,7 @@ def test_case_82_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id82", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id82", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -1383,7 +1383,7 @@ def test_case_83_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id83", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id83", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -1398,7 +1398,7 @@ def test_case_84_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id84", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id84", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -1431,7 +1431,7 @@ def test_case_86_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id86", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id86", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -1446,7 +1446,7 @@ def test_case_87_transition_from_resolved_to_resolved_via_cancel(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id87", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id87", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -1461,7 +1461,7 @@ def test_case_88_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id88", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id88",
             ikey=None,
@@ -1484,7 +1484,7 @@ def test_case_89_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id89", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id89",
             ikey=None,
@@ -1507,7 +1507,7 @@ def test_case_90_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id90", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id90",
             ikey="ikc",
@@ -1556,7 +1556,7 @@ def test_case_92_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id92", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id92",
             ikey="ikc*",
@@ -1579,7 +1579,7 @@ def test_case_93_transition_from_resolved_to_resolved_via_create(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id93", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id93",
             ikey="ikc*",
@@ -1604,7 +1604,7 @@ def test_case_94_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id94", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id94", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -1621,7 +1621,7 @@ def test_case_95_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id95", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id95", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -1638,7 +1638,7 @@ def test_case_96_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id96", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id96", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -1655,7 +1655,7 @@ def test_case_97_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id97", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id97", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -1670,7 +1670,7 @@ def test_case_98_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id98", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id98", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -1685,7 +1685,7 @@ def test_case_99_transition_from_resolved_to_resolved_via_reject(store: Store) -
         tags=None,
     )
     store.promises.resolve(id="id99", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id99", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -1702,7 +1702,7 @@ def test_case_100_transition_from_resolved_to_resolved_via_reject(
         tags=None,
     )
     store.promises.resolve(id="id100", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id100", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -1719,7 +1719,7 @@ def test_case_101_transition_from_resolved_to_resolved_via_reject(
         tags=None,
     )
     store.promises.resolve(id="id101", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id101", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -1736,7 +1736,7 @@ def test_case_102_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id102", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id102", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -1753,7 +1753,7 @@ def test_case_103_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id103", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id103", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -1770,7 +1770,7 @@ def test_case_104_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id104", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id104", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -1787,7 +1787,7 @@ def test_case_105_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id105", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id105", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -1804,7 +1804,7 @@ def test_case_106_transition_from_resolved_to_resolved_via_create(
         tags=None,
     )
     store.promises.resolve(id="id106", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id106",
             ikey=None,
@@ -1829,7 +1829,7 @@ def test_case_107_transition_from_resolved_to_resolved_via_create(
         tags=None,
     )
     store.promises.resolve(id="id107", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id107",
             ikey=None,
@@ -1854,7 +1854,7 @@ def test_case_108_transition_from_resolved_to_resolved_via_create(
         tags=None,
     )
     store.promises.resolve(id="id108", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id108",
             ikey="ikc",
@@ -1907,7 +1907,7 @@ def test_case_110_transition_from_resolved_to_resolved_via_create(
         tags=None,
     )
     store.promises.resolve(id="id110", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id110",
             ikey="ikc*",
@@ -1932,7 +1932,7 @@ def test_case_111_transition_from_resolved_to_resolved_via_create(
         tags=None,
     )
     store.promises.resolve(id="id111", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id111",
             ikey="ikc*",
@@ -1957,7 +1957,7 @@ def test_case_112_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id112", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id112", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -1974,7 +1974,7 @@ def test_case_113_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id113", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id113", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2031,7 +2031,7 @@ def test_case_116_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id116", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id116", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -2048,7 +2048,7 @@ def test_case_117_transition_from_resolved_to_resolved_via_resolve(
         tags=None,
     )
     store.promises.resolve(id="id117", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id117", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -2065,7 +2065,7 @@ def test_case_118_transition_from_resolved_to_resolved_via_reject(
         tags=None,
     )
     store.promises.resolve(id="id118", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id118", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -2082,7 +2082,7 @@ def test_case_119_transition_from_resolved_to_resolved_via_reject(
         tags=None,
     )
     store.promises.resolve(id="id119", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id119", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2099,7 +2099,7 @@ def test_case_120_transition_from_resolved_to_resolved_via_reject(
         tags=None,
     )
     store.promises.resolve(id="id120", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id120", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -2136,7 +2136,7 @@ def test_case_122_transition_from_resolved_to_resolved_via_reject(
         tags=None,
     )
     store.promises.resolve(id="id122", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id122", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -2153,7 +2153,7 @@ def test_case_123_transition_from_resolved_to_resolved_via_reject(
         tags=None,
     )
     store.promises.resolve(id="id123", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id123", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -2170,7 +2170,7 @@ def test_case_124_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id124", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id124", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -2187,7 +2187,7 @@ def test_case_125_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id125", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id125", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2204,7 +2204,7 @@ def test_case_126_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id126", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id126", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -2241,7 +2241,7 @@ def test_case_128_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id128", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id128", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -2258,7 +2258,7 @@ def test_case_129_transition_from_resolved_to_resolved_via_cancel(
         tags=None,
     )
     store.promises.resolve(id="id129", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id129", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -2275,7 +2275,7 @@ def test_case_130_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id130", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id130",
             ikey=None,
@@ -2300,7 +2300,7 @@ def test_case_131_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id131", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id131",
             ikey=None,
@@ -2325,7 +2325,7 @@ def test_case_132_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id132", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id132",
             ikey="ikc",
@@ -2350,7 +2350,7 @@ def test_case_133_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id133", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id133",
             ikey="ikc",
@@ -2375,7 +2375,7 @@ def test_case_134_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id134", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id134", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -2392,7 +2392,7 @@ def test_case_135_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id135", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id135", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2409,7 +2409,7 @@ def test_case_136_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id136", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id136", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -2426,7 +2426,7 @@ def test_case_137_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id137", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id137", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -2443,7 +2443,7 @@ def test_case_138_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id138", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id138", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -2460,7 +2460,7 @@ def test_case_139_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id139", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id139", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2477,7 +2477,7 @@ def test_case_140_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id140", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id140", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -2494,7 +2494,7 @@ def test_case_141_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id141", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id141", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -2511,7 +2511,7 @@ def test_case_142_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id142", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id142", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -2528,7 +2528,7 @@ def test_case_143_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id143", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id143", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2545,7 +2545,7 @@ def test_case_144_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id144", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id144", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -2562,7 +2562,7 @@ def test_case_145_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id145", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id145", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -2579,7 +2579,7 @@ def test_case_146_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id146", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id146",
             ikey=None,
@@ -2604,7 +2604,7 @@ def test_case_147_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id147", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id147",
             ikey=None,
@@ -2629,7 +2629,7 @@ def test_case_148_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id148", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id148",
             ikey="ikc",
@@ -2654,7 +2654,7 @@ def test_case_149_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id149", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id149",
             ikey="ikc",
@@ -2679,7 +2679,7 @@ def test_case_150_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id150", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id150", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -2696,7 +2696,7 @@ def test_case_151_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id151", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id151", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2713,7 +2713,7 @@ def test_case_152_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id152", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id152", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -2750,7 +2750,7 @@ def test_case_154_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id154", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id154", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -2767,7 +2767,7 @@ def test_case_155_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id155", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id155", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -2784,7 +2784,7 @@ def test_case_156_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id156", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id156", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -2801,7 +2801,7 @@ def test_case_157_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id157", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id157", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2858,7 +2858,7 @@ def test_case_160_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id160", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id160", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -2875,7 +2875,7 @@ def test_case_161_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id161", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id161", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -2892,7 +2892,7 @@ def test_case_162_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id162", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id162", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -2909,7 +2909,7 @@ def test_case_163_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id163", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id163", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -2926,7 +2926,7 @@ def test_case_164_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id164", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id164", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -2963,7 +2963,7 @@ def test_case_166_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id166", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id166", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -2980,7 +2980,7 @@ def test_case_167_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id167", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id167", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -2997,7 +2997,7 @@ def test_case_168_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id168", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id168",
             ikey=None,
@@ -3022,7 +3022,7 @@ def test_case_169_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id169", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id169",
             ikey=None,
@@ -3047,7 +3047,7 @@ def test_case_170_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id170", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id170",
             ikey="ikc",
@@ -3100,7 +3100,7 @@ def test_case_172_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id172", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id172",
             ikey="ikc*",
@@ -3125,7 +3125,7 @@ def test_case_173_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id173", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id173",
             ikey="ikc*",
@@ -3150,7 +3150,7 @@ def test_case_174_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id174", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id174", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -3167,7 +3167,7 @@ def test_case_175_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id175", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id175", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -3184,7 +3184,7 @@ def test_case_176_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id176", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id176", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -3201,7 +3201,7 @@ def test_case_177_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id177", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id177", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -3218,7 +3218,7 @@ def test_case_178_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id178", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id178", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -3235,7 +3235,7 @@ def test_case_179_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id179", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id179", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -3252,7 +3252,7 @@ def test_case_180_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id180", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id180", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -3269,7 +3269,7 @@ def test_case_181_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id181", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id181", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -3286,7 +3286,7 @@ def test_case_182_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id182", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id182", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -3303,7 +3303,7 @@ def test_case_183_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id183", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id183", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -3320,7 +3320,7 @@ def test_case_184_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id184", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id184", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -3337,7 +3337,7 @@ def test_case_185_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id185", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id185", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -3354,7 +3354,7 @@ def test_case_186_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id186", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id186",
             ikey=None,
@@ -3379,7 +3379,7 @@ def test_case_187_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id187", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id187",
             ikey=None,
@@ -3404,7 +3404,7 @@ def test_case_188_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id188", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id188",
             ikey="ikc",
@@ -3457,7 +3457,7 @@ def test_case_190_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id190", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id190",
             ikey="ikc*",
@@ -3482,7 +3482,7 @@ def test_case_191_transition_from_rejected_to_rejected_via_create(
         tags=None,
     )
     store.promises.reject(id="id191", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id191",
             ikey="ikc*",
@@ -3507,7 +3507,7 @@ def test_case_192_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id192", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id192", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -3524,7 +3524,7 @@ def test_case_193_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id193", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id193", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -3541,7 +3541,7 @@ def test_case_194_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id194", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id194", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -3578,7 +3578,7 @@ def test_case_196_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id196", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id196", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -3595,7 +3595,7 @@ def test_case_197_transition_from_rejected_to_rejected_via_resolve(
         tags=None,
     )
     store.promises.reject(id="id197", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id197", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -3612,7 +3612,7 @@ def test_case_198_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id198", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id198", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -3629,7 +3629,7 @@ def test_case_199_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id199", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id199", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -3686,7 +3686,7 @@ def test_case_202_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id202", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id202", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -3703,7 +3703,7 @@ def test_case_203_transition_from_rejected_to_rejected_via_reject(
         tags=None,
     )
     store.promises.reject(id="id203", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id203", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -3720,7 +3720,7 @@ def test_case_204_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id204", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id204", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -3737,7 +3737,7 @@ def test_case_205_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id205", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id205", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -3754,7 +3754,7 @@ def test_case_206_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id206", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id206", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -3791,7 +3791,7 @@ def test_case_208_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id208", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id208", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -3808,7 +3808,7 @@ def test_case_209_transition_from_rejected_to_rejected_via_cancel(
         tags=None,
     )
     store.promises.reject(id="id209", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id209", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -3825,7 +3825,7 @@ def test_case_210_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id210", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id210",
             ikey=None,
@@ -3850,7 +3850,7 @@ def test_case_211_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id211", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id211",
             ikey=None,
@@ -3875,7 +3875,7 @@ def test_case_212_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id212", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id212",
             ikey="ikc",
@@ -3900,7 +3900,7 @@ def test_case_213_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id213", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id213",
             ikey="ikc",
@@ -3925,7 +3925,7 @@ def test_case_214_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id214", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id214", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -3942,7 +3942,7 @@ def test_case_215_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id215", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id215", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -3959,7 +3959,7 @@ def test_case_216_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id216", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id216", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -3976,7 +3976,7 @@ def test_case_217_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id217", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id217", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -3993,7 +3993,7 @@ def test_case_218_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id218", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id218", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -4010,7 +4010,7 @@ def test_case_219_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id219", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id219", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -4027,7 +4027,7 @@ def test_case_220_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id220", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id220", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -4044,7 +4044,7 @@ def test_case_221_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id221", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id221", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -4061,7 +4061,7 @@ def test_case_222_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id222", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id222", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -4078,7 +4078,7 @@ def test_case_223_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id223", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id223", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -4095,7 +4095,7 @@ def test_case_224_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id224", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id224", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -4112,7 +4112,7 @@ def test_case_225_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id225", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id225", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -4129,7 +4129,7 @@ def test_case_226_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id226", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id226",
             ikey=None,
@@ -4154,7 +4154,7 @@ def test_case_227_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id227", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id227",
             ikey=None,
@@ -4179,7 +4179,7 @@ def test_case_228_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id228", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id228",
             ikey="ikc",
@@ -4204,7 +4204,7 @@ def test_case_229_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id229", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id229",
             ikey="ikc",
@@ -4229,7 +4229,7 @@ def test_case_230_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id230", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id230", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -4246,7 +4246,7 @@ def test_case_231_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id231", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id231", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -4263,7 +4263,7 @@ def test_case_232_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id232", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id232", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -4300,7 +4300,7 @@ def test_case_234_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id234", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id234", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -4317,7 +4317,7 @@ def test_case_235_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id235", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id235", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -4334,7 +4334,7 @@ def test_case_236_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id236", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id236", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -4351,7 +4351,7 @@ def test_case_237_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id237", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id237", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -4368,7 +4368,7 @@ def test_case_238_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id238", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id238", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -4405,7 +4405,7 @@ def test_case_240_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id240", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id240", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -4422,7 +4422,7 @@ def test_case_241_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id241", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id241", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -4439,7 +4439,7 @@ def test_case_242_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id242", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id242", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -4456,7 +4456,7 @@ def test_case_243_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id243", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id243", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -4513,7 +4513,7 @@ def test_case_246_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id246", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id246", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -4530,7 +4530,7 @@ def test_case_247_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id247", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id247", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -4547,7 +4547,7 @@ def test_case_248_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id248", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id248",
             ikey=None,
@@ -4572,7 +4572,7 @@ def test_case_249_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id249", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id249",
             ikey=None,
@@ -4597,7 +4597,7 @@ def test_case_250_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id250", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id250",
             ikey="ikc",
@@ -4650,7 +4650,7 @@ def test_case_252_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id252", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id252",
             ikey="ikc*",
@@ -4675,7 +4675,7 @@ def test_case_253_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id253", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id253",
             ikey="ikc*",
@@ -4700,7 +4700,7 @@ def test_case_254_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id254", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id254", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -4717,7 +4717,7 @@ def test_case_255_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id255", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id255", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -4734,7 +4734,7 @@ def test_case_256_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id256", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id256", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -4751,7 +4751,7 @@ def test_case_257_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id257", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id257", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -4768,7 +4768,7 @@ def test_case_258_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id258", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id258", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -4785,7 +4785,7 @@ def test_case_259_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id259", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id259", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -4802,7 +4802,7 @@ def test_case_260_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id260", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id260", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -4819,7 +4819,7 @@ def test_case_261_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id261", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id261", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -4836,7 +4836,7 @@ def test_case_262_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id262", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id262", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -4853,7 +4853,7 @@ def test_case_263_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id263", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id263", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -4870,7 +4870,7 @@ def test_case_264_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id264", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id264", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -4887,7 +4887,7 @@ def test_case_265_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id265", ikey=None, strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id265", ikey="iku", strict=False, headers=None, data=None)
 
 
@@ -4904,7 +4904,7 @@ def test_case_266_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id266", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id266",
             ikey=None,
@@ -4929,7 +4929,7 @@ def test_case_267_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id267", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id267",
             ikey=None,
@@ -4954,7 +4954,7 @@ def test_case_268_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id268", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id268",
             ikey="ikc",
@@ -5007,7 +5007,7 @@ def test_case_270_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id270", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id270",
             ikey="ikc*",
@@ -5032,7 +5032,7 @@ def test_case_271_transition_from_canceled_to_canceled_via_create(
         tags=None,
     )
     store.promises.cancel(id="id271", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id271",
             ikey="ikc*",
@@ -5057,7 +5057,7 @@ def test_case_272_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id272", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id272", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -5074,7 +5074,7 @@ def test_case_273_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id273", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id273", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -5091,7 +5091,7 @@ def test_case_274_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id274", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id274", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -5128,7 +5128,7 @@ def test_case_276_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id276", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id276", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -5145,7 +5145,7 @@ def test_case_277_transition_from_canceled_to_canceled_via_resolve(
         tags=None,
     )
     store.promises.cancel(id="id277", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id277", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -5162,7 +5162,7 @@ def test_case_278_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id278", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id278", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -5179,7 +5179,7 @@ def test_case_279_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id279", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id279", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -5196,7 +5196,7 @@ def test_case_280_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id280", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id280", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -5233,7 +5233,7 @@ def test_case_282_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id282", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id282", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -5250,7 +5250,7 @@ def test_case_283_transition_from_canceled_to_canceled_via_reject(
         tags=None,
     )
     store.promises.cancel(id="id283", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id283", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -5267,7 +5267,7 @@ def test_case_284_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id284", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id284", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -5284,7 +5284,7 @@ def test_case_285_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id285", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id285", ikey=None, strict=False, headers=None, data=None)
 
 
@@ -5341,7 +5341,7 @@ def test_case_288_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id288", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id288", ikey="iku*", strict=True, headers=None, data=None)
 
 
@@ -5358,7 +5358,7 @@ def test_case_289_transition_from_canceled_to_canceled_via_cancel(
         tags=None,
     )
     store.promises.cancel(id="id289", ikey="iku", strict=False, headers=None, data=None)
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id289", ikey="iku*", strict=False, headers=None, data=None)
 
 
@@ -5374,7 +5374,7 @@ def test_case_290_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id290",
             ikey=None,
@@ -5398,7 +5398,7 @@ def test_case_291_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id291",
             ikey=None,
@@ -5422,7 +5422,7 @@ def test_case_292_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id292",
             ikey="ikc",
@@ -5446,7 +5446,7 @@ def test_case_293_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id293",
             ikey="ikc",
@@ -5470,7 +5470,7 @@ def test_case_294_transition_from_timedout_to_timedout_via_resolve(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id294", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -5505,7 +5505,7 @@ def test_case_296_transition_from_timedout_to_timedout_via_resolve(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id296", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -5540,7 +5540,7 @@ def test_case_298_transition_from_timedout_to_timedout_via_reject(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id298", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -5575,7 +5575,7 @@ def test_case_300_transition_from_timedout_to_timedout_via_reject(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id300", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -5610,7 +5610,7 @@ def test_case_302_transition_from_timedout_to_timedout_via_cancel(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id302", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -5645,7 +5645,7 @@ def test_case_304_transition_from_timedout_to_timedout_via_cancel(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id304", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -5680,7 +5680,7 @@ def test_case_306_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id306",
             ikey=None,
@@ -5704,7 +5704,7 @@ def test_case_307_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id307",
             ikey=None,
@@ -5728,7 +5728,7 @@ def test_case_308_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id308",
             ikey="ikc",
@@ -5779,7 +5779,7 @@ def test_case_310_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id310",
             ikey="ikc*",
@@ -5803,7 +5803,7 @@ def test_case_311_transition_from_timedout_to_timedout_via_create(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.create(
             id="id311",
             ikey="ikc*",
@@ -5827,7 +5827,7 @@ def test_case_312_transition_from_timedout_to_timedout_via_resolve(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id312", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -5862,7 +5862,7 @@ def test_case_314_transition_from_timedout_to_timedout_via_resolve(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.resolve(id="id314", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -5897,7 +5897,7 @@ def test_case_316_transition_from_timedout_to_timedout_via_reject(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id316", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -5932,7 +5932,7 @@ def test_case_318_transition_from_timedout_to_timedout_via_reject(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.reject(id="id318", ikey="iku", strict=True, headers=None, data=None)
 
 
@@ -5967,7 +5967,7 @@ def test_case_320_transition_from_timedout_to_timedout_via_cancel(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id320", ikey=None, strict=True, headers=None, data=None)
 
 
@@ -6002,7 +6002,7 @@ def test_case_322_transition_from_timedout_to_timedout_via_cancel(
         timeout=0,
         tags=None,
     )
-    with pytest.raises(ResonateError):
+    with pytest.raises(StoreError):
         store.promises.cancel(id="id322", ikey="iku", strict=True, headers=None, data=None)
 
 

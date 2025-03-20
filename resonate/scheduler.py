@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from resonate.errors import ResonateError
+from resonate.errors import StoreError
 from resonate.graph import Graph, Node
 from resonate.logging import logger
 from resonate.models.commands import (
@@ -569,7 +569,7 @@ class Computation:
 
         if self.suspendable() and self.task and not self.task.completed:
             # It is possible for the task to have expired, in this case ignore the error
-            with contextlib.suppress(ResonateError):
+            with contextlib.suppress(StoreError):
                 self.task.complete()
 
         if promise := self.promise():
