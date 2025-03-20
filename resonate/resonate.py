@@ -5,8 +5,8 @@ from collections.abc import Callable
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, overload
 
-from resonate import utils
 from resonate.dependencies import Dependencies
+from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import (
     LFC,
@@ -63,16 +63,21 @@ class Resonate:
         )
 
     @overload
-    def register[**P, R](self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Function[P, R]: ...
+    def register[**P, R](
+        self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
+    ) -> Function[P, R]: ...
     @overload
     def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Callable[[Callable], Function[P, Any]]: ...
     def register[**P, R](
         self, *args: Callable | None, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
-            utils.validate(version > 0, "version must be greater than 0")
-            if func.__name__ == "<lambda>":
-                utils.validate(name is not None, "registering a lambda requires setting a name.")
+            if not version > 0:
+                msg = "version must be greater than 0"
+                raise ResonateValidationError(msg)
+            if func.__name__ == "<lambda>" and name is None:
+                msg = "registering a lambda requires setting a name."
+                raise ResonateValidationError(msg)
 
             self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))

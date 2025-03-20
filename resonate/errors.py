@@ -13,7 +13,7 @@ class UnknownError(ResonateError):
         super().__init__(msg, 0)
 
 
-class StoreError(ResonateError):
+class ResonateStoreError(ResonateError):
     def __init__(
         self,
         msg: str,
@@ -45,6 +45,6 @@ class StoreError(ResonateError):
         super().__init__(msg, num_code)
 
 
-class ValidationError(ResonateError):
+class ResonateValidationError(ResonateError):
     def __init__(self, msg: str) -> None:
         super().__init__(msg, 100)

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from resonate import Context
 from resonate.dependencies import Dependencies
-from resonate.errors import StoreError
+from resonate.errors import ResonateStoreError
 from resonate.models.commands import (
     CancelPromiseReq,
     CancelPromiseRes,
@@ -301,7 +301,7 @@ class Server(Component):
                     )
 
                     result = Ok(ClaimTaskRes(root, leaf, Task(id, counter, self.store)))
-                except StoreError as e:
+                except ResonateStoreError as e:
                     result = Ko(e)
 
                 self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
