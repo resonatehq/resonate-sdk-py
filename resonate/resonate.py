@@ -41,7 +41,7 @@ class Resonate:
         self._dependencies = dependencies or Dependencies()
 
         self._scheduler = scheduler or Scheduler(
-            ctx=lambda id: Context(id, self._registry, self._dependencies),
+            ctx=lambda id: Context(id, self._registry, self._dependencies, self._opts),
             gid=gid,
             pid=pid,
         )
@@ -58,15 +58,15 @@ class Resonate:
 
     @overload
     def register[**P, R](
-        self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
+        self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, version: int = 1, timeout: int | None = None
     ) -> Function[P, R]: ...
     @overload
-    def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Callable[[Callable], Function[P, Any]]: ...
+    def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, version: int = 1, timeout: int | None = None) -> Callable[[Callable], Function[P, Any]]: ...
     def register[**P, R](
-        self, *args: Callable | None, name: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None
+        self, *args: Callable | None, name: str | None = None, send_to: str | None = None, version: int = 1, timeout: int | None = None
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
-            self._registry.add(name or func.__name__, func)
+            self._registry.add(func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
 
         if args and callable(args[0]):
@@ -90,12 +90,12 @@ class Resonate:
         match func:
             case str():
                 name = func
-                func = self._registry.get(func)
+                func, version = self._registry.get(func)
             case _:
-                name = self._registry.reverse_lookup(func)
+                name, version = self._registry.get(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts), futures=(fp, fv))
+        self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)
@@ -115,12 +115,12 @@ class Resonate:
     ) -> Handle[R]:
         match func:
             case str():
-                name = func
+                name, version = func, self._registry.latest(func)
             case _:
-                name = self._registry.reverse_lookup(func)
+                name, version = self._registry.get(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, opts=self._opts), futures=(fp, fv))
+        self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)
@@ -135,50 +135,53 @@ class Resonate:
 
 # Context
 
+
 class Context:
-    def __init__(self, id: str, registry: Registry, dependencies: Dependencies) -> None:
+    def __init__(self, id: str, registry: Registry, dependencies: Dependencies, opts: Options) -> None:
         self.id = id
         self.deps = dependencies
         self._counter = 0
         self._registry = registry
+        self._opts = opts
 
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
         self._counter += 1
-        return LFI(f"{self.id}.{self._counter}", self._lfi_func(func), args, kwargs)
+        func, version, versions = self._lfi_func(func)
+        return LFI(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions)
 
     def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
         self._counter += 1
-        return LFC(f"{self.id}.{self._counter}", self._lfi_func(func), args, kwargs)
+        func, version, versions = self._lfi_func(func)
+        return LFC(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions)
 
     def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
-        return RFI(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs)
+        func, version, versions = self._rfi_func(func)
+        return RFI(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions)
 
     def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
         self._counter += 1
-        return RFC(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs)
+        func, version, versions = self._rfi_func(func)
+        return RFC(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions)
 
     def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
-        return RFI(f"{self.id}.{self._counter}", self._rfi_func(func), args, kwargs, mode="detached")
+        func, version, versions = self._rfi_func(func)
+        return RFI(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions, mode="detached")
 
-    def _lfi_func(self, f: str | Callable) -> Callable:
+    def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:
             case str():
-                return self._registry.get(f)
-            case Function():
-                return f.func
+                return *self._registry.get(f), self._registry.list(f)
             case Callable():
-                return f
+                return f, self._registry.latest(f), None
 
-    def _rfi_func(self, f: str | Callable) -> str:
+    def _rfi_func(self, f: str | Callable) -> tuple[str, int, dict[int, str] | None]:
         match f:
             case str():
-                return f
-            case Function():
-                return f.name
+                return f, self._registry.latest(f), None
             case Callable():
-                return self._registry.reverse_lookup(f)
+                return *self._registry.get(f), self._registry.list(f)
 
 
 # Function
