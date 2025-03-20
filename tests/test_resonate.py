@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, assert_type
 from unittest.mock import MagicMock
@@ -15,7 +14,7 @@ from resonate.registry import Registry
 from resonate.resonate import Function
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Generator
 
 
 def foo(ctx: Context, a: int, b: int) -> int: ...
