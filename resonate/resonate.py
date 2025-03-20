@@ -46,11 +46,11 @@ class Resonate:
             pid=pid,
         )
 
-    def options(self, *, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Resonate:
+    def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Resonate:
         return Resonate(
             gid=self._gid,
             pid=self._pid,
-            opts=self._opts.merge(send_to=send_to, version=version, timeout=timeout),
+            opts=self._opts.merge(send_to=send_to, timeout=timeout, version=version),
             registry=self._registry,
             dependencies=self._dependencies,
             scheduler=self._scheduler,
@@ -58,15 +58,17 @@ class Resonate:
 
     @overload
     def register[**P, R](
-        self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, version: int = 1, timeout: int | None = None
+        self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
     ) -> Function[P, R]: ...
     @overload
-    def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, version: int = 1, timeout: int | None = None) -> Callable[[Callable], Function[P, Any]]: ...
+    def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Callable[[Callable], Function[P, Any]]: ...
     def register[**P, R](
-        self, *args: Callable | None, name: str | None = None, send_to: str | None = None, version: int = 1, timeout: int | None = None
+        self, *args: Callable | None, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
+        # if func is lambda validate that name is set
+
         def wrapper(func: Callable) -> Function[P, R]:
-            self._registry.add(func, name or func.__name__, version)
+            self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
 
         if args and callable(args[0]):
@@ -91,8 +93,8 @@ class Resonate:
             case str():
                 name = func
                 func, version = self._registry.get(func)
-            case _:
-                name, version = self._registry.get(func)
+            case Callable():
+                name, version = self._registry.get(func.func if isinstance(func, Function) else func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
@@ -116,8 +118,8 @@ class Resonate:
         match func:
             case str():
                 name, version = func, self._registry.latest(func)
-            case _:
-                name, version = self._registry.get(func)
+            case Callable():
+                name, version = self._registry.get(func.func if isinstance(func, Function) else func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
@@ -172,7 +174,7 @@ class Context:
     def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:
             case str():
-                return *self._registry.get(f), self._registry.list(f)
+                return *self._registry.get(f), self._registry.all(f)
             case Callable():
                 return f, self._registry.latest(f), None
 
@@ -181,7 +183,7 @@ class Context:
             case str():
                 return f, self._registry.latest(f), None
             case Callable():
-                return *self._registry.get(f), self._registry.list(f)
+                return *self._registry.get(f), self._registry.all(f)
 
 
 # Function
@@ -198,11 +200,23 @@ class Function[**P, R]:
         self._func = func
         self._opts = opts
 
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def func(self) -> Callable:
+        return self._func
+
+    @property
+    def __name__(self) -> str:
+        return self._name
+
     def __call__(self, ctx: Context, *args: P.args, **kwargs: P.kwargs) -> Generator[Any, Any, R] | R:
         return self._func(ctx, *args, **kwargs)
 
-    def options(self, *, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Function[P, R | Generator[Any, Any, R]]:
-        return Function(self._resonate, self._name, self._func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
+    def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Function[P, Generator[Any, Any, R] | R]:
+        return Function(self._resonate, self._name, self._func, self._opts.merge(send_to=send_to, timeout=timeout, version=version))
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
         return self._resonate.options(**self._opts.to_dict()).run(id, self._name, *args, **kwargs)

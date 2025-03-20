@@ -30,11 +30,13 @@ class LFX:
     opts: Options = field(default_factory=Options)
     versions: dict[int, Callable] | None = field(default=None)
 
-    def options(self, *, id: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Self:
+    def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
         if version is not None and self.versions is not None:
+            # throw resonate error if version not found
             self.func = self.versions[version]
+
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, version=version, timeout=timeout)
+        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version)
         return self
 
 
@@ -57,11 +59,13 @@ class RFX:
     opts: Options = field(default_factory=Options)
     versions: dict[int, str] | None = field(default=None)
 
-    def options(self, *, id: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Self:
+    def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
         if version is not None and self.versions is not None:
+            # throw resonate error if version not found
             self.func = self.versions[version]
+
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, version=version, timeout=timeout)
+        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version)
         return self
 
 
