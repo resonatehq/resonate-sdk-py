@@ -29,9 +29,9 @@ class LFX:
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
 
-    def options(self, *, id: str | None = None, send_to: str | None = None, version: int | None = None) -> Self:
+    def options(self, *, id: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Self:
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, version=version)
+        self.opts = self.opts.merge(send_to=send_to, version=version, timeout=timeout)
         return self
 
 
@@ -53,9 +53,9 @@ class RFX:
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
 
-    def options(self, *, id: str | None = None, send_to: str | None = None, version: int | None = None) -> Self:
+    def options(self, *, id: str | None = None, send_to: str | None = None, version: int | None = None, timeout: int | None = None) -> Self:
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, version=version)
+        self.opts = self.opts.merge(send_to=send_to, version=version, timeout=timeout)
         return self
 
 
