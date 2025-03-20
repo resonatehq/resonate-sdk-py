@@ -10,7 +10,7 @@ from resonate import utils
 
 @dataclass(frozen=True)
 class Options:
-    send_to: str = "default"
+    send_to: str = "poller://default"
     timeout: int = sys.maxsize
     version: int = 0
 

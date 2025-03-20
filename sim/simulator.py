@@ -333,7 +333,7 @@ class Worker(Component):
         super().__init__(uni, any)
         self.registry = registry
         self.dependencies = Dependencies()
-        self.scheduler = Scheduler(lambda id: Context(id, self.registry, self.dependencies, Options()))
+        self.scheduler = Scheduler(lambda id: Context(id, Options(), self.registry, self.dependencies), pid=self.uni)
 
     def on_message(self, msg: Message) -> None:
         match msg.data:
