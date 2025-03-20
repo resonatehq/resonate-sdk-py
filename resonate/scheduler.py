@@ -61,8 +61,9 @@ class Scheduler:
         self,
         ctx: Callable[[str], Context],
         cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
-        gid: str = "default",
         pid: str | None = None,
+        unicast: str | None = None,
+        anycast: str | None = None,
     ) -> None:
         # ctx
         self.ctx = ctx
@@ -70,11 +71,12 @@ class Scheduler:
         # cq
         self.cq = cq or queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None]()
 
-        # gid
-        self.gid = gid
-
         # pid
         self.pid = pid or uuid.uuid4().hex
+
+        # unicast / anycast
+        self.unicast = unicast or f"poller://default/{pid}"
+        self.anycast = anycast or f"poller://default/{pid}"
 
         # computations
         self.computations: dict[str, Computation] = {}
@@ -126,7 +128,7 @@ class Scheduler:
         if isinstance(cmd, Noop):
             return []
 
-        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.gid, self.pid))
+        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.pid, self.unicast, self.anycast))
 
         # subscribe
         if futures:
@@ -359,13 +361,15 @@ class PoppableList[T](list[T]):
         return self.pop() if self else None
 
 class Computation:
-    def __init__(self, id: str, ctx: Callable[[str], Context], gid: str, pid: str) -> None:
+    def __init__(self, id: str, ctx: Callable[[str], Context], pid: str, unicast: str, anycast: str) -> None:
         self.id = id
         self.ctx = ctx
-        self.gid = gid
         self.pid = pid
-        self.graph = Graph[State](id, Enabled(Suspended(Init())))
 
+        self.unicast = unicast
+        self.anycast = anycast
+
+        self.graph = Graph[State](id, Enabled(Suspended(Init())))
         self.futures: tuple[PoppableList[Future], PoppableList[Future]] = (PoppableList(), PoppableList())
 
         self.task: Task | None = None
@@ -401,12 +405,6 @@ class Computation:
                 return result
             case _:
                 return None
-
-    def unicast(self, gid: str, pid: str) -> str:
-        return f"poller://{gid}/{pid}"
-
-    def anycast(self, gid: str, pid: str | None = None) -> str:
-        return f"poller://{gid}/{pid}" if pid else f"poller://{gid}"
 
     def apply(self, cmd: Command) -> None:
         self.history.append(cmd)
@@ -598,7 +596,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.anycast(self.gid), "resonate:scope": "global"},
+                        tags={"resonate:invoke": self.anycast, "resonate:scope": "global"},
                         pid=self.pid,
                         ttl=sys.maxsize,
                     )
@@ -625,7 +623,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.anycast(self.gid), "resonate:scope": "global"},
+                        tags={"resonate:invoke": opts.send_to, "resonate:scope": "global"},
                     )),
                 ]
 
@@ -638,7 +636,7 @@ class Computation:
                 match result:
                     case None:
                         return [
-                            Function(id, self.id, lambda: func(*args, **kwargs)),
+                            Function(id, self.id, lambda: func(self.ctx(id), *args, **kwargs)),
                         ]
                     case Ok(v):
                         return [
@@ -753,7 +751,7 @@ class Computation:
                                 promise_id=id,
                                 root_promise_id=self.id,
                                 timeout=sys.maxsize,
-                                recv=self.anycast(self.gid, self.pid),
+                                recv=self.anycast,
                             ))
                         ]
 

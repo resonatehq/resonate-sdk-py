@@ -52,7 +52,7 @@ def bar_rfc(ctx: Context) -> Generator:
     v = yield ctx.rfc(baz)
     return v
 
-def baz() -> str:
+def baz(ctx: Context) -> str:
     return "baz"
 
 def fib_lfi(ctx: Context, n: int) -> Generator[Any, Any, int]:
