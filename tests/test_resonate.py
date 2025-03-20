@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, assert_type
 from unittest.mock import MagicMock
 
 import pytest
 
 from resonate import Context, Resonate
 from resonate.models.commands import Invoke, Listen
+from resonate.models.handle import Handle
 from resonate.models.options import Options
 from resonate.registry import Registry
+from resonate.resonate import Function
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -202,3 +204,30 @@ def test_get(resonate: Resonate, scheduler: MagicMock, id: str) -> None:
 def test_signatures(resonate: Resonate, func: Callable) -> None:
     f = resonate.register(func)
     assert f.rpc.__annotations__ == f.run.__annotations__
+
+def test_type_annotations() -> None:
+    # The following are "tests", if there is an issue it will be found by pright, at runtime
+    # assert_type is effectively a noop.
+
+    resonate = Resonate()
+
+    # foo
+    def foo(ctx: Context, a: int, b: int, /) -> int: ...
+    f = resonate.register(foo)
+    assert_type(f, Function[[int, int], int])
+    assert_type(f.run, Callable[[str, int, int], Handle[int]])
+    assert_type(f.rpc, Callable[[str, int, int], Handle[int]])
+
+    # bar
+    def bar(ctx: Context, a: str, b: str, /) -> str: ...
+    f = resonate.register(bar)
+    assert_type(f, Function[[str, str], str])
+    assert_type(f.run, Callable[[str, str, str], Handle[str]])
+    assert_type(f.rpc, Callable[[str, str, str], Handle[str]])
+
+    # baz
+    def baz(ctx: Context, a: int, b: str, /) -> int | str: ...
+    f = resonate.register(baz)
+    assert_type(f, Function[[int, str], int | str])
+    assert_type(f.run, Callable[[str, int, str], Handle[int | str]])
+    assert_type(f.rpc, Callable[[str, int, str], Handle[int | str]])
