@@ -30,7 +30,6 @@ class Resonate:
         opts: Options | None = None,
         unicast: str | None = None,
         anycast: str | None = None,
-        anycast_with_pref: str | None = None,
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
         scheduler: Scheduler | None = None,
@@ -39,8 +38,7 @@ class Resonate:
         self._opts = opts or Options()
 
         self.unicast = unicast or f"poller://default/{pid}"
-        self.anycast = anycast or "poller://default"
-        self.anycast_with_pref = anycast_with_pref or f"poller://default/{pid}"
+        self.anycast = anycast or f"poller://default/{pid}"
 
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
@@ -50,7 +48,6 @@ class Resonate:
             pid=pid,
             unicast=self.unicast,
             anycast=self.anycast,
-            anycast_with_pref=self.anycast_with_pref,
         )
 
     def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Resonate:
@@ -59,7 +56,6 @@ class Resonate:
             opts=self._opts.merge(send_to=send_to, timeout=timeout, version=version),
             unicast=self.unicast,
             anycast=self.anycast,
-            anycast_with_pref=self.anycast_with_pref,
             registry=self._registry,
             dependencies=self._dependencies,
             scheduler=self._scheduler,

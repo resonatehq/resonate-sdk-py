@@ -64,7 +64,6 @@ class Scheduler:
         pid: str | None = None,
         unicast: str | None = None,
         anycast: str | None = None,
-        anycast_with_pref: str | None = None,
     ) -> None:
         # ctx
         self.ctx = ctx
@@ -75,10 +74,9 @@ class Scheduler:
         # pid
         self.pid = pid or uuid.uuid4().hex
 
-        # unicast / anycast / anycast with preference
+        # unicast / anycast
         self.unicast = unicast or f"poller://default/{pid}"
-        self.anycast = anycast or "poller://default"
-        self.anycast_with_pref = anycast_with_pref or f"poller://default/{pid}"
+        self.anycast = anycast or f"poller://default/{pid}"
 
         # computations
         self.computations: dict[str, Computation] = {}
@@ -130,7 +128,7 @@ class Scheduler:
         if isinstance(cmd, Noop):
             return []
 
-        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.pid, self.unicast, self.anycast, self.anycast_with_pref))
+        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.pid, self.unicast, self.anycast))
 
         # subscribe
         if futures:
@@ -363,14 +361,13 @@ class PoppableList[T](list[T]):
         return self.pop() if self else None
 
 class Computation:
-    def __init__(self, id: str, ctx: Callable[[str], Context], pid: str, unicast: str, anycast: str, anycast_with_pref: str) -> None:
+    def __init__(self, id: str, ctx: Callable[[str], Context], pid: str, unicast: str, anycast: str) -> None:
         self.id = id
         self.ctx = ctx
         self.pid = pid
 
         self.unicast = unicast
         self.anycast = anycast
-        self.anycast_with_pref = anycast_with_pref
 
         self.graph = Graph[State](id, Enabled(Suspended(Init())))
         self.futures: tuple[PoppableList[Future], PoppableList[Future]] = (PoppableList(), PoppableList())
@@ -599,7 +596,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": opts.send_to or self.anycast_with_pref, "resonate:scope": "global"},
+                        tags={"resonate:invoke": self.anycast, "resonate:scope": "global"},
                         pid=self.pid,
                         ttl=sys.maxsize,
                     )
@@ -626,7 +623,7 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": opts.send_to or self.anycast, "resonate:scope": "global"},
+                        tags={"resonate:invoke": opts.send_to, "resonate:scope": "global"},
                     )),
                 ]
 
@@ -754,7 +751,7 @@ class Computation:
                                 promise_id=id,
                                 root_promise_id=self.id,
                                 timeout=sys.maxsize,
-                                recv=self.anycast_with_pref,
+                                recv=self.anycast,
                             ))
                         ]
 
