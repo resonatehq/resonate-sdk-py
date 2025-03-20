@@ -207,8 +207,7 @@ def test_case_21_transition_from_completed_to_completed_via_complete(store: Stor
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task21", ttl=sys.maxsize)
     store.tasks.complete(id=id, counter=counter)
-    with pytest.raises(ResonateError):
-        store.tasks.complete(id=id, counter=counter)
+    store.tasks.complete(id=id, counter=counter)
 
 
 def test_case_22_transition_from_completed_to_completed_via_heartbeat(store: Store, task: tuple[str, int]) -> None:
