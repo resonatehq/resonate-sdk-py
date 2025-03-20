@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import overload
 
+from resonate import utils
+
 # Registry
 
 
@@ -12,49 +14,34 @@ class Registry:
         self._reverse_registry: dict[Callable, dict[int, str]] = {}
 
     def add(self, func: Callable, name: str, version: int = 1) -> None:
-        # validate version > 0
-
-        # Check for duplicate name and version in _registry
-        if version in self._forward_registry.get(name, {}):
-            msg = f"Function {func.__name__} already registered under '{name}' with version {version}."
-            raise ValueError(msg)
-
-        # Check if the function is already registered with the same version under a different name
-        if version in self._reverse_registry.get(func, {}):
-            msg = f"Function {func.__name__} already registered under '{self._reverse_registry[func][version]}' with version {version}."
-            raise ValueError(msg)
+        utils.validate(version > 0, "version must be greater than 0")
+        utils.validate(version not in self._forward_registry.get(name, {}), f"function {func.__name__} already registered under name={name} with version {version}.")
+        utils.validate(
+            version not in self._reverse_registry.get(func, {}), lambda: f"function {func.__name__} already registered under name={self._reverse_registry[func][version]} with version {version}."
+        )
 
         self._forward_registry.setdefault(name, {})[version] = func
         self._reverse_registry.setdefault(func, {})[version] = name
 
     @overload
-    def get(self, func: str, version: int = 0) -> tuple[Callable, int]:...
+    def get(self, func: str, version: int = 0) -> tuple[Callable, int]: ...
     @overload
-    def get(self, func: Callable, version: int = 0) -> tuple[str, int]:...
+    def get(self, func: Callable, version: int = 0) -> tuple[str, int]: ...
     def get(self, func: str | Callable, version: int = 0) -> tuple[Callable | str, int]:
-        # validate func/version in registry
+        utils.validate(version >= 0, "version must be greater or equal than 0")
+        utils.validate(func in (self._forward_registry if isinstance(func, str) else self._reverse_registry), lambda: f"function={func if isinstance(func, str) else func.__name__} is not registered.")
 
-        match func:
-            case str():
-                match version:
-                    case 0:
-                        version = max(self._forward_registry[func].keys())
-                        return self._forward_registry[func][version], version
-                    case _:
-                        return self._forward_registry[func][version], version
+        versions = self._forward_registry[func] if isinstance(func, str) else self._reverse_registry[func]
+        resolved_version = max(versions.keys()) if version == 0 else version
 
-            case Callable():
-                match version:
-                    case 0:
-                        version = max(self._reverse_registry[func].keys())
-                        return self._reverse_registry[func][version], version
-                    case _:
-                        return self._reverse_registry[func][version], version
+        utils.validate(resolved_version in versions, f"version={version} is not registered for function={func if isinstance(func, str) else func.__name__}")
+
+        return versions[resolved_version], resolved_version
 
     @overload
-    def all(self, func: str) -> dict[int, Callable]:...
+    def all(self, func: str) -> dict[int, Callable]: ...
     @overload
-    def all(self, func: Callable) -> dict[int, str]:...
+    def all(self, func: Callable) -> dict[int, str]: ...
     def all(self, func: str | Callable) -> dict[int, Callable] | dict[int, str]:
         match func:
             case str():
@@ -63,9 +50,9 @@ class Registry:
                 return self._reverse_registry.get(func, {})
 
     @overload
-    def latest(self, func: str) -> int:...
+    def latest(self, func: str) -> int: ...
     @overload
-    def latest(self, func: Callable) -> int:...
+    def latest(self, func: Callable) -> int: ...
     def latest(self, func: str | Callable) -> int:
         match func:
             case str():

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, overload
 
+from resonate import utils
 from resonate.dependencies import Dependencies
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import (
@@ -65,9 +66,11 @@ class Resonate:
     def register[**P, R](
         self, *args: Callable | None, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
-        # if func is lambda validate that name is set
-
         def wrapper(func: Callable) -> Function[P, R]:
+            utils.validate(version > 0, "version must be greater than 0")
+            if func.__name__ == "<lambda>":
+                utils.validate(name is not None, "registering a lambda requires setting a name.")
+
             self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
 
