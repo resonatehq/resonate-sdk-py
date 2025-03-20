@@ -90,12 +90,12 @@ class Resonate:
         match func:
             case str():
                 name = func
-                func, _ = self.registry.get(func)
+                func, version = self.registry.get(func)
             case _:
-                name, _ = self.registry.reverse_lookup(func)
+                name, version = self.registry.reverse_lookup(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts), futures=(fp, fv))
+        self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)
@@ -115,12 +115,12 @@ class Resonate:
     ) -> Handle[R]:
         match func:
             case str():
-                name = func
+                name, version = func, self.registry.latest(func)
             case _:
-                name, _ = self.registry.reverse_lookup(func)
+                name, version = self.registry.reverse_lookup(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, opts=self._opts), futures=(fp, fv))
+        self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)

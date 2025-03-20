@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
@@ -12,17 +11,12 @@ from resonate.models.options import Options
 from resonate.registry import Registry
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
 
 def foo(ctx: Context, a: int, b: int) -> int: ...
 def bar(a: int, b: int) -> int: ...
 def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]: ...
-
-
-@pytest.fixture
-def registry() -> Registry:
-    return Registry()
 
 
 @pytest.fixture
@@ -35,11 +29,6 @@ def scheduler() -> MagicMock:
 
     mock_scheduler.enqueue.side_effect = enqueue_side_effect
     return mock_scheduler
-
-
-@pytest.fixture
-def resonate(registry: Registry, scheduler: MagicMock) -> Resonate:
-    return Resonate(registry=registry, scheduler=scheduler)
 
 
 # Helper to validate Invoke parameters
@@ -63,143 +52,149 @@ def test_register(func: Callable, name: str | None) -> None:
     resonate.register(func, name=name)
     assert registry.get(name or func.__name__) == (func, 1)
     assert registry.reverse_lookup(func) == (name or func.__name__, 1)
-    registry.remove(name or func.__name__)
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
 @pytest.mark.parametrize(
-    ("func", "args", "kwargs", "expected_name", "expected_func"),
+    ("func", "name", "args", "kwargs"),
     [
-        (foo, (1, 2), {}, "foo", foo),
-        (bar, (1, 2), {}, "bar", bar),
-        (baz, (1, 2), {}, "baz", baz),
-        (foo, (), {"1": 1, "2": 2}, "foo", foo),
-        (bar, (), {"1": 1, "2": 2}, "bar", bar),
-        (baz, (), {"1": 1, "2": 2}, "baz", baz),
-        ("foo", (1, 2), {}, "foo", foo),
-        ("bar", (1, 2), {}, "bar", bar),
-        ("baz", (1, 2), {}, "baz", baz),
-        ("foo", (), {"1": 1, "2": 2}, "foo", foo),
-        ("bar", (), {"1": 1, "2": 2}, "bar", bar),
-        ("baz", (), {"1": 1, "2": 2}, "baz", baz),
+        (foo, "foo", (1, 2), {}),
+        (bar, "bar", (1, 2), {}),
+        (baz, "baz", (1, 2), {}),
+        (foo, "foo", (), {"1": 1, "2": 2}),
+        (bar, "bar", (), {"1": 1, "2": 2}),
+        (baz, "baz", (), {"1": 1, "2": 2}),
     ],
 )
 def test_run(
-    resonate: Resonate,
     scheduler: MagicMock,
     send_to: str | None,
     version: int | None,
     timeout: int | None,
-    func: Callable | str,
+    func: Callable,
+    name: str,
     args: tuple,
     kwargs: dict,
-    expected_name: str,
-    expected_func: Callable,
 ) -> None:
-    opts = Options()
+    registry = Registry()
+    resonate = Resonate(registry=registry, scheduler=scheduler)
+
+    f1 = resonate.register(func, name=name, version=version or 1)
+
+    opts = Options(version=1)
     if send_to is not None:
         opts = opts.merge(send_to=send_to)
     if version is not None:
         opts = opts.merge(version=version)
+    if timeout is not None:
+        opts = opts.merge(timeout=timeout)
 
-    invoke = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs)
-    invoke_with_opts = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs, opts=opts)
+    invoke = Invoke(id="f", name=name, func=func, args=args, kwargs=kwargs, opts=Options(version=version or 1))
+    invoke_with_opts = Invoke(id="f", name=name, func=func, args=args, kwargs=kwargs, opts=opts)
 
-    if isinstance(func, Callable):
-        resonate.register(func)
-        resonate.run("f", func, *args, **kwargs)
-        assert cmd(scheduler) == invoke
-        resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
-        assert cmd(scheduler) == invoke_with_opts
-        resonate.registry.remove(func.__name__)
+    resonate.run("f", func, *args, **kwargs)
+    assert cmd(scheduler) == invoke
 
-        f = resonate.register(func, **opts.to_dict())
-        f.run("f", *args, **kwargs)
-        assert cmd(scheduler) == invoke_with_opts
-        resonate.registry.remove(func.__name__, opts.version)
+    resonate.run("f", name, *args, **kwargs)
+    assert cmd(scheduler) == invoke
 
-        f = resonate.register(func, **opts.to_dict())
-        f.options(**opts.to_dict()).run("f", *args, **kwargs)
-        assert cmd(scheduler) == invoke_with_opts
-        resonate.registry.remove(func.__name__, opts.version)
+    resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
 
-    else:
-        resonate.register(expected_func, name=func, version=version or 1)
-        resonate.run("f", func, *args, **kwargs)
-        assert cmd(scheduler) == invoke
-        resonate.options(**opts.to_dict()).run("f", func, *args, **kwargs)
-        assert cmd(scheduler) == invoke_with_opts
-        resonate.registry.remove(func, version=version or 1)
+    resonate.options(**opts.to_dict()).run("f", name, *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
+
+    f1.run("f", *args, **kwargs)
+    assert cmd(scheduler) == invoke
+
+    f1.options(**opts.to_dict()).run("f", *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
+
+    version = (version or 1) + 1
+    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout)
+    invoke_with_opts.opts = invoke_with_opts.opts.merge(version=version)
+
+    f2.run("f", *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
+
+    f2.options(**opts.to_dict()).run("f", *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("version", [1, 2, 3, None])
+@pytest.mark.parametrize("timeout", [3, 2, 1, None])
 @pytest.mark.parametrize(
-    ("func", "args", "kwargs", "expected_name", "expected_func"),
+    ("func", "name", "args", "kwargs"),
     [
-        (foo, (1, 2), {}, "foo", None),
-        (bar, (1, 2), {}, "bar", None),
-        (baz, (1, 2), {}, "baz", None),
-        (foo, (), {"1": 1, "2": 2}, "foo", None),
-        (bar, (), {"1": 1, "2": 2}, "bar", None),
-        (baz, (), {"1": 1, "2": 2}, "baz", None),
-        ("foo", (1, 2), {}, "foo", None),
-        ("bar", (1, 2), {}, "bar", None),
-        ("baz", (1, 2), {}, "baz", None),
-        ("foo", (), {"1": 1, "2": 2}, "foo", None),
-        ("bar", (), {"1": 1, "2": 2}, "bar", None),
-        ("baz", (), {"1": 1, "2": 2}, "baz", None),
+        (foo, "foo", (1, 2), {}),
+        (bar, "bar", (1, 2), {}),
+        (baz, "baz", (1, 2), {}),
+        (foo, "foo", (), {"1": 1, "2": 2}),
+        (bar, "bar", (), {"1": 1, "2": 2}),
+        (baz, "baz", (), {"1": 1, "2": 2}),
     ],
 )
 def test_rpc(
-    resonate: Resonate,
     scheduler: MagicMock,
     send_to: str | None,
     version: int | None,
-    func: Callable | str,
+    timeout: int | None,
+    func: Callable,
+    name: str,
     args: tuple,
     kwargs: dict,
-    expected_name: str,
-    expected_func: Callable,
 ) -> None:
-    opts = Options()
+    registry = Registry()
+    resonate = Resonate(registry=registry, scheduler=scheduler)
+
+    f1 = resonate.register(func, name=name, version=version or 1)
+
+    opts = Options(version=1)
     if send_to is not None:
         opts = opts.merge(send_to=send_to)
     if version is not None:
         opts = opts.merge(version=version)
+    if timeout is not None:
+        opts = opts.merge(timeout=timeout)
 
-    invoke = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs)
-    invoke_with_opts = Invoke(id="f", name=expected_name, func=expected_func, args=args, kwargs=kwargs, opts=opts)
+    invoke = Invoke(id="f", name=name, func=None, args=args, kwargs=kwargs, opts=Options(version=version or 1))
+    invoke_with_opts = Invoke(id="f", name=name, func=None, args=args, kwargs=kwargs, opts=opts)
 
-    if isinstance(func, Callable):
-        resonate.register(func)
-        resonate.rpc("f", func, *args, **kwargs)
-        assert cmd(scheduler) == invoke
-        resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
-        assert cmd(scheduler) == invoke_with_opts
-        resonate.registry.remove(func.__name__)
+    resonate.rpc("f", func, *args, **kwargs)
+    assert cmd(scheduler) == invoke
 
-        f = resonate.register(func, **opts.to_dict())
-        f.rpc("f", *args, **kwargs)
-        assert cmd(scheduler) == invoke_with_opts
-        resonate.registry.remove(func.__name__, opts.version)
+    resonate.rpc("f", name, *args, **kwargs)
+    assert cmd(scheduler) == invoke
 
-        f = resonate.register(func, **opts.to_dict())
-        f.options(**opts.to_dict()).rpc("f", *args, **kwargs)
-        assert cmd(scheduler) == invoke_with_opts
-        resonate.registry.remove(func.__name__, opts.version)
+    resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
 
-    else:
-        resonate.rpc("f", func, *args, **kwargs)
-        assert cmd(scheduler) == invoke
-        resonate.options(**opts.to_dict()).rpc("f", func, *args, **kwargs)
-        assert cmd(scheduler) == invoke_with_opts
+    resonate.options(**opts.to_dict()).rpc("f", name, *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
+
+    f1.rpc("f", *args, **kwargs)
+    assert cmd(scheduler) == invoke
+
+    f1.options(**opts.to_dict()).rpc("f", *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
+
+    version = (version or 1) + 1
+    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout)
+    invoke_with_opts.opts = invoke_with_opts.opts.merge(version=version)
+
+    f2.rpc("f", *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
+
+    f2.options(**opts.to_dict()).rpc("f", *args, **kwargs)
+    assert cmd(scheduler) == invoke_with_opts
 
 
 @pytest.mark.parametrize("id", ["foo", "bar", "baz"])
-def test_get(resonate: Resonate, scheduler: MagicMock, id: str) -> None:
+def test_get(scheduler: MagicMock, id: str) -> None:
+    resonate = Resonate(scheduler=scheduler)
     resonate.get(id)
     assert cmd(scheduler) == Listen(id=id)
 
@@ -208,6 +203,7 @@ def test_get(resonate: Resonate, scheduler: MagicMock, id: str) -> None:
     "func",
     [foo, bar, baz],
 )
-def test_signatures(resonate: Resonate, func: Callable) -> None:
-    f = resonate.register(func, version=2)
+def test_signatures(func: Callable) -> None:
+    resonate = Resonate()
+    f = resonate.register(func, send_to="foo", version=1, timeout=2)
     assert f.rpc.__annotations__ == f.run.__annotations__
