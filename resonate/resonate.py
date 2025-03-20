@@ -26,45 +26,50 @@ if TYPE_CHECKING:
 class Resonate:
     def __init__(
         self,
-        gid: str = "default",
         pid: str | None = None,
         opts: Options | None = None,
+        unicast: str | None = None,
+        anycast: str | None = None,
+        anycast_with_pref: str | None = None,
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
         scheduler: Scheduler | None = None,
     ) -> None:
-        self._gid = gid
         self._pid = pid or uuid.uuid4().hex
         self._opts = opts or Options()
+
+        self.unicast = unicast or f"poller://default/{pid}"
+        self.anycast = anycast or "poller://default"
+        self.anycast_with_pref = anycast_with_pref or f"poller://default/{pid}"
 
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
         self._scheduler = scheduler or Scheduler(
-            ctx=lambda id: Context(id, self._registry, self._dependencies, self._opts),
-            gid=gid,
+            ctx=lambda id: Context(id, self._opts, self._registry, self._dependencies),
             pid=pid,
+            unicast=self.unicast,
+            anycast=self.anycast,
+            anycast_with_pref=self.anycast_with_pref,
         )
 
     def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Resonate:
         return Resonate(
-            gid=self._gid,
             pid=self._pid,
             opts=self._opts.merge(send_to=send_to, timeout=timeout, version=version),
+            unicast=self.unicast,
+            anycast=self.anycast,
+            anycast_with_pref=self.anycast_with_pref,
             registry=self._registry,
             dependencies=self._dependencies,
             scheduler=self._scheduler,
         )
 
     @overload
-    def register[**P, R](
-        self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
-    ) -> Function[P, R]: ...
+    def register[**P, R](self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Function[P, R]: ...
     @overload
     def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Callable[[Callable], Function[P, Any]]: ...
-    def register[**P, R](
-        self, *args: Callable | None, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
-    ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
+    def register[**P, R](self, *args: Callable | None, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         # if func is lambda validate that name is set
 
         def wrapper(func: Callable) -> Function[P, R]:
@@ -139,34 +144,77 @@ class Resonate:
 
 
 class Context:
-    def __init__(self, id: str, registry: Registry, dependencies: Dependencies, opts: Options) -> None:
-        self.id = id
-        self.deps = dependencies
-        self._counter = 0
-        self._registry = registry
+    def __init__(self, id: str, opts: Options, registry: Registry, dependencies: Dependencies) -> None:
+        self._id = id
         self._opts = opts
+        self._registry = registry
+        self._dependencies = dependencies
+        self._counter = 0
+        self._attempt = 0
 
-    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def deps(self) -> Dependencies:
+        return self._dependencies
+
+    @property
+    def info(self) -> None:
+        raise NotImplementedError
+
+    @overload
+    def lfi[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
+    @overload
+    def lfi[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
+    @overload
+    def lfi(self, func: str, *args: Any, **kwargs: Any) -> LFI: ...
+    def lfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> LFI:
         self._counter += 1
         func, version, versions = self._lfi_func(func)
         return LFI(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions)
 
-    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
+    @overload
+    def lfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> LFC: ...
+    @overload
+    def lfc[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFC: ...
+    @overload
+    def lfc(self, func: str, *args: Any, **kwargs: Any) -> LFC: ...
+    def lfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> LFC:
         self._counter += 1
         func, version, versions = self._lfi_func(func)
         return LFC(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions)
 
-    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+    @overload
+    def rfi[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
+    @overload
+    def rfi[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
+    @overload
+    def rfi(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
+    def rfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
         func, version, versions = self._rfi_func(func)
         return RFI(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions)
 
-    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
+    @overload
+    def rfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
+    @overload
+    def rfc[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
+    @overload
+    def rfc(self, func: str, *args: Any, **kwargs: Any) -> RFC: ...
+    def rfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFC:
         self._counter += 1
         func, version, versions = self._rfi_func(func)
         return RFC(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions)
 
-    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+    @overload
+    def detached[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
+    @overload
+    def detached[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
+    @overload
+    def detached(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
+    def detached(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
         func, version, versions = self._rfi_func(func)
         return RFI(f"{self.id}.{self._counter}", func, args, kwargs, self._opts.merge(version=version), versions, mode="detached")

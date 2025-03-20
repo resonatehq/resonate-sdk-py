@@ -8,7 +8,7 @@ from typing_extensions import TypedDict
 
 @dataclass(frozen=True)
 class Options:
-    send_to: str = "default"
+    send_to: str | None = None
     timeout: int = sys.maxsize
     version: int = 0
 
@@ -28,6 +28,6 @@ class Options:
 
 
 class DictOptions(TypedDict):
-    send_to: str
+    send_to: str | None
     timeout: int
     version: int
