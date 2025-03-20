@@ -7,7 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from resonate import Context, Resonate
+from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
+from resonate.models.context import RFX
 from resonate.models.handle import Handle
 from resonate.models.options import Options
 from resonate.registry import Registry
@@ -201,6 +203,7 @@ def test_get(scheduler: MagicMock, id: str) -> None:
     resonate.get(id)
     assert cmd(scheduler) == Listen(id=id)
 
+
 def test_type_annotations() -> None:
     # The following are "tests", if there is an issue it will be found by pright, at runtime
     # assert_type is effectively a noop.
@@ -209,6 +212,7 @@ def test_type_annotations() -> None:
 
     # foo
     def foo(ctx: Context, a: int, b: int, /) -> int: ...
+
     f = resonate.register(foo)
     assert_type(f, Function[[int, int], int])
     assert_type(f.run, Callable[[str, int, int], Handle[int]])
@@ -216,6 +220,7 @@ def test_type_annotations() -> None:
 
     # bar
     def bar(ctx: Context, a: str, b: str, /) -> str: ...
+
     f = resonate.register(bar)
     assert_type(f, Function[[str, str], str])
     assert_type(f.run, Callable[[str, str, str], Handle[str]])
@@ -223,7 +228,51 @@ def test_type_annotations() -> None:
 
     # baz
     def baz(ctx: Context, a: int, b: str, /) -> int | str: ...
+
     f = resonate.register(baz)
     assert_type(f, Function[[int, str], int | str])
     assert_type(f.run, Callable[[str, int, str], Handle[int | str]])
     assert_type(f.rpc, Callable[[str, int, str], Handle[int | str]])
+
+
+def _register_function_twice() -> None:
+    registry = Registry()
+    registry.add(lambda: 2, "foo", 1)
+    registry.add(lambda: 2, "foo", 1)
+
+
+def _get_function_with_negative_version() -> None:
+    registry = Registry()
+    registry.get("foo", -1)
+
+
+def _get_unregistered_function() -> None:
+    registry = Registry()
+    registry.get("foo", 1)
+
+
+def _get_non_existing_version() -> None:
+    registry = Registry()
+    registry.add(lambda: 2, "foo", 1)
+    registry.get("foo", 3)
+
+
+@pytest.mark.parametrize(
+    "check",
+    [
+        lambda: Options(version=-1),
+        lambda: Options(timeout=-1),
+        lambda: Options().merge(version=-1),
+        lambda: Options().merge(timeout=-1),
+        lambda: Resonate().register(lambda ctx: 2),
+        lambda: Resonate().register(lambda ctx: 2, name="foo", version=-1),
+        lambda: Resonate().register(foo, version=-1),
+        lambda: Registry().add(lambda: 2, "foo", -1),
+        _register_function_twice,
+        _get_unregistered_function,
+        _get_non_existing_version,
+    ],
+)
+def test_validations(check: Callable[[], None]) -> None:
+    with pytest.raises(ResonateValidationError):
+        check()
