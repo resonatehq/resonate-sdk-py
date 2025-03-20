@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
+from resonate import utils
 from resonate.models.options import Options
 
 if TYPE_CHECKING:
@@ -32,7 +33,7 @@ class LFX:
 
     def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
         if version is not None and self.versions is not None:
-            # throw resonate error if version not found
+            utils.validate(version in self.versions, f"version={version} not found.")
             self.func = self.versions[version]
 
         self.id = id or self.id
@@ -61,7 +62,7 @@ class RFX:
 
     def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
         if version is not None and self.versions is not None:
-            # throw resonate error if version not found
+            utils.validate(version in self.versions, f"version={version} not found.")
             self.func = self.versions[version]
 
         self.id = id or self.id

@@ -34,7 +34,7 @@ class Registry:
         versions = self._forward_registry[func] if isinstance(func, str) else self._reverse_registry[func]
         resolved_version = max(versions.keys()) if version == 0 else version
 
-        utils.validate(resolved_version in versions, f"version={version} is not registered for function={func if isinstance(func, str) else func.__name__}")
+        utils.validate(resolved_version in versions, lambda: f"version={version} is not registered for function={func if isinstance(func, str) else func.__name__}")
 
         return versions[resolved_version], resolved_version
 

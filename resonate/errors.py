@@ -13,7 +13,6 @@ class UnknownError(ResonateError):
         super().__init__(msg, 0)
 
 
-# Store Errors
 class StoreError(ResonateError):
     def __init__(
         self,
@@ -44,9 +43,6 @@ class StoreError(ResonateError):
             case "STORE_ENCODER":
                 num_code = 47
         super().__init__(msg, num_code)
-
-
-# Validation Errors
 
 
 class ValidationError(ResonateError):
