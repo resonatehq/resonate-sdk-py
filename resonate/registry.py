@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
+from collections.abc import Callable
+from typing import overload
 
 # Registry
 
@@ -28,30 +25,46 @@ class Registry:
         self._registry.setdefault(name, {})[version] = func
         self._reverse_registry.setdefault(func, {})[version] = name
 
-    def get(self, name: str, version: int = -1) -> tuple[Callable, int]:
-        match version:
-            case -1:
-                version = max(self._registry[name].keys())
-                return self._registry[name][version], version
-            case _:
-                return self._registry[name][version], version
+    @overload
+    def get(self, func: str, version: int = -1) -> tuple[Callable, int]:...
+    @overload
+    def get(self, func: Callable, version: int = -1) -> tuple[str, int]:...
+    def get(self, func: str | Callable, version: int = -1) -> tuple[Callable | str, int]:
+        match func:
+            case str():
+                match version:
+                    case -1:
+                        version = max(self._registry[func].keys())
+                        return self._registry[func][version], version
+                    case _:
+                        return self._registry[func][version], version
 
-    def list(self, name: str) -> dict[int, Callable]:
-        return self._registry.get(name, {})
+            case Callable():
+                match version:
+                    case -1:
+                        version = max(self._reverse_registry[func].keys())
+                        return self._reverse_registry[func][version], version
+                    case _:
+                        return self._reverse_registry[func][version], version
 
-    def latest(self, name: str) -> int:
-        return max(self._registry[name]) if name in self._registry else 0
+    @overload
+    def list(self, func: str) -> dict[int, Callable]:...
+    @overload
+    def list(self, func: Callable) -> dict[int, str]:...
+    def list(self, func: str | Callable) -> dict[int, Callable] | dict[int, str]:
+        match func:
+            case str():
+                return self._registry.get(func, {})
+            case Callable():
+                return self._reverse_registry.get(func, {})
 
-    def reverse_lookup(self, func: Callable, version: int = -1) -> tuple[str, int]:
-        match version:
-            case -1:
-                version = max(self._reverse_registry[func].keys())
-                return self._reverse_registry[func][version], version
-            case _:
-                return self._reverse_registry[func][version], version
-
-    def reverse_list(self, func: Callable) -> dict[int, str]:
-        return self._reverse_registry.get(func, {})
-
-    def reverse_latest(self, func: Callable) -> int:
-        return max(self._reverse_registry[func]) if func in self._reverse_registry else 0
+    @overload
+    def latest(self, func: str) -> int:...
+    @overload
+    def latest(self, func: Callable) -> int:...
+    def latest(self, func: str | Callable) -> int:
+        match func:
+            case str():
+                return max(self._registry[func]) if func in self._registry else 0
+            case Callable():
+                return max(self._reverse_registry[func]) if func in self._reverse_registry else 0

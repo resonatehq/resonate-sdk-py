@@ -92,7 +92,7 @@ class Resonate:
                 name = func
                 func, version = self.registry.get(func)
             case _:
-                name, version = self.registry.reverse_lookup(func)
+                name, version = self.registry.get(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
@@ -117,7 +117,7 @@ class Resonate:
             case str():
                 name, version = func, self.registry.latest(func)
             case _:
-                name, version = self.registry.reverse_lookup(func)
+                name, version = self.registry.get(func)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
@@ -174,14 +174,14 @@ class Context:
             case str():
                 return *self.registry.get(f), self.registry.list(f)
             case Callable():
-                return f, self.registry.reverse_latest(f), None
+                return f, self.registry.latest(f), None
 
     def _rfi_func(self, f: str | Callable) -> tuple[str, int, dict[int, str] | None]:
         match f:
             case str():
                 return f, self.registry.latest(f), None
             case Callable():
-                return *self.registry.reverse_lookup(f), self.registry.reverse_list(f)
+                return *self.registry.get(f), self.registry.list(f)
 
 
 # Function

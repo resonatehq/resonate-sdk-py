@@ -54,7 +54,7 @@ def test_register(func: Callable, name: str | None) -> None:
 
     resonate.register(func, name=name)
     assert registry.get(name or func.__name__) == (func, 1)
-    assert registry.reverse_lookup(func) == (name or func.__name__, 1)
+    assert registry.get(func) == (name or func.__name__, 1)
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
