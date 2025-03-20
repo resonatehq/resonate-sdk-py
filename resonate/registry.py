@@ -21,13 +21,11 @@ class Registry:
             raise ValueError(msg)
 
         # Check if the function is already registered with the same version under a different name
-        if func in self._reverse_registry:
-            version_map = self._reverse_registry[func]
-            if version in version_map:
-                existing_name = version_map[version]
-                if existing_name != name:
-                    msg = f"Function is already registered with version {version} under name '{existing_name}'."
-                    raise ValueError(msg)
+        if func in self._reverse_registry and version in self._reverse_registry[func]:
+            existing_name = self._reverse_registry[func][version]
+            if existing_name != name:
+                msg = f"Function is already registered with version {version} under name '{existing_name}'."
+                raise ValueError(msg)
 
         # Add to the _registry
         if name not in self._registry:
