@@ -29,7 +29,7 @@ class LFX:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
-    versions: dict[int, Callable] | None = field(default=None)
+    versions: dict[int, Callable] | None = None
 
     def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
         if version is not None and self.versions is not None:
@@ -60,14 +60,12 @@ class RFX:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
-    versions: dict[int, str] | None = field(default=None)
+    versions: set[int] | None = None
 
     def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
-        if version is not None and self.versions is not None:
-            if version not in self.versions:
-                msg = f"version={version} not found."
-                raise ResonateValidationError(msg)
-            self.func = self.versions[version]
+        if version is not None and self.versions is not None and version not in self.versions:
+            msg = f"version={version} not found."
+            raise ResonateValidationError(msg)
 
         self.id = id or self.id
         self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version)

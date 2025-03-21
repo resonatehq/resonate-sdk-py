@@ -19,9 +19,11 @@ if TYPE_CHECKING:
 
 
 def foo(ctx: Context, a: int, b: int) -> int: ...
-def bar(a: int, b: int) -> int: ...
+def bar(ctx: Context, a: int, b: int) -> int: ...
 def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]: ...
 
+
+# Fixtures
 
 @pytest.fixture
 def scheduler() -> MagicMock:
@@ -35,8 +37,16 @@ def scheduler() -> MagicMock:
     return mock_scheduler
 
 
-# Helper to validate Invoke parameters
+@pytest.fixture
+def registry() -> Registry:
+    registry = Registry()
+    registry.add(foo, "foo", version=1)
+    registry.add(foo, "foo", version=2)
+    registry.add(bar, "bar", version=1)
+    return registry
 
+
+# Helper functions
 
 def cmd(mock_scheduler: MagicMock) -> None:
     mock_scheduler.enqueue.assert_called_once()
@@ -46,18 +56,25 @@ def cmd(mock_scheduler: MagicMock) -> None:
     return args[0]
 
 
-# Parametrized tests
+# Tests
 
-
-@pytest.mark.parametrize("func", [foo, bar, baz])
+@pytest.mark.parametrize("func", [foo, bar, baz, lambda x: x])
 @pytest.mark.parametrize("name", ["foo", "bar", "baz", None])
 def test_register(func: Callable, name: str | None) -> None:
+    # skip lambda functions without name, validation tests will cover this
+    if func.__name__ == "<lambda>" and name is None:
+        return
+
     registry = Registry()
     resonate = Resonate(registry=registry)
 
     resonate.register(func, name=name)
     assert registry.get(name or func.__name__) == (func, 1)
     assert registry.get(func) == (name or func.__name__, 1)
+
+    resonate.register(func, name=name, version=2)
+    assert registry.get(name or func.__name__) == (func, 2)
+    assert registry.get(func) == (name or func.__name__, 2)
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
@@ -237,118 +254,45 @@ def test_type_annotations() -> None:
     assert_type(f.rpc, Callable[[str, int, str], Handle[int | str]])
 
 
-# Input validation tests
+@pytest.mark.parametrize(
+    ("func", "kwargs"),
+    [
+        (lambda x: x, {"name": "foo", "timeout": 1, "version": -1}),
+        (lambda x: x, {"name": "foo", "timeout": -1, "version": 1}),
+        (lambda x: x, {"timeout": 1, "version": 1}),
+        (foo, {"version": 1}),
+        (foo, {"version": 2}),
+        (bar, {"version": 1}),
+        (foo, {"name": "bar"}),
+        (bar, {"name": "foo"}),
+    ],
+)
+def test_register_validations(registry: Registry, func: Callable, kwargs: dict) -> None:
+    resonate = Resonate(registry=registry)
+    with pytest.raises(ResonateValidationError):
+        resonate.register(func, **kwargs)
+
+    with pytest.raises(ResonateValidationError):
+        resonate.register(**kwargs)(func)
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    ("func", "kwargs"),
     [
-        {"timeout": 1, "version": -1},
-        {"timeout": -1, "version": 1},
+        (foo, {"version": 3}),
+        (bar, {"version": 2}),
+        (baz, {}),
+        ("foo", {"version": 3}),
+        ("bar", {"version": 2}),
+        ("baz", {}),
     ],
 )
-def test_instantiate_options_invalid_args(kwargs: dict) -> None:
-    with pytest.raises(ResonateValidationError):
-        Options(**kwargs)
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"timeout": 1, "version": -1},
-        {"timeout": -1, "version": 1},
-    ],
-)
-def test_merge_options_invalid_args(kwargs: dict) -> None:
-    with pytest.raises(ResonateValidationError):
-        Options().merge(**kwargs)
-
-
-def test_register_lambda_without_name() -> None:
-    with pytest.raises(ResonateValidationError):
-        Resonate().register(lambda _: 2)
-
-
-def test_register_lambda_with_name() -> None:
-    Resonate().register(lambda _: 2, name="foo")
-
-
-def test_register_with_negative_version() -> None:
-    with pytest.raises(ResonateValidationError):
-        Resonate().register(lambda _: 2, name="foo", version=-1)
-
-
-def test_run_unregistered_function() -> None:
-    def foo(ctx: Context) -> None: ...
-
-    resonate = Resonate()
-    with pytest.raises(ResonateValidationError):
-        resonate.run("foo", foo)
-
-
-def test_run_missing_version() -> None:
-    def foo(ctx: Context) -> None: ...
-
-    resonate = Resonate()
-    resonate.register(foo, version=1)
-    with pytest.raises(ResonateValidationError):
-        resonate.options(version=2).run("foo", foo)
-
-
-def test_rpc_unregistered_function() -> None:
-    def foo(ctx: Context) -> None: ...
-
-    resonate = Resonate()
-    with pytest.raises(ResonateValidationError):
-        resonate.rpc("foo", foo)
-
-
-def test_rpc_missing_version() -> None:
-    def foo(ctx: Context) -> None: ...
-
-    resonate = Resonate()
-    resonate.register(foo, version=1)
-    with pytest.raises(ResonateValidationError):
-        resonate.options(version=2).rpc("foo", foo)
-
-
-def test_reregister_function_same_version() -> None:
-    resonate = Resonate()
-
-    @resonate.register(version=1)
-    def foo(ctx: Context) -> None: ...
+def test_run_and_rpc_validations(registry: Registry, func: Callable | str, kwargs: dict) -> None:
+    resonate = Resonate(registry=registry)
 
     with pytest.raises(ResonateValidationError):
-        resonate.register(foo, version=1)
+        resonate.options(**kwargs).run("f", func)
 
-
-def test_reregister_function_different_version() -> None:
-    resonate = Resonate()
-
-    @resonate.register(version=1)
-    def foo(ctx: Context) -> None: ...
-
-    resonate.register(foo, version=2)
-
-
-def test_register_same_function_with_different_name() -> None:
-    resonate = Resonate()
-
-    def foo(ctx: Context) -> None: ...
-
-    resonate.register(foo, name="bar", version=1)
-    with pytest.raises(ResonateValidationError):
-        resonate.register(foo, name="baz", version=2)
-
-
-def test_register_same_name_different_functions() -> None:
-    resonate = Resonate()
-
-    def foo1(ctx: Context) -> None: ...
-    def foo2(ctx: Context) -> None: ...
-
-    resonate.register(foo1, name="foo", version=1)
-    resonate.register(foo2, name="foo", version=2)
-
-    with pytest.raises(ResonateValidationError):
-        resonate.options(version=3).run("foo", "foo")
+    if callable(func):
+        with pytest.raises(ResonateValidationError):
+            resonate.options(**kwargs).rpc("f", func)

@@ -224,7 +224,7 @@ class Context:
             case Callable():
                 return f, self._registry.latest(f), None
 
-    def _rfi_func(self, f: str | Callable) -> tuple[str, int, dict[int, str] | None]:
+    def _rfi_func(self, f: str | Callable) -> tuple[str, int, set[int] | None]:
         match f:
             case str():
                 return f, self._registry.latest(f), None
