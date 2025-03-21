@@ -14,6 +14,10 @@ class Registry:
         self._reverse_registry: dict[Callable, dict[int, str]] = {}
 
     def add(self, func: Callable, name: str, version: int = 1) -> None:
+        if name == "<lambda>":
+            msg = "registering a lambda requires setting a name."
+            raise ResonateValidationError(msg)
+
         if not version > 0:
             msg = "version must be greater than 0"
             raise ResonateValidationError(msg)
@@ -43,13 +47,13 @@ class Registry:
             raise ResonateValidationError(msg)
 
         versions = self._forward_registry[func] if isinstance(func, str) else self._reverse_registry[func]
-        resolved_version = max(versions.keys()) if version == 0 else version
+        version = max(versions.keys()) if version == 0 else version
 
-        if resolved_version not in versions:
+        if version not in versions:
             msg = f"version={version} is not registered for function={func if isinstance(func, str) else func.__name__}"
             raise ResonateValidationError(msg)
 
-        return versions[resolved_version], resolved_version
+        return versions[version], version
 
     @overload
     def all(self, func: str) -> dict[int, Callable]: ...

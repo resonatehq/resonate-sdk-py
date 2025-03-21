@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -59,3 +59,59 @@ def _get_non_existing_version() -> None:
 def test_validations(check: Callable[[], None]) -> None:
     with pytest.raises(ResonateValidationError):
         check()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"timeout": 1, "version": -1},
+        {"timeout": -1, "version": 1},
+    ],
+)
+def test_instantiate_options_invalid_args(kwargs: dict[str, Any]) -> None:
+    with pytest.raises(ResonateValidationError):
+        Options(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"timeout": 1, "version": -1},
+        {"timeout": -1, "version": 1},
+    ],
+)
+def test_merge_options_invalid_args(kwargs: dict[str, Any]) -> None:
+    with pytest.raises(ResonateValidationError):
+        Options().merge(**kwargs)
+
+def test_register_lambda_without_name() -> None:
+    with pytest.raises(ResonateValidationError):
+        Resonate().register(lambda _: 2)
+
+
+def test_register_lambda_with_name() -> None:
+    Resonate().register(lambda _: 2, name="foo")
+
+def test_register_with_negative_version() -> None:
+    with pytest.raises(ResonateValidationError):
+        Resonate().register(lambda _: 2, name="foo", version=-1)
+
+def test_run_unregistered_function() -> None:
+    def foo(ctx: Context) -> None:...
+    resonate = Resonate()
+    with pytest.raises(ResonateValidationError):
+        resonate.run("foo", foo)
+
+
+def test_run_missing_version() -> None:
+    def foo(ctx: Context) -> None:...
+    resonate = Resonate()
+    resonate.register(foo, version=1)
+    # resonate.run("foo", foo)
+
+
+def test_rpc_unregistered_function() -> None:
+    def foo(ctx: Context) -> None:...
+    resonate = Resonate()
+    with pytest.raises(ResonateValidationError):
+        resonate.rpc("foo", foo)

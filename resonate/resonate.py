@@ -6,7 +6,6 @@ from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, overload
 
 from resonate.dependencies import Dependencies
-from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import (
     LFC,
@@ -72,13 +71,6 @@ class Resonate:
         self, *args: Callable | None, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
-            if not version > 0:
-                msg = "version must be greater than 0"
-                raise ResonateValidationError(msg)
-            if func.__name__ == "<lambda>" and name is None:
-                msg = "registering a lambda requires setting a name."
-                raise ResonateValidationError(msg)
-
             self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
 
