@@ -65,11 +65,11 @@ def test_register(func: Callable, name: str | None) -> None:
     ("func", "name", "args", "kwargs"),
     [
         (foo, "foo", (1, 2), {}),
-        # (bar, "bar", (1, 2), {}),
-        # (baz, "baz", (1, 2), {}),
-        # (foo, "foo", (), {"1": 1, "2": 2}),
-        # (bar, "bar", (), {"1": 1, "2": 2}),
-        # (baz, "baz", (), {"1": 1, "2": 2}),
+        (bar, "bar", (1, 2), {}),
+        (baz, "baz", (1, 2), {}),
+        (foo, "foo", (), {"1": 1, "2": 2}),
+        (bar, "bar", (), {"1": 1, "2": 2}),
+        (baz, "baz", (), {"1": 1, "2": 2}),
     ],
 )
 def test_run(
