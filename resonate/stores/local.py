@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, final
 from resonate.encoders.base64 import Base64Encoder
 from resonate.encoders.chain import ChainEncoder
 from resonate.encoders.json import JsonEncoder
-from resonate.errors import ResonateError
+from resonate.errors import ResonateStoreError
 from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.message import InvokeMesg, Mesg, NotifyMesg, ResumeMesg, TaskMesg
@@ -211,7 +211,7 @@ class LocalPromiseStore:
         promise = self._promises.get(promise_id)
         if promise is None:
             msg = "Promise not found"
-            raise ResonateError(msg, "STORE_NOT_FOUND")
+            raise ResonateStoreError(msg, "STORE_NOT_FOUND")
         durable_promise = DurablePromise.from_dict(
             self._store,
             promise.to_dict(),
@@ -241,7 +241,7 @@ class LocalPromiseStore:
         promise = self._promises.get(promise_id)
         if promise is None:
             msg = "Promise not found"
-            raise ResonateError(msg, "STORE_NOT_FOUND")
+            raise ResonateStoreError(msg, "STORE_NOT_FOUND")
         durable_promise = DurablePromise.from_dict(
             self._store,
             promise.to_dict(),
@@ -404,7 +404,7 @@ class LocalPromiseStore:
             case DurablePromiseRecord(state="PENDING"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", True if self._clock.time() >= record.timeout:
                 self.transition(id=id, to="REJECTED_TIMEDOUT")
                 msg = "Promise has timedout"
-                raise ResonateError(msg, "STORE_FORBIDDEN")
+                raise ResonateStoreError(msg, "STORE_FORBIDDEN")
 
             case DurablePromiseRecord(state="PENDING"), "REJECTED_TIMEDOUT", _:
                 assert self._clock.time() >= record.timeout
@@ -437,11 +437,11 @@ class LocalPromiseStore:
 
             case None, "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", _:
                 msg = "Not found"
-                raise ResonateError(msg, "STORE_NOT_FOUND")
+                raise ResonateStoreError(msg, "STORE_NOT_FOUND")
 
             case _:
                 msg = "Forbidden request"
-                raise ResonateError(msg, "STORE_FORBIDDEN")
+                raise ResonateStoreError(msg, "STORE_FORBIDDEN")
 
 
 class LocalTaskStore:
@@ -701,11 +701,11 @@ class LocalTaskStore:
 
             case None, _:
                 msg = "Task not found"
-                raise ResonateError(msg, "STORE_NOT_FOUND")
+                raise ResonateStoreError(msg, "STORE_NOT_FOUND")
 
             case _:
                 msg = "Task already claimed, completed, or invalid counter"
-                raise ResonateError(msg, "STORE_FORBIDDEN")
+                raise ResonateStoreError(msg, "STORE_FORBIDDEN")
 
 
 @final

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.errors import ResonateError
+from resonate.errors import ResonateStoreError
 from resonate.stores.local import LocalStore
 from resonate.stores.remote import RemoteStore
 from resonate.task_sources.poller import Poller
@@ -107,7 +107,7 @@ def test_case_5_transition_from_enqueue_to_claimed_via_claim(store: Store, task:
 
 def test_case_6_transition_from_enqueue_to_enqueue_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
-    with pytest.raises(ResonateError):
+    with pytest.raises(ResonateStoreError):
         store.tasks.claim(
             id=id,
             counter=counter + 1,
@@ -118,7 +118,7 @@ def test_case_6_transition_from_enqueue_to_enqueue_via_claim(store: Store, task:
 
 def test_case_8_transition_from_enqueue_to_enqueue_via_complete(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
-    with pytest.raises(ResonateError):
+    with pytest.raises(ResonateStoreError):
         store.tasks.complete(
             id=id,
             counter=counter,
@@ -133,7 +133,7 @@ def test_case_10_transition_from_enqueue_to_enqueue_via_hearbeat(store: Store, t
 def test_case_12_transition_from_claimed_to_claimed_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task12", ttl=sys.maxsize)
-    with pytest.raises(ResonateError):
+    with pytest.raises(ResonateStoreError):
         store.tasks.claim(
             id=id,
             counter=counter,
@@ -145,7 +145,7 @@ def test_case_12_transition_from_claimed_to_claimed_via_claim(store: Store, task
 def test_case_13_transition_from_claimed_to_init_via_claim(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task13", ttl=0)
-    with pytest.raises(ResonateError):
+    with pytest.raises(ResonateStoreError):
         store.tasks.claim(
             id=id,
             counter=counter,
@@ -164,14 +164,14 @@ def test_case_15_transition_from_claimed_to_init_via_complete(store: Store, task
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task15", ttl=0)
     time.sleep(TICK_TIME)
-    with pytest.raises(ResonateError):
+    with pytest.raises(ResonateStoreError):
         store.tasks.complete(id=id, counter=counter)
 
 
 def test_case_16_transition_from_claimed_to_claimed_via_complete(store: Store, task: tuple[str, int]) -> None:
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task16", ttl=sys.maxsize)
-    with pytest.raises(ResonateError):
+    with pytest.raises(ResonateStoreError):
         store.tasks.complete(id=id, counter=counter + 1)
 
 
@@ -179,7 +179,7 @@ def test_case_17_transition_from_claimed_to_init_via_complete(store: Store, task
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task17", ttl=0)
     time.sleep(TICK_TIME)
-    with pytest.raises(ResonateError):
+    with pytest.raises(ResonateStoreError):
         store.tasks.complete(id=id, counter=counter)
 
 
@@ -199,7 +199,7 @@ def test_case_20_transition_from_completed_to_completed_via_claim(store: Store, 
     id, counter = task
     store.tasks.claim(id=id, counter=counter, pid="task20", ttl=sys.maxsize)
     store.tasks.complete(id=id, counter=counter)
-    with pytest.raises(ResonateError):
+    with pytest.raises(ResonateStoreError):
         store.tasks.claim(id=id, counter=counter, pid="task20", ttl=0)
 
 

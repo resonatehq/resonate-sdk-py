@@ -9,7 +9,7 @@ from requests import PreparedRequest, Request, Response, Session
 from resonate.encoders.base64 import Base64Encoder
 from resonate.encoders.chain import ChainEncoder
 from resonate.encoders.json import JsonEncoder
-from resonate.errors import ResonateError
+from resonate.errors import ResonateStoreError
 from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.task import Task
@@ -321,18 +321,18 @@ def _call(req: PreparedRequest) -> Response:
                 return res
             if res.status_code == _status_codes.BAD_REQUEST:
                 msg = "Invalid Request"
-                raise ResonateError(msg, "STORE_PAYLOAD")
+                raise ResonateStoreError(msg, "STORE_PAYLOAD")
             if res.status_code == _status_codes.UNAUTHORIZED:
                 msg = "Unauthorized request"
-                raise ResonateError(msg, "STORE_UNAUTHORIZED")
+                raise ResonateStoreError(msg, "STORE_UNAUTHORIZED")
             if res.status_code == _status_codes.FORBIDDEN:
                 msg = "Forbidden request"
-                raise ResonateError(msg, "STORE_FORBIDDEN")
+                raise ResonateStoreError(msg, "STORE_FORBIDDEN")
             if res.status_code == _status_codes.NOT_FOUND:
                 msg = "Not found"
-                raise ResonateError(msg, "STORE_NOT_FOUND")
+                raise ResonateStoreError(msg, "STORE_NOT_FOUND")
             if res.status_code == _status_codes.CONFLICT:
                 msg = "Already exists"
-                raise ResonateError(msg, "STORE_ALREADY_EXISTS")
+                raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
         time.sleep(1)
     raise NotImplementedError

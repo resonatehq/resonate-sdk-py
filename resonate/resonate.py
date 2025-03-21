@@ -62,12 +62,14 @@ class Resonate:
         )
 
     @overload
-    def register[**P, R](self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Function[P, R]: ...
+    def register[**P, R](
+        self, func: Callable[Concatenate[Context, P], R], /, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
+    ) -> Function[P, R]: ...
     @overload
     def register[**P, R](self, *, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Callable[[Callable], Function[P, Any]]: ...
-    def register[**P, R](self, *args: Callable | None, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
-        # if func is lambda validate that name is set
-
+    def register[**P, R](
+        self, *args: Callable | None, name: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int = 1
+    ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
             self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout))
@@ -93,9 +95,9 @@ class Resonate:
         match func:
             case str():
                 name = func
-                func, version = self._registry.get(func)
+                func, version = self._registry.get(func, self._opts.version)
             case Callable():
-                name, version = self._registry.get(func.func if isinstance(func, Function) else func)
+                name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
@@ -120,7 +122,7 @@ class Resonate:
             case str():
                 name, version = func, self._registry.latest(func)
             case Callable():
-                name, version = self._registry.get(func.func if isinstance(func, Function) else func)
+                name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
@@ -222,7 +224,7 @@ class Context:
             case Callable():
                 return f, self._registry.latest(f), None
 
-    def _rfi_func(self, f: str | Callable) -> tuple[str, int, dict[int, str] | None]:
+    def _rfi_func(self, f: str | Callable) -> tuple[str, int, set[int] | None]:
         match f:
             case str():
                 return f, self._registry.latest(f), None

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from resonate import Context, Resonate
+from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
 from resonate.models.handle import Handle
 from resonate.models.options import Options
@@ -18,9 +19,11 @@ if TYPE_CHECKING:
 
 
 def foo(ctx: Context, a: int, b: int) -> int: ...
-def bar(a: int, b: int) -> int: ...
+def bar(ctx: Context, a: int, b: int) -> int: ...
 def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]: ...
 
+
+# Fixtures
 
 @pytest.fixture
 def scheduler() -> MagicMock:
@@ -34,7 +37,17 @@ def scheduler() -> MagicMock:
     return mock_scheduler
 
 
-# Helper to validate Invoke parameters
+@pytest.fixture
+def registry() -> Registry:
+    registry = Registry()
+    registry.add(foo, "foo", version=1)
+    registry.add(foo, "foo", version=2)
+    registry.add(bar, "bar", version=1)
+    return registry
+
+
+# Helper functions
+
 def cmd(mock_scheduler: MagicMock) -> None:
     mock_scheduler.enqueue.assert_called_once()
     args, kwargs = mock_scheduler.enqueue.call_args
@@ -43,18 +56,25 @@ def cmd(mock_scheduler: MagicMock) -> None:
     return args[0]
 
 
-# Parametrized tests
+# Tests
 
-
-@pytest.mark.parametrize("func", [foo, bar, baz])
+@pytest.mark.parametrize("func", [foo, bar, baz, lambda x: x])
 @pytest.mark.parametrize("name", ["foo", "bar", "baz", None])
 def test_register(func: Callable, name: str | None) -> None:
+    # skip lambda functions without name, validation tests will cover this
+    if func.__name__ == "<lambda>" and name is None:
+        return
+
     registry = Registry()
     resonate = Resonate(registry=registry)
 
     resonate.register(func, name=name)
     assert registry.get(name or func.__name__) == (func, 1)
     assert registry.get(func) == (name or func.__name__, 1)
+
+    resonate.register(func, name=name, version=2)
+    assert registry.get(name or func.__name__) == (func, 2)
+    assert registry.get(func) == (name or func.__name__, 2)
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
@@ -117,7 +137,8 @@ def test_run(
 
     version = (version or 1) + 1
     f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout)
-    invoke_with_opts.opts = invoke_with_opts.opts.merge(version=version)
+    opts = opts.merge(version=version)
+    invoke_with_opts.opts = opts
 
     f2.run("f", *args, **kwargs)
     assert cmd(scheduler) == invoke_with_opts
@@ -201,6 +222,7 @@ def test_get(scheduler: MagicMock, id: str) -> None:
     resonate.get(id)
     assert cmd(scheduler) == Listen(id=id)
 
+
 def test_type_annotations() -> None:
     # The following are "tests", if there is an issue it will be found by pright, at runtime
     # assert_type is effectively a noop.
@@ -209,6 +231,7 @@ def test_type_annotations() -> None:
 
     # foo
     def foo(ctx: Context, a: int, b: int, /) -> int: ...
+
     f = resonate.register(foo)
     assert_type(f, Function[[int, int], int])
     assert_type(f.run, Callable[[str, int, int], Handle[int]])
@@ -216,6 +239,7 @@ def test_type_annotations() -> None:
 
     # bar
     def bar(ctx: Context, a: str, b: str, /) -> str: ...
+
     f = resonate.register(bar)
     assert_type(f, Function[[str, str], str])
     assert_type(f.run, Callable[[str, str, str], Handle[str]])
@@ -223,7 +247,52 @@ def test_type_annotations() -> None:
 
     # baz
     def baz(ctx: Context, a: int, b: str, /) -> int | str: ...
+
     f = resonate.register(baz)
     assert_type(f, Function[[int, str], int | str])
     assert_type(f.run, Callable[[str, int, str], Handle[int | str]])
     assert_type(f.rpc, Callable[[str, int, str], Handle[int | str]])
+
+
+@pytest.mark.parametrize(
+    ("func", "kwargs"),
+    [
+        (lambda x: x, {"name": "foo", "timeout": 1, "version": -1}),
+        (lambda x: x, {"name": "foo", "timeout": -1, "version": 1}),
+        (lambda x: x, {"timeout": 1, "version": 1}),
+        (foo, {"version": 1}),
+        (foo, {"version": 2}),
+        (bar, {"version": 1}),
+        (foo, {"name": "bar"}),
+        (bar, {"name": "foo"}),
+    ],
+)
+def test_register_validations(registry: Registry, func: Callable, kwargs: dict) -> None:
+    resonate = Resonate(registry=registry)
+    with pytest.raises(ResonateValidationError):
+        resonate.register(func, **kwargs)
+
+    with pytest.raises(ResonateValidationError):
+        resonate.register(**kwargs)(func)
+
+
+@pytest.mark.parametrize(
+    ("func", "kwargs"),
+    [
+        (foo, {"version": 3}),
+        (bar, {"version": 2}),
+        (baz, {}),
+        ("foo", {"version": 3}),
+        ("bar", {"version": 2}),
+        ("baz", {}),
+    ],
+)
+def test_run_and_rpc_validations(registry: Registry, func: Callable | str, kwargs: dict) -> None:
+    resonate = Resonate(registry=registry)
+
+    with pytest.raises(ResonateValidationError):
+        resonate.options(**kwargs).run("f", func)
+
+    if callable(func):
+        with pytest.raises(ResonateValidationError):
+            resonate.options(**kwargs).rpc("f", func)

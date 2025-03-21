@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
+from resonate.errors import ResonateValidationError
 from resonate.models.options import Options
 
 if TYPE_CHECKING:
@@ -28,11 +29,13 @@ class LFX:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
-    versions: dict[int, Callable] | None = field(default=None)
+    versions: dict[int, Callable] | None = None
 
     def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
         if version is not None and self.versions is not None:
-            # throw resonate error if version not found
+            if version not in self.versions:
+                msg = f"version={version} not found."
+                raise ResonateValidationError(msg)
             self.func = self.versions[version]
 
         self.id = id or self.id
@@ -57,12 +60,12 @@ class RFX:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
-    versions: dict[int, str] | None = field(default=None)
+    versions: set[int] | None = None
 
     def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
-        if version is not None and self.versions is not None:
-            # throw resonate error if version not found
-            self.func = self.versions[version]
+        if version is not None and self.versions is not None and version not in self.versions:
+            msg = f"version={version} not found."
+            raise ResonateValidationError(msg)
 
         self.id = id or self.id
         self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version)
