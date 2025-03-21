@@ -95,9 +95,9 @@ class Resonate:
         match func:
             case str():
                 name = func
-                func, version = self._registry.get(func)
+                func, version = self._registry.get(func, self._opts.version)
             case Callable():
-                name, version = self._registry.get(func.func if isinstance(func, Function) else func)
+                name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
@@ -122,7 +122,7 @@ class Resonate:
             case str():
                 name, version = func, self._registry.latest(func)
             case Callable():
-                name, version = self._registry.get(func.func if isinstance(func, Function) else func)
+                name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
         self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
