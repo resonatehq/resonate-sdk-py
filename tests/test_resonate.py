@@ -309,3 +309,32 @@ def test_rpc_missing_version() -> None:
     resonate.register(foo, version=1)
     with pytest.raises(ResonateValidationError):
         resonate.options(version=2).rpc("foo", foo)
+
+
+def test_reregister_function_same_version() -> None:
+    resonate = Resonate()
+
+    @resonate.register(version=1)
+    def foo(ctx: Context) -> None: ...
+
+    with pytest.raises(ResonateValidationError):
+        resonate.register(foo, version=1)
+
+
+def test_reregister_function_different_version() -> None:
+    resonate = Resonate()
+
+    @resonate.register(version=1)
+    def foo(ctx: Context) -> None: ...
+
+    resonate.register(foo, version=2)
+
+
+def test_register_same_function_with_different_name() -> None:
+    resonate = Resonate()
+
+    def foo(ctx: Context) -> None: ...
+
+    resonate.register(foo, name="bar", version=1)
+    with pytest.raises(ResonateValidationError):
+        resonate.register(foo, name="baz", version=2)

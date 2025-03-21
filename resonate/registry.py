@@ -26,6 +26,14 @@ class Registry:
             msg = f"function {func.__name__} already registered under name={name} with version {version}."
             raise ResonateValidationError(msg)
 
+        if func in self._reverse_registry:
+            registered_names = set(self._reverse_registry[func].values())
+            assert len(registered_names) == 1
+            registered_name = next(iter(registered_names))
+            if registered_name != name:
+                msg = f"function={func.__name__} is already being registered with name={registered_name}"
+                raise ResonateValidationError(msg)
+
         if version in self._reverse_registry.get(func, {}):
             msg = f"function {func.__name__} already registered under name={self._reverse_registry[func][version]} with version {version}."
             raise ResonateValidationError(msg)
