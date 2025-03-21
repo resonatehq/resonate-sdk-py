@@ -59,7 +59,7 @@ def test_register(func: Callable, name: str | None) -> None:
 
 
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
-@pytest.mark.parametrize("version", [2])
+@pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
