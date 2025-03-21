@@ -36,6 +36,7 @@ def scheduler() -> MagicMock:
 
 
 # Helper to validate Invoke parameters
+
 def cmd(mock_scheduler: MagicMock) -> None:
     mock_scheduler.enqueue.assert_called_once()
     args, kwargs = mock_scheduler.enqueue.call_args
@@ -45,7 +46,6 @@ def cmd(mock_scheduler: MagicMock) -> None:
 
 
 # Parametrized tests
-
 
 @pytest.mark.parametrize("func", [foo, bar, baz])
 @pytest.mark.parametrize("name", ["foo", "bar", "baz", None])
@@ -118,12 +118,12 @@ def test_run(
 
     version = (version or 1) + 1
     f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout)
-    invoke_with_opts.opts = invoke_with_opts.opts.merge(version=version)
+    opts = opts.merge(version=version)
+    invoke_with_opts.opts = opts
 
     f2.run("f", *args, **kwargs)
     assert cmd(scheduler) == invoke_with_opts
 
-    opts = opts.merge(version=version)
     f2.options(**opts.to_dict()).run("f", *args, **kwargs)
     assert cmd(scheduler) == invoke_with_opts
 
@@ -193,7 +193,6 @@ def test_rpc(
     f2.rpc("f", *args, **kwargs)
     assert cmd(scheduler) == invoke_with_opts
 
-    opts = opts.merge(version=version)
     f2.options(**opts.to_dict()).rpc("f", *args, **kwargs)
     assert cmd(scheduler) == invoke_with_opts
 
@@ -237,7 +236,6 @@ def test_type_annotations() -> None:
 
 
 # Input validation tests
-
 
 @pytest.mark.parametrize(
     "kwargs",
@@ -338,3 +336,13 @@ def test_register_same_function_with_different_name() -> None:
     resonate.register(foo, name="bar", version=1)
     with pytest.raises(ResonateValidationError):
         resonate.register(foo, name="baz", version=2)
+
+
+def test_register_same_name_different_functions() -> None:
+    resonate = Resonate()
+
+    def foo1(ctx: Context) -> None: ...
+    def foo2(ctx: Context) -> None: ...
+
+    resonate.register(foo1, name="foo", version=1)
+    resonate.register(foo2, name="foo", version=2)
