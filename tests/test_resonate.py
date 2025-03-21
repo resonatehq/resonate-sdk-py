@@ -37,6 +37,7 @@ def scheduler() -> MagicMock:
 
 # Helper to validate Invoke parameters
 
+
 def cmd(mock_scheduler: MagicMock) -> None:
     mock_scheduler.enqueue.assert_called_once()
     args, kwargs = mock_scheduler.enqueue.call_args
@@ -46,6 +47,7 @@ def cmd(mock_scheduler: MagicMock) -> None:
 
 
 # Parametrized tests
+
 
 @pytest.mark.parametrize("func", [foo, bar, baz])
 @pytest.mark.parametrize("name", ["foo", "bar", "baz", None])
@@ -237,6 +239,7 @@ def test_type_annotations() -> None:
 
 # Input validation tests
 
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -346,3 +349,6 @@ def test_register_same_name_different_functions() -> None:
 
     resonate.register(foo1, name="foo", version=1)
     resonate.register(foo2, name="foo", version=2)
+
+    with pytest.raises(ResonateValidationError):
+        resonate.options(version=3).run("foo", "foo")
