@@ -143,7 +143,7 @@ def test_run(
     assert cmd(scheduler) == invoke_with_opts
 
     version = (version or 1) + 1
-    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout)
+    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout, tags=tags)
     opts = opts.merge(version=version)
     invoke_with_opts.opts = opts
 
@@ -217,7 +217,7 @@ def test_rpc(
     assert cmd(scheduler) == invoke_with_opts
 
     version = (version or 1) + 1
-    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout)
+    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout, tags=tags)
     invoke_with_opts.opts = invoke_with_opts.opts.merge(version=version)
 
     f2.rpc("f", *args, **kwargs)
