@@ -13,6 +13,7 @@ class Options:
     send_to: str = "poller://default"
     timeout: int = sys.maxsize
     version: int = 0
+    tags: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         if not (self.version >= 0):
@@ -22,7 +23,7 @@ class Options:
             msg = "timeout must be greater or equal than 0"
             raise ResonateValidationError(msg)
 
-    def merge(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Options:
+    def merge(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None) -> Options:
         if version and not (version >= 0):
             msg = "version must be greater or equal than 0"
             raise ResonateValidationError(msg)
@@ -33,6 +34,7 @@ class Options:
             send_to=send_to or self.send_to,
             timeout=timeout or self.timeout,
             version=version or self.version,
+            tags=tags or self.tags
         )
 
     def to_dict(self) -> DictOptions:
@@ -40,6 +42,7 @@ class Options:
             send_to=self.send_to,
             timeout=self.timeout,
             version=self.version,
+            tags=self.tags,
         )
 
 
@@ -47,3 +50,4 @@ class DictOptions(TypedDict):
     send_to: str
     timeout: int
     version: int
+    tags: dict[str, str] | None
