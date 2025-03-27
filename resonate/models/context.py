@@ -31,7 +31,7 @@ class LFX:
     opts: Options = field(default_factory=Options)
     versions: dict[int, Callable] | None = None
 
-    def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
+    def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None) -> Self:
         if version is not None and self.versions is not None:
             if version not in self.versions:
                 msg = f"version={version} not found."
@@ -39,7 +39,7 @@ class LFX:
             self.func = self.versions[version]
 
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version)
+        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
         return self
 
 
@@ -62,13 +62,13 @@ class RFX:
     opts: Options = field(default_factory=Options)
     versions: set[int] | None = None
 
-    def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None) -> Self:
+    def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None) -> Self:
         if version is not None and self.versions is not None and version not in self.versions:
             msg = f"version={version} not found."
             raise ResonateValidationError(msg)
 
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version)
+        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
         return self
 
 

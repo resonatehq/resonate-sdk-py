@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 
 # Scheduler
 
+
 class Scheduler:
     def __init__(
         self,
@@ -147,6 +148,7 @@ class Scheduler:
 
 type State = Enabled[Running[Init | Func | Coro]] | Enabled[Suspended[Init | Func | Coro]] | Enabled[Completed[Func | Coro]] | Blocked[Running[Init | Func | Coro]] | Blocked[Suspended[Func]]
 
+
 @dataclass
 class Enabled[T: Running[Init | Func | Coro] | Suspended[Init | Func | Coro] | Completed[Func | Coro]]:
     value: Final[T]
@@ -172,6 +174,7 @@ class Enabled[T: Running[Init | Func | Coro] | Suspended[Init | Func | Coro] | C
     @property
     def func(self) -> Init | Func | Coro:
         return self.value.value
+
 
 @dataclass
 class Blocked[T: Running[Init | Func | Coro] | Suspended[Func]]:
@@ -199,6 +202,7 @@ class Blocked[T: Running[Init | Func | Coro] | Suspended[Func]]:
     def func(self) -> Init | Func | Coro:
         return self.value.value
 
+
 @dataclass
 class Running[T: Init | Func | Coro]:
     value: Final[T]
@@ -224,6 +228,7 @@ class Running[T: Init | Func | Coro]:
     @property
     def func(self) -> T:
         return self.value
+
 
 @dataclass
 class Suspended[T: Init | Func | Coro]:
@@ -251,6 +256,7 @@ class Suspended[T: Init | Func | Coro]:
     def func(self) -> T:
         return self.value
 
+
 @dataclass
 class Completed[T: Func | Coro]:
     value: Final[T]
@@ -277,6 +283,7 @@ class Completed[T: Func | Coro]:
     def func(self) -> T:
         return self.value
 
+
 @dataclass
 class Init:
     next: Func | Coro | None = None
@@ -294,6 +301,7 @@ class Init:
     def __repr__(self) -> str:
         s = ", ".join([s.value.func.id for s in self.suspends])
         return f"Init(id={self.id}, next={self.next}, suspends=[{s}])"
+
 
 @dataclass
 class Func:
@@ -321,6 +329,7 @@ class Func:
     def __repr__(self) -> str:
         s = ", ".join([s.value.func.id for s in self.suspends])
         return f"Func(id={self.id}, type={self.type}, suspends=[{s}], result={self.result})"
+
 
 @dataclass
 class Coro:
@@ -356,9 +365,11 @@ class Coro:
         s = ", ".join([s.value.func.id for s in self.suspends])
         return f"Coro(id={self.id}, next={self.next}, suspends=[{s}], result={self.result})"
 
+
 class PoppableList[T](list[T]):
     def spop(self) -> T | None:
         return self.pop() if self else None
+
 
 class Computation:
     def __init__(self, id: str, ctx: Callable[[str], Context], pid: str, unicast: str, anycast: str) -> None:
@@ -375,7 +386,7 @@ class Computation:
         self.task: Task | None = None
         self.callbacks: dict[str, Callback] = {}
 
-        self.history: list[Command | Request | tuple[str, None | AWT | Result, LFI | RFI | AWT | TRM] ] = []
+        self.history: list[Command | Request | tuple[str, None | AWT | Result, LFI | RFI | AWT | TRM]] = []
 
     def __repr__(self) -> str:
         return f"Computation(id={self.id}, runnable={self.runnable()}, suspendable={self.suspendable()})"
@@ -538,7 +549,9 @@ class Computation:
                 self.callbacks[id] = callback
                 node.transition(Enabled(Suspended(f)))
 
-            case (old_task, Enabled(Suspended(Func(type="remote", suspends=suspends) as f))), (promise, new_task, None) if promise.completed and old_task.completed and new_task and not new_task.completed:
+            case (old_task, Enabled(Suspended(Func(type="remote", suspends=suspends) as f))), (promise, new_task, None) if (
+                promise.completed and old_task.completed and new_task and not new_task.completed
+            ):
                 self.task = new_task
                 node.transition(Enabled(Completed(f.map(promise=promise, result=promise.result))))
 
@@ -562,8 +575,8 @@ class Computation:
 
         # It is possible for an invoke command to correspond to an already completed promise,
         # in this case there would either be:
-            # 1. No task to complete
-            # 2. A previously completed task
+        # 1. No task to complete
+        # 2. A previously completed task
 
         if self.suspendable() and self.task and not self.task.completed:
             # It is possible for the task to have expired, in this case ignore the error
@@ -596,17 +609,12 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.anycast, "resonate:scope": "global"},
+                        tags=_merge_tags({"resonate:invoke": self.anycast, "resonate:scope": "global"}, opts.tags),
                         pid=self.pid,
                         ttl=sys.maxsize,
                     )
                 else:
-                    req = CreatePromiseReq(
-                        id=id,
-                        ikey=id,
-                        timeout=sys.maxsize,
-                        tags={"resonate:scope": "local"},
-                    )
+                    req = CreatePromiseReq(id=id, ikey=id, timeout=sys.maxsize, tags=_merge_tags({"resonate:scope": "local"}, opts.tags))
 
                 return [
                     Network(id, self.id, req),
@@ -618,13 +626,17 @@ class Computation:
                 node.transition(Blocked(exec))
 
                 return [
-                    Network(id, self.id, CreatePromiseReq(
-                        id=id,
-                        ikey=id,
-                        timeout=sys.maxsize,
-                        data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": opts.send_to, "resonate:scope": "global"},
-                    )),
+                    Network(
+                        id,
+                        self.id,
+                        CreatePromiseReq(
+                            id=id,
+                            ikey=id,
+                            timeout=sys.maxsize,
+                            data={"func": name, "args": args, "kwargs": kwargs},
+                            tags=_merge_tags({"resonate:invoke": opts.send_to, "resonate:scope": "global"}, opts.tags),
+                        ),
+                    ),
                 ]
 
             case Enabled(Running(Func(id, type, _, func, args, kwargs, result=result) as f)):
@@ -640,20 +652,12 @@ class Computation:
                         ]
                     case Ok(v):
                         return [
-                            Network(id, self.id, ResolvePromiseReq(
-                                id=id,
-                                ikey=id,
-                                data=v
-                            )),
+                            Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
                     case Ko(v):
                         # TODO(dfarr): retry if there is retry budget
                         return [
-                            Network(id, self.id, RejectPromiseReq(
-                                id=id,
-                                ikey=id,
-                                data=v
-                            )),
+                            Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
 
             case Enabled(Running(Coro() as c)):
@@ -746,13 +750,17 @@ class Computation:
                         child.transition(Blocked(Suspended(f.map(suspends=node))))
 
                         return [
-                            Network(id, self.id, CreateCallbackReq(
-                                id=callback_id,
-                                promise_id=id,
-                                root_promise_id=self.id,
-                                timeout=sys.maxsize,
-                                recv=self.anycast,
-                            ))
+                            Network(
+                                id,
+                                self.id,
+                                CreateCallbackReq(
+                                    id=callback_id,
+                                    promise_id=id,
+                                    root_promise_id=self.id,
+                                    timeout=sys.maxsize,
+                                    recv=self.anycast,
+                                ),
+                            )
                         ]
 
                     case AWT(id, cid), Blocked(Suspended(Func(type="remote") as f)):
@@ -775,26 +783,20 @@ class Computation:
                         match result:
                             case Ok(v):
                                 return [
-                                    Network(id, self.id, ResolvePromiseReq(
-                                        id=id,
-                                        ikey=id,
-                                        data=v
-                                    )),
+                                    Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                 ]
                             case Ko(v):
                                 # TODO(dfarr): retry if there is retry budget
                                 return [
-                                    Network(id, self.id, RejectPromiseReq(
-                                        id=id,
-                                        ikey=id,
-                                        data=v
-                                    )),
+                                    Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                 ]
 
                     case _:
                         raise NotImplementedError
 
-            case Enabled(Suspended(Init() | Func(type="remote") | Coro(type="local")) | Completed()) | Blocked(Running(Init() | Func(type="local") | Coro(type="local")) | Suspended(Func(type="remote"))):
+            case Enabled(Suspended(Init() | Func(type="remote") | Coro(type="local")) | Completed()) | Blocked(
+                Running(Init() | Func(type="local") | Coro(type="local")) | Suspended(Func(type="remote"))
+            ):
                 # valid states
                 return []
 
@@ -837,10 +839,12 @@ class Computation:
 
 # Coroutine
 
+
 @dataclass
 class TRM:
     id: str
     result: Result
+
 
 class Coroutine:
     def __init__(self, id: str, cid: str, gen: Generator[Yieldable, Any, Any]) -> None:
@@ -906,3 +910,9 @@ class Coroutine:
             return self.unyielded.pop(0)
         else:
             return yielded
+
+
+def _merge_tags(a: dict[str, str], b: dict[str, str] | None) -> dict[str, str]:
+    if b is not None:
+        a.update(b)
+    return a

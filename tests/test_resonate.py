@@ -25,6 +25,7 @@ def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]: ...
 
 # Fixtures
 
+
 @pytest.fixture
 def scheduler() -> MagicMock:
     mock_scheduler = MagicMock()
@@ -48,6 +49,7 @@ def registry() -> Registry:
 
 # Helper functions
 
+
 def cmd(mock_scheduler: MagicMock) -> None:
     mock_scheduler.enqueue.assert_called_once()
     args, kwargs = mock_scheduler.enqueue.call_args
@@ -57,6 +59,7 @@ def cmd(mock_scheduler: MagicMock) -> None:
 
 
 # Tests
+
 
 @pytest.mark.parametrize("func", [foo, bar, baz, lambda x: x])
 @pytest.mark.parametrize("name", ["foo", "bar", "baz", None])
@@ -80,6 +83,7 @@ def test_register(func: Callable, name: str | None) -> None:
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
+@pytest.mark.parametrize("tags", [{"a": "1"}, {"2": "foo"}, {"a": "foo"}, None])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
     [
@@ -96,6 +100,7 @@ def test_run(
     send_to: str | None,
     version: int | None,
     timeout: int | None,
+    tags: dict[str, str] | None,
     func: Callable,
     name: str,
     args: tuple,
@@ -113,6 +118,8 @@ def test_run(
         opts = opts.merge(version=version)
     if timeout is not None:
         opts = opts.merge(timeout=timeout)
+    if tags is not None:
+        opts = opts.merge(tags=tags)
 
     invoke = Invoke(id="f", name=name, func=func, args=args, kwargs=kwargs, opts=Options(version=version or 1))
     invoke_with_opts = Invoke(id="f", name=name, func=func, args=args, kwargs=kwargs, opts=opts)
@@ -136,7 +143,7 @@ def test_run(
     assert cmd(scheduler) == invoke_with_opts
 
     version = (version or 1) + 1
-    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout)
+    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout, tags=tags)
     opts = opts.merge(version=version)
     invoke_with_opts.opts = opts
 
@@ -150,6 +157,7 @@ def test_run(
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
+@pytest.mark.parametrize("tags", [{"a": "1"}, {"2": "foo"}, {"a": "foo"}, None])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
     [
@@ -166,6 +174,7 @@ def test_rpc(
     send_to: str | None,
     version: int | None,
     timeout: int | None,
+    tags: dict[str, str] | None,
     func: Callable,
     name: str,
     args: tuple,
@@ -183,6 +192,8 @@ def test_rpc(
         opts = opts.merge(version=version)
     if timeout is not None:
         opts = opts.merge(timeout=timeout)
+    if tags is not None:
+        opts = opts.merge(tags=tags)
 
     invoke = Invoke(id="f", name=name, func=None, args=args, kwargs=kwargs, opts=Options(version=version or 1))
     invoke_with_opts = Invoke(id="f", name=name, func=None, args=args, kwargs=kwargs, opts=opts)
@@ -206,7 +217,7 @@ def test_rpc(
     assert cmd(scheduler) == invoke_with_opts
 
     version = (version or 1) + 1
-    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout)
+    f2 = resonate.register(func, name=name, send_to=send_to, version=version, timeout=timeout, tags=tags)
     invoke_with_opts.opts = invoke_with_opts.opts.merge(version=version)
 
     f2.rpc("f", *args, **kwargs)
