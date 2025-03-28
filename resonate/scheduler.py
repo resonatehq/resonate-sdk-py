@@ -661,8 +661,8 @@ class Computation:
                         ]
                     case Ko(v):
                         # TODO(tperez): retry if there is retry budget
-                        assert f.opts.retry_policy is not None, "Must be set either by user or with default retry policy"
-                        if not isinstance(f.opts.retry_policy, Never) and (delay := f.opts.retry_policy.calculate_delay(ctx.attempt) is not None):
+                        assert opts.retry_policy is not None, "Must be set either by user or with default retry policy"
+                        if not isinstance(opts.retry_policy, Never) and (delay := opts.retry_policy.calculate_delay(ctx.attempt)) is not None:
                             raise NotImplementedError
 
                         return [
@@ -786,7 +786,7 @@ class Computation:
                         node.transition(Enabled(Running(c.map(next=result))))
                         return []
 
-                    case TRM(id, result), _:
+                    case TRM(id, result), Enabled(Running(Coro(opts=opts, ctx=ctx))):
                         assert id == node.id, "Id must match node id."
                         node.transition(Blocked(Running(c)))
 
@@ -797,6 +797,10 @@ class Computation:
                                 ]
                             case Ko(v):
                                 # TODO(tperez): retry if there is retry budget
+                                assert opts.retry_policy is not None, "Must be set either by user or with default retry policy"
+                                if not isinstance(opts.retry_policy, Never) and (delay := opts.retry_policy.calculate_delay(ctx.attempt)) is not None:
+                                    raise NotImplementedError
+
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                 ]
