@@ -20,7 +20,7 @@ class Exponential:
     max_retries: int
 
     def calculate_delay(self, attempt: int) -> float | None:
-        assert attempt > 0, "attempt must be positive"
+        assert attempt >= 0, "attempt must be greater or equal than 0"
         if attempt > self.max_retries and self.max_retries >= 0:
             return None
         return min(self.base_delay * (self.factor**attempt), self.max_delay)
@@ -37,7 +37,7 @@ class Linear:
     max_retries: int
 
     def calculate_delay(self, attempt: int) -> float | None:
-        assert attempt > 0, "attempt must be positive"
+        assert attempt >= 0, "attempt must be greater or equal than 0"
         if attempt > self.max_retries and self.max_retries >= 0:
             return None
         return self.delay * attempt
@@ -54,7 +54,7 @@ class Constant:
     max_retries: int
 
     def calculate_delay(self, attempt: int) -> float | None:
-        assert attempt > 0, "attempt must be positive"
+        assert attempt >= 0, "attempt must be greater or equal than 0"
         if attempt > self.max_retries and self.max_retries >= 0:
             return None
         return self.delay

@@ -175,7 +175,7 @@ class Context:
         self._registry = registry
         self._dependencies = dependencies
         self._counter = 0
-        self._attempt = 0
+        self._attempt = 1
 
     @property
     def id(self) -> str:
