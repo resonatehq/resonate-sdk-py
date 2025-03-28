@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 # Context
 
+
 class Context:
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
         assert not isinstance(func, str)
@@ -57,6 +58,10 @@ class Context:
     def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         assert not isinstance(func, str)
         return RFI(str(uuid.uuid4()), func.__name__, args, kwargs)
+
+    @property
+    def attempt(self) -> int:
+        return 0
 
 
 class LocalContext:
@@ -80,6 +85,10 @@ class LocalContext:
         assert not isinstance(func, str)
         return LFI(str(uuid.uuid4()), func, args, kwargs)
 
+    @property
+    def attempt(self) -> int:
+        return 0
+
 
 class RemoteContext:
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
@@ -102,8 +111,13 @@ class RemoteContext:
         assert not isinstance(func, str)
         return RFI(str(uuid.uuid4()), func.__name__, args, kwargs)
 
+    @property
+    def attempt(self) -> int:
+        return 0
+
 
 # Runners
+
 
 class Runner(Protocol):
     def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R: ...
@@ -231,15 +245,17 @@ class ResonateRunner:
                         assert root.pending
                         assert not leaf
 
-                        self.scheduler.enqueue(Invoke(
-                            root.id,
-                            root.param.data["func"],
-                            self.registry.get(root.param.data["func"])[0],
-                            root.param.data["args"],
-                            root.param.data["kwargs"],
-                            Options(),
-                            (root, task),
-                        ))
+                        self.scheduler.enqueue(
+                            Invoke(
+                                root.id,
+                                root.param.data["func"],
+                                self.registry.get(root.param.data["func"])[0],
+                                root.param.data["args"],
+                                root.param.data["kwargs"],
+                                Options(),
+                                (root, task),
+                            )
+                        )
 
                     case {"type": "resume", "task": {"id": id, "counter": counter}}:
                         task = Task(id=id, counter=counter, store=self.store)
@@ -248,21 +264,23 @@ class ResonateRunner:
                         assert leaf
                         assert leaf.completed
 
-                        self.scheduler.enqueue(Resume(
-                            id=leaf.id,
-                            cid=root.id,
-                            promise=leaf,
-                            task=task,
-                            invoke=Invoke(
-                                root.id,
-                                root.param.data["func"],
-                                self.registry.get(root.param.data["func"])[0],
-                                root.param.data["args"],
-                                root.param.data["kwargs"],
-                                Options(),
-                                (root, task),
-                            ),
-                        ))
+                        self.scheduler.enqueue(
+                            Resume(
+                                id=leaf.id,
+                                cid=root.id,
+                                promise=leaf,
+                                task=task,
+                                invoke=Invoke(
+                                    root.id,
+                                    root.param.data["func"],
+                                    self.registry.get(root.param.data["func"])[0],
+                                    root.param.data["args"],
+                                    root.param.data["kwargs"],
+                                    Options(),
+                                    (root, task),
+                                ),
+                            )
+                        )
 
                     case _:
                         raise NotImplementedError

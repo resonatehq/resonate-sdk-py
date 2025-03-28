@@ -22,6 +22,8 @@ from resonate.scheduler import Scheduler
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from resonate.models.retry_policies import RetryPolicy
+
 
 class Resonate:
     def __init__(
@@ -50,10 +52,10 @@ class Resonate:
             anycast=self.anycast,
         )
 
-    def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None) -> Resonate:
+    def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None, retry_policy: RetryPolicy | None = None) -> Resonate:
         return Resonate(
             pid=self._pid,
-            opts=self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags),
+            opts=self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy),
             unicast=self.unicast,
             anycast=self.anycast,
             registry=self._registry,
@@ -72,6 +74,7 @@ class Resonate:
         timeout: int | None = None,
         version: int = 1,
         tags: dict[str, str] | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> Function[P, R]: ...
     @overload
     def register[**P, R](
@@ -82,6 +85,7 @@ class Resonate:
         timeout: int | None = None,
         version: int = 1,
         tags: dict[str, str] | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> Callable[[Callable], Function[P, Any]]: ...
     def register[**P, R](
         self,
@@ -91,10 +95,11 @@ class Resonate:
         timeout: int | None = None,
         version: int = 1,
         tags: dict[str, str] | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
             self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
-            return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout, tags=tags))
+            return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout, tags=tags, retry_policy=retry_policy))
 
         if args and callable(args[0]):
             return wrapper(args[0])
@@ -253,6 +258,10 @@ class Context:
             case Callable():
                 return *self._registry.get(f), self._registry.all(f)
 
+    @property
+    def attempt(self) -> int:
+        return self._attempt
+
 
 # Function
 
@@ -283,8 +292,8 @@ class Function[**P, R]:
     def __call__(self, ctx: Context, *args: P.args, **kwargs: P.kwargs) -> Generator[Any, Any, R] | R:
         return self._func(ctx, *args, **kwargs)
 
-    def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None) -> Function[P, Generator[Any, Any, R] | R]:
-        return Function(self._resonate, self._name, self._func, self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags))
+    def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None, retry_policy: RetryPolicy | None = None) -> Function[P, Generator[Any, Any, R] | R]:
+        return Function(self._resonate, self._name, self._func, self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy))
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
         return self._resonate.options(**self._opts.to_dict()).run(id, self._name, *args, **kwargs)

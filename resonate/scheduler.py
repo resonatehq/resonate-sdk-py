@@ -312,6 +312,7 @@ class Func:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
+    ctx: Context
 
     promise: DurablePromise | None = None
     suspends: list[Node[State]] = field(default_factory=list)
@@ -340,8 +341,9 @@ class Coro:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
-
+    ctx: Context
     coro: Coroutine
+
     next: None | AWT | Result = None
 
     promise: DurablePromise | None = None
@@ -425,12 +427,13 @@ class Computation:
                 assert not self.task, "Task must not be set."
 
                 next: Coro | Func
+                ctx: Context = self.ctx(id)
                 if func is None:
-                    next = Func(id, "remote", name, func, args, kwargs, opts)
+                    next = Func(id, "remote", name, func, args, kwargs, opts, ctx)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                    next = Coro(id, "local", name, func, args, kwargs, opts, ctx, Coroutine(id, self.id, func(ctx, *args, **kwargs)))
                 else:
-                    next = Func(id, "local", name, func, args, kwargs, opts)
+                    next = Func(id, "local", name, func, args, kwargs, opts, ctx)
 
                 self.graph.root.transition(Enabled(Running(Init(next=next))))
 
@@ -439,12 +442,13 @@ class Computation:
                 assert promise.pending, "Promise must be pending."
 
                 next: Coro | Func
+                ctx: Context = self.ctx(id)
                 if func is None:
-                    next = Func(id, "remote", name, func, args, kwargs, opts)
+                    next = Func(id, "remote", name, func, args, kwargs, opts, ctx)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                    next = Coro(id, "local", name, func, args, kwargs, opts, ctx, Coroutine(id, self.id, func(ctx, *args, **kwargs)))  # HERE
                 else:
-                    next = Func(id, "local", name, func, args, kwargs, opts)
+                    next = Func(id, "local", name, func, args, kwargs, opts, ctx)
 
                 self.task = task
                 self.graph.root.transition(Enabled(Running(next.map(promise=promise))))
@@ -655,7 +659,7 @@ class Computation:
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
                     case Ko(v):
-                        # TODO(dfarr): retry if there is retry budget
+                        # TODO(tperez): retry if there is retry budget
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
@@ -668,10 +672,11 @@ class Computation:
                 match cmd, child.value:
                     case LFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
                         next: Coro | Func
+                        ctx: Context = self.ctx(id)
                         if isgeneratorfunction(func):
-                            next = Coro(id, "local", None, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                            next = Coro(id, "local", None, func, args, kwargs, opts, ctx, Coroutine(id, self.id, func(ctx, *args, **kwargs)))
                         else:
-                            next = Func(id, "local", None, func, args, kwargs, opts)
+                            next = Func(id, "local", None, func, args, kwargs, opts, ctx)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -680,7 +685,7 @@ class Computation:
                         return []
 
                     case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        next = Func(id, "remote", func, None, args, kwargs, opts)
+                        next = Func(id, "remote", func, None, args, kwargs, opts, self.ctx(id))
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -786,7 +791,7 @@ class Computation:
                                     Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                 ]
                             case Ko(v):
-                                # TODO(dfarr): retry if there is retry budget
+                                # TODO(tperez): retry if there is retry budget
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                 ]

@@ -11,6 +11,7 @@ from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
 from resonate.models.handle import Handle
 from resonate.models.options import Options
+from resonate.models.retry_policies import Constant, Exponential, Linear, Never, RetryPolicy
 from resonate.registry import Registry
 from resonate.resonate import Function
 
@@ -84,6 +85,7 @@ def test_register(func: Callable, name: str | None) -> None:
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
 @pytest.mark.parametrize("tags", [{"a": "1"}, {"2": "foo"}, {"a": "foo"}, None])
+@pytest.mark.parametrize("retry_policy", [Never(), Constant(delay=1, max_retries=1), Linear(delay=1, max_retries=1), Exponential(base_delay=0.4, factor=2, max_delay=3, max_retries=1), None])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
     [
@@ -101,6 +103,7 @@ def test_run(
     version: int | None,
     timeout: int | None,
     tags: dict[str, str] | None,
+    retry_policy: RetryPolicy | None,
     func: Callable,
     name: str,
     args: tuple,
@@ -120,6 +123,8 @@ def test_run(
         opts = opts.merge(timeout=timeout)
     if tags is not None:
         opts = opts.merge(tags=tags)
+    if retry_policy is not None:
+        opts.merge(retry_policy=retry_policy)
 
     invoke = Invoke(id="f", name=name, func=func, args=args, kwargs=kwargs, opts=Options(version=version or 1))
     invoke_with_opts = Invoke(id="f", name=name, func=func, args=args, kwargs=kwargs, opts=opts)
@@ -158,6 +163,7 @@ def test_run(
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
 @pytest.mark.parametrize("tags", [{"a": "1"}, {"2": "foo"}, {"a": "foo"}, None])
+@pytest.mark.parametrize("retry_policy", [Never(), Constant(delay=1, max_retries=1), Linear(delay=1, max_retries=1), Exponential(base_delay=0.4, factor=2, max_delay=3, max_retries=1), None])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
     [
@@ -175,6 +181,7 @@ def test_rpc(
     version: int | None,
     timeout: int | None,
     tags: dict[str, str] | None,
+    retry_policy: RetryPolicy | None,
     func: Callable,
     name: str,
     args: tuple,
@@ -194,6 +201,8 @@ def test_rpc(
         opts = opts.merge(timeout=timeout)
     if tags is not None:
         opts = opts.merge(tags=tags)
+    if retry_policy is not None:
+        opts.merge(retry_policy=retry_policy)
 
     invoke = Invoke(id="f", name=name, func=None, args=args, kwargs=kwargs, opts=Options(version=version or 1))
     invoke_with_opts = Invoke(id="f", name=name, func=None, args=args, kwargs=kwargs, opts=opts)
