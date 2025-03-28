@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from resonate.encoders.json import JsonEncoder
+from resonate.models.message import InvokeMesg, NotifyMesg, ResumeMesg, TaskMesg
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
@@ -55,7 +56,7 @@ class Poller:
             if msg := self._step(res):
                 cq.enqueue(msg)
 
-    def _step(self, res: requests.Response) -> Any:
+    def _step(self, res: requests.Response) -> Mesg | None:
         for line in res.iter_lines(chunk_size=None, decode_unicode=True):
             if not line:
                 continue
@@ -64,6 +65,16 @@ class Poller:
             if not stripped.startswith("data:"):
                 continue
 
-            return self._encoder.decode(stripped[5:])
+            d = self._encoder.decode(stripped[5:])
+            match d["type"]:
+                case "invoke":
+                    return InvokeMesg("invoke", TaskMesg(id=d["id"], counter=d["counter"]))
+                case "resume":
+                    return ResumeMesg("resume", TaskMesg(id=d["id"], counter=d["counter"]))
+                case "notify":
+                    return NotifyMesg("notify", promise=d["promise"])
+                case _:
+                    # Unknown message type
+                    return None
 
         return None

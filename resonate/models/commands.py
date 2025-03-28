@@ -51,7 +51,7 @@ class Return:
 class Receive:
     id: str
     cid: str
-    res: CreatePromiseRes | CreatePromiseWithTaskRes | ResolvePromiseRes | RejectPromiseRes | CancelPromiseRes | CreateCallbackRes
+    res: NetworkRes
 
 
 @dataclass
@@ -79,6 +79,8 @@ class Retry:
     cid: str
 
 # Requests
+
+type Request = Network | Function | Delayed
 
 @dataclass
 class Network[T: CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq]:
@@ -189,12 +191,14 @@ class CreateCallbackRes:
     promise: DurablePromise
     callback: Callback | None
 
+
 @dataclass
 class ClaimTaskReq:
     id: str
     counter: int
     pid: str
     ttl: int
+
 
 @dataclass
 class ClaimTaskRes:

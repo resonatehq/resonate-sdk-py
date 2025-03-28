@@ -36,7 +36,7 @@ class RemoteStore:
 
     @property
     def tasks(self) -> RemoteTaskStore:
-        return RemoteTaskStore(self)
+        return RemoteTaskStore(self, self._encoder)
 
 
 class RemotePromiseStore:
@@ -251,8 +251,9 @@ class RemotePromiseStore:
 
 
 class RemoteTaskStore:
-    def __init__(self, store: RemoteStore) -> None:
+    def __init__(self, store: RemoteStore, encoder: Encoder[Any, str | None]) -> None:
         self._store = store
+        self._encoder = encoder
 
     def claim(
         self,
@@ -273,7 +274,27 @@ class RemoteTaskStore:
             },
         )
 
-        return _call(req.prepare()).json()
+        res = _call(req.prepare()).json()
+        root = DurablePromise.from_dict(
+            self._store,
+            res["rootPromise"],
+            self._encoder.decode(res["rootPromise"]["param"].get("data")),
+            self._encoder.decode(res["rootPromise"]["value"].get("data")),
+        )
+
+        leaf_dict = res.get("leafPromise")
+        leaf = (
+            DurablePromise.from_dict(
+                self._store,
+                leaf_dict,
+                self._encoder.decode(leaf_dict["param"].get("data")),
+                self._encoder.decode(leaf_dict["value"].get("data")),
+            )
+            if leaf_dict
+            else None
+        )
+
+        return (root, leaf)
 
     def complete(self, *, id: str, counter: int) -> bool:
         req = Request(

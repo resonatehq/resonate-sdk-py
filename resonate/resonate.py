@@ -48,6 +48,7 @@ class Resonate:
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
+        #TODO(avillega): Create a Bridge instance instead of a scheduler instance.
         self._scheduler = scheduler or Scheduler(
             ctx=lambda id, info: Context(id, info, self._opts, self._registry, self._dependencies),
             pid=pid,
