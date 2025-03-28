@@ -45,7 +45,6 @@ from resonate.models.context import (
     Yieldable,
 )
 from resonate.models.result import Ko, Ok, Result
-from resonate.models.retry_policies import Exponential, Never
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
@@ -55,13 +54,24 @@ if TYPE_CHECKING:
     from resonate.models.options import Options
     from resonate.models.task import Task
 
+
+class Info:
+    def __init__(self) -> None:
+        self._attempt = 1
+
+    @property
+    def attempt(self) -> int:
+        return self._attempt
+
+    def increment_attempt(self) -> None:
+        self._attempt +=1
+
+
 # Scheduler
-
-
 class Scheduler:
     def __init__(
         self,
-        ctx: Callable[[str], Context],
+        ctx: Callable[[str, Info], Context],
         cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
         pid: str | None = None,
         unicast: str | None = None,
@@ -313,7 +323,7 @@ class Func:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
-    ctx: Context
+    info: Info
 
     promise: DurablePromise | None = None
     suspends: list[Node[State]] = field(default_factory=list)
@@ -342,7 +352,7 @@ class Coro:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
-    ctx: Context
+    info: Info
     coro: Coroutine
 
     next: None | AWT | Result = None
@@ -375,7 +385,7 @@ class PoppableList[T](list[T]):
 
 
 class Computation:
-    def __init__(self, id: str, ctx: Callable[[str], Context], pid: str, unicast: str, anycast: str) -> None:
+    def __init__(self, id: str, ctx: Callable[[str, Info], Context], pid: str, unicast: str, anycast: str) -> None:
         self.id = id
         self.ctx = ctx
         self.pid = pid
@@ -427,14 +437,14 @@ class Computation:
             case Invoke(id, name, func, args, kwargs, opts, promise_and_task=None), Init(next=None):
                 assert not self.task, "Task must not be set."
 
-                ctx = self.ctx(id)
+                info = Info()
                 next: Coro | Func
                 if func is None:
-                    next = Func(id, "remote", name, func, args, kwargs, _add_default_retry_policy(opts, "func"), ctx)
+                    next = Func(id, "remote", name, func, args, kwargs, opts, info)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, _add_default_retry_policy(opts, "coro"), ctx, Coroutine(id, self.id, func(ctx, *args, **kwargs)))
+                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
                 else:
-                    next = Func(id, "local", name, func, args, kwargs, _add_default_retry_policy(opts, "func"), ctx)
+                    next = Func(id, "local", name, func, args, kwargs, opts, info)
 
                 self.graph.root.transition(Enabled(Running(Init(next=next))))
 
@@ -442,14 +452,14 @@ class Computation:
                 assert not self.task, "Task must not be set."
                 assert promise.pending, "Promise must be pending."
 
-                ctx = self.ctx(id)
+                info = Info()
                 next: Coro | Func
                 if func is None:
-                    next = Func(id, "remote", name, func, args, kwargs, _add_default_retry_policy(opts, "func"), ctx)
+                    next = Func(id, "remote", name, func, args, kwargs, opts, info)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, _add_default_retry_policy(opts, "coro"), ctx, Coroutine(id, self.id, func(ctx, *args, **kwargs)))  # HERE
+                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))  # HERE
                 else:
-                    next = Func(id, "local", name, func, args, kwargs, _add_default_retry_policy(opts, "func"), ctx)
+                    next = Func(id, "local", name, func, args, kwargs, opts, info)
 
                 self.task = task
                 self.graph.root.transition(Enabled(Running(next.map(promise=promise))))
@@ -614,12 +624,12 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags=_merge_tags({"resonate:invoke": self.anycast, "resonate:scope": "global"}, opts.tags),
+                        tags={"resonate:invoke": self.anycast, "resonate:scope": "global", **opts.tags},
                         pid=self.pid,
                         ttl=sys.maxsize,
                     )
                 else:
-                    req = CreatePromiseReq(id=id, ikey=id, timeout=sys.maxsize, tags=_merge_tags({"resonate:scope": "local"}, opts.tags))
+                    req = CreatePromiseReq(id=id, ikey=id, timeout=sys.maxsize, tags={"resonate:scope": "local", **opts.tags})
 
                 return [
                     Network(id, self.id, req),
@@ -639,12 +649,12 @@ class Computation:
                             ikey=id,
                             timeout=sys.maxsize,
                             data={"func": name, "args": args, "kwargs": kwargs},
-                            tags=_merge_tags({"resonate:invoke": opts.send_to, "resonate:scope": "global"}, opts.tags),
+                            tags={"resonate:invoke": opts.send_to, "resonate:scope": "global", **opts.tags},
                         ),
                     ),
                 ]
 
-            case Enabled(Running(Func(id, type, _, func, args, kwargs, opts, ctx, result=result) as f)):
+            case Enabled(Running(Func(id, type, _, func, args, kwargs, opts, info, result=result) as f)):
                 assert id == node.id, "Id must match node id."
                 assert type == "local", "Only local functions are runnable."
                 assert func is not None, "Func is required for local function."
@@ -653,7 +663,7 @@ class Computation:
                 match result:
                     case None:
                         return [
-                            Function(id, self.id, lambda: func(self.ctx(id), *args, **kwargs)),
+                            Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
                         ]
                     case Ok(v):
                         return [
@@ -661,9 +671,11 @@ class Computation:
                         ]
                     case Ko(v):
                         # TODO(tperez): retry if there is retry budget
-                        assert opts.retry_policy is not None, "Must be set either by user or with default retry policy"
-                        if not isinstance(opts.retry_policy, Never) and (delay := opts.retry_policy.calculate_delay(ctx.attempt)) is not None:
-                            raise NotImplementedError
+                        if (delay := opts.retry_policy.next(info.attempt)) is not None:
+                            info.increment_attempt()
+                            return [
+                                Function(id, self.id, lambda: func(self.ctx(id,info), *args, **kwargs)),
+                            ]
 
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
@@ -676,12 +688,12 @@ class Computation:
 
                 match cmd, child.value:
                     case LFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        ctx = self.ctx(id)
+                        info = Info()
                         next: Coro | Func
                         if isgeneratorfunction(func):
-                            next = Coro(id, "local", None, func, args, kwargs, _add_default_retry_policy(opts, "coro"), ctx, Coroutine(id, self.id, func(ctx, *args, **kwargs)))
+                            next = Coro(id, "local", None, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
                         else:
-                            next = Func(id, "local", None, func, args, kwargs, _add_default_retry_policy(opts, "func"), ctx)
+                            next = Func(id, "local", None, func, args, kwargs, opts, info)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -690,7 +702,7 @@ class Computation:
                         return []
 
                     case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        next = Func(id, "remote", func, None, args, kwargs, _add_default_retry_policy(opts, "func"), self.ctx(id))
+                        next = Func(id, "remote", func, None, args, kwargs, opts, Info())
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -786,7 +798,7 @@ class Computation:
                         node.transition(Enabled(Running(c.map(next=result))))
                         return []
 
-                    case TRM(id, result), Enabled(Running(Coro(opts=opts, ctx=ctx))):
+                    case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
                         node.transition(Blocked(Running(c)))
 
@@ -797,9 +809,10 @@ class Computation:
                                 ]
                             case Ko(v):
                                 # TODO(tperez): retry if there is retry budget
-                                assert opts.retry_policy is not None, "Must be set either by user or with default retry policy"
-                                if not isinstance(opts.retry_policy, Never) and (delay := opts.retry_policy.calculate_delay(ctx.attempt)) is not None:
-                                    raise NotImplementedError
+                                if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
+                                    c.info.increment_attempt()
+                                    c.coro = Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs))
+                                    return []
 
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
@@ -924,15 +937,3 @@ class Coroutine:
             return self.unyielded.pop(0)
         else:
             return yielded
-
-
-def _merge_tags(a: dict[str, str], b: dict[str, str] | None) -> dict[str, str]:
-    if b is not None:
-        a.update(b)
-    return a
-
-
-def _add_default_retry_policy(opts: Options, type: Literal["func", "coro"]) -> Options:
-    if opts.retry_policy is None:
-        opts = opts.merge(retry_policy=Never() if type == "coro" else Exponential(base_delay=1, factor=2, max_retries=-1, max_delay=30))
-    return opts

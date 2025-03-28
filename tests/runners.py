@@ -35,9 +35,17 @@ if TYPE_CHECKING:
 
     from resonate.registry import Registry
 
+
+
+class Info:
+    def __init__(self) -> None:
+        self._attempt = 1
+
+    @property
+    def attempt(self) -> int:
+        return self._attempt
+
 # Context
-
-
 class Context:
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
         assert not isinstance(func, str)
@@ -60,8 +68,9 @@ class Context:
         return RFI(str(uuid.uuid4()), func.__name__, args, kwargs)
 
     @property
-    def attempt(self) -> int:
-        return 0
+    def info(self) -> Info:
+        return Info()
+
 
 
 class LocalContext:
@@ -86,8 +95,9 @@ class LocalContext:
         return LFI(str(uuid.uuid4()), func, args, kwargs)
 
     @property
-    def attempt(self) -> int:
-        return 0
+    def info(self) -> Info:
+        return Info()
+
 
 
 class RemoteContext:
@@ -112,8 +122,9 @@ class RemoteContext:
         return RFI(str(uuid.uuid4()), func.__name__, args, kwargs)
 
     @property
-    def attempt(self) -> int:
-        return 0
+    def info(self) -> Info:
+        return Info()
+
 
 
 # Runners
@@ -154,7 +165,7 @@ class ResonateRunner:
         self.store = LocalStore()
 
         # create scheduler and connect store
-        self.scheduler = Scheduler(ctx=lambda _: Context())
+        self.scheduler = Scheduler(ctx=lambda *_: Context())
 
     def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         time = 0
@@ -296,7 +307,7 @@ class ResonateLFXRunner(ResonateRunner):
         self.store = LocalStore()
 
         # create scheduler
-        self.scheduler = Scheduler(ctx=lambda _: LocalContext())
+        self.scheduler = Scheduler(ctx=lambda *_: LocalContext())
 
 
 class ResonateRFXRunner(ResonateRunner):
@@ -307,4 +318,4 @@ class ResonateRFXRunner(ResonateRunner):
         self.store = LocalStore()
 
         # create scheduler and connect store
-        self.scheduler = Scheduler(ctx=lambda _: RemoteContext())
+        self.scheduler = Scheduler(ctx=lambda *_: RemoteContext())

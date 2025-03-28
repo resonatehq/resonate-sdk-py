@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, assert_type
 from unittest.mock import MagicMock
 
 import pytest
 
 from resonate import Context, Resonate
+from resonate.dependencies import Dependencies
 from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
 from resonate.models.handle import Handle
@@ -14,6 +16,7 @@ from resonate.models.options import Options
 from resonate.models.retry_policies import Constant, Exponential, Linear, Never, RetryPolicy
 from resonate.registry import Registry
 from resonate.resonate import Function
+from resonate.scheduler import Info
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -21,7 +24,9 @@ if TYPE_CHECKING:
 
 def foo(ctx: Context, a: int, b: int) -> int: ...
 def bar(ctx: Context, a: int, b: int) -> int: ...
-def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]: ...
+def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]:
+    yield ctx.lfc(bar, a, b)
+    raise NotImplementedError
 
 
 # Fixtures
@@ -85,7 +90,7 @@ def test_register(func: Callable, name: str | None) -> None:
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
 @pytest.mark.parametrize("tags", [{"a": "1"}, {"2": "foo"}, {"a": "foo"}, None])
-@pytest.mark.parametrize("retry_policy", [Never(), Constant(delay=1, max_retries=1), Linear(delay=1, max_retries=1), Exponential(base_delay=0.4, factor=2, max_delay=3, max_retries=1), None])
+@pytest.mark.parametrize("retry_policy", [Never(), Constant(delay=1, max_retries=1), Linear(delay=1, max_retries=1), Exponential(delay=0.4, factor=2, max_delay=3, max_retries=1)])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
     [
@@ -103,7 +108,7 @@ def test_run(
     version: int | None,
     timeout: int | None,
     tags: dict[str, str] | None,
-    retry_policy: RetryPolicy | None,
+    retry_policy: RetryPolicy,
     func: Callable,
     name: str,
     args: tuple,
@@ -123,8 +128,8 @@ def test_run(
         opts = opts.merge(timeout=timeout)
     if tags is not None:
         opts = opts.merge(tags=tags)
-    if retry_policy is not None:
-        opts.merge(retry_policy=retry_policy)
+
+    opts.merge(retry_policy=retry_policy)
 
     invoke = Invoke(id="f", name=name, func=func, args=args, kwargs=kwargs, opts=Options(version=version or 1))
     invoke_with_opts = Invoke(id="f", name=name, func=func, args=args, kwargs=kwargs, opts=opts)
@@ -163,7 +168,7 @@ def test_run(
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
 @pytest.mark.parametrize("tags", [{"a": "1"}, {"2": "foo"}, {"a": "foo"}, None])
-@pytest.mark.parametrize("retry_policy", [Never(), Constant(delay=1, max_retries=1), Linear(delay=1, max_retries=1), Exponential(base_delay=0.4, factor=2, max_delay=3, max_retries=1), None])
+@pytest.mark.parametrize("retry_policy", [Never(), Constant(delay=1, max_retries=1), Linear(delay=1, max_retries=1), Exponential(delay=0.4, factor=2, max_delay=3, max_retries=1)])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
     [
@@ -181,7 +186,7 @@ def test_rpc(
     version: int | None,
     timeout: int | None,
     tags: dict[str, str] | None,
-    retry_policy: RetryPolicy | None,
+    retry_policy: RetryPolicy,
     func: Callable,
     name: str,
     args: tuple,
@@ -201,8 +206,8 @@ def test_rpc(
         opts = opts.merge(timeout=timeout)
     if tags is not None:
         opts = opts.merge(tags=tags)
-    if retry_policy is not None:
-        opts.merge(retry_policy=retry_policy)
+
+    opts.merge(retry_policy=retry_policy)
 
     invoke = Invoke(id="f", name=name, func=None, args=args, kwargs=kwargs, opts=Options(version=version or 1))
     invoke_with_opts = Invoke(id="f", name=name, func=None, args=args, kwargs=kwargs, opts=opts)
@@ -316,3 +321,41 @@ def test_run_and_rpc_validations(registry: Registry, func: Callable | str, kwarg
     if callable(func):
         with pytest.raises(ResonateValidationError):
             resonate.options(**kwargs).rpc("f", func)
+
+
+@pytest.mark.parametrize(
+    "timeout",
+    [1, 2, 3],
+)
+@pytest.mark.parametrize("func", [foo, bar, baz])
+@pytest.mark.parametrize("version", [1, 2, 3, 20])
+@pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
+@pytest.mark.parametrize("retry_policy", [Never(), Constant(1, 1), None])
+def test_propagation(timeout: int, func: Callable, version: int, send_to: str | None, retry_policy: RetryPolicy | None) -> None:
+    registry = Registry()
+    registry.add(func, "func", version)
+
+    default_opts = Options()
+    opts = Options(timeout=timeout).merge(send_to=send_to, version=version, retry_policy=retry_policy)
+    ctx = Context("foo", Info(), opts, registry, Dependencies())
+
+    for f in (ctx.lfi, ctx.lfc, ctx.rfi, ctx.rfc, ctx.detached):
+        cmd = f(func, 1, 2)
+        assert cmd.opts.version == version
+        assert cmd.opts.tags == default_opts.tags
+        assert cmd.opts.send_to == default_opts.send_to
+        assert cmd.opts.retry_policy == Never() if isgeneratorfunction(func) else Exponential()
+
+        if f == ctx.detached:
+            assert cmd.opts.timeout == default_opts.timeout
+        else:
+            assert cmd.opts.timeout == timeout
+            cmd = cmd.options(timeout=timeout + 1)
+            assert cmd.opts.timeout == timeout
+
+        cmd = cmd.options(timeout=timeout - 1)
+        assert cmd.opts.timeout == timeout - 1
+
+        cmd = cmd.options(retry_policy=retry_policy, send_to=send_to)
+        assert cmd.opts.retry_policy == retry_policy if retry_policy is not None else Never() if isgeneratorfunction(func) else Exponential()
+        assert cmd.opts.send_to == send_to if send_to is not None else default_opts.send_to

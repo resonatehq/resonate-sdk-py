@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from typing_extensions import TypedDict
 
 from resonate.errors import ResonateValidationError
+from resonate.models.retry_policies import Never
 
 if TYPE_CHECKING:
     from resonate.models.retry_policies import RetryPolicy
@@ -17,8 +18,8 @@ class Options:
     send_to: str = "poller://default"
     timeout: int = sys.maxsize
     version: int = 0
-    tags: dict[str, str] | None = None
-    retry_policy: RetryPolicy | None = None
+    tags: dict[str, str] = field(default_factory=dict)
+    retry_policy: RetryPolicy = field(default_factory=Never)
 
     def __post_init__(self) -> None:
         if not (self.version >= 0):
@@ -35,12 +36,14 @@ class Options:
         if timeout and not (timeout >= 0):
             msg = "timeout mut be greater or equal than 0"
             raise ResonateValidationError(msg)
+
+
         return Options(
-            send_to=send_to or self.send_to,
-            timeout=timeout or self.timeout,
-            version=version or self.version,
-            tags=tags or self.tags,
-            retry_policy=retry_policy or self.retry_policy
+            send_to=send_to if send_to is not None else self.send_to,
+            timeout=timeout if timeout is not None else self.timeout,
+            version=version  if version is not None else self.version,
+            tags=tags if tags is not None else  self.tags,
+            retry_policy=retry_policy if retry_policy is not None else self.retry_policy
         )
 
     def to_dict(self) -> DictOptions:
