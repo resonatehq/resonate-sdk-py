@@ -326,7 +326,7 @@ class Server(Component):
 
         for recv, mesg in self.store.step():
             parsed = urllib.parse.urlparse(recv)
-            assert parsed.scheme == "poller", "scheme must be poller"
+            assert parsed.scheme == "poll", "scheme must be poller"
 
             match mesg["type"]:
                 case "invoke" | "resume":

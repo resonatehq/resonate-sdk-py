@@ -75,8 +75,8 @@ class Scheduler:
         self.pid = pid or uuid.uuid4().hex
 
         # unicast / anycast
-        self.unicast = unicast or f"poller://default/{pid}"
-        self.anycast = anycast or f"poller://default/{pid}"
+        self.unicast = unicast or f"poll://default/{pid}"
+        self.anycast = anycast or f"poll://default/{pid}"
 
         # computations
         self.computations: dict[str, Computation] = {}
@@ -354,15 +354,18 @@ class PoppableList[T](list[T]):
     def spop(self) -> T | None:
         return self.pop() if self else None
 
+
 @dataclass
 class More:
     reqs: list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]]
     done: Literal[False] = False
 
+
 @dataclass
 class Done:
     reqs: list[Network[CreateCallbackReq]]
     done: Literal[True] = True
+
 
 class Computation:
     def __init__(self, id: str, ctx: Callable[[str, Info], Context], pid: str, unicast: str, anycast: str) -> None:
@@ -441,8 +444,9 @@ class Computation:
 
                 self._apply_retry(node)
 
-            case _:
-                raise NotImplementedError
+            case c:
+                msg = f"Command {c} not supported"
+                raise NotImplementedError(msg)
 
     def _apply_return(self, node: Node[State], result: Result) -> None:
         match node.value:
@@ -509,13 +513,19 @@ class Computation:
 
                 if isinstance(node.value, Enabled) and isinstance(node.value.exec, Suspended) and isinstance(node.value.func, Rfnc) and node.value.func.suspends:
                     assert node is not self.graph.root, "Node must not be root node."
-                    done.append(Network(node.id, self.id, CreateCallbackReq(
-                        f"{self.id}:{node.id}",
-                        node.id,
-                        self.id,
-                        sys.maxsize,
-                        self.anycast,
-                    )))
+                    done.append(
+                        Network(
+                            node.id,
+                            self.id,
+                            CreateCallbackReq(
+                                f"{self.id}:{node.id}",
+                                node.id,
+                                self.id,
+                                sys.maxsize,
+                                self.anycast,
+                            ),
+                        )
+                    )
 
         if self.suspendable():
             assert not more, "More requests must be empty."

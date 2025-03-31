@@ -1,25 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
 type Mesg = InvokeMesg | ResumeMesg | NotifyMesg
 
 
-@dataclass
-class InvokeMesg:
+class InvokeMesg(TypedDict):
     type: Literal["invoke"]
     task: TaskMesg
 
 
-@dataclass
-class ResumeMesg:
+class ResumeMesg(TypedDict):
     type: Literal["resume"]
     task: TaskMesg
 
 
-@dataclass
-class NotifyMesg:
+class NotifyMesg(TypedDict):
     type: Literal["notify"]
     promise: Any
 

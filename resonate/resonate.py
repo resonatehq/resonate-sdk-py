@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import copy
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
 from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Concatenate, overload
 
+from resonate.bridge import Bridge
 from resonate.dependencies import Dependencies
+from resonate.encoders.json import JsonEncoder
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import (
     LFC,
@@ -20,41 +23,74 @@ from resonate.models.handle import Handle
 from resonate.models.options import Options
 from resonate.models.retry_policies import Exponential, Never
 from resonate.registry import Registry
-from resonate.scheduler import Scheduler
+from resonate.stores.local import LocalStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from resonate.models.encoder import Encoder
+    from resonate.models.message_source import MessageSource
     from resonate.models.retry_policies import RetryPolicy
+    from resonate.models.store import Store
 
 
 class Resonate:
     def __init__(
         self,
+        *,
+        store: Store | None = None,
+        message_source: MessageSource | None = None,
         pid: str | None = None,
+        ttl: int = 10,
         opts: Options | None = None,
-        unicast: str | None = None,
         anycast: str | None = None,
+        unicast: str | None = None,
+        encoder: Encoder[Any, str | None] | None = None,
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        scheduler: Scheduler | None = None,
     ) -> None:
+        # Assertion to enforce mutual inclusion/exclusion of store and message_source
+        assert (store is None) == (message_source is None), "store and message_source must both be None or both be not None"
+
         self._pid = pid or uuid.uuid4().hex
         self._opts = opts or Options()
 
-        self.unicast = unicast or f"poller://default/{pid}"
-        self.anycast = anycast or f"poller://default/{pid}"
+        self.unicast = unicast or f"poll://default/{self._pid}"
+        self.anycast = anycast or f"poll://default/{self._pid}"
 
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
-        #TODO(avillega): Create a Bridge instance instead of a scheduler instance.
-        self._scheduler = scheduler or Scheduler(
+        _store: Store
+        _msg_src: MessageSource
+        _encoder = encoder or JsonEncoder()
+
+        if store is None:
+            _store = LocalStore(_encoder)
+            _msg_src = _store.as_msg_source()
+        else:
+            assert store is not None
+            assert message_source is not None
+            _store = store
+            _msg_src = message_source
+
+        self._bridge = Bridge(
             ctx=lambda id, info: Context(id, info, self._opts, self._registry, self._dependencies),
-            pid=pid,
-            unicast=self.unicast,
+            store=_store,
+            message_source=_msg_src,
+            registry=self._registry,
+            pid=self._pid,
+            ttl=ttl,
+            encoder=_encoder,
             anycast=self.anycast,
+            unicast=self.unicast,
         )
+
+    def start(self) -> None:
+        self._bridge.start()
+
+    def stop(self) -> None:
+        self._bridge.stop()
 
     def options(
         self,
@@ -65,15 +101,9 @@ class Resonate:
         timeout: int | None = None,
         version: int | None = None,
     ) -> Resonate:
-        return Resonate(
-            pid=self._pid,
-            opts=self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy),
-            unicast=self.unicast,
-            anycast=self.anycast,
-            registry=self._registry,
-            dependencies=self._dependencies,
-            scheduler=self._scheduler,
-        )
+        copied: Resonate = copy.copy(self)
+        copied._opts = self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)  # noqa: SLF001
+        return copied
 
     @overload
     def register[**P, R](
@@ -139,7 +169,7 @@ class Resonate:
                 name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.step(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
+        self._bridge.invoke(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)
@@ -164,14 +194,14 @@ class Resonate:
                 name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.step(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
+        self._bridge.invoke(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)
 
     def get(self, id: str) -> Handle[Any]:
         fp, fv = Future[DurablePromise](), Future[Any]()
-        self._scheduler.step(Listen(id), futures=(fp, fv))
+        self._bridge.listen(Listen(id), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class Options:
     retry_policy: RetryPolicy = field(default_factory=Never)
-    send_to: str = "poller://default"
+    send_to: str = "poll://default"
     tags: dict[str, str] = field(default_factory=dict)
     timeout: int = sys.maxsize
     version: int = 0

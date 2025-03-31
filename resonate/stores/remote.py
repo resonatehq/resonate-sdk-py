@@ -120,12 +120,15 @@ class RemotePromiseStore:
         )
         res = _call(req.prepare()).json()
 
-        return DurablePromise.from_dict(
+        promise = DurablePromise.from_dict(
             self._store,
             res["promise"],
             self._encoder.decode(res["promise"]["param"].get("data")),
             self._encoder.decode(res["promise"]["value"].get("data")),
-        ), Task.from_dict(self._store, res["task"]) if "task" in res else None
+        )
+        task_dict = res.get("task")
+        task = Task.from_dict(self._store, task_dict) if task_dict is not None else None
+        return promise, task
 
     def resolve(
         self,
@@ -242,12 +245,14 @@ class RemotePromiseStore:
         )
         res = _call(req.prepare()).json()
 
+        callback_dict = res.get("callback", None)
+
         return DurablePromise.from_dict(
             self._store,
             res["promise"],
             self._encoder.decode(res["promise"]["param"].get("data")),
             self._encoder.decode(res["promise"]["value"].get("data")),
-        ), Callback.from_dict(res["callback"]) if "callback" in res else None
+        ), Callback.from_dict(callback_dict) if callback_dict is not None else None
 
 
 class RemoteTaskStore:
@@ -275,14 +280,17 @@ class RemoteTaskStore:
         )
 
         res = _call(req.prepare()).json()
+
+        promises_dict = res["promises"]
+        root_dict = promises_dict["root"]["data"]
         root = DurablePromise.from_dict(
             self._store,
-            res["rootPromise"],
-            self._encoder.decode(res["rootPromise"]["param"].get("data")),
-            self._encoder.decode(res["rootPromise"]["value"].get("data")),
+            root_dict,
+            self._encoder.decode(root_dict["param"].get("data")),
+            self._encoder.decode(root_dict["value"].get("data")),
         )
 
-        leaf_dict = res.get("leafPromise")
+        leaf_dict = promises_dict.get("leaf", {}).get("data", None)
         leaf = (
             DurablePromise.from_dict(
                 self._store,

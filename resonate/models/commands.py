@@ -51,7 +51,7 @@ class Return:
 class Receive:
     id: str
     cid: str
-    res: NetworkRes
+    res: CreatePromiseRes | CreatePromiseWithTaskRes | ResolvePromiseRes | RejectPromiseRes | CancelPromiseRes | CreateCallbackRes
 
 
 @dataclass
@@ -78,9 +78,11 @@ class Retry:
     id: str
     cid: str
 
+
 # Requests
 
 type Request = Network | Function | Delayed
+
 
 @dataclass
 class Network[T: CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq]:
@@ -95,10 +97,12 @@ class Function:
     cid: str
     func: Callable[[], Any]
 
+
 @dataclass
 class Delayed[T: Function | Retry]:
     item: T
     delay: float
+
 
 @dataclass
 class CreatePromiseReq:
@@ -206,10 +210,12 @@ class ClaimTaskRes:
     leaf: DurablePromise | None
     task: Task
 
+
 @dataclass
 class CompleteTaskReq:
     id: str
     counter: int
+
 
 @dataclass
 class CompleteTaskRes:
