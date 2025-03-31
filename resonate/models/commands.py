@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 # Commands
 
-type Command = Invoke | Resume | Return | Receive | Listen | Notify | Noop
+type Command = Invoke | Resume | Return | Receive | Listen | Notify | Noop | Retry
 
 
 @dataclass
@@ -79,9 +79,15 @@ class Notify:
 class Noop:
     pass
 
+
+@dataclass
+class Retry:
+    id: str
+    cid: str
+
 # Requests
 
-type Request = Network | Function
+type Request = Network | Function | Delayed
 
 
 @dataclass
@@ -96,6 +102,11 @@ class Function:
     id: str
     cid: str
     func: Callable[[], Any]
+
+@dataclass
+class Delayed[T: Function | Retry]:
+    item: T
+    delay: float
 
 
 @dataclass
