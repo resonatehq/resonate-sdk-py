@@ -457,7 +457,7 @@ class Computation:
                 if func is None:
                     next = Func(id, "remote", name, func, args, kwargs, opts, info)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))  # HERE
+                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
                 else:
                     next = Func(id, "local", name, func, args, kwargs, opts, info)
 
@@ -670,7 +670,6 @@ class Computation:
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
                     case Ko(v):
-                        # TODO(tperez): retry if there is retry budget
                         if (delay := opts.retry_policy.next(info.attempt)) is not None:
                             info.increment_attempt()
                             return [
@@ -808,7 +807,6 @@ class Computation:
                                     Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                 ]
                             case Ko(v):
-                                # TODO(tperez): retry if there is retry budget
                                 if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
                                     c.info.increment_attempt()
                                     c.coro = Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs))
