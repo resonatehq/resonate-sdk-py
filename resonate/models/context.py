@@ -9,6 +9,13 @@ from resonate.models.options import Options
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from resonate.models.retry_policies import RetryPolicy
+
+
+class Info(Protocol):
+    @property
+    def attempt(self) -> int: ...
+
 
 class Context(Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
@@ -17,6 +24,8 @@ class Context(Protocol):
     def rfi(self, *args: Any, **kwargs: Any) -> LFI | LFC | RFI | RFC: ...
     def rfc(self, *args: Any, **kwargs: Any) -> LFI | LFC | RFI | RFC: ...
     def detached(self, *args: Any, **kwargs: Any) -> LFI | LFC | RFI | RFC: ...
+    @property
+    def info(self) -> Info: ...
 
 
 type Yieldable = LFI | LFC | RFI | RFC | AWT
@@ -31,15 +40,31 @@ class LFX:
     opts: Options = field(default_factory=Options)
     versions: dict[int, Callable] | None = None
 
-    def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None) -> Self:
+    def __post_init__(self) -> None:
+        # Initially, timeout is set to the parent context timeout. This is the upper bound for the timeout.
+        self._max_timeout = self.opts.timeout
+
+    def options(
+        self,
+        *,
+        id: str | None = None,
+        retry_policy: RetryPolicy | None = None,
+        send_to: str | None = None,
+        tags: dict[str, str] | None = None,
+        timeout: int | None = None,
+        version: int | None = None,
+    ) -> Self:
         if version is not None and self.versions is not None:
             if version not in self.versions:
                 msg = f"version={version} not found."
                 raise ResonateValidationError(msg)
             self.func = self.versions[version]
 
+        if timeout is not None:
+            timeout = min(self._max_timeout, timeout)
+
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
+        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
         return self
 
 
@@ -62,13 +87,29 @@ class RFX:
     opts: Options = field(default_factory=Options)
     versions: set[int] | None = None
 
-    def options(self, *, id: str | None = None, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None) -> Self:
+    def __post_init__(self) -> None:
+        # Initially, timeout is set to the parent context timeout. This is the upper bound for the timeout.
+        self._max_timeout = self.opts.timeout
+
+    def options(
+        self,
+        *,
+        id: str | None = None,
+        retry_policy: RetryPolicy | None = None,
+        send_to: str | None = None,
+        tags: dict[str, str] | None = None,
+        timeout: int | None = None,
+        version: int | None = None,
+    ) -> Self:
         if version is not None and self.versions is not None and version not in self.versions:
             msg = f"version={version} not found."
             raise ResonateValidationError(msg)
 
+        if timeout is not None:
+            timeout = min(self._max_timeout, timeout)
+
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
+        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
         return self
 
 

@@ -54,13 +54,24 @@ if TYPE_CHECKING:
     from resonate.models.options import Options
     from resonate.models.task import Task
 
+
+class Info:
+    def __init__(self) -> None:
+        self._attempt = 1
+
+    @property
+    def attempt(self) -> int:
+        return self._attempt
+
+    def increment_attempt(self) -> None:
+        self._attempt +=1
+
+
 # Scheduler
-
-
 class Scheduler:
     def __init__(
         self,
-        ctx: Callable[[str], Context],
+        ctx: Callable[[str, Info], Context],
         cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
         pid: str | None = None,
         unicast: str | None = None,
@@ -312,6 +323,7 @@ class Func:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
+    info: Info
 
     promise: DurablePromise | None = None
     suspends: list[Node[State]] = field(default_factory=list)
@@ -340,8 +352,9 @@ class Coro:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
-
+    info: Info
     coro: Coroutine
+
     next: None | AWT | Result = None
 
     promise: DurablePromise | None = None
@@ -372,7 +385,7 @@ class PoppableList[T](list[T]):
 
 
 class Computation:
-    def __init__(self, id: str, ctx: Callable[[str], Context], pid: str, unicast: str, anycast: str) -> None:
+    def __init__(self, id: str, ctx: Callable[[str, Info], Context], pid: str, unicast: str, anycast: str) -> None:
         self.id = id
         self.ctx = ctx
         self.pid = pid
@@ -424,13 +437,14 @@ class Computation:
             case Invoke(id, name, func, args, kwargs, opts, promise_and_task=None), Init(next=None):
                 assert not self.task, "Task must not be set."
 
+                info = Info()
                 next: Coro | Func
                 if func is None:
-                    next = Func(id, "remote", name, func, args, kwargs, opts)
+                    next = Func(id, "remote", name, func, args, kwargs, opts, info)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
                 else:
-                    next = Func(id, "local", name, func, args, kwargs, opts)
+                    next = Func(id, "local", name, func, args, kwargs, opts, info)
 
                 self.graph.root.transition(Enabled(Running(Init(next=next))))
 
@@ -438,13 +452,14 @@ class Computation:
                 assert not self.task, "Task must not be set."
                 assert promise.pending, "Promise must be pending."
 
+                info = Info()
                 next: Coro | Func
                 if func is None:
-                    next = Func(id, "remote", name, func, args, kwargs, opts)
+                    next = Func(id, "remote", name, func, args, kwargs, opts, info)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
                 else:
-                    next = Func(id, "local", name, func, args, kwargs, opts)
+                    next = Func(id, "local", name, func, args, kwargs, opts, info)
 
                 self.task = task
                 self.graph.root.transition(Enabled(Running(next.map(promise=promise))))
@@ -609,12 +624,12 @@ class Computation:
                         ikey=id,
                         timeout=sys.maxsize,
                         data={"func": name, "args": args, "kwargs": kwargs},
-                        tags=_merge_tags({"resonate:invoke": self.anycast, "resonate:scope": "global"}, opts.tags),
+                        tags={"resonate:invoke": self.anycast, "resonate:scope": "global", **opts.tags},
                         pid=self.pid,
                         ttl=sys.maxsize,
                     )
                 else:
-                    req = CreatePromiseReq(id=id, ikey=id, timeout=sys.maxsize, tags=_merge_tags({"resonate:scope": "local"}, opts.tags))
+                    req = CreatePromiseReq(id=id, ikey=id, timeout=sys.maxsize, tags={"resonate:scope": "local", **opts.tags})
 
                 return [
                     Network(id, self.id, req),
@@ -634,12 +649,12 @@ class Computation:
                             ikey=id,
                             timeout=sys.maxsize,
                             data={"func": name, "args": args, "kwargs": kwargs},
-                            tags=_merge_tags({"resonate:invoke": opts.send_to, "resonate:scope": "global"}, opts.tags),
+                            tags={"resonate:invoke": opts.send_to, "resonate:scope": "global", **opts.tags},
                         ),
                     ),
                 ]
 
-            case Enabled(Running(Func(id, type, _, func, args, kwargs, result=result) as f)):
+            case Enabled(Running(Func(id, type, _, func, args, kwargs, opts, info, result=result) as f)):
                 assert id == node.id, "Id must match node id."
                 assert type == "local", "Only local functions are runnable."
                 assert func is not None, "Func is required for local function."
@@ -648,14 +663,19 @@ class Computation:
                 match result:
                     case None:
                         return [
-                            Function(id, self.id, lambda: func(self.ctx(id), *args, **kwargs)),
+                            Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
                         ]
                     case Ok(v):
                         return [
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
                     case Ko(v):
-                        # TODO(dfarr): retry if there is retry budget
+                        if (delay := opts.retry_policy.next(info.attempt)) is not None:
+                            info.increment_attempt()
+                            return [
+                                Function(id, self.id, lambda: func(self.ctx(id,info), *args, **kwargs)),
+                            ]
+
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
@@ -667,11 +687,12 @@ class Computation:
 
                 match cmd, child.value:
                     case LFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
+                        info = Info()
                         next: Coro | Func
                         if isgeneratorfunction(func):
-                            next = Coro(id, "local", None, func, args, kwargs, opts, Coroutine(id, self.id, func(self.ctx(id), *args, **kwargs)))
+                            next = Coro(id, "local", None, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
                         else:
-                            next = Func(id, "local", None, func, args, kwargs, opts)
+                            next = Func(id, "local", None, func, args, kwargs, opts, info)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -680,7 +701,7 @@ class Computation:
                         return []
 
                     case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        next = Func(id, "remote", func, None, args, kwargs, opts)
+                        next = Func(id, "remote", func, None, args, kwargs, opts, Info())
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -786,7 +807,11 @@ class Computation:
                                     Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                 ]
                             case Ko(v):
-                                # TODO(dfarr): retry if there is retry budget
+                                if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
+                                    c.info.increment_attempt()
+                                    c.coro = Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs))
+                                    return []
+
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                 ]
@@ -910,9 +935,3 @@ class Coroutine:
             return self.unyielded.pop(0)
         else:
             return yielded
-
-
-def _merge_tags(a: dict[str, str], b: dict[str, str] | None) -> dict[str, str]:
-    if b is not None:
-        a.update(b)
-    return a
