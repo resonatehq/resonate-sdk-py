@@ -459,7 +459,7 @@ class Computation:
                 if func is None:
                     next = Func(id, "remote", name, func, args, kwargs, opts, info)
                 elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))  # HERE
+                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
                 else:
                     next = Func(id, "local", name, func, args, kwargs, opts, info)
 
