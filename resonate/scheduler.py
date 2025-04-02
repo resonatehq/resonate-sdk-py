@@ -628,67 +628,77 @@ class Computation:
         match node.value:
             case Enabled(Running(Init(Func(id, "local", name, _, args, kwargs, opts) | Coro(id, "local", name, _, args, kwargs, opts))) as exec):
                 assert id == node.id, "Id must match node id."
-                node.transition(Blocked(exec))
 
-                if node == self.graph.root:
-                    req = CreatePromiseWithTaskReq(
-                        id=id,
-                        ikey=id,
-                        timeout=sys.maxsize,
-                        data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.anycast, "resonate:scope": "global", **opts.tags},
-                        pid=self.pid,
-                        ttl=sys.maxsize,
-                    )
-                else:
-                    req = CreatePromiseReq(id=id, ikey=id, timeout=sys.maxsize, tags={"resonate:scope": "local", **opts.tags})
+                if opts.durable:
+                    node.transition(Blocked(exec))
 
-                return [
-                    Network(id, self.id, req),
-                ]
-
-            case Enabled(Running(Init(Func(id, "remote", name, _, args, kwargs, opts))) as exec):
-                assert id == node.id, "Id must match node id."
-                assert name is not None, "Name is required for remote invocation."
-                node.transition(Blocked(exec))
-
-                return [
-                    Network(
-                        id,
-                        self.id,
-                        CreatePromiseReq(
+                    if node == self.graph.root:
+                        req = CreatePromiseWithTaskReq(
                             id=id,
                             ikey=id,
                             timeout=sys.maxsize,
                             data={"func": name, "args": args, "kwargs": kwargs},
-                            tags={"resonate:invoke": opts.send_to, "resonate:scope": "global", **opts.tags},
+                            tags={"resonate:invoke": self.anycast, "resonate:scope": "global", **opts.tags},
+                            pid=self.pid,
+                            ttl=sys.maxsize,
+                        )
+                    else:
+                        req = CreatePromiseReq(id=id, ikey=id, timeout=sys.maxsize, tags={"resonate:scope": "local", **opts.tags})
+
+                    return [
+                        Network(id, self.id, req),
+                    ]
+                # TODO(tperez): What happens if not durable
+                raise NotImplementedError
+
+            case Enabled(Running(Init(Func(id, "remote", name, _, args, kwargs, opts))) as exec):
+                assert id == node.id, "Id must match node id."
+                assert name is not None, "Name is required for remote invocation."
+                if opts.durable:
+                    node.transition(Blocked(exec))
+
+                    return [
+                        Network(
+                            id,
+                            self.id,
+                            CreatePromiseReq(
+                                id=id,
+                                ikey=id,
+                                timeout=sys.maxsize,
+                                data={"func": name, "args": args, "kwargs": kwargs},
+                                tags={"resonate:invoke": opts.send_to, "resonate:scope": "global", **opts.tags},
+                            ),
                         ),
-                    ),
-                ]
+                    ]
+                # TODO(tperez): What happens if not durable
+                raise NotImplementedError
 
             case Enabled(Running(Func(id, type, _, func, args, kwargs, opts, info, result=result) as f)):
                 assert id == node.id, "Id must match node id."
                 assert type == "local", "Only local functions are runnable."
                 assert func is not None, "Func is required for local function."
-                node.transition(Blocked(Running(f)))
+                if opts.durable:
+                    node.transition(Blocked(Running(f)))
 
-                match result:
-                    case None:
-                        return [
-                            Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
-                        ]
-                    case Ok(v):
-                        return [
-                            Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
-                        ]
-                    case Ko(v):
-                        if (delay := opts.retry_policy.next(info.attempt)) is not None:
-                            info.increment_attempt()
-                            return [Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay)]
+                    match result:
+                        case None:
+                            return [
+                                Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
+                            ]
+                        case Ok(v):
+                            return [
+                                Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
+                            ]
+                        case Ko(v):
+                            if (delay := opts.retry_policy.next(info.attempt)) is not None:
+                                info.increment_attempt()
+                                return [Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay)]
 
-                        return [
-                            Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
-                        ]
+                            return [
+                                Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
+                            ]
+                # TODO(tperez): What happens if not durable
+                raise NotImplementedError
 
             case Enabled(Running(Coro() as c)):
                 cmd = c.coro.send(c.next)
@@ -809,24 +819,26 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
+                        if c.opts.durable:
+                            match result:
+                                case Ok(v):
+                                    node.transition(Blocked(Running(c)))
+                                    return [
+                                        Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
+                                    ]
+                                case Ko(v):
+                                    if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
+                                        assert c.promise is not None
+                                        c.info.increment_attempt()
+                                        node.transition(Blocked(Running(Init(next=c.map(coro=Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs)))))))
+                                        return [Delayed(Retry(id, self.id), delay)]
 
-                        match result:
-                            case Ok(v):
-                                node.transition(Blocked(Running(c)))
-                                return [
-                                    Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
-                                ]
-                            case Ko(v):
-                                if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
-                                    assert c.promise is not None
-                                    c.info.increment_attempt()
-                                    node.transition(Blocked(Running(Init(next=c.map(coro=Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs)))))))
-                                    return [Delayed(Retry(id, self.id), delay)]
-
-                                node.transition(Blocked(Running(c)))
-                                return [
-                                    Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
-                                ]
+                                    node.transition(Blocked(Running(c)))
+                                    return [
+                                        Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
+                                    ]
+                        # TODO(tperez): What happens if not durable
+                        raise NotImplementedError
 
                     case _:
                         raise NotImplementedError

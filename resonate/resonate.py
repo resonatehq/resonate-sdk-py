@@ -114,13 +114,7 @@ class Resonate:
                 self,
                 name or func.__name__,
                 func,
-                self._opts.merge(
-                    retry_policy=retry_policy,
-                    send_to=send_to,
-                    tags=tags,
-                    timeout=timeout,
-                    version=version,
-                ),
+                self._opts.merge(retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version),
             )
 
         if args and callable(args[0]):
@@ -328,13 +322,7 @@ class Function[**P, R]:
             self._resonate,
             self._name,
             self._func,
-            self._opts.merge(
-                retry_policy=retry_policy,
-                send_to=send_to,
-                tags=tags,
-                timeout=timeout,
-                version=version,
-            ),
+            self._opts.merge(retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version),
         )
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
