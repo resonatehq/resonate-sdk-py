@@ -22,6 +22,7 @@ from resonate.models.commands import (
     CreatePromiseRes,
     CreatePromiseWithTaskReq,
     CreatePromiseWithTaskRes,
+    Delayed,
     Function,
     Invoke,
     Network,
@@ -33,6 +34,7 @@ from resonate.models.commands import (
     ResolvePromiseReq,
     ResolvePromiseRes,
     Resume,
+    Retry,
     Return,
 )
 from resonate.models.context import (
@@ -64,7 +66,7 @@ class Info:
         return self._attempt
 
     def increment_attempt(self) -> None:
-        self._attempt +=1
+        self._attempt += 1
 
 
 # Scheduler
@@ -500,6 +502,16 @@ class Computation:
 
                 self._apply_receive(node, (promise, None, callback))
 
+            case Retry(id, _), _:
+                node = self.graph.find(lambda n: n.id == id)
+                assert node, "Node must exist."
+
+                match node.value:
+                    case Blocked(Running(Init(n))):
+                        assert isinstance(n, Coro)
+                        assert n.promise is not None
+                        node.transition(Enabled(Running(n)))
+
             case _:
                 raise NotImplementedError
 
@@ -672,9 +684,7 @@ class Computation:
                     case Ko(v):
                         if (delay := opts.retry_policy.next(info.attempt)) is not None:
                             info.increment_attempt()
-                            return [
-                                Function(id, self.id, lambda: func(self.ctx(id,info), *args, **kwargs)),
-                            ]
+                            return [Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay)]
 
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
@@ -799,19 +809,21 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
-                        node.transition(Blocked(Running(c)))
 
                         match result:
                             case Ok(v):
+                                node.transition(Blocked(Running(c)))
                                 return [
                                     Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                 ]
                             case Ko(v):
                                 if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
+                                    assert c.promise is not None
                                     c.info.increment_attempt()
-                                    c.coro = Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs))
-                                    return []
+                                    node.transition(Blocked(Running(Init(next=c.map(coro=Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs)))))))
+                                    return [Delayed(Retry(id, self.id), delay)]
 
+                                node.transition(Blocked(Running(c)))
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                 ]
