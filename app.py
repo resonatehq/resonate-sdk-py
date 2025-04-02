@@ -626,11 +626,13 @@ class Computation:
 
     def _eval(self, node: Node[State]) -> Sequence[Request]:
         match node.value:
-            case Enabled(Running(Init(Func(id, "local", name, _, args, kwargs, opts) | Coro(id, "local", name, _, args, kwargs, opts) as next, suspends))):
+            case Enabled(Running(Init(Func(id, "local", name, _, args, kwargs, opts) | Coro(id, "local", name, _, args, kwargs, opts) as next))):
                 assert id == node.id, "Id must match node id."
-                node.transition(Blocked(Running(Init(next, suspends))) if opts.durable else Enabled(Running(next)))
+
+                node.transition(Blocked(Running(Init(next))) if opts.durable else Enabled(Running(next)))
+
                 if node == self.graph.root:
-                    assert opts.durable, "All root promises must be durable"
+                    assert opts.durable, "All root promises must be durables"
                     return [
                         Network(
                             id,
@@ -655,9 +657,9 @@ class Computation:
             case Enabled(Running(Init(Func(id, "remote", name, _, args, kwargs, opts))) as exec):
                 assert id == node.id, "Id must match node id."
                 assert name is not None, "Name is required for remote invocation."
-                assert opts.durable, "All remote function invocations must be durable"
-                node.transition(Blocked(exec))
+                assert opts.durable, "Any remote function must be durable"
 
+                node.transition(Blocked(exec))
                 return [
                     Network(
                         id,
@@ -676,6 +678,7 @@ class Computation:
                 assert id == node.id, "Id must match node id."
                 assert type == "local", "Only local functions are runnable."
                 assert func is not None, "Func is required for local function."
+
                 match result, opts.retry_policy.next(info.attempt), opts.durable:
                     case None, _, _:
                         node.transition(Blocked(Running(f)))
@@ -701,7 +704,12 @@ class Computation:
                     case Ko(v), delay, _:
                         node.transition(Blocked(Running(f)))
                         info.increment_attempt()
-                        return [Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay)]
+                        return [
+                            Delayed(
+                                Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
+                                delay,
+                            )
+                        ]
 
             case Enabled(Running(Coro() as c)):
                 cmd = c.coro.send(c.next)
@@ -822,28 +830,27 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
-                        match result, c.opts.retry_policy.next(c.info.attempt), c.opts.durable:
-                            case Ok(v), _, True:
-                                node.transition(Blocked(Running(c)))
-                                return [
-                                    Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
-                                ]
-                            case Ok(v), _, False:
-                                node.transition(Enabled(Running(c.map(result=result))))
-                                return []
-                            case Ko(v), None, True:
-                                node.transition(Blocked(Running(c)))
-                                return [
-                                    Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
-                                ]
-                            case Ko(v), _, False:
-                                node.transition(Enabled(Running(c.map(result=result))))
-                                return []
-                            case Ko(v), delay, _:
-                                assert c.promise is not None
-                                c.info.increment_attempt()
-                                node.transition(Blocked(Running(Init(next=c.map(coro=Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs)))))))
-                                return [Delayed(Retry(id, self.id), delay)]
+                        if c.opts.durable:
+                            match result:
+                                case Ok(v):
+                                    node.transition(Blocked(Running(c)))
+                                    return [
+                                        Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
+                                    ]
+                                case Ko(v):
+                                    if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
+                                        assert c.promise is not None
+                                        c.info.increment_attempt()
+                                        node.transition(Blocked(Running(Init(next=c.map(coro=Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs)))))))
+                                        return [Delayed(Retry(id, self.id), delay)]
+
+                                    node.transition(Blocked(Running(c)))
+                                    return [
+                                        Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
+                                    ]
+                        else:
+                            # TODO(tperez): What happens if not durable
+                            raise NotImplementedError
 
                     case _:
                         raise NotImplementedError
