@@ -103,7 +103,6 @@ class RFX:
         self,
         *,
         id: str | None = None,
-        durable: bool | None = None,
         retry_policy: RetryPolicy | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
@@ -119,7 +118,6 @@ class RFX:
 
         self.id = id or self.id
         self.opts = self.opts.merge(
-            durable=durable,
             retry_policy=retry_policy,
             send_to=send_to,
             tags=tags,

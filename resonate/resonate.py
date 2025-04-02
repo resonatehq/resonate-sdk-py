@@ -110,7 +110,18 @@ class Resonate:
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
             self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
-            return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout, tags=tags, retry_policy=retry_policy))
+            return Function(
+                self,
+                name or func.__name__,
+                func,
+                self._opts.merge(
+                    retry_policy=retry_policy,
+                    send_to=send_to,
+                    tags=tags,
+                    timeout=timeout,
+                    version=version,
+                ),
+            )
 
         if args and callable(args[0]):
             return wrapper(args[0])
@@ -317,7 +328,13 @@ class Function[**P, R]:
             self._resonate,
             self._name,
             self._func,
-            self._opts.merge(retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version),
+            self._opts.merge(
+                retry_policy=retry_policy,
+                send_to=send_to,
+                tags=tags,
+                timeout=timeout,
+                version=version,
+            ),
         )
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
