@@ -682,7 +682,6 @@ class Computation:
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
                     case Ko(v):
-                        # TODO(tperez): retry if there is retry budget
                         if (delay := opts.retry_policy.next(info.attempt)) is not None:
                             info.increment_attempt()
                             return [Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay)]
@@ -818,7 +817,6 @@ class Computation:
                                     Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                 ]
                             case Ko(v):
-                                # TODO(tperez): retry if there is retry budget
                                 if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
                                     assert c.promise is not None
                                     c.info.increment_attempt()

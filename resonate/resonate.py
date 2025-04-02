@@ -55,7 +55,15 @@ class Resonate:
             anycast=self.anycast,
         )
 
-    def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None, retry_policy: RetryPolicy | None = None) -> Resonate:
+    def options(
+        self,
+        *,
+        retry_policy: RetryPolicy | None = None,
+        send_to: str | None = None,
+        tags: dict[str, str] | None = None,
+        timeout: int | None = None,
+        version: int | None = None,
+    ) -> Resonate:
         return Resonate(
             pid=self._pid,
             opts=self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy),
@@ -172,7 +180,7 @@ class Resonate:
 
 
 class Context:
-    def __init__(self, id: str,info: Info, opts: Options, registry: Registry, dependencies: Dependencies) -> None:
+    def __init__(self, id: str, info: Info, opts: Options, registry: Registry, dependencies: Dependencies) -> None:
         self._id = id
         self._info = info
         self._opts = opts
@@ -296,8 +304,21 @@ class Function[**P, R]:
     def __call__(self, ctx: Context, *args: P.args, **kwargs: P.kwargs) -> Generator[Any, Any, R] | R:
         return self._func(ctx, *args, **kwargs)
 
-    def options(self, *, send_to: str | None = None, timeout: int | None = None, version: int | None = None, tags: dict[str, str] | None = None, retry_policy: RetryPolicy | None = None) -> Function[P, Generator[Any, Any, R] | R]:
-        return Function(self._resonate, self._name, self._func, self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy))
+    def options(
+        self,
+        *,
+        retry_policy: RetryPolicy | None = None,
+        send_to: str | None = None,
+        tags: dict[str, str] | None = None,
+        timeout: int | None = None,
+        version: int | None = None,
+    ) -> Function[P, Generator[Any, Any, R] | R]:
+        return Function(
+            self._resonate,
+            self._name,
+            self._func,
+            self._opts.merge(retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version),
+        )
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
         return self._resonate.options(**self._opts.to_dict()).run(id, self._name, *args, **kwargs)
