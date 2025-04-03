@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol, final
@@ -15,11 +16,14 @@ from resonate.models.task import Task
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
+    from resonate.models.enqueueable import Enqueueable
+    from resonate.models.messsage_source import MessageSource
 
 # Fake it till you make it
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# -------------------------------->
 
 # type Recv = str
+
 
 class Router(Protocol):
     def route(self, promise: DurablePromiseRecord) -> Any: ...
@@ -42,7 +46,7 @@ class WallClock:
         return int(time.time() * 1000)
 
 
-# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+# <--------------------------------
 
 
 class LocalStore:
@@ -76,6 +80,9 @@ class LocalStore:
 
     def add_router(self, router: Router) -> None:
         self._routers.append(router)
+
+    def as_msg_source(self) -> MessageSource:
+        return _LocalMessageSource(self)
 
     def step(self) -> list[tuple[str, Mesg]]:
         messages: list[tuple[str, Mesg]] = []
@@ -782,3 +789,37 @@ class TaskRecord:
 
 def ikey_match(left: str | None, right: str | None) -> bool:
     return left is not None and right is not None and left == right
+
+
+class _LocalMessageSource:
+    def __init__(self, local_store: LocalStore) -> None:
+        self._store = local_store
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+
+    def start(self, cq: Enqueueable[Mesg], pid: str) -> None:
+        if self._thread is not None:
+            return
+
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._loop,
+            args=(cq,),
+            name="local_msg_source",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        if self._thread is not None:
+            self._stop_event.set()
+            self._thread.join()
+            self._thread = None
+            self._stop_event.clear()
+
+    def _loop(self, cq: Enqueueable[Mesg]) -> None:
+        while not self._stop_event.is_set():
+            msgs = self._store.step()
+            for _, msg in msgs:
+                cq.enqueue(msg)
+            self._stop_event.wait(0.3)
