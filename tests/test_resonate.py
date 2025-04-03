@@ -36,11 +36,11 @@ def baz(ctx: Context, a: int, b: int) -> Generator[Any, Any, int]:
 def scheduler() -> MagicMock:
     mock_scheduler = MagicMock()
 
-    def enqueue_side_effect(*args: Any, **kwargs: Any) -> None:
+    def step_side_effect(*args: Any, **kwargs: Any) -> None:
         if futures := kwargs.get("futures"):
             futures[0].set_result(None)  # Unblock future
 
-    mock_scheduler.enqueue.side_effect = enqueue_side_effect
+    mock_scheduler.step.side_effect = step_side_effect
     return mock_scheduler
 
 
@@ -57,8 +57,8 @@ def registry() -> Registry:
 
 
 def cmd(mock_scheduler: MagicMock) -> None:
-    mock_scheduler.enqueue.assert_called_once()
-    args, kwargs = mock_scheduler.enqueue.call_args
+    mock_scheduler.step.assert_called_once()
+    args, kwargs = mock_scheduler.step.call_args
 
     mock_scheduler.reset_mock()
     return args[0]

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 # Commands
 
-type Command = Invoke | Resume | Return | Receive | Listen | Notify | Noop | Retry
+type Command = Invoke | Resume | Return | Receive | Retry | Listen | Notify
 
 
 @dataclass
@@ -26,7 +26,6 @@ class Invoke:
     args: tuple[Any, ...] = field(default_factory=tuple)
     kwargs: dict[str, Any] = field(default_factory=dict)
     opts: Options = field(default_factory=Options)
-    promise_and_task: tuple[DurablePromise, Task] | None = None
 
     @property
     def cid(self) -> str:
@@ -38,8 +37,7 @@ class Resume:
     id: str
     cid: str
     promise: DurablePromise
-    task: Task
-    invoke: Invoke
+    invoke: Invoke | None = None
 
 
 @dataclass
@@ -212,3 +210,12 @@ class ClaimTaskRes:
     root: DurablePromise
     leaf: DurablePromise | None
     task: Task
+
+@dataclass
+class CompleteTaskReq:
+    id: str
+    counter: int
+
+@dataclass
+class CompleteTaskRes:
+    pass

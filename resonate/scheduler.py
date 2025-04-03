@@ -1,32 +1,23 @@
 from __future__ import annotations
 
-import contextlib
-import queue
 import sys
-import threading
 import uuid
-from concurrent.futures import Future
 from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from resonate.errors import ResonateStoreError
 from resonate.graph import Graph, Node
 from resonate.logging import logger
 from resonate.models.commands import (
     CancelPromiseRes,
     Command,
     CreateCallbackReq,
-    CreateCallbackRes,
     CreatePromiseReq,
     CreatePromiseRes,
-    CreatePromiseWithTaskReq,
-    CreatePromiseWithTaskRes,
     Delayed,
     Function,
     Invoke,
     Network,
-    Noop,
     Receive,
     RejectPromiseReq,
     RejectPromiseRes,
@@ -50,11 +41,10 @@ from resonate.models.result import Ko, Ok, Result
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
+    from concurrent.futures import Future
 
-    from resonate.models.callback import Callback
     from resonate.models.durable_promise import DurablePromise
     from resonate.models.options import Options
-    from resonate.models.task import Task
 
 
 class Info:
@@ -74,16 +64,12 @@ class Scheduler:
     def __init__(
         self,
         ctx: Callable[[str, Info], Context],
-        cq: queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None] | None = None,
         pid: str | None = None,
         unicast: str | None = None,
         anycast: str | None = None,
     ) -> None:
         # ctx
         self.ctx = ctx
-
-        # cq
-        self.cq = cq or queue.Queue[Command | tuple[Command, tuple[Future, Future]] | None]()
 
         # pid
         self.pid = pid or uuid.uuid4().hex
@@ -95,53 +81,10 @@ class Scheduler:
         # computations
         self.computations: dict[str, Computation] = {}
 
-        # scheduler thread
-        self.thread = threading.Thread(target=self.loop, daemon=True)
-
     def __repr__(self) -> str:
         return f"Scheduler(pid={self.pid}, computations={list(self.computations.values())})"
 
-    def start(self) -> None:
-        if not self.thread.is_alive():
-            self.thread.start()
-
-    def stop(self) -> None:
-        if self.thread.is_alive():
-            self.cq.put(None)
-            self.thread.join()
-
-    def enqueue(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> None:
-        if futures:
-            self.cq.put((cmd, futures))
-        else:
-            self.cq.put(cmd)
-
-    def loop(self) -> None:
-        while cqe := self.cq.get():
-            match cqe:
-                case (cmd, futures):
-                    self._step(cmd, futures)
-                case cmd:
-                    self._step(cmd)
-
-    def step(self, time: int) -> Sequence[Request]:
-        try:
-            if cqe := self.cq.get_nowait():
-                match cqe:
-                    case (cmd, futures):
-                        return self._step(cmd, futures)
-                    case cmd:
-                        return self._step(cmd)
-        except queue.Empty:
-            pass
-
-        return []
-
-    def _step(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> Sequence[Request]:
-        # skip noop
-        if isinstance(cmd, Noop):
-            return []
-
+    def step(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> More | Done:
         computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.pid, self.unicast, self.anycast))
 
         # subscribe
@@ -274,6 +217,10 @@ class Suspended[T: Init | Func | Coro]:
 class Completed[T: Func | Coro]:
     value: Final[T]
 
+    def __post_init__(self) -> None:
+        assert self.value.result is not None, "Result must be set."
+        self.value.suspends = []
+
     def __repr__(self) -> str:
         return f"Completed::{self.value}"
 
@@ -325,15 +272,12 @@ class Func:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
-    info: Info
+    info: Info = field(default_factory=Info)
 
-    promise: DurablePromise | None = None
     suspends: list[Node[State]] = field(default_factory=list)
     result: Result | None = None
 
-    def map(self, *, promise: DurablePromise | None = None, suspends: Node[State] | None = None, result: Result | None = None) -> Func:
-        if promise:
-            self.promise = promise
+    def map(self, *, suspends: Node[State] | None = None, result: Result | None = None) -> Func:
         if suspends:
             self.suspends.append(suspends)
         if result:
@@ -354,22 +298,27 @@ class Coro:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
-    info: Info
-    coro: Coroutine
 
+    cid: str
+    ctx: Callable[[str, Info], Context]
+    info: Info = field(default_factory=Info)
+
+    coro: Coroutine = field(init=False)
     next: None | AWT | Result = None
 
-    promise: DurablePromise | None = None
     suspends: list[Node[State]] = field(default_factory=list)
     result: Result | None = None
 
-    def map(self, *, coro: Coroutine | None = None, next: None | AWT | Result = None, promise: DurablePromise | None = None, suspends: Node[State] | None = None, result: Result | None = None) -> Coro:
-        if coro:
-            self.coro = coro
+    def __post_init__(self) -> None:
+        self.coro = Coroutine(self.id, self.cid, self.func(self.ctx(self.id, self.info), *self.args, **self.kwargs))
+
+    def reset(self) -> None:
+        self.next = None
+        self.coro = Coroutine(self.id, self.cid, self.func(self.ctx(self.id, self.info), *self.args, **self.kwargs))
+
+    def map(self, *, next: None | AWT | Result = None, suspends: Node[State] | None = None, result: Result | None = None) -> Coro:
         if next:
             self.next = next
-        if promise:
-            self.promise = promise
         if suspends:
             self.suspends.append(suspends)
         if result:
@@ -385,6 +334,13 @@ class PoppableList[T](list[T]):
     def spop(self) -> T | None:
         return self.pop() if self else None
 
+@dataclass
+class More:
+    reqs: Sequence[Request]
+
+@dataclass
+class Done:
+    reqs: Sequence[Request]
 
 class Computation:
     def __init__(self, id: str, ctx: Callable[[str, Info], Context], pid: str, unicast: str, anycast: str) -> None:
@@ -397,10 +353,6 @@ class Computation:
 
         self.graph = Graph[State](id, Enabled(Suspended(Init())))
         self.futures: tuple[PoppableList[Future], PoppableList[Future]] = (PoppableList(), PoppableList())
-
-        self.task: Task | None = None
-        self.callbacks: dict[str, Callback] = {}
-
         self.history: list[Command | Request | tuple[str, None | AWT | Result, LFI | RFI | AWT | TRM]] = []
 
     def __repr__(self) -> str:
@@ -436,48 +388,30 @@ class Computation:
         self.history.append(cmd)
 
         match cmd, self.graph.root.value.func:
-            case Invoke(id, name, func, args, kwargs, opts, promise_and_task=None), Init(next=None):
-                assert not self.task, "Task must not be set."
-
-                info = Info()
+            case Invoke(id, name, func, args, kwargs, opts), Init(next=None):
                 next: Coro | Func
-                if func is None:
-                    next = Func(id, "remote", name, func, args, kwargs, opts, info)
-                elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
+                if isgeneratorfunction(func):
+                    next = Coro(id, "local", name, func, args, kwargs, opts, self.id, self.ctx)
+                elif func is None:
+                    next = Func(id, "remote", name, func, args, kwargs, opts)
                 else:
-                    next = Func(id, "local", name, func, args, kwargs, opts, info)
+                    next = Func(id, "local", name, func, args, kwargs, opts)
 
-                self.graph.root.transition(Enabled(Running(Init(next=next))))
-
-            case Invoke(id, name, func, args, kwargs, opts, promise_and_task=(promise, task)), Init():
-                assert not self.task, "Task must not be set."
-                assert promise.pending, "Promise must be pending."
-
-                info = Info()
-                next: Coro | Func
-                if func is None:
-                    next = Func(id, "remote", name, func, args, kwargs, opts, info)
-                elif isgeneratorfunction(func):
-                    next = Coro(id, "local", name, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
-                else:
-                    next = Func(id, "local", name, func, args, kwargs, opts, info)
-
-                self.task = task
-                self.graph.root.transition(Enabled(Running(next.map(promise=promise))))
+                # initialize root node of graph
+                self.graph.root.transition(Enabled(Running(next)))
 
             case Invoke(), _:
                 # first invoke "wins", computation will be joined
                 pass
 
-            case Resume(invoke=invoke), Init(next=None):
+            case Resume(invoke=Invoke() as invoke), Init(next=None):
                 self.apply(invoke)
 
-            case Resume(id, promise=promise, task=task), _:
+            case Resume(id, promise=promise), _:
                 node = self.graph.find(lambda n: n.id == id)
                 assert node, "Node must exist."
 
-                self._apply_receive(node, (promise, task, None))
+                self._apply_receive(node, promise)
 
             case Return(id, res=res), _:
                 node = self.graph.find(lambda n: n.id == id)
@@ -485,130 +419,89 @@ class Computation:
 
                 self._apply_return(node, res)
 
-            case Receive(id, res=CreatePromiseWithTaskRes(promise, task)), _:
-                assert id == self.id == self.graph.root.id, "Create promise with task is only applicable to root node."
-
-                self._apply_receive(self.graph.root, (promise, task, None))
-
             case Receive(id, res=CreatePromiseRes(promise) | ResolvePromiseRes(promise) | RejectPromiseRes(promise) | CancelPromiseRes(promise)), _:
                 node = self.graph.find(lambda n: n.id == id)
                 assert node, "Node must exist."
 
-                self._apply_receive(node, (promise, None, None))
+                self._apply_receive(node, promise)
 
-            case Receive(id, res=CreateCallbackRes(promise, callback)), _:
+            case Retry(id), _:
                 node = self.graph.find(lambda n: n.id == id)
                 assert node, "Node must exist."
 
-                self._apply_receive(node, (promise, None, callback))
-
-            case Retry(id, _), _:
-                node = self.graph.find(lambda n: n.id == id)
-                assert node, "Node must exist."
-
-                match node.value:
-                    case Blocked(Running(Init(n))):
-                        assert isinstance(n, Coro)
-                        assert n.promise is not None
-                        node.transition(Enabled(Running(n)))
+                self._apply_retry(node)
 
             case _:
                 raise NotImplementedError
 
-    def _apply_return(self, node: Node[State], data: Result) -> None:
-        match node.value, data:
-            case Blocked(Running(Func(type="local") as f)), result:
+    def _apply_return(self, node: Node[State], result: Result) -> None:
+        match node.value:
+            case Blocked(Running(Func(type="local") as f)):
                 node.transition(Enabled(Running(f.map(result=result))))
             case _:
                 raise NotImplementedError
 
-    def _apply_receive(self, node: Node[State], data: tuple[DurablePromise, Task | None, Callback | None]) -> None:
-        match (self.task, node.value), data:
-            case (None, Blocked(Running(Init(Func(type="local") | Coro(type="local") as next, suspends)))), (promise, task, None) if promise.pending and task and not task.completed:
-                assert node == self.graph.root, "Node must be root."
-                assert not suspends, "Suspended must be empty for root."
-                assert not next.suspends, "Next suspends must be initially empty."
-
-                self.task = task
-                node.transition(Enabled(Running(next.map(promise=promise))))
-
-            case (None, _), _:
-                # TODO(dfarr): determine these specific cases
-                pass
-
-            case (task, Blocked(Running(Init(Func(type="local") | Coro(type="local") as next, suspends)))), (promise, None, None) if promise.pending and not task.completed:
-                assert not next.suspends, "Next suspends must be initially empty."
-                node.transition(Enabled(Running(next.map(promise=promise))))
+    def _apply_receive(self, node: Node[State], promise: DurablePromise) -> None:
+        match node.value, promise:
+            case Blocked(Running(Init(Func(type="local") | Coro(type="local") as next, suspends))), promise if promise.pending:
+                assert not next.suspends, "Suspends must be initially empty."
+                node.transition(Enabled(Running(next)))
 
                 # unblock waiting[p]
                 self._unblock(suspends, AWT(next.id, self.id))
 
-            case (task, Blocked(Running(Init(Func(type="remote") as next, suspends)))), (promise, None, None) if promise.pending and not task.completed:
+            case Blocked(Running(Init(Func(type="remote") as next, suspends))), promise if promise.pending:
                 assert not next.suspends, "Next suspends must be initially empty."
                 assert promise.tags.get("resonate:scope") == "global", "Scope must be global."
-                node.transition(Enabled(Suspended(next.map(promise=promise))))
+                node.transition(Enabled(Suspended(next)))
 
                 # unblock waiting[p]
                 self._unblock(suspends, AWT(next.id, self.id))
 
-            case (task, Blocked(Running(Init(Func(type="local" | "remote") | Coro(type="local") as next, suspends)))), (promise, None, None) if promise.completed and not task.completed:
-                assert not next.suspends, "Next suspends must be initially empty."
-                node.transition(Enabled(Completed(next.map(promise=promise, result=promise.result))))
+            case Blocked(Running(Init(Func(type="local" | "remote") | Coro(type="local") as next, suspends))), promise if promise.completed:
+                assert not next.suspends, "Suspends must be initially empty."
+                node.transition(Enabled(Completed(next.map(result=promise.result))))
 
                 # unblock waiting[p]
                 self._unblock(suspends, AWT(next.id, self.id))
 
-            case (task, Blocked(Running(Func(type="local", suspends=suspends) | Coro(type="local", suspends=suspends) as f))), (promise, None, None) if promise.completed and not task.completed:
-                node.transition(Enabled(Completed(f.map(promise=promise, result=promise.result))))
+            case Blocked(Running(Func(type="local", suspends=suspends) | Coro(type="local", suspends=suspends) as f)), promise if promise.completed:
+                node.transition(Enabled(Completed(f.map(result=promise.result))))
 
                 # unblock waiting[v]
                 self._unblock(suspends, promise.result)
 
-            case (task, Blocked(Suspended(Func(type="remote", suspends=suspends) as f))), (promise, None, None) if promise.completed and not task.completed:
-                node.transition(Enabled(Completed(f.map(promise=promise, result=promise.result))))
+            case Blocked(Suspended(Func(type="remote", suspends=suspends) as f)), promise if promise.completed:
+                node.transition(Enabled(Completed(f.map(result=promise.result))))
 
                 # unblock waiting[v]
                 self._unblock(suspends, promise.result)
 
-            case (task, Blocked(Suspended(Func(id, type="remote") as f))), (promise, None, callback) if promise.pending and not task.completed:
-                assert callback, "Callback must be set."
-
-                self.callbacks[id] = callback
-                node.transition(Enabled(Suspended(f)))
-
-            case (old_task, Enabled(Suspended(Func(type="remote", suspends=suspends) as f))), (promise, new_task, None) if (
-                promise.completed and old_task.completed and new_task and not new_task.completed
-            ):
-                self.task = new_task
-                node.transition(Enabled(Completed(f.map(promise=promise, result=promise.result))))
+            case Enabled(Suspended(Func(type="remote", suspends=suspends) as f)), promise if promise.completed:
+                node.transition(Enabled(Completed(f.map(result=promise.result))))
 
                 # unblock waiting[v]
                 self._unblock(suspends, promise.result)
 
             case _:
-                # TODO(dfarr): determine these specific cases
-                pass
+                raise NotImplementedError
 
-    def eval(self) -> Sequence[Request]:
+    def _apply_retry(self, node: Node[State]) -> None:
+        match node.value:
+            case Blocked(Running(Coro() as c)):
+                assert c.next is None, "Next must be None."
+                node.transition(Enabled(Running(c)))
+            case _:
+                raise NotImplementedError
+
+    def eval(self) -> More | Done:
         reqs: Sequence[Request] = []
 
         while self.runnable():
-            # assert (self.task and not self.task.completed) or isinstance(self.graph.root.value.func, Init)
-
             for node in self.graph.traverse():
                 r = self._eval(node)
                 reqs.extend(r)
                 self.history.extend(r)
-
-        # It is possible for an invoke command to correspond to an already completed promise,
-        # in this case there would either be:
-        # 1. No task to complete
-        # 2. A previously completed task
-
-        if self.suspendable() and self.task and not self.task.completed:
-            # It is possible for the task to have expired, in this case ignore the error
-            with contextlib.suppress(ResonateStoreError):
-                self.task.complete()
 
         if promise := self.promise():
             while future := self.futures[0].spop():
@@ -622,29 +515,46 @@ class Computation:
                     case Ko(e):
                         future.set_exception(e)
 
-        return reqs
+        if self.suspendable():
+            callbacks: list[Network] = []
+
+            for node in self.graph.filter(lambda n: isinstance(n.value.func, Func) and len(n.value.func.suspends) > 0):
+                assert isinstance(node.value, Enabled)
+                assert isinstance(node.value.exec, Suspended)
+                assert isinstance(node.value.func, Func)
+                assert node is not self.graph.root
+                assert node.value.func.type == "remote"
+
+                callbacks.append(Network(node.id, self.id, CreateCallbackReq(
+                    f"{self.id}:{node.id}",
+                    node.id,
+                    self.id,
+                    sys.maxsize,
+                    self.anycast,
+                )))
+
+            return Done(callbacks)
+
+        return More(reqs)
 
     def _eval(self, node: Node[State]) -> Sequence[Request]:
         match node.value:
             case Enabled(Running(Init(Func(id, "local", name, _, args, kwargs, opts) | Coro(id, "local", name, _, args, kwargs, opts))) as exec):
                 assert id == node.id, "Id must match node id."
+                assert node is not self.graph.root, "Node must not be root node."
                 node.transition(Blocked(exec))
 
-                if node == self.graph.root:
-                    req = CreatePromiseWithTaskReq(
-                        id=id,
-                        ikey=id,
-                        timeout=sys.maxsize,
-                        data={"func": name, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.anycast, "resonate:scope": "global", **opts.tags},
-                        pid=self.pid,
-                        ttl=sys.maxsize,
-                    )
-                else:
-                    req = CreatePromiseReq(id=id, ikey=id, timeout=sys.maxsize, tags={"resonate:scope": "local", **opts.tags})
-
                 return [
-                    Network(id, self.id, req),
+                    Network(
+                        id,
+                        self.id,
+                        CreatePromiseReq(
+                            id=id,
+                            ikey=id,
+                            timeout=opts.timeout,
+                            tags={**opts.tags, "resonate:scope": "local"},
+                        ),
+                    ),
                 ]
 
             case Enabled(Running(Init(Func(id, "remote", name, _, args, kwargs, opts))) as exec):
@@ -659,9 +569,9 @@ class Computation:
                         CreatePromiseReq(
                             id=id,
                             ikey=id,
-                            timeout=sys.maxsize,
+                            timeout=opts.timeout,
                             data={"func": name, "args": args, "kwargs": kwargs},
-                            tags={"resonate:invoke": opts.send_to, "resonate:scope": "global", **opts.tags},
+                            tags={**opts.tags, "resonate:invoke": opts.send_to, "resonate:scope": "global"},
                         ),
                     ),
                 ]
@@ -672,37 +582,36 @@ class Computation:
                 assert func is not None, "Func is required for local function."
                 node.transition(Blocked(Running(f)))
 
-                match result:
-                    case None:
+                match result, opts.retry_policy.next(info.attempt):
+                    case None, _:
                         return [
                             Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
                         ]
-                    case Ok(v):
+
+                    case Ok(v), _:
                         return [
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
-                    case Ko(v):
-                        if (delay := opts.retry_policy.next(info.attempt)) is not None:
-                            info.increment_attempt()
-                            return [Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay)]
 
+                    case Ko(v), None:
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
 
-            case Enabled(Running(Coro() as c)):
-                cmd = c.coro.send(c.next)
+                    case Ko(), delay:
+                        info.increment_attempt()
+                        return [
+                            Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay),
+                        ]
+
+            case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, info=info) as c)):
+                cmd = coro.send(next)
                 child = self.graph.find(lambda n: n.id == cmd.id) or Node(cmd.id, Enabled(Suspended(Init())))
-                self.history.append((c.coro.id, c.next, cmd))
+                self.history.append((id, next, cmd))
 
                 match cmd, child.value:
                     case LFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        info = Info()
-                        next: Coro | Func
-                        if isgeneratorfunction(func):
-                            next = Coro(id, "local", None, func, args, kwargs, opts, info, Coroutine(id, self.id, func(self.ctx(id, info), *args, **kwargs)))
-                        else:
-                            next = Func(id, "local", None, func, args, kwargs, opts, info)
+                        next = Coro(id, "local", None, func, args, kwargs, opts, self.id, self.ctx) if isgeneratorfunction(func) else Func(id, "local", None, func, args, kwargs, opts)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -711,7 +620,7 @@ class Computation:
                         return []
 
                     case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        next = Func(id, "remote", func, None, args, kwargs, opts, Info())
+                        next = Func(id, "remote", func, None, args, kwargs, opts)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -768,31 +677,10 @@ class Computation:
 
                     case AWT(id, cid), Enabled(Suspended(Func(type="remote") as f)):
                         assert cid == self.id, "Await id must match computation id."
-                        callback_id = f"{self.id}:{id}"
-
                         node.add_edge(child, "waiting[v]")
                         node.transition(Enabled(Suspended(c)))
-
-                        # no more to do if already a callback
-                        if callback_id in self.callbacks:
-                            child.transition(Enabled(Suspended(f.map(suspends=node))))
-                            return []
-
-                        child.transition(Blocked(Suspended(f.map(suspends=node))))
-
-                        return [
-                            Network(
-                                id,
-                                self.id,
-                                CreateCallbackReq(
-                                    id=callback_id,
-                                    promise_id=id,
-                                    root_promise_id=self.id,
-                                    timeout=sys.maxsize,
-                                    recv=self.anycast,
-                                ),
-                            )
-                        ]
+                        child.transition(Enabled(Suspended(f.map(suspends=node))))
+                        return []
 
                     case AWT(id, cid), Blocked(Suspended(Func(type="remote") as f)):
                         assert cid == self.id, "Await id must match computation id."
@@ -809,25 +697,26 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
+                        node.transition(Blocked(Running(c)))
 
-                        match result:
-                            case Ok(v):
-                                node.transition(Blocked(Running(c)))
+                        match result, opts.retry_policy.next(info.attempt):
+                            case Ok(v), _:
                                 return [
                                     Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                 ]
-                            case Ko(v):
-                                if (delay := c.opts.retry_policy.next(c.info.attempt)) is not None:
-                                    assert c.promise is not None
-                                    c.info.increment_attempt()
-                                    node.transition(Blocked(Running(Init(next=c.map(coro=Coroutine(id, self.id, c.func(self.ctx(id, c.info), *c.args, **c.kwargs)))))))
-                                    return [Delayed(Retry(id, self.id), delay)]
 
-                                node.transition(Blocked(Running(c)))
+                            case Ko(v), None:
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                 ]
 
+                            case Ko(), delay:
+                                c.reset()
+                                info.increment_attempt()
+
+                                return [
+                                    Delayed(Retry(id, self.id), delay),
+                                ]
                     case _:
                         raise NotImplementedError
 
@@ -850,28 +739,24 @@ class Computation:
                     raise NotImplementedError
 
     def print(self) -> None:
-        logger.info("=" * 40)
-        logger.info("Computation: %s", self.id)
-        logger.info("=" * 40)
+        format = """
+========================================
+Computation: %s
+========================================
 
-        logger.info("\nTask:")
-        logger.info("  %s", self.task)
+Graph:
+  %s
 
-        logger.info("\nCallbacks:")
-        if self.callbacks:
-            logger.info("  %s", "\n  ".join(str(cb) for cb in self.callbacks.values()))
-        else:
-            logger.info("  None")
+History:
+  %s
+"""
 
-        logger.info("\nGraph:")
-        for node, level in self.graph.traverse_with_level():
-            logger.info("%s  %s", "  " * level, node)
-
-        logger.info("\nHistory:")
-        if self.history:
-            logger.info("  %s", "\n  ".join(str(event) for event in self.history))
-        else:
-            logger.info("  None")
+        logger.info(
+            format,
+            self.id,
+            "\n  ".join(f"{'  ' * level}{node}" for node, level in self.graph.traverse_with_level()),
+            "\n  ".join(str(event) for event in self.history) if self.history else "None",
+        )
 
 
 # Coroutine
