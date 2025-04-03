@@ -138,7 +138,7 @@ class Resonate:
                 name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.enqueue(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
+        self._scheduler.step(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)
@@ -163,14 +163,14 @@ class Resonate:
                 name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._scheduler.enqueue(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
+        self._scheduler.step(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)
 
     def get(self, id: str) -> Handle[Any]:
         fp, fv = Future[DurablePromise](), Future[Any]()
-        self._scheduler.enqueue(Listen(id), futures=(fp, fv))
+        self._scheduler.step(Listen(id), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)

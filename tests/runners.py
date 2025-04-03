@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 from resonate.models.commands import (
     CancelPromiseReq,
     CancelPromiseRes,
+    Command,
     CreateCallbackReq,
-    CreateCallbackRes,
     CreatePromiseReq,
     CreatePromiseRes,
     CreatePromiseWithTaskReq,
@@ -25,7 +25,6 @@ from resonate.models.commands import (
     Resume,
 )
 from resonate.models.context import LFC, LFI, RFC, RFI
-from resonate.models.options import Options
 from resonate.models.task import Task
 from resonate.scheduler import Scheduler
 from resonate.stores.local import LocalStore
@@ -168,16 +167,26 @@ class ResonateRunner:
         self.scheduler = Scheduler(ctx=lambda *_: Context())
 
     def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
+        cmds: list[Command] = []
         time = 0
 
         fp = Future()
         fv = Future[R]()
-        self.scheduler.enqueue(Invoke(id, self.registry.get(func)[0], func, args, kwargs), (fp, fv))
 
-        while not fv.done():
+        self.store.promises.create_with_task(
+            id=id,
+            timeout=sys.maxsize,
+            pid=self.scheduler.pid,
+            ttl=sys.maxsize,
+        )
+
+        cmds.append(Invoke(id, self.registry.get(func)[0], func, args, kwargs))
+
+        while cmds:
             time += 1
+            next = self.scheduler.step(cmds.pop(0), (fp, fv) if time == 1 else None)
 
-            for req in self.scheduler.step(time):
+            for req in next.reqs:
                 match req:
                     case Network(_id, cid, CreatePromiseReq(id, timeout, ikey, strict, headers, data, tags)):
                         promise = self.store.promises.create(
@@ -189,7 +198,7 @@ class ResonateRunner:
                             data=data,
                             tags=tags,
                         )
-                        self.scheduler.enqueue(Receive(_id, cid, CreatePromiseRes(promise)))
+                        cmds.append(Receive(_id, cid, CreatePromiseRes(promise)))
 
                     case Network(_id, cid, CreatePromiseWithTaskReq(id, timeout, pid, ttl, ikey, strict, headers, data, tags)):
                         promise, task = self.store.promises.create_with_task(
@@ -203,7 +212,7 @@ class ResonateRunner:
                             data=data,
                             tags=tags,
                         )
-                        self.scheduler.enqueue(Receive(_id, cid, CreatePromiseWithTaskRes(promise, task)))
+                        cmds.append(Receive(_id, cid, CreatePromiseWithTaskRes(promise, task)))
 
                     case Network(_id, cid, ResolvePromiseReq(id, ikey, strict, headers, data)):
                         promise = self.store.promises.resolve(
@@ -213,7 +222,7 @@ class ResonateRunner:
                             headers=headers,
                             data=data,
                         )
-                        self.scheduler.enqueue(Receive(_id, cid, ResolvePromiseRes(promise)))
+                        cmds.append(Receive(_id, cid, ResolvePromiseRes(promise)))
 
                     case Network(_id, cid, RejectPromiseReq(id, ikey, strict, headers, data)):
                         promise = self.store.promises.reject(
@@ -223,7 +232,7 @@ class ResonateRunner:
                             headers=headers,
                             data=data,
                         )
-                        self.scheduler.enqueue(Receive(_id, cid, RejectPromiseRes(promise)))
+                        cmds.append(Receive(_id, cid, RejectPromiseRes(promise)))
 
                     case Network(_id, cid, CancelPromiseReq(id, ikey, strict, headers, data)):
                         promise = self.store.promises.cancel(
@@ -233,7 +242,7 @@ class ResonateRunner:
                             headers=headers,
                             data=data,
                         )
-                        self.scheduler.enqueue(Receive(_id, cid, CancelPromiseRes(promise)))
+                        cmds.append(Receive(_id, cid, CancelPromiseRes(promise)))
 
                     case Network(_id, cid, CreateCallbackReq(id, promise_id, root_promise_id, timeout, recv)):
                         promise, callback = self.store.promises.callback(
@@ -243,7 +252,9 @@ class ResonateRunner:
                             timeout=timeout,
                             recv=recv,
                         )
-                        self.scheduler.enqueue(Receive(_id, cid, CreateCallbackRes(promise, callback)))
+                        if promise.completed:
+                            assert not callback
+                            cmds.append(Resume(_id, cid, promise))
 
                     case _:
                         raise NotImplementedError
@@ -256,15 +267,13 @@ class ResonateRunner:
                         assert root.pending
                         assert not leaf
 
-                        self.scheduler.enqueue(
+                        cmds.append(
                             Invoke(
                                 root.id,
                                 root.param.data["func"],
                                 self.registry.get(root.param.data["func"])[0],
                                 root.param.data["args"],
                                 root.param.data["kwargs"],
-                                Options(),
-                                (root, task),
                             )
                         )
 
@@ -275,21 +284,11 @@ class ResonateRunner:
                         assert leaf
                         assert leaf.completed
 
-                        self.scheduler.enqueue(
+                        cmds.append(
                             Resume(
                                 id=leaf.id,
                                 cid=root.id,
                                 promise=leaf,
-                                task=task,
-                                invoke=Invoke(
-                                    root.id,
-                                    root.param.data["func"],
-                                    self.registry.get(root.param.data["func"])[0],
-                                    root.param.data["args"],
-                                    root.param.data["kwargs"],
-                                    Options(),
-                                    (root, task),
-                                ),
                             )
                         )
 

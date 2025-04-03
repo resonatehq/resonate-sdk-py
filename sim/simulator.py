@@ -13,6 +13,9 @@ from resonate.models.commands import (
     CancelPromiseRes,
     ClaimTaskReq,
     ClaimTaskRes,
+    Command,
+    CompleteTaskReq,
+    CompleteTaskRes,
     CreateCallbackReq,
     CreateCallbackRes,
     CreatePromiseReq,
@@ -34,7 +37,7 @@ from resonate.models.commands import (
 from resonate.models.options import Options
 from resonate.models.result import Ko, Ok, Result
 from resonate.models.task import Task
-from resonate.scheduler import Scheduler
+from resonate.scheduler import Done, More, Scheduler
 from resonate.stores.local import LocalStore
 
 if TYPE_CHECKING:
@@ -306,6 +309,15 @@ class Server(Component):
 
                 self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
 
+            case CompleteTaskReq(id, counter):
+                try:
+                    self.store.tasks.complete(id=id, counter=counter)
+                    result = Ok(CompleteTaskRes())
+                except ResonateStoreError as e:
+                    result = Ko(e)
+
+                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
+
             case _:
                 raise NotImplementedError
 
@@ -334,37 +346,112 @@ class Worker(Component):
         self.registry = registry
         self.dependencies = Dependencies()
         self.scheduler = Scheduler(lambda id, info: Context(id, info, Options(), self.registry, self.dependencies), pid=self.uni)
+        self.commands: list[Command | Noop] = []
+        self.tasks: dict[str, Task] = {}
 
     def on_message(self, msg: Message) -> None:
         match msg.data:
-            case Invoke():
-                self.scheduler.enqueue(msg.data)
+            case Invoke(id, func, _, args, kwargs, opts):
+                self.send_req(
+                    Unicast("Server"),
+                    CreatePromiseWithTaskReq(
+                        id,
+                        opts.timeout,
+                        self.scheduler.pid,
+                        sys.maxsize,
+                        ikey=id,
+                        data={"func": func, "args": args, "kwargs": kwargs},
+                        tags={"resonate:invoke": self.uni, "resonate:scope": "global"},
+                    ),
+                    lambda res: self.commands.append(self.__invoke(res.data.get("data"))),
+                )
             case {"type": "invoke", "task": {"id": id, "counter": counter}}:
                 self.send_req(
                     Unicast("Server"),
                     ClaimTaskReq(id, counter, self.uni, sys.maxsize),
-                    lambda res: self.scheduler.enqueue(self._invoke(res.data.get("data"))),
+                    lambda res: self.commands.append(self._invoke(res.data.get("data"))),
                 )
             case {"type": "resume", "task": {"id": id, "counter": counter}}:
                 self.send_req(
                     Unicast("Server"),
                     ClaimTaskReq(id, counter, self.uni, sys.maxsize),
-                    lambda res: self.scheduler.enqueue(self._resume(res.data.get("data"))),
+                    lambda res: self.commands.append(self._resume(res.data.get("data"))),
                 )
             case _:
                 raise NotImplementedError
 
     def next(self) -> None:
-        for req in self.scheduler.step(self.time):
-            match req:
-                case Function(id, cid, func):
-                    try:
-                        self.defer(lambda id=id, cid=cid: self.scheduler.enqueue(Return(id, cid, Ok(func()))))
-                    except Exception as e:
-                        self.defer(lambda id=id, cid=cid, e=e: self.scheduler.enqueue(Return(id, cid, Ko(e))))
+        if not self.commands:
+            return
 
-                case Network(id, cid, req):
-                    self.send_req(Unicast("Server"), req, lambda res, id=id, cid=cid: self.scheduler.enqueue(Receive(id, cid, res.data.get("data"))))
+        cmd = self.commands.pop(0)
+
+        if isinstance(cmd, Noop):
+            return
+
+        match self.scheduler.step(cmd):
+            case More(reqs):
+                for req in reqs:
+                    match req:
+                        case Function(id, cid, func):
+                            try:
+                                self.defer(lambda id=id, cid=cid: self.commands.append(Return(id, cid, Ok(func()))))
+                            except Exception as e:
+                                self.defer(lambda id=id, cid=cid, e=e: self.commands.append(Return(id, cid, Ko(e))))
+
+                        case Network(id, cid, req):
+                            self.send_req(Unicast("Server"), req, lambda res, id=id, cid=cid: self.commands.append(Receive(id, cid, res.data.get("data"))))
+
+            case Done(reqs):
+                assert cmd.cid in self.tasks
+
+                task = self.tasks[cmd.cid]
+                count = 0
+
+                def create_callback_callback(res: CreateCallbackRes) -> None:
+                    nonlocal count
+
+                    if res.promise.completed:
+                        assert not res.callback
+                        self.commands.append(Resume(res.promise.id, cmd.cid, res.promise))
+                    else:
+                        count += 1
+
+                    if count == len(reqs):
+                        self.send_req(
+                            Unicast("Server"),
+                            CompleteTaskReq(task.id, task.counter),
+                            lambda _: None,
+                        )
+
+                for req in reqs:
+                    match req:
+                        case Network(id, cid, CreateCallbackReq() as req):
+                            self.send_req(Unicast("Server"), req, lambda res: create_callback_callback(res.data.get("data")))
+                        case _:
+                            raise NotImplementedError
+
+                if not reqs:
+                    self.send_req(
+                        Unicast("Server"),
+                        CompleteTaskReq(task.id, task.counter),
+                        lambda _: None,
+                    )
+
+    def __invoke(self, res: CreatePromiseWithTaskRes) -> Invoke | Noop:
+        if not res.task:
+            return Noop()
+
+        assert res.promise.id not in self.tasks
+        self.tasks[res.promise.id] = res.task
+
+        return Invoke(
+            res.promise.id,
+            res.promise.param.data["func"],
+            self.registry.get(res.promise.param.data["func"])[0],
+            res.promise.param.data["args"],
+            res.promise.param.data["kwargs"],
+        )
 
     def _invoke(self, result: Result[ClaimTaskRes]) -> Invoke | Noop:
         match result:
@@ -375,14 +462,15 @@ class Worker(Component):
                 assert "args" in res.root.param.data, "Root param must have args."
                 assert "kwargs" in res.root.param.data, "Root param must have kwargs."
 
+                # assert res.root.id not in self.tasks
+                self.tasks[res.root.id] = res.task
+
                 return Invoke(
                     res.root.id,
                     res.root.param.data["func"],
                     self.registry.get(res.root.param.data["func"])[0],
                     res.root.param.data["args"],
                     res.root.param.data["kwargs"],
-                    Options(),
-                    (res.root, res.task),
                 )
 
             case Ko():
@@ -400,14 +488,17 @@ class Worker(Component):
                 assert "args" in res.leaf.param.data, "Leaf param must have args."
                 assert "kwargs" in res.leaf.param.data, "Leaf param must have kwargs."
 
-                invoke = self._invoke(Ok(res))
+                invoke = self._invoke(result)
                 assert isinstance(invoke, Invoke), "Invoke must be type Invoke."
+
+                # assert res.root.id not in self.tasks
+                self.tasks[res.root.id] = res.task
 
                 return Resume(
                     id=res.leaf.id,
                     cid=res.root.id,
                     promise=res.leaf,
-                    task=res.task,
+                    # task=res.task,
                     invoke=invoke,
                 )
 
