@@ -168,8 +168,3 @@ def test_dst(seed: str, steps: int = 10000) -> None:
         # log
         # for log in sim.logs:
         #     logger.info(log)
-
-    # print(w.scheduler.computations)
-
-    for c in w.scheduler.computations.values():
-        c.print()
