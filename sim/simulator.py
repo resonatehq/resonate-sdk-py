@@ -25,7 +25,6 @@ from resonate.models.commands import (
     Function,
     Invoke,
     Network,
-    Noop,
     Receive,
     RejectPromiseReq,
     RejectPromiseRes,
@@ -346,7 +345,7 @@ class Worker(Component):
         self.registry = registry
         self.dependencies = Dependencies()
         self.scheduler = Scheduler(lambda id, info: Context(id, info, Options(), self.registry, self.dependencies), pid=self.uni)
-        self.commands: list[Command | Noop] = []
+        self.commands: list[Command] = []
         self.tasks: dict[str, Task] = {}
 
     def on_message(self, msg: Message) -> None:
@@ -363,19 +362,19 @@ class Worker(Component):
                         data={"func": func, "args": args, "kwargs": kwargs},
                         tags={"resonate:invoke": self.uni, "resonate:scope": "global"},
                     ),
-                    lambda res: self.commands.append(self.__invoke(res.data.get("data"))),
+                    lambda res: self.__invoke(res.data.get("data")),
                 )
             case {"type": "invoke", "task": {"id": id, "counter": counter}}:
                 self.send_req(
                     Unicast("Server"),
                     ClaimTaskReq(id, counter, self.uni, sys.maxsize),
-                    lambda res: self.commands.append(self._invoke(res.data.get("data"))),
+                    lambda res: self._invoke(res.data.get("data")),
                 )
             case {"type": "resume", "task": {"id": id, "counter": counter}}:
                 self.send_req(
                     Unicast("Server"),
                     ClaimTaskReq(id, counter, self.uni, sys.maxsize),
-                    lambda res: self.commands.append(self._resume(res.data.get("data"))),
+                    lambda res: self._resume(res.data.get("data")),
                 )
             case _:
                 raise NotImplementedError
@@ -385,9 +384,6 @@ class Worker(Component):
             return
 
         cmd = self.commands.pop(0)
-
-        if isinstance(cmd, Noop):
-            return
 
         match self.scheduler.step(cmd):
             case More(reqs):
@@ -438,22 +434,22 @@ class Worker(Component):
                         lambda _: None,
                     )
 
-    def __invoke(self, res: CreatePromiseWithTaskRes) -> Invoke | Noop:
+    def __invoke(self, res: CreatePromiseWithTaskRes) -> None:
         if not res.task:
-            return Noop()
+            return
 
         assert res.promise.id not in self.tasks
         self.tasks[res.promise.id] = res.task
 
-        return Invoke(
+        self.commands.append(Invoke(
             res.promise.id,
             res.promise.param.data["func"],
             self.registry.get(res.promise.param.data["func"])[0],
             res.promise.param.data["args"],
             res.promise.param.data["kwargs"],
-        )
+        ))
 
-    def _invoke(self, result: Result[ClaimTaskRes]) -> Invoke | Noop:
+    def _invoke(self, result: Result[ClaimTaskRes]) -> None:
         match result:
             case Ok(res):
                 assert res.root.pending, "Root promise must be pending."
@@ -465,20 +461,20 @@ class Worker(Component):
                 # assert res.root.id not in self.tasks
                 self.tasks[res.root.id] = res.task
 
-                return Invoke(
+                self.commands.append(Invoke(
                     res.root.id,
                     res.root.param.data["func"],
                     self.registry.get(res.root.param.data["func"])[0],
                     res.root.param.data["args"],
                     res.root.param.data["kwargs"],
-                )
+                ))
 
             case Ko():
                 # It's possible that is task is already claimed or completed, in that case just
                 # ignore.
-                return Noop()
+                pass
 
-    def _resume(self, result: Result[ClaimTaskRes]) -> Resume | Noop:
+    def _resume(self, result: Result[ClaimTaskRes]) -> None:
         match result:
             case Ok(res):
                 assert res.leaf, "Leaf must be set."
@@ -488,24 +484,26 @@ class Worker(Component):
                 assert "args" in res.leaf.param.data, "Leaf param must have args."
                 assert "kwargs" in res.leaf.param.data, "Leaf param must have kwargs."
 
-                invoke = self._invoke(result)
-                assert isinstance(invoke, Invoke), "Invoke must be type Invoke."
-
                 # assert res.root.id not in self.tasks
                 self.tasks[res.root.id] = res.task
 
-                return Resume(
+                self.commands.append(Resume(
                     id=res.leaf.id,
                     cid=res.root.id,
                     promise=res.leaf,
-                    # task=res.task,
-                    invoke=invoke,
-                )
+                    invoke=Invoke(
+                        res.root.id,
+                        res.root.param.data["func"],
+                        self.registry.get(res.root.param.data["func"])[0],
+                        res.root.param.data["args"],
+                        res.root.param.data["kwargs"],
+                    ),
+                ))
 
             case Ko():
                 # It's possible that is task is already claimed or completed, in that case just
                 # ignore.
-                return Noop()
+                pass
 
     def freeze(self) -> str:
         return "worker"

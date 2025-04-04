@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from resonate.dependencies import Dependencies
-from resonate.models.commands import Delayed, Function, Invoke, Network, RejectPromiseReq, ResolvePromiseReq, Return
+from resonate.models.commands import Delayed, Function, Invoke, Network, RejectPromiseReq, ResolvePromiseReq, Retry, Return
 from resonate.models.options import Options
 from resonate.models.result import Ko, Ok
 from resonate.models.retry_policies import Constant, Exponential, Linear, Never, RetryPolicy
@@ -112,6 +112,7 @@ def test_generator_sad_path(scheduler: Scheduler, retry_policy: RetryPolicy, ret
     req = next.reqs[0]
     for _ in range(retries):
         assert isinstance(req, Delayed)
+        assert isinstance(req.item, Retry)
         next = scheduler.step(req.item)
         assert len(next.reqs) == 1
         req = next.reqs[0]

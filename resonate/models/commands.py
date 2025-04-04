@@ -74,25 +74,17 @@ class Notify:
 
 
 @dataclass
-class Noop:
-    pass
-
-
-@dataclass
 class Retry:
     id: str
     cid: str
 
 # Requests
 
-type Request = Network | Function | Delayed
-
-
 @dataclass
-class Network:
+class Network[T: CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq]:
     id: str
     cid: str
-    req: CreatePromiseReq | CreatePromiseWithTaskReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq
+    req: T
 
 
 @dataclass
@@ -105,7 +97,6 @@ class Function:
 class Delayed[T: Function | Retry]:
     item: T
     delay: float
-
 
 @dataclass
 class CreatePromiseReq:

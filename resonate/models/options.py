@@ -15,11 +15,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class Options:
+    retry_policy: RetryPolicy = field(default_factory=Never)
     send_to: str = "poller://default"
+    tags: dict[str, str] = field(default_factory=dict)
     timeout: int = sys.maxsize
     version: int = 0
-    tags: dict[str, str] = field(default_factory=dict)
-    retry_policy: RetryPolicy = field(default_factory=Never)
 
     def __post_init__(self) -> None:
         if not (self.version >= 0):
@@ -37,7 +37,6 @@ class Options:
             msg = "timeout mut be greater or equal than 0"
             raise ResonateValidationError(msg)
 
-
         return Options(
             send_to=send_to if send_to is not None else self.send_to,
             timeout=timeout if timeout is not None else self.timeout,
@@ -48,17 +47,17 @@ class Options:
 
     def to_dict(self) -> DictOptions:
         return DictOptions(
+            retry_policy=self.retry_policy,
             send_to=self.send_to,
+            tags=self.tags,
             timeout=self.timeout,
             version=self.version,
-            tags=self.tags,
-            retry_policy=self.retry_policy
         )
 
 
 class DictOptions(TypedDict):
+    retry_policy: RetryPolicy
     send_to: str
+    tags: dict[str, str]
     timeout: int
     version: int
-    tags: dict[str, str] | None
-    retry_policy: RetryPolicy | None
