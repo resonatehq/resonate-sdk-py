@@ -615,8 +615,7 @@ class Computation:
                         return []
 
                     case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        # assert opts.version > 0, "Version must be greater than 0."
-
+                        assert opts.version > 0, "Version must be greater than 0."
                         next = Rfnc(
                             id=id,
                             timeout=opts.timeout,

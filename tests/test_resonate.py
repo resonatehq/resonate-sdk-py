@@ -11,6 +11,7 @@ from resonate import Context, Resonate
 from resonate.dependencies import Dependencies
 from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
+from resonate.models.context import LFX, RFX
 from resonate.models.handle import Handle
 from resonate.models.options import Options
 from resonate.models.retry_policies import Constant, Exponential, Linear, Never, RetryPolicy
@@ -356,6 +357,8 @@ def test_propagation(timeout: int, func: Callable, version: int, send_to: str | 
         cmd = cmd.options(timeout=timeout - 1)
         assert cmd.opts.timeout == timeout - 1
 
-        cmd = cmd.options(retry_policy=retry_policy, send_to=send_to)
-        assert cmd.opts.retry_policy == retry_policy if retry_policy is not None else Never() if isgeneratorfunction(func) else Exponential()
-        assert cmd.opts.send_to == send_to if send_to is not None else default_opts.send_to
+        match cmd:
+            case LFX():
+                assert cmd.options(retry_policy=retry_policy).opts.retry_policy == retry_policy if retry_policy is not None else Never() if isgeneratorfunction(func) else Exponential()
+            case RFX():
+                assert cmd.options(send_to=send_to).opts.send_to == send_to if send_to is not None else default_opts.send_to
