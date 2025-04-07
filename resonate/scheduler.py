@@ -564,7 +564,7 @@ class Computation:
                             ),
                         ]
                     case False:
-                        raise NotImplementedError
+                        return []
 
             case Enabled(Running(Init(Rfnc(id, timeout, ikey, headers, data, tags))) as exec):
                 assert id == node.id, "Id must match node id."
@@ -601,13 +601,13 @@ class Computation:
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
                     case Ok(v), _, False:
-                        raise NotImplementedError
+                        return []
                     case Ko(v), None, True:
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
                     case Ko(v), None, False:
-                        raise NotImplementedError
+                        return []
 
                     case Ko(), delay, _:
                         info.increment_attempt()
@@ -704,7 +704,7 @@ class Computation:
                                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                         ]
                                     case False:
-                                        raise NotImplementedError
+                                        return []
 
                             case Ko(v), None:
                                 match opts.durable:
@@ -713,7 +713,7 @@ class Computation:
                                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                         ]
                                     case False:
-                                        raise NotImplementedError
+                                        return []
 
                             case Ko(), delay:
                                 c.reset()
