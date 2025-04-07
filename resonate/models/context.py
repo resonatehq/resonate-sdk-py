@@ -49,7 +49,6 @@ class LFX:
         *,
         id: str | None = None,
         retry_policy: RetryPolicy | None = None,
-        send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
@@ -64,7 +63,7 @@ class LFX:
             timeout = min(self._max_timeout, timeout)
 
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
+        self.opts = self.opts.merge(timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
         return self
 
 
@@ -95,7 +94,6 @@ class RFX:
         self,
         *,
         id: str | None = None,
-        retry_policy: RetryPolicy | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
@@ -109,7 +107,7 @@ class RFX:
             timeout = min(self._max_timeout, timeout)
 
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
+        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
         return self
 
 
