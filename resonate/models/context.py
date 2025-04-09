@@ -64,7 +64,7 @@ class LFX:
             timeout = min(self._max_timeout, timeout)
 
         self.id = id or self.id
-        self.opts = self.opts.merge(timeout=timeout, version=version, tags=tags, retry_policy=retry_policy, durable=durable)
+        self.opts = self.opts.merge(durable=durable, retry_policy=retry_policy, tags=tags, timeout=timeout, version=version)
         return self
 
 
@@ -95,6 +95,7 @@ class RFX:
         self,
         *,
         id: str | None = None,
+        execute: Literal["here", "there"] | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
@@ -108,7 +109,7 @@ class RFX:
             timeout = min(self._max_timeout, timeout)
 
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
+        self.opts = self.opts.merge(execute=execute, send_to=send_to, tags=tags, timeout=timeout, version=version)
         return self
 
 
