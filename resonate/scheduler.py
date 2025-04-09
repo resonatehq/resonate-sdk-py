@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 from resonate.graph import Graph, Node
 from resonate.logging import logger
 from resonate.models.commands import (
-    CancelPromiseReq,
     CancelPromiseRes,
     Command,
     CreateCallbackReq,
     CreatePromiseReq,
     CreatePromiseRes,
+    CreatePromiseWithTaskReq,
     Delayed,
     Function,
     Invoke,
@@ -358,7 +358,7 @@ class PoppableList[T](list[T]):
 
 @dataclass
 class More:
-    reqs: list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]]
+    reqs: list[Function | Delayed | Network]
     done: Literal[False] = False
 
 
@@ -504,7 +504,7 @@ class Computation:
                 raise NotImplementedError
 
     def eval(self) -> More | Done:
-        more: list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]] = []
+        more: list[Function | Delayed | Network] = []
         done: list[Network[CreateCallbackReq]] = []
 
         while self.runnable():
@@ -543,7 +543,7 @@ class Computation:
 
         return Done(done) if self.suspendable() else More(more)
 
-    def _eval(self, node: Node[State]) -> list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]]:
+    def _eval(self, node: Node[State]) -> list[Function | Delayed | Network]:
         match node.value:
             case Enabled(Running(Init(Lfnc(id, opts=opts) | Coro(id, opts=opts))) as exec):
                 assert id == node.id, "Id must match node id."
@@ -582,11 +582,17 @@ class Computation:
                             tags={**(tags or {}), "resonate:scope": "global"},
                         )
                     case "here":
-                        # req = CreatePromiseWithTaskReq(id=id, ikey=ikey, pid=self.pid, ttl=)
-                        raise NotImplementedError
-                return [
-                    Network(id, self.id, req),
-                ]
+                        req = CreatePromiseWithTaskReq(
+                            id=id,
+                            timeout=timeout,
+                            pid=self.pid,
+                            ttl=10,
+                            ikey=ikey,
+                            headers=headers,
+                            data=data,
+                            tags={**(tags or {}), "resonate:scope": "global"},
+                        )
+                return [Network(id, self.id, req)]
 
             case Enabled(Running(Lfnc(id, func, args, kwargs, opts, info, result=result) as f)):
                 assert id == node.id, "Id must match node id."

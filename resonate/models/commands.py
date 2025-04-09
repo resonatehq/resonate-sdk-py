@@ -81,7 +81,7 @@ class Retry:
 # Requests
 
 @dataclass
-class Network[T: CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq]:
+class Network[T: CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq | CreatePromiseWithTaskReq]:
     id: str
     cid: str
     req: T
