@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class Options:
     durable: bool = True
-    execute: Literal["here", "there"] = "there"
+    location: Literal["here", "there"] = "there"
     retry_policy: RetryPolicy = field(default_factory=Never)
     send_to: str = "poller://default"
     tags: dict[str, str] = field(default_factory=dict)
@@ -35,7 +35,7 @@ class Options:
         self,
         *,
         durable: bool | None = None,
-        execute: Literal["here", "there"] | None = None,
+        location: Literal["here", "there"] | None = None,
         retry_policy: RetryPolicy | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
@@ -51,7 +51,7 @@ class Options:
 
         return Options(
             durable=durable if durable is not None else self.durable,
-            execute=execute if execute is not None else self.execute,
+            location=location if location is not None else self.location,
             retry_policy=retry_policy if retry_policy is not None else self.retry_policy,
             send_to=send_to if send_to is not None else self.send_to,
             tags=tags if tags is not None else self.tags,

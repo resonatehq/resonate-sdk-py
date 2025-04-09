@@ -95,7 +95,7 @@ class RFX:
         self,
         *,
         id: str | None = None,
-        execute: Literal["here", "there"] | None = None,
+        location: Literal["here", "there"] | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
@@ -109,7 +109,7 @@ class RFX:
             timeout = min(self._max_timeout, timeout)
 
         self.id = id or self.id
-        self.opts = self.opts.merge(execute=execute, send_to=send_to, tags=tags, timeout=timeout, version=version)
+        self.opts = self.opts.merge(location=location, send_to=send_to, tags=tags, timeout=timeout, version=version)
         return self
 
 

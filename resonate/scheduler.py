@@ -291,7 +291,7 @@ class Lfnc:
 class Rfnc:
     id: str
     timeout: int
-    execute: Literal["here", "there"]
+    location: Literal["here", "there"]
     ikey: str | None = None
     headers: dict[str, str] | None = None
     data: Any = None
@@ -410,7 +410,7 @@ class Computation:
                 if isgeneratorfunction(func):
                     self.graph.root.transition(Enabled(Running(Coro(id, func, args, kwargs, opts, self.id, self.ctx))))
                 elif func is None:
-                    self.graph.root.transition(Enabled(Suspended(Rfnc(id, opts.timeout, opts.execute))))
+                    self.graph.root.transition(Enabled(Suspended(Rfnc(id, opts.timeout, opts.location))))
                 else:
                     self.graph.root.transition(Enabled(Running(Lfnc(id, func, args, kwargs, opts))))
 
@@ -567,11 +567,11 @@ class Computation:
                     case False:
                         return []
 
-            case Enabled(Running(Init(Rfnc(id, timeout, execute, ikey, headers, data, tags))) as exec):
+            case Enabled(Running(Init(Rfnc(id, timeout, location, ikey, headers, data, tags))) as exec):
                 assert id == node.id, "Id must match node id."
                 node.transition(Blocked(exec))
 
-                match execute:
+                match location:
                     case "there":
                         req = CreatePromiseReq(
                             id=id,
@@ -644,7 +644,7 @@ class Computation:
                         next = Rfnc(
                             id=id,
                             timeout=opts.timeout,
-                            execute=opts.execute,
+                            location=opts.location,
                             ikey=id,
                             data={"func": func, "args": args, "kwargs": kwargs, "version": opts.version},
                             tags={**opts.tags, "resonate:invoke": opts.send_to},
