@@ -15,6 +15,7 @@ from resonate.models.commands import (
     CreatePromiseReq,
     CreatePromiseRes,
     CreatePromiseWithTaskReq,
+    CreatePromiseWithTaskRes,
     Delayed,
     Function,
     Invoke,
@@ -433,7 +434,7 @@ class Computation:
 
                 self._apply_return(node, res)
 
-            case Receive(id, res=CreatePromiseRes(promise) | ResolvePromiseRes(promise) | RejectPromiseRes(promise) | CancelPromiseRes(promise)), _:
+            case Receive(id, res=CreatePromiseRes(promise) | ResolvePromiseRes(promise) | RejectPromiseRes(promise) | CancelPromiseRes(promise) | CreatePromiseWithTaskRes(promise)), _:
                 node = self.graph.find(lambda n: n.id == id)
                 assert node, "Node must exist."
 
