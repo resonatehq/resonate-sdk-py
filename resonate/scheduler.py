@@ -291,6 +291,7 @@ class Lfnc:
 class Rfnc:
     id: str
     timeout: int
+    execute: Literal["here", "there"]
     ikey: str | None = None
     headers: dict[str, str] | None = None
     data: Any = None
@@ -409,7 +410,7 @@ class Computation:
                 if isgeneratorfunction(func):
                     self.graph.root.transition(Enabled(Running(Coro(id, func, args, kwargs, opts, self.id, self.ctx))))
                 elif func is None:
-                    self.graph.root.transition(Enabled(Suspended(Rfnc(id, opts.timeout))))
+                    self.graph.root.transition(Enabled(Suspended(Rfnc(id, opts.timeout, opts.execute))))
                 else:
                     self.graph.root.transition(Enabled(Running(Lfnc(id, func, args, kwargs, opts))))
 
@@ -566,23 +567,25 @@ class Computation:
                     case False:
                         return []
 
-            case Enabled(Running(Init(Rfnc(id, timeout, ikey, headers, data, tags))) as exec):
+            case Enabled(Running(Init(Rfnc(id, timeout, execute, ikey, headers, data, tags))) as exec):
                 assert id == node.id, "Id must match node id."
                 node.transition(Blocked(exec))
 
-                return [
-                    Network(
-                        id,
-                        self.id,
-                        CreatePromiseReq(
+                match execute:
+                    case "there":
+                        req = CreatePromiseReq(
                             id=id,
                             ikey=ikey,
                             timeout=timeout,
                             headers=headers,
                             data=data,
                             tags={**(tags or {}), "resonate:scope": "global"},
-                        ),
-                    ),
+                        )
+                    case "here":
+                        # req = CreatePromiseWithTaskReq(id=id, ikey=ikey, pid=self.pid, ttl=)
+                        raise NotImplementedError
+                return [
+                    Network(id, self.id, req),
                 ]
 
             case Enabled(Running(Lfnc(id, func, args, kwargs, opts, info, result=result) as f)):
@@ -635,6 +638,7 @@ class Computation:
                         next = Rfnc(
                             id=id,
                             timeout=opts.timeout,
+                            execute=opts.execute,
                             ikey=id,
                             data={"func": func, "args": args, "kwargs": kwargs, "version": opts.version},
                             tags={**opts.tags, "resonate:invoke": opts.send_to},
