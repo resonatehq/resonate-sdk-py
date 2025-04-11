@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from resonate.models.retry_policies import RetryPolicy
-    from resonate.resonate import CallingConvention
+    from resonate.resonate import Convention
 
 
 class Info(Protocol):
@@ -82,7 +82,7 @@ class LFC(LFX):
 @dataclass
 class RFX:
     id: str
-    calling_convention: CallingConvention
+    convention: Convention
     def options(
         self,
         *,
@@ -93,7 +93,7 @@ class RFX:
         version: int | None = None,
     ) -> Self:
         self.id = id or self.id
-        self.calling_convention.options(send_to=send_to, tags=tags, timeout=timeout, version=version)
+        self.convention.options(send_to=send_to, tags=tags, timeout=timeout, version=version)
 
         return self
 

@@ -15,7 +15,7 @@ from resonate.models.handle import Handle
 from resonate.models.options import Options
 from resonate.models.retry_policies import Constant, Exponential, Linear, Never, RetryPolicy
 from resonate.registry import Registry
-from resonate.resonate import FuncCallingConvention, Function
+from resonate.resonate import Function
 from resonate.scheduler import Info
 
 if TYPE_CHECKING:
@@ -337,7 +337,7 @@ def test_propagation(timeout: int, func: Callable, version: int, send_to: str | 
 
     default_opts = Options()
     opts = Options(timeout=timeout).merge(send_to=send_to, version=version, retry_policy=retry_policy)
-    ctx = Context("foo", Info(), opts, registry, Dependencies(), FuncCallingConvention)
+    ctx = Context("foo", Info(), opts, registry, Dependencies())
 
     for f in (ctx.lfi, ctx.lfc):
         cmd = f(func, 1, 2)
@@ -360,18 +360,18 @@ def test_propagation(timeout: int, func: Callable, version: int, send_to: str | 
 
     for f in (ctx.rfi, ctx.rfc, ctx.detached):
         cmd = f(func, 1, 2)
-        assert cmd.calling_convention.opts.version == version
-        assert cmd.calling_convention.opts.tags == default_opts.tags
-        assert cmd.calling_convention.opts.send_to == default_opts.send_to
-        assert cmd.calling_convention.opts.retry_policy == Never() if isgeneratorfunction(func) else Exponential()
+        assert cmd.convention.opts.version == version
+        assert cmd.convention.opts.tags == default_opts.tags
+        assert cmd.convention.opts.send_to == default_opts.send_to
+        assert cmd.convention.opts.retry_policy == Never() if isgeneratorfunction(func) else Exponential()
 
         if f == ctx.detached:
-            assert cmd.calling_convention.opts.timeout == default_opts.timeout
+            assert cmd.convention.opts.timeout == default_opts.timeout
         else:
-            assert cmd.calling_convention.opts.timeout == timeout
+            assert cmd.convention.opts.timeout == timeout
             cmd = cmd.options(timeout=timeout + 1)
-            assert cmd.calling_convention.opts.timeout == timeout
+            assert cmd.convention.opts.timeout == timeout
 
         cmd = cmd.options(timeout=timeout - 1)
-        assert cmd.calling_convention.opts.timeout == timeout - 1
-        assert cmd.options(send_to=send_to).calling_convention.opts.send_to == send_to if send_to is not None else default_opts.send_to
+        assert cmd.convention.opts.timeout == timeout - 1
+        assert cmd.options(send_to=send_to).convention.opts.send_to == send_to if send_to is not None else default_opts.send_to

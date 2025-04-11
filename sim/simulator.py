@@ -36,7 +36,6 @@ from resonate.models.commands import (
 from resonate.models.options import Options
 from resonate.models.result import Ko, Ok, Result
 from resonate.models.task import Task
-from resonate.resonate import FuncCallingConvention
 from resonate.scheduler import Done, More, Scheduler
 from resonate.stores.local import LocalStore
 
@@ -345,7 +344,7 @@ class Worker(Component):
         super().__init__(uni, any)
         self.registry = registry
         self.dependencies = Dependencies()
-        self.scheduler = Scheduler(lambda id, info: Context(id, info, Options(), self.registry, self.dependencies, FuncCallingConvention), pid=self.uni)
+        self.scheduler = Scheduler(lambda id, info: Context(id, info, Options(), self.registry, self.dependencies), pid=self.uni)
         self.commands: list[Command] = []
         self.tasks: dict[str, Task] = {}
 
