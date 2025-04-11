@@ -3,10 +3,12 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
+from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
-from typing import TYPE_CHECKING, Any, Concatenate, overload
+from typing import TYPE_CHECKING, Any, Concatenate, Protocol, overload
 
 from resonate.dependencies import Dependencies
+from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import (
     LFC,
@@ -49,7 +51,7 @@ class Resonate:
         self._dependencies = dependencies or Dependencies()
 
         self._scheduler = scheduler or Scheduler(
-            ctx=lambda id, info: Context(id, info, self._opts, self._registry, self._dependencies),
+            ctx=lambda id, info: Context(id, info, self._opts, self._registry, self._dependencies, FuncCallingConvention),
             pid=pid,
             unicast=self.unicast,
             anycast=self.anycast,
@@ -176,16 +178,50 @@ class Resonate:
         return Handle(fv)
 
 
+# Calling Convention
+
+class CallingConvention(Protocol):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:...
+    @property
+    def opts(self) -> Options:...
+    def format(self) -> tuple[Any, dict[str, str], int]:...
+    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:...
+@dataclass
+class FuncCallingConvention:
+    func: str
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
+    versions: set[int] | None
+    opts: Options = field(default_factory=Options)
+
+    def __post_init__(self) -> None:
+        # Initially, timeout is set to the parent context timeout. This is the upper bound for the timeout.
+        self._max_timeout = self.opts.timeout
+
+    def format(self ) -> tuple[Any, dict[str, str], int]:
+        if self.versions is not None:
+            assert self.opts.version in self.versions
+        assert self.opts.version > 0
+        return ({"func":self.func, "args": self.args, "kwargs": self.kwargs, "version":self.opts.version}, {**self.opts.tags, "resonate:invoke":self.opts.send_to}, self.opts.timeout)
+
+    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:
+        if version is not None and self.versions is not None and version not in self.versions:
+            msg = f"version={version} not found."
+            raise ResonateValidationError(msg)
+        if timeout is not None:
+            timeout = min(self._max_timeout, timeout)
+        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
+
+
 # Context
-
-
 class Context:
-    def __init__(self, id: str, info: Info, opts: Options, registry: Registry, dependencies: Dependencies) -> None:
+    def __init__(self, id: str, info: Info, opts: Options, registry: Registry, dependencies: Dependencies, calling_convention: type[CallingConvention]) -> None:
         self._id = id
         self._info = info
         self._opts = opts
         self._registry = registry
         self._dependencies = dependencies
+        self._calling_convention = calling_convention
         self._counter = 0
 
     @property
@@ -234,7 +270,7 @@ class Context:
         self._counter += 1
         retry_policy = Never() if isgeneratorfunction(func) else Exponential()
         func, version, versions = self._rfi_func(func)
-        return RFI(f"{self.id}.{self._counter}", func, args, kwargs, Options(version=version, retry_policy=retry_policy, timeout=self._opts.timeout), versions)
+        return RFI(f"{self.id}.{self._counter}", self._calling_convention(func, args, kwargs, versions, Options(version=version, retry_policy=retry_policy, timeout=self._opts.timeout)))
 
     @overload
     def rfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
@@ -246,7 +282,7 @@ class Context:
         self._counter += 1
         retry_policy = Never() if isgeneratorfunction(func) else Exponential()
         func, version, versions = self._rfi_func(func)
-        return RFC(f"{self.id}.{self._counter}", func, args, kwargs, Options(version=version, retry_policy=retry_policy, timeout=self._opts.timeout), versions)
+        return RFC(f"{self.id}.{self._counter}", self._calling_convention(func, args, kwargs, versions, Options(version=version, retry_policy=retry_policy, timeout=self._opts.timeout)))
 
     @overload
     def detached[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -258,7 +294,7 @@ class Context:
         self._counter += 1
         retry_policy = Never() if isgeneratorfunction(func) else Exponential()
         func, version, versions = self._rfi_func(func)
-        return RFI(f"{self.id}.{self._counter}", func, args, kwargs, Options(version=version, retry_policy=retry_policy), versions, mode="detached")
+        return RFI(f"{self.id}.{self._counter}", self._calling_convention(func, args, kwargs, versions, Options(version=version, retry_policy=retry_policy)), mode="detached")
 
     def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:

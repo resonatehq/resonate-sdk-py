@@ -8,7 +8,7 @@ from resonate.models.options import Options
 from resonate.models.result import Ko, Ok
 from resonate.models.retry_policies import Constant, Exponential, Linear, Never, RetryPolicy
 from resonate.registry import Registry
-from resonate.resonate import Context
+from resonate.resonate import Context, FuncCallingConvention
 from resonate.scheduler import Scheduler
 
 
@@ -28,7 +28,7 @@ def bar_ko(ctx: Context):  # noqa: ANN201
 
 @pytest.fixture
 def scheduler() -> Scheduler:
-    return Scheduler(lambda id, info: Context(id, info, Options(), Registry(), Dependencies()))
+    return Scheduler(lambda id, info: Context(id, info, Options(), Registry(), Dependencies(), FuncCallingConvention))
 
 
 @pytest.mark.parametrize(
