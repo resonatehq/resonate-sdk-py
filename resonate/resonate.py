@@ -15,7 +15,7 @@ from resonate.models.context import (
     RFI,
     Info,
 )
-from resonate.models.conventions import DefaultConvention
+from resonate.models.conventions import DefaultConvention, SleepConvention
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.handle import Handle
 from resonate.models.options import Options
@@ -231,9 +231,8 @@ class Context:
     def rfi(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
     def rfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
-        id = f"{self.id}.{self._counter}"
         func, version, versions = self._rfi_func(func)
-        return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
+        return RFI(f"{self.id}.{self._counter}", DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
 
     @overload
     def rfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
@@ -243,9 +242,8 @@ class Context:
     def rfc(self, func: str, *args: Any, **kwargs: Any) -> RFC: ...
     def rfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFC:
         self._counter += 1
-        id = f"{self.id}.{self._counter}"
         func, version, versions = self._rfi_func(func)
-        return RFC(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
+        return RFC(f"{self.id}.{self._counter}", DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
 
     @overload
     def detached[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -255,9 +253,12 @@ class Context:
     def detached(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
     def detached(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
-        id = f"{self.id}.{self._counter}"
         func, version, versions = self._rfi_func(func)
-        return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
+        return RFI(f"{self.id}.{self._counter}", DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
+
+    def sleep(self, secs: int) -> RFC:
+        self._counter += 1
+        return RFC(f"{self.id}.{self._counter}", SleepConvention(secs))
 
     def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:

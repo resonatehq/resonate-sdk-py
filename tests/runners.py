@@ -25,6 +25,7 @@ from resonate.models.commands import (
     Resume,
 )
 from resonate.models.context import LFC, LFI, RFC, RFI
+from resonate.models.conventions import SleepConvention
 from resonate.models.options import Options
 from resonate.models.task import Task
 from resonate.registry import Registry
@@ -75,6 +76,9 @@ class Context:
         func, version, versions = self._rfi_func(func)
         return RFI(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)))
 
+    def sleep(self, secs: int) -> RFC:
+        return RFC(str(uuid.uuid4()), SleepConvention(secs))
+
     @property
     def info(self) -> Info:
         return Info()
@@ -115,6 +119,9 @@ class LocalContext:
         func, version, versions = self._lfi_func(func)
         return LFI(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
 
+    def sleep(self, secs: int) -> RFC:
+        raise NotImplementedError
+
     @property
     def info(self) -> Info:
         return Info()
@@ -151,6 +158,9 @@ class RemoteContext:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
         return RFI(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
+
+    def sleep(self, secs: int) -> RFC:
+        return RFC(str(uuid.uuid4()), SleepConvention(secs))
 
     @property
     def info(self) -> Info:
