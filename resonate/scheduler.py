@@ -630,8 +630,8 @@ class Computation:
                         child.transition(Enabled(Running(Init(next, suspends=[node]))))
                         return []
 
-                    case RFI(id, calling_convention), Enabled(Suspended(Init(next=None))):
-                        data, tags, timeout, headers = calling_convention.format()
+                    case RFI(id, convention), Enabled(Suspended(Init(next=None))):
+                        data, tags, timeout, headers = convention.format()
                         next = Rfnc(id=id, timeout=timeout, ikey=id, data=data, tags=tags, headers=headers)
 
                         node.add_edge(child)
@@ -812,10 +812,10 @@ class Coroutine:
                     self.next = AWT
                     self.skip = True
                     yielded = LFI(id, func, args, kwargs, opts)
-                case RFC(id, calling_convention):
+                case RFC(id, convention):
                     self.next = AWT
                     self.skip = True
-                    yielded = RFI(id, calling_convention)
+                    yielded = RFI(id, convention)
                 case AWT(id):
                     self.next = (Ok, Ko)
                     self.unyielded = [y for y in self.unyielded if y.id != id]

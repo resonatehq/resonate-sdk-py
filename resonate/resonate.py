@@ -178,7 +178,7 @@ class Resonate:
         return Handle(fv)
 
 
-# Calling Convention
+# Convention
 
 
 class Convention(Protocol):
