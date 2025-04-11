@@ -3,12 +3,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
-from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
-from typing import TYPE_CHECKING, Any, Concatenate, Protocol, overload
+from typing import TYPE_CHECKING, Any, Concatenate, overload
 
 from resonate.dependencies import Dependencies
-from resonate.errors import ResonateValidationError
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import (
     LFC,
@@ -17,6 +15,7 @@ from resonate.models.context import (
     RFI,
     Info,
 )
+from resonate.models.conventions import DefaultConvention
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.handle import Handle
 from resonate.models.options import Options
@@ -178,58 +177,6 @@ class Resonate:
         return Handle(fv)
 
 
-# Convention
-class Convention(Protocol):
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-    @property
-    def opts(self) -> Options: ...
-    def format(self) -> tuple[Any, dict[str, str], int, dict[str, str] | None]: ...
-    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None: ...
-
-
-@dataclass
-class DefaultConvention:
-    func: str
-    args: tuple[Any, ...]
-    kwargs: dict[str, Any]
-    versions: set[int] | None
-    registry: Registry
-    opts: Options = field(default_factory=Options)
-
-    def __post_init__(self) -> None:
-        # Initially, timeout is set to the parent context timeout. This is the upper bound for the timeout.
-        self._max_timeout = self.opts.timeout
-
-    def format(self) -> tuple[Any, dict[str, str], int, dict[str, str] | None]:
-        if self.versions is not None:
-            assert self.opts.version in self.versions
-        assert self.opts.version > 0
-        return ({"func": self.func, "args": self.args, "kwargs": self.kwargs, "version": self.opts.version}, {**self.opts.tags, "resonate:invoke": self.opts.send_to}, self.opts.timeout, None)
-
-    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:
-        if version is not None and self.versions is not None and version not in self.versions:
-            msg = f"version={version} not found."
-            raise ResonateValidationError(msg)
-        if timeout is not None:
-            timeout = min(self._max_timeout, timeout)
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
-
-
-@dataclass
-class XConvention:
-    data: Any
-    tags: dict[str, str]
-    timeout: int
-    headers: dict[str, str] | None
-    opts: Options = field(default_factory=Options)
-
-    def format(self) -> tuple[Any, dict[str, str], int, dict[str, str] | None]:
-        return (self.data, self.tags, self.timeout, self.headers)
-
-    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:
-        return
-
-
 # Context
 class Context:
     def __init__(self, id: str, info: Info, opts: Options, registry: Registry, dependencies: Dependencies) -> None:
@@ -282,17 +229,11 @@ class Context:
     def rfi[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
     @overload
     def rfi(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
-    @overload
-    def rfi(self, cmd: XConvention, /) -> RFI: ...
-    def rfi(self, func: Callable | str | XConvention, *args: Any, **kwargs: Any) -> RFI:
+    def rfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
         id = f"{self.id}.{self._counter}"
-        match func:
-            case XConvention():
-                return RFI(id, func)
-            case _:
-                func, version, versions = self._rfi_func(func)
-                return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
+        func, version, versions = self._rfi_func(func)
+        return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
 
     @overload
     def rfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
@@ -300,17 +241,11 @@ class Context:
     def rfc[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
     @overload
     def rfc(self, func: str, *args: Any, **kwargs: Any) -> RFC: ...
-    @overload
-    def rfc(self, cmd: XConvention, /) -> RFC: ...
-    def rfc(self, func: Callable | str | XConvention, *args: Any, **kwargs: Any) -> RFC:
+    def rfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFC:
         self._counter += 1
         id = f"{self.id}.{self._counter}"
-        match func:
-            case XConvention():
-                return RFC(id, func)
-            case _:
-                func, version, versions = self._rfi_func(func)
-                return RFC(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
+        func, version, versions = self._rfi_func(func)
+        return RFC(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
 
     @overload
     def detached[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -318,17 +253,11 @@ class Context:
     def detached[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
     @overload
     def detached(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
-    @overload
-    def detached(self, cmd: XConvention, /) -> RFI: ...
-    def detached(self, func: Callable | str | XConvention, *args: Any, **kwargs: Any) -> RFI:
+    def detached(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
         id = f"{self.id}.{self._counter}"
-        match func:
-            case XConvention():
-                return RFI(id, func, mode="detached")
-            case _:
-                func, version, versions = self._rfi_func(func)
-                return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
+        func, version, versions = self._rfi_func(func)
+        return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
 
     def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:

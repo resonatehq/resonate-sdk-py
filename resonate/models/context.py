@@ -9,8 +9,8 @@ from resonate.models.options import Options
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from resonate.models.conventions import Convention
     from resonate.models.retry_policies import RetryPolicy
-    from resonate.resonate import Convention
 
 
 class Info(Protocol):
