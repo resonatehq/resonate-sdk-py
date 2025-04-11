@@ -28,6 +28,7 @@ from resonate.models.context import LFC, LFI, RFC, RFI
 from resonate.models.options import Options
 from resonate.models.task import Task
 from resonate.registry import Registry
+from resonate.resonate import DefaultConvention
 from resonate.scheduler import Scheduler
 from resonate.stores.local import LocalStore
 
@@ -62,17 +63,17 @@ class Context:
     def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
-        return RFI(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
+        return RFI(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)))
 
     def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
-        return RFC(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
+        return RFC(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)))
 
     def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
-        return RFI(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
+        return RFI(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)))
 
     @property
     def info(self) -> Info:
@@ -129,27 +130,27 @@ class RemoteContext:
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
-        return RFI(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
+        return RFI(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)))
 
     def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
-        return RFC(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
+        return RFC(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)))
 
     def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
-        return RFI(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
+        return RFI(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)))
 
     def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
-        return RFC(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
+        return RFC(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)))
 
     def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         assert not isinstance(func, str)
         func, version, versions = self._rfi_func(func)
-        return RFI(str(uuid.uuid4()), func, args, kwargs, Options(version=version), versions)
+        return RFI(str(uuid.uuid4()), DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
 
     @property
     def info(self) -> Info:

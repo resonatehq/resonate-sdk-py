@@ -15,6 +15,7 @@ from resonate.models.context import (
     RFI,
     Info,
 )
+from resonate.models.conventions import DefaultConvention
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.handle import Handle
 from resonate.models.options import Options
@@ -177,8 +178,6 @@ class Resonate:
 
 
 # Context
-
-
 class Context:
     def __init__(self, id: str, info: Info, opts: Options, registry: Registry, dependencies: Dependencies) -> None:
         self._id = id
@@ -232,9 +231,9 @@ class Context:
     def rfi(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
     def rfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
-        retry_policy = Never() if isgeneratorfunction(func) else Exponential()
+        id = f"{self.id}.{self._counter}"
         func, version, versions = self._rfi_func(func)
-        return RFI(f"{self.id}.{self._counter}", func, args, kwargs, Options(version=version, retry_policy=retry_policy, timeout=self._opts.timeout), versions)
+        return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
 
     @overload
     def rfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
@@ -244,9 +243,9 @@ class Context:
     def rfc(self, func: str, *args: Any, **kwargs: Any) -> RFC: ...
     def rfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFC:
         self._counter += 1
-        retry_policy = Never() if isgeneratorfunction(func) else Exponential()
+        id = f"{self.id}.{self._counter}"
         func, version, versions = self._rfi_func(func)
-        return RFC(f"{self.id}.{self._counter}", func, args, kwargs, Options(version=version, retry_policy=retry_policy, timeout=self._opts.timeout), versions)
+        return RFC(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
 
     @overload
     def detached[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -256,9 +255,9 @@ class Context:
     def detached(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
     def detached(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
-        retry_policy = Never() if isgeneratorfunction(func) else Exponential()
+        id = f"{self.id}.{self._counter}"
         func, version, versions = self._rfi_func(func)
-        return RFI(f"{self.id}.{self._counter}", func, args, kwargs, Options(version=version, retry_policy=retry_policy), versions, mode="detached")
+        return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
 
     def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:

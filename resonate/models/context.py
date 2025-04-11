@@ -9,6 +9,7 @@ from resonate.models.options import Options
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from resonate.models.conventions import Convention
     from resonate.models.retry_policies import RetryPolicy
 
 
@@ -81,15 +82,7 @@ class LFC(LFX):
 @dataclass
 class RFX:
     id: str
-    func: str
-    args: tuple[Any, ...]
-    kwargs: dict[str, Any]
-    opts: Options = field(default_factory=Options)
-    versions: set[int] | None = None
-
-    def __post_init__(self) -> None:
-        # Initially, timeout is set to the parent context timeout. This is the upper bound for the timeout.
-        self._max_timeout = self.opts.timeout
+    convention: Convention
 
     def options(
         self,
@@ -100,15 +93,9 @@ class RFX:
         timeout: int | None = None,
         version: int | None = None,
     ) -> Self:
-        if version is not None and self.versions is not None and version not in self.versions:
-            msg = f"version={version} not found."
-            raise ResonateValidationError(msg)
-
-        if timeout is not None:
-            timeout = min(self._max_timeout, timeout)
-
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags)
+        self.convention.options(send_to=send_to, tags=tags, timeout=timeout, version=version)
+
         return self
 
 

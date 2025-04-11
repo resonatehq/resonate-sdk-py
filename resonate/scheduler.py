@@ -630,15 +630,9 @@ class Computation:
                         child.transition(Enabled(Running(Init(next, suspends=[node]))))
                         return []
 
-                    case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        assert opts.version > 0, "Version must be greater than 0."
-                        next = Rfnc(
-                            id=id,
-                            timeout=opts.timeout,
-                            ikey=id,
-                            data={"func": func, "args": args, "kwargs": kwargs, "version": opts.version},
-                            tags={**opts.tags, "resonate:invoke": opts.send_to},
-                        )
+                    case RFI(id, convention), Enabled(Suspended(Init(next=None))):
+                        data, tags, timeout, headers = convention.format()
+                        next = Rfnc(id=id, timeout=timeout, ikey=id, data=data, tags=tags, headers=headers)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -818,10 +812,10 @@ class Coroutine:
                     self.next = AWT
                     self.skip = True
                     yielded = LFI(id, func, args, kwargs, opts)
-                case RFC(id, func, args, kwargs, opts):
+                case RFC(id, convention):
                     self.next = AWT
                     self.skip = True
-                    yielded = RFI(id, func, args, kwargs, opts)
+                    yielded = RFI(id, convention)
                 case AWT(id):
                     self.next = (Ok, Ko)
                     self.unyielded = [y for y in self.unyielded if y.id != id]
