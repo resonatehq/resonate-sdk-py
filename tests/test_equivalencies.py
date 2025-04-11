@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 # Functions
 
+
 def fib(ctx: Context, n: int) -> Generator[Any, Any, int]:
     if n <= 1:
         return n

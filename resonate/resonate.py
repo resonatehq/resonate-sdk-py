@@ -180,12 +180,15 @@ class Resonate:
 
 # Calling Convention
 
+
 class CallingConvention(Protocol):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:...
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     @property
-    def opts(self) -> Options:...
-    def format(self) -> tuple[Any, dict[str, str], int, dict[str, str]]:...
-    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:...
+    def opts(self) -> Options: ...
+    def format(self) -> tuple[Any, dict[str, str], int, dict[str, str]]: ...
+    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None: ...
+
+
 @dataclass
 class FuncCallingConvention:
     func: str
@@ -198,11 +201,11 @@ class FuncCallingConvention:
         # Initially, timeout is set to the parent context timeout. This is the upper bound for the timeout.
         self._max_timeout = self.opts.timeout
 
-    def format(self ) -> tuple[Any, dict[str, str], int, dict[str, str]]:
+    def format(self) -> tuple[Any, dict[str, str], int, dict[str, str]]:
         if self.versions is not None:
             assert self.opts.version in self.versions
         assert self.opts.version > 0
-        return ({"func":self.func, "args": self.args, "kwargs": self.kwargs, "version":self.opts.version}, {**self.opts.tags, "resonate:invoke":self.opts.send_to}, self.opts.timeout, {})
+        return ({"func": self.func, "args": self.args, "kwargs": self.kwargs, "version": self.opts.version}, {**self.opts.tags, "resonate:invoke": self.opts.send_to}, self.opts.timeout, {})
 
     def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:
         if version is not None and self.versions is not None and version not in self.versions:
