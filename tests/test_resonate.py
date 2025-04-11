@@ -363,7 +363,7 @@ def test_propagation(timeout: int, func: Callable, version: int, send_to: str | 
         assert cmd.convention.opts.version == version
         assert cmd.convention.opts.tags == default_opts.tags
         assert cmd.convention.opts.send_to == default_opts.send_to
-        assert cmd.convention.opts.retry_policy == Never() if isgeneratorfunction(func) else Exponential()
+        assert cmd.convention.opts.retry_policy == Never()
 
         if f == ctx.detached:
             assert cmd.convention.opts.timeout == default_opts.timeout
