@@ -292,7 +292,7 @@ class Context:
                 return RFI(id, func)
             case _:
                 func, version, versions = self._rfi_func(func)
-                return RFI(id, DefaultConvention(func, args, kwargs, versions,self._registry,  Options(version=version, timeout=self._opts.timeout)))
+                return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
 
     @overload
     def rfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
@@ -310,7 +310,7 @@ class Context:
                 return RFC(id, func)
             case _:
                 func, version, versions = self._rfi_func(func)
-                return RFC(id, DefaultConvention(func, args, kwargs, versions,self._registry, Options(version=version, timeout=self._opts.timeout)))
+                return RFC(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
 
     @overload
     def detached[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -328,7 +328,7 @@ class Context:
                 return RFI(id, func, mode="detached")
             case _:
                 func, version, versions = self._rfi_func(func)
-                return RFI(id, DefaultConvention(func, args, kwargs, versions,self._registry, Options(version=version)), mode="detached")
+                return RFI(id, DefaultConvention(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
 
     def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:

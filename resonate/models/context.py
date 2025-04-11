@@ -83,6 +83,7 @@ class LFC(LFX):
 class RFX:
     id: str
     convention: Convention
+
     def options(
         self,
         *,
