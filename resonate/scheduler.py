@@ -775,21 +775,21 @@ class Coroutine:
 
         self.done = False
         self.skip = False
-        self.next: type[None | Promise] | tuple[type[Result], ...] = type(None)
-        self.unyielded: list[Promise | TRM] = []
+        self.next: type[None | AWT] | tuple[type[Result], ...] = type(None)
+        self.unyielded: list[AWT | TRM] = []
 
     def __repr__(self) -> str:
         return f"Coroutine(done={self.done})"
 
     def send(self, value: None | AWT | Result) -> LFI | RFI | AWT | TRM:
+        assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow AWT."
         send_value = _awt_to_promise(value)
-        assert isinstance(send_value, self.next), "Promise must follow LFI/RFI. Value must follow Promise."
 
         if self.done:
             match self.unyielded:
                 case [head, *tail]:
                     self.unyielded = tail
-                    return _promise_to_awt(head)
+                    return head
                 case _:
                     raise StopIteration
 
@@ -808,14 +808,14 @@ class Coroutine:
 
             match yielded:
                 case LFI(id) | RFI(id, mode="attached"):
-                    self.next = Promise
-                    self.unyielded.append(Promise(id, self.cid))
+                    self.next = AWT
+                    self.unyielded.append(AWT(id, self.cid))
                 case LFC(id, func, args, kwargs, opts):
-                    self.next = Promise
+                    self.next = AWT
                     self.skip = True
                     yielded = LFI(id, func, args, kwargs, opts)
                 case RFC(id, convention):
-                    self.next = Promise
+                    self.next = AWT
                     self.skip = True
                     yielded = RFI(id, convention)
                 case Promise(id):
@@ -825,11 +825,11 @@ class Coroutine:
         except StopIteration as e:
             self.done = True
             self.unyielded.append(TRM(self.id, Ok(e.value)))
-            return _promise_to_awt(self.unyielded.pop(0))
+            return self.unyielded.pop(0)
         except Exception as e:
             self.done = True
             self.unyielded.append(TRM(self.id, Ko(e)))
-            return _promise_to_awt(self.unyielded.pop(0))
+            return self.unyielded.pop(0)
         else:
             return _promise_to_awt(yielded)
 
