@@ -38,6 +38,7 @@ from resonate.models.context import (
     Yieldable,
 )
 from resonate.models.options import Options
+from resonate.models.promise import Promise
 from resonate.models.result import Ko, Ok, Result
 
 if TYPE_CHECKING:
@@ -783,6 +784,12 @@ class Coroutine:
     def send(self, value: None | AWT | Result) -> LFI | RFI | AWT | TRM:
         assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow AWT."
 
+        match value:
+            case AWT(id, cid):
+                send_value = Promise(id, cid)
+            case _:
+                send_value = value
+
         if self.done:
             match self.unyielded:
                 case [head, *tail]:
@@ -792,17 +799,17 @@ class Coroutine:
                     raise StopIteration
 
         try:
-            match value, self.skip:
+            match send_value, self.skip:
                 case Ok(v), False:
                     yielded = self.gen.send(v)
                 case Ko(e), False:
                     yielded = self.gen.throw(e)
-                case awt, True:
-                    assert isinstance(awt, AWT), "Skipped value must be an AWT."
+                case promise, True:
+                    assert isinstance(promise, Promise), "Skipped value must be a Promise."
                     self.skip = False
-                    yielded = awt
+                    yielded = promise
                 case _:
-                    yielded = self.gen.send(value)
+                    yielded = self.gen.send(send_value)
 
             match yielded:
                 case LFI(id) | RFI(id, mode="attached"):
@@ -816,7 +823,7 @@ class Coroutine:
                     self.next = AWT
                     self.skip = True
                     yielded = RFI(id, convention)
-                case AWT(id):
+                case Promise(id):
                     self.next = (Ok, Ko)
                     self.unyielded = [y for y in self.unyielded if y.id != id]
 
@@ -829,4 +836,8 @@ class Coroutine:
             self.unyielded.append(TRM(self.id, Ko(e)))
             return self.unyielded.pop(0)
         else:
-            return yielded
+            match yielded:
+                case Promise(id, cid):
+                    return AWT(id, cid)
+                case _:
+                    return yielded
