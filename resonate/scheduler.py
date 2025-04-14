@@ -783,7 +783,12 @@ class Coroutine:
 
     def send(self, value: None | AWT | Result) -> LFI | RFI | AWT | TRM:
         assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow AWT."
-        send_value = _awt_to_promise(value)
+
+        match value:
+            case AWT(id, cid):
+                send_value = Promise(id, cid)
+            case _:
+                send_value = value
 
         if self.done:
             match self.unyielded:
@@ -831,20 +836,8 @@ class Coroutine:
             self.unyielded.append(TRM(self.id, Ko(e)))
             return self.unyielded.pop(0)
         else:
-            return _promise_to_awt(yielded)
-
-
-def _awt_to_promise(value: None | AWT | Result) -> None | Promise | Result:
-    match value:
-        case AWT(id, cid):
-            return Promise(id, cid)
-        case _:
-            return value
-
-
-def _promise_to_awt(value: LFI | RFI | Promise | TRM) -> LFI | RFI | AWT | TRM:
-    match value:
-        case Promise(id, cid):
-            return AWT(id, cid)
-        case _:
-            return value
+            match yielded:
+                case Promise(id, cid):
+                    return AWT(id, cid)
+                case _:
+                    return yielded
