@@ -17,7 +17,7 @@ from resonate.models.task import Task
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
     from resonate.models.enqueueable import Enqueueable
-    from resonate.models.messsage_source import MessageSource
+    from resonate.models.message_source import MessageSource
 
 # Fake it till you make it
 # -------------------------------->
@@ -822,4 +822,4 @@ class _LocalMessageSource:
             msgs = self._store.step()
             for _, msg in msgs:
                 cq.enqueue(msg)
-            self._stop_event.wait(0.3)
+            self._stop_event.wait(0.1)

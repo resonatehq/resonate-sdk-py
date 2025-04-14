@@ -76,8 +76,8 @@ class Scheduler:
         self.pid = pid or uuid.uuid4().hex
 
         # unicast / anycast
-        self.unicast = unicast or f"poller://default/{pid}"
-        self.anycast = anycast or f"poller://default/{pid}"
+        self.unicast = unicast or f"poll://default/{pid}"
+        self.anycast = anycast or f"poll://default/{pid}"
 
         # computations
         self.computations: dict[str, Computation] = {}
@@ -445,8 +445,9 @@ class Computation:
 
                 self._apply_retry(node)
 
-            case _:
-                raise NotImplementedError
+            case c:
+                msg = f"Command {c} not supported"
+                raise NotImplementedError(msg)
 
     def _apply_return(self, node: Node[State], result: Result) -> None:
         match node.value:
