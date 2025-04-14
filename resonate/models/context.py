@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from resonate.errors import ResonateValidationError
 from resonate.models.options import Options
+from resonate.models.promise import Promise
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,7 +24,7 @@ class Context(Protocol):
     def info(self) -> Info: ...
 
 
-type Yieldable = LFI | LFC | RFI | RFC | AWT
+type Yieldable = LFI | LFC | RFI | RFC | Promise
 
 
 @dataclass

@@ -38,6 +38,7 @@ from resonate.models.context import (
     Yieldable,
 )
 from resonate.models.options import Options
+from resonate.models.promise import Promise
 from resonate.models.result import Ko, Ok, Result
 
 if TYPE_CHECKING:
@@ -774,59 +775,76 @@ class Coroutine:
 
         self.done = False
         self.skip = False
-        self.next: type[None | AWT] | tuple[type[Result], ...] = type(None)
-        self.unyielded: list[AWT | TRM] = []
+        self.next: type[None | Promise] | tuple[type[Result], ...] = type(None)
+        self.unyielded: list[Promise | TRM] = []
 
     def __repr__(self) -> str:
         return f"Coroutine(done={self.done})"
 
     def send(self, value: None | AWT | Result) -> LFI | RFI | AWT | TRM:
-        assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow AWT."
+        send_value = _awt_to_promise(value)
+        assert isinstance(send_value, self.next), "Promise must follow LFI/RFI. Value must follow Promise."
 
         if self.done:
             match self.unyielded:
                 case [head, *tail]:
                     self.unyielded = tail
-                    return head
+                    return _promise_to_awt(head)
                 case _:
                     raise StopIteration
 
         try:
-            match value, self.skip:
+            match send_value, self.skip:
                 case Ok(v), False:
                     yielded = self.gen.send(v)
                 case Ko(e), False:
                     yielded = self.gen.throw(e)
-                case awt, True:
-                    assert isinstance(awt, AWT), "Skipped value must be an AWT."
+                case promise, True:
+                    assert isinstance(promise, Promise), "Skipped value must be a Promise."
                     self.skip = False
-                    yielded = awt
+                    yielded = promise
                 case _:
-                    yielded = self.gen.send(value)
+                    yielded = self.gen.send(send_value)
 
             match yielded:
                 case LFI(id) | RFI(id, mode="attached"):
-                    self.next = AWT
-                    self.unyielded.append(AWT(id, self.cid))
+                    self.next = Promise
+                    self.unyielded.append(Promise(id, self.cid))
                 case LFC(id, func, args, kwargs, opts):
-                    self.next = AWT
+                    self.next = Promise
                     self.skip = True
                     yielded = LFI(id, func, args, kwargs, opts)
                 case RFC(id, convention):
-                    self.next = AWT
+                    self.next = Promise
                     self.skip = True
                     yielded = RFI(id, convention)
-                case AWT(id):
+                case Promise(id):
                     self.next = (Ok, Ko)
                     self.unyielded = [y for y in self.unyielded if y.id != id]
 
         except StopIteration as e:
             self.done = True
             self.unyielded.append(TRM(self.id, Ok(e.value)))
-            return self.unyielded.pop(0)
+            return _promise_to_awt(self.unyielded.pop(0))
         except Exception as e:
             self.done = True
             self.unyielded.append(TRM(self.id, Ko(e)))
-            return self.unyielded.pop(0)
+            return _promise_to_awt(self.unyielded.pop(0))
         else:
-            return yielded
+            return _promise_to_awt(yielded)
+
+
+def _awt_to_promise(value: None | AWT | Result) -> None | Promise | Result:
+    match value:
+        case AWT(id, cid):
+            return Promise(id, cid)
+        case _:
+            return value
+
+
+def _promise_to_awt(value: LFI | RFI | Promise | TRM) -> LFI | RFI | AWT | TRM:
+    match value:
+        case Promise(id, cid):
+            return AWT(id, cid)
+        case _:
+            return value
