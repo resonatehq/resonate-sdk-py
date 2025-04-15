@@ -254,6 +254,34 @@ class RemotePromiseStore:
             self._encoder.decode(res["promise"]["value"].get("data")),
         ), Callback.from_dict(callback_dict) if callback_dict is not None else None
 
+    def subscribe(
+        self,
+        *,
+        id: str,
+        promise_id: str,
+        timeout: int,
+        recv: str,
+    ) -> tuple[DurablePromise, Callback | None]:
+        req = Request(
+            method="post",
+            url=f"{self._store.url}/subscriptions",
+            json={
+                "id": id,
+                "promiseId": promise_id,
+                "timeout": timeout,
+                "recv": recv,
+            },
+        )
+        res = _call(req.prepare()).json()
+        callback_dict = res.get("callback", None)
+
+        return DurablePromise.from_dict(
+            self._store,
+            res["promise"],
+            self._encoder.decode(res["promise"]["param"].get("data")),
+            self._encoder.decode(res["promise"]["value"].get("data")),
+        ), Callback.from_dict(callback_dict) if callback_dict is not None else None
+
 
 class RemoteTaskStore:
     def __init__(self, store: RemoteStore, encoder: Encoder[Any, str | None]) -> None:
