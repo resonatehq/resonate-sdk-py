@@ -90,7 +90,7 @@ class Bridge:
             timeout=cmd.opts.timeout,
             pid=self._pid,
             ttl=self._ttl * 1000,
-            data={"func": cmd.name, "args": cmd.args, "kwargs": cmd.kwargs},
+            data={"func": cmd.name, "args": cmd.args, "kwargs": cmd.kwargs, "version": cmd.opts.version},
             tags={
                 **cmd.opts.tags,
                 "resonate:invoke": cmd.opts.send_to,
@@ -187,13 +187,14 @@ class Bridge:
 
     def _process_msgs(self) -> None:
         def _invoke(root: DurablePromise) -> Invoke:
+            version = root.param.data.get("version")
             return Invoke(
                 root.id,
                 root.param.data["func"],
                 self._registry.get(root.param.data["func"])[0],
                 root.param.data["args"],
                 root.param.data["kwargs"],
-                Options(),
+                Options().merge(version=version),
             )
 
         while True:

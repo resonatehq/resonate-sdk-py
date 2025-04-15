@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from resonate.encoders.json import JsonEncoder
+from resonate.logging import logger
 from resonate.models.message import InvokeMesg, NotifyMesg, ResumeMesg
 
 if TYPE_CHECKING:
@@ -59,26 +60,26 @@ class Poller:
                     res.raise_for_status()
 
                     for line in res.iter_lines(chunk_size=None, decode_unicode=True):
+                        assert isinstance(line, str), "line must be a string"
                         if msg := self._process_line(line):
                             cq.enqueue(msg)
 
-                    if self._shutdown.is_set():
-                        break
-
             except requests.exceptions.Timeout:
-                print(f"Polling request timed out for group {self.group}. Retrying...")
-                continue  # Go to the next iteration of the while loop
-            except requests.exceptions.RequestException as e:
-                print(f"Polling network error for group {self.group}: {e}. Retrying after delay...")
+                logger.warning("Polling request timed out for group %s. Retrying...", self.group)
                 time.sleep(1)
+                continue
+            except requests.exceptions.RequestException as e:
+                logger.warning("Polling network error for group %s: %s. Retrying after delay...", self.group, str(e))
+                time.sleep(1)
+                continue
             except Exception as e:
-                print(f"Unexpected error in poller loop for group {self.group}: {e}")
-                if self._shutdown.wait(timeout=1):  # Short wait or until stopped
-                    break
+                logger.warning("Unexpected error in poller loop for group %s: %s", self.group, e)
+                break
 
     def step(self, cq: Enqueueable[Mesg], pid: str) -> None:
         with requests.get(self.url(pid), stream=True, timeout=self._timeout) as res:
             for line in res.iter_lines(chunk_size=None, decode_unicode=True):
+                assert isinstance(line, str), "line must be a string"
                 if msg := self._process_line(line):
                     cq.enqueue(msg)
                     break

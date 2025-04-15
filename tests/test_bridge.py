@@ -145,26 +145,30 @@ def test_basic_rfi_bridge(resonate_instance: Resonate) -> None:
 
 def test_fib_lfi(resonate_instance: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate_instance.run(f"fib_lfi-{timestamp}", fib_lfi, 5)
-    assert handle.result() == 5
+    handle = resonate_instance.run(f"fib_lfi-{timestamp}", fib_lfi, 10)
+    fib_10 = 55
+    assert handle.result() == fib_10
 
 
 def test_fib_rfi(resonate_instance: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate_instance.run(f"fib_rfi-{timestamp}", fib_rfi, 5)
-    assert handle.result() == 5
+    handle = resonate_instance.run(f"fib_rfi-{timestamp}", fib_rfi, 10)
+    fib_10 = 55
+    assert handle.result() == fib_10
 
 
 def test_fib_lfc(resonate_instance: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate_instance.run(f"fib_lfc-{timestamp}", fib_lfc, 5)
-    assert handle.result() == 5
+    handle = resonate_instance.run(f"fib_lfc-{timestamp}", fib_lfc, 10)
+    fib_10 = 55
+    assert handle.result() == fib_10
 
 
 def test_fib_rfc(resonate_instance: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate_instance.run(f"fib_rfc-{timestamp}", fib_rfc, 5)
-    assert handle.result() == 5
+    handle = resonate_instance.run(f"fib_rfc-{timestamp}", fib_rfc, 10)
+    fib_10 = 55
+    assert handle.result() == fib_10
 
 
 def test_sleep(resonate_instance: Resonate) -> None:
