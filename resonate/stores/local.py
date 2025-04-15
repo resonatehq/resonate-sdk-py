@@ -102,6 +102,8 @@ class LocalStore:
                     _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
                     if applied:
                         messages.append((task.recv, ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter))))
+                case TaskRecord(state="ENQUEUED" | "CLAIMED"), True:
+                    self.tasks.transition(id=task.id, to="INIT")
                 case TaskRecord(type="notify"), _:
                     promise = self._promises.get(task.root_promise_id)
                     _, applied = self.tasks.transition(id=task.id, to="COMPLETED")
@@ -565,7 +567,7 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=record.pid,
                     ttl=record.ttl,
-                    expiry=record.expiry,
+                    expiry=self._clock.time() + 5000, # TODO(dfarr): make this configurable
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
@@ -628,7 +630,7 @@ class LocalTaskStore:
                 )
                 self._tasks[record.id] = record
                 return record, True
-            case TaskRecord(state="CLAIMED"), "INIT":
+            case TaskRecord(state="ENQUEUED" | "CLAIMED"), "INIT":
                 assert record.expiry is not None
                 assert self._clock.time() >= record.expiry
                 record = TaskRecord(

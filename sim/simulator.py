@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import sys
 import urllib.parse
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from resonate import Context
@@ -45,21 +43,10 @@ if TYPE_CHECKING:
 
     from resonate.registry import Registry
 
-type Addr = Unicast | Anycast
-
-@dataclass
-class Unicast:
-    id: str
-
-@dataclass
-class Anycast:
-    gid: str
-    pid: str | None = None
-
 UUID = 0
 
 class Message:
-    def __init__(self, send: str, recv: Addr, data: Any, time: int) -> None:
+    def __init__(self, send: str, recv: str, data: Any, time: int) -> None:
         global UUID  # noqa: PLW0603
         UUID += 1
         self.uuid = UUID
@@ -83,8 +70,9 @@ class StepClock:
         self._time = time
 
 class Simulator:
-    def __init__(self, r: Random) -> None:
+    def __init__(self, r: Random, drop_rate: float = 0.15) -> None:
         self.r = r
+        self.drop_rate = drop_rate
         self.time = 0
         self.logs = []
         self.buffer: list[Message] = []
@@ -93,18 +81,23 @@ class Simulator:
     def add_component(self, component: Component) -> None:
         self.components.append(component)
 
-    def send_msg(self, addr: Addr, data: Any) -> Message:
-       msg = Message("E", addr, data, self.time)
-       self.buffer.append(msg)
-       return msg
+    def send_msg(self, addr: str, data: Any) -> Message:
+        msg = Message("E", addr, data, self.time)
+        self.buffer.append(msg)
+        return msg
 
     def run(self, steps: int) -> None:
         for _ in range(steps):
             self.step()
 
     def step(self) -> None:
-        self.time += 1
+        self.time += 1000
         # print(f"\n=== Step {self.time} ===")
+
+        # TODO(dfarr): determine a better way to drop components
+        for comp in self.components:
+            if comp.drop():
+                self.components.remove(comp)
 
         recv: list[Message] = []
         outgoing: dict[Component, list[Message]] = {}
@@ -117,20 +110,37 @@ class Simulator:
             components_by_any.setdefault(comp.any, []).append(comp)
 
         for send in self.buffer:
-            match send.recv:
-                case Unicast(uni):
-                    if comp := components_by_uni.get(uni):
+            parsed = urllib.parse.urlparse(send.recv)
+            assert parsed.scheme == "sim"
+
+            # TODO(dfarr): all tasks should be droppable, but for now only drop messages from the message source
+            if isinstance(send.data, dict) and send.data.get("type") in ("invoke", "resume", "notify") and self.r.random() < self.drop_rate:
+                self.buffer.remove(send)
+                continue
+
+            match parsed:
+                case urllib.parse.ParseResult(scheme="sim", username="uni", hostname=hostname, path=path):
+                    if comp := components_by_uni.get(f"{hostname}{path}"):
                         self.buffer.remove(send)
                         outgoing.setdefault(comp, []).append(send)
-                case Anycast(any, uni):
-                    comp: Component | None = None
-                    if uni in components_by_uni:
-                        comp = components_by_uni[uni]
-                    if not comp and any in components_by_any:
-                        comp = self.r.choice(components_by_any[any])
-                    if comp:
+
+                case urllib.parse.ParseResult(scheme="sim", username="any", hostname=hostname, path=""):
+                    if hostname in components_by_any:
+                        self.buffer.remove(send)
+                        comp = self.r.choice(components_by_any[hostname])
+                        outgoing.setdefault(comp, []).append(send)
+
+                case urllib.parse.ParseResult(scheme="sim", username="any", hostname=hostname, path=path):
+                    if comp := components_by_uni.get(f"{hostname}{path}"):
                         self.buffer.remove(send)
                         outgoing.setdefault(comp, []).append(send)
+                    elif hostname in components_by_any:
+                        self.buffer.remove(send)
+                        comp = self.r.choice(components_by_any[hostname])
+                        outgoing.setdefault(comp, []).append(send)
+
+                case _:
+                    raise NotImplementedError
 
         for comp, send in outgoing.items():
             self.r.shuffle(send)
@@ -149,7 +159,8 @@ class Simulator:
         return ":".join(component.freeze() for component in self.components)
 
 class Component:
-    def __init__(self, uni: str, any: str) -> None:
+    def __init__(self, r: Random, uni: str, any: str) -> None:
+        self.r = r
         self.uni = uni
         self.any = any
         self.time = 0
@@ -175,17 +186,21 @@ class Component:
     def next(self) -> None:
         pass
 
-    def send_msg(self, addr: Addr, data: Any) -> Message:
+    def drop(self) -> bool:
+        """Remove the component from the simulation."""
+        return False
+
+    def send_msg(self, addr: str, data: Any) -> Message:
         """Send a message to another component."""
-        msg = Message(self.uni, addr, data, self.time)
+        msg = Message(f"sim://uni@{self.uni}", addr, data, self.time)
         self.outgoing.append(msg)
         return msg
 
-    def send_req(self, addr: Addr, data: Any, callback: Callable[[Message], None], timeout: int = 0) -> Message:
+    def send_req(self, addr: str, data: Any, callback: Callable[[Message], None], timeout: int = 0) -> Message:
         """Send a request and register a callback for handling the response."""
         self.msgcount += 1
         self.awaiting[self.msgcount] = callback
-        msg = Message(self.uni, addr, {"type": "req", "uuid": self.msgcount, "data": data}, self.time)
+        msg = Message(f"sim://uni@{self.uni}", addr, {"type": "req", "uuid": self.msgcount, "data": data}, self.time)
         self.outgoing.append(msg)
         return msg
 
@@ -217,8 +232,8 @@ class Component:
         raise NotImplementedError
 
 class Server(Component):
-    def __init__(self, uni: str, any: str) -> None:
-       super().__init__(uni, any)
+    def __init__(self, r: Random, uni: str, any: str) -> None:
+       super().__init__(r, uni, any)
        self.clock = StepClock()
        self.store = LocalStore(clock=self.clock)
 
@@ -237,7 +252,7 @@ class Server(Component):
                     data=data,
                     tags=tags,
                 )
-                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": CreatePromiseRes(promise)})
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": CreatePromiseRes(promise)})
 
             case CreatePromiseWithTaskReq(id, timeout, pid, ttl, ikey, strict, headers, data, tags):
                 promise, task = self.store.promises.create_with_task(
@@ -251,7 +266,7 @@ class Server(Component):
                     data=data,
                     tags=tags,
                 )
-                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": CreatePromiseWithTaskRes(promise, task)})
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": CreatePromiseWithTaskRes(promise, task)})
 
             case ResolvePromiseReq(id, ikey, strict, headers, data):
                 promise = self.store.promises.resolve(
@@ -261,7 +276,7 @@ class Server(Component):
                     headers=headers,
                     data=data,
                 )
-                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": ResolvePromiseRes(promise)})
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": ResolvePromiseRes(promise)})
 
             case RejectPromiseReq(id, ikey, strict, headers, data):
                 promise = self.store.promises.reject(
@@ -271,7 +286,7 @@ class Server(Component):
                     headers=headers,
                     data=data,
                 )
-                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": RejectPromiseRes(promise)})
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": RejectPromiseRes(promise)})
 
             case CancelPromiseReq(id, ikey, strict, headers, data):
                 promise = self.store.promises.cancel(
@@ -281,7 +296,7 @@ class Server(Component):
                     headers=headers,
                     data=data,
                 )
-                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": CancelPromiseRes(promise)})
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": CancelPromiseRes(promise)})
 
             case CreateCallbackReq(id, promise_id, root_promise_id, timeout, recv):
                 promise, callback = self.store.promises.callback(
@@ -291,7 +306,7 @@ class Server(Component):
                     timeout=timeout,
                     recv=recv,
                 )
-                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": CreateCallbackRes(promise, callback)})
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": CreateCallbackRes(promise, callback)})
 
             case ClaimTaskReq(id, counter, pid, ttl):
                 try:
@@ -306,7 +321,7 @@ class Server(Component):
                 except ResonateStoreError as e:
                     result = Ko(e)
 
-                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
 
             case CompleteTaskReq(id, counter):
                 try:
@@ -315,7 +330,7 @@ class Server(Component):
                 except ResonateStoreError as e:
                     result = Ko(e)
 
-                self.send_msg(Unicast(msg.send), {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
 
             case _:
                 raise NotImplementedError
@@ -325,55 +340,53 @@ class Server(Component):
         self.clock.set_time(self.time)
 
         for recv, mesg in self.store.step():
-            parsed = urllib.parse.urlparse(recv)
-            assert parsed.scheme == "poll", "scheme must be poller"
-
-            match mesg["type"]:
-                case "invoke" | "resume":
-                    self.send_msg(Anycast(parsed.netloc, parsed.path[1:] or None), mesg)
-                case "notify":
-                    self.send_msg(Unicast(parsed.path[1:]), mesg)
-                case _:
-                    raise NotImplementedError
+            self.send_msg(recv, mesg)
 
     def freeze(self) -> str:
         return "server"
 
 class Worker(Component):
-    def __init__(self, uni: str, any: str, registry: Registry) -> None:
-        super().__init__(uni, any)
+    def __init__(self, r: Random, uni: str, any: str, registry: Registry, drop_at: int = 0) -> None:
+        super().__init__(r, uni, any)
         self.registry = registry
+        self.drop_at = drop_at
         self.dependencies = Dependencies()
-        self.scheduler = Scheduler(lambda id, info: Context(id, info, Options(), self.registry, self.dependencies), pid=self.uni)
         self.commands: list[Command] = []
         self.tasks: dict[str, Task] = {}
+
+        self.scheduler = Scheduler(
+            lambda id, info: Context(id, info, Options(),self.registry, self.dependencies),
+            pid=self.uni,
+            unicast=f"sim://uni@{self.uni}",
+            anycast=f"sim://any@{self.uni}", # this looks silly, but this is right
+        )
 
     def on_message(self, msg: Message) -> None:
         match msg.data:
             case Invoke(id, func, _, args, kwargs, opts):
                 self.send_req(
-                    Unicast("Server"),
+                    "sim://uni@server",
                     CreatePromiseWithTaskReq(
                         id,
                         opts.timeout,
                         self.scheduler.pid,
-                        sys.maxsize,
+                        self.r.randint(0, 30000),
                         ikey=id,
                         data={"func": func, "args": args, "kwargs": kwargs},
-                        tags={"resonate:invoke": self.uni, "resonate:scope": "global"},
+                        tags={"resonate:invoke": f"sim://any@{self.any}", "resonate:scope": "global"},
                     ),
                     lambda res: self.__invoke(res.data.get("data")),
                 )
             case {"type": "invoke", "task": {"id": id, "counter": counter}}:
                 self.send_req(
-                    Unicast("Server"),
-                    ClaimTaskReq(id, counter, self.uni, sys.maxsize),
+                    "sim://uni@server",
+                    ClaimTaskReq(id, counter, self.scheduler.pid, self.r.randint(0, 30000)),
                     lambda res: self._invoke(res.data.get("data")),
                 )
             case {"type": "resume", "task": {"id": id, "counter": counter}}:
                 self.send_req(
-                    Unicast("Server"),
-                    ClaimTaskReq(id, counter, self.uni, sys.maxsize),
+                    "sim://uni@server",
+                    ClaimTaskReq(id, counter, self.scheduler.pid, self.r.randint(0, 30000)),
                     lambda res: self._resume(res.data.get("data")),
                 )
             case _:
@@ -383,7 +396,8 @@ class Worker(Component):
         if not self.commands:
             return
 
-        cmd = self.commands.pop(0)
+        cmd = self.r.choice(self.commands)
+        self.commands.remove(cmd)
 
         match self.scheduler.step(cmd):
             case More(reqs):
@@ -396,7 +410,7 @@ class Worker(Component):
                                 self.defer(lambda id=id, cid=cid, e=e: self.commands.append(Return(id, cid, Ko(e))))
 
                         case Network(id, cid, req):
-                            self.send_req(Unicast("Server"), req, lambda res, id=id, cid=cid: self.commands.append(Receive(id, cid, res.data.get("data"))))
+                            self.send_req("sim://uni@server", req, lambda res, id=id, cid=cid: self.commands.append(Receive(id, cid, res.data.get("data"))))
 
             case Done(reqs):
                 assert cmd.cid in self.tasks
@@ -415,7 +429,7 @@ class Worker(Component):
 
                     if count == len(reqs):
                         self.send_req(
-                            Unicast("Server"),
+                            "sim://uni@server",
                             CompleteTaskReq(task.id, task.counter),
                             lambda _: None,
                         )
@@ -423,22 +437,26 @@ class Worker(Component):
                 for req in reqs:
                     match req:
                         case Network(id, cid, CreateCallbackReq() as req):
-                            self.send_req(Unicast("Server"), req, lambda res: create_callback_callback(res.data.get("data")))
+                            self.send_req("sim://uni@server", req, lambda res: create_callback_callback(res.data.get("data")))
                         case _:
                             raise NotImplementedError
 
                 if not reqs:
                     self.send_req(
-                        Unicast("Server"),
+                        "sim://uni@server",
                         CompleteTaskReq(task.id, task.counter),
                         lambda _: None,
                     )
+
+    def drop(self) -> bool:
+        # Remove the worker when time exceeds the drop_at value.
+        # Tasks should be re-routed to a worker with the same anycast address.
+        return bool(self.drop_at and self.drop_at <= self.time)
 
     def __invoke(self, res: CreatePromiseWithTaskRes) -> None:
         if not res.task:
             return
 
-        assert res.promise.id not in self.tasks
         self.tasks[res.promise.id] = res.task
 
         self.commands.append(Invoke(
@@ -458,7 +476,6 @@ class Worker(Component):
                 assert "args" in res.root.param.data, "Root param must have args."
                 assert "kwargs" in res.root.param.data, "Root param must have kwargs."
 
-                # assert res.root.id not in self.tasks
                 self.tasks[res.root.id] = res.task
 
                 self.commands.append(Invoke(
@@ -484,7 +501,6 @@ class Worker(Component):
                 assert "args" in res.leaf.param.data, "Leaf param must have args."
                 assert "kwargs" in res.leaf.param.data, "Leaf param must have kwargs."
 
-                # assert res.root.id not in self.tasks
                 self.tasks[res.root.id] = res.task
 
                 self.commands.append(Resume(

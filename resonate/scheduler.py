@@ -492,6 +492,10 @@ class Computation:
                 # unblock waiting[v]
                 self._unblock(suspends, promise.result)
 
+            case Enabled(Completed()), _:
+                # On resume, it is possible that the node is already completed.
+                pass
+
             case _:
                 raise NotImplementedError
 

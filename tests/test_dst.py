@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from resonate.models.commands import Invoke
 from resonate.registry import Registry
-from sim.simulator import Server, Simulator, Unicast, Worker
+from sim.simulator import Server, Simulator, Worker
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -35,12 +35,12 @@ def bar_lfc(ctx: Context) -> Generator:
     return v
 
 def foo_rfi(ctx: Context) -> Generator:
-    p = yield ctx.rfi(bar_rfi)
+    p = yield ctx.rfi(bar_rfi).options(send_to="sim://any@default")
     v = yield p
     return v
 
 def bar_rfi(ctx: Context) -> Generator:
-    p = yield ctx.rfi(baz)
+    p = yield ctx.rfi(baz).options(send_to="sim://any@default")
     v = yield p
     return v
 
@@ -49,7 +49,7 @@ def foo_rfc(ctx: Context) -> Generator:
     return v
 
 def bar_rfc(ctx: Context) -> Generator:
-    v = yield ctx.rfc(baz)
+    v = yield ctx.rfc(baz).options(send_to="sim://any@default")
     return v
 
 def baz(ctx: Context) -> str:
@@ -80,8 +80,8 @@ def fib_rfi(ctx: Context, n: int) -> Generator[Any, Any, int]:
     if n <= 1:
         return n
 
-    p1 = yield ctx.rfi(fib_rfi, n-1).options(id=f"fr{n-1}")
-    p2 = yield ctx.rfi(fib_rfi, n-2).options(id=f"fr{n-2}")
+    p1 = yield ctx.rfi(fib_rfi, n-1).options(id=f"fr{n-1}", send_to="sim://any@default")
+    p2 = yield ctx.rfi(fib_rfi, n-2).options(id=f"fr{n-2}", send_to="sim://any@default")
 
     v1 = yield p1
     v2 = yield p2
@@ -92,8 +92,8 @@ def fib_rfc(ctx: Context, n: int) -> Generator[Any, Any, int]:
     if n <= 1:
         return n
 
-    v1 = yield ctx.rfc(fib_rfc, n-1).options(id=f"fr{n-1}")
-    v2 = yield ctx.rfc(fib_rfc, n-2).options(id=f"fr{n-2}")
+    v1 = yield ctx.rfc(fib_rfc, n-1).options(id=f"fr{n-1}", send_to="sim://any@default")
+    v2 = yield ctx.rfc(fib_rfc, n-2).options(id=f"fr{n-2}", send_to="sim://any@default")
 
     return v1 + v2
 
@@ -122,45 +122,47 @@ def test_dst(seed: str, steps: int = 10000) -> None:
     # create a simulator
     sim = Simulator(r)
 
-    s = Server("Server", "Server")
-    w = Worker("Worker", "default", registry=registry)
+    server = Server(r, "server", "server")
+    worker = [Worker(r, f"default/{n}", "default", registry=registry, drop_at=r.randint(0, steps) * 1000) for n in range(3)]
 
-    sim.add_component(s)
-    sim.add_component(w)
+    sim.add_component(server)
+
+    for w in worker:
+        sim.add_component(w)
 
     for _ in range(steps):
         # generate commands
         match r.randint(0, 12):
             case 0:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "foo_lfi", foo_lfi))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "foo_lfi", foo_lfi))
             case 1:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "bar_lfi", bar_lfi))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "bar_lfi", bar_lfi))
             case 2:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "foo_lfc", foo_lfc))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "foo_lfc", foo_lfc))
             case 3:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "bar_lfc", bar_lfc))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "bar_lfc", bar_lfc))
             case 4:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "foo_rfi", foo_rfi))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "foo_rfi", foo_rfi))
             case 5:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "bar_rfi", bar_rfi))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "bar_rfi", bar_rfi))
             case 6:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "foo_rfc", foo_rfc))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "foo_rfc", foo_rfc))
             case 7:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "bar_rfc", bar_rfc))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "bar_rfc", bar_rfc))
             case 8:
-                sim.send_msg(Unicast(w.uni), Invoke(str(r.randint(0, 10)), "baz", baz))
+                sim.send_msg("sim://any@default", Invoke(str(r.randint(0, 10)), "baz", baz))
             case 9:
                 n = r.randint(0, 10)
-                sim.send_msg(Unicast(w.uni), Invoke(f"fl{n}", "fib_lfi", fib_lfi, (n,)))
+                sim.send_msg("sim://any@default", Invoke(f"fl{n}", "fib_lfi", fib_lfi, (n,)))
             case 10:
                 n = r.randint(0, 10)
-                sim.send_msg(Unicast(w.uni), Invoke(f"fl{n}", "fib_lfc", fib_lfc, (n,)))
+                sim.send_msg("sim://any@default", Invoke(f"fl{n}", "fib_lfc", fib_lfc, (n,)))
             case 11:
                 n = r.randint(0, 10)
-                sim.send_msg(Unicast(w.uni), Invoke(f"fr{n}", "fib_rfi", fib_rfi, (n,)))
+                sim.send_msg("sim://any@default", Invoke(f"fr{n}", "fib_rfi", fib_rfi, (n,)))
             case 12:
                 n = r.randint(0, 10)
-                sim.send_msg(Unicast(w.uni), Invoke(f"fr{n}", "fib_rfc", fib_rfc, (n,)))
+                sim.send_msg("sim://any@default", Invoke(f"fr{n}", "fib_rfc", fib_rfc, (n,)))
 
         # step
         sim.step()
