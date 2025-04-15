@@ -170,7 +170,7 @@ class Resonate:
                 name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
         fp, fv = Future[DurablePromise](), Future[R]()
-        self._bridge.invoke(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
+        self._bridge.invoke(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version, retry_policy=Never() if isgeneratorfunction(func) else Exponential())), futures=(fp, fv))
 
         fp.result()
         return Handle(fv)
