@@ -219,7 +219,7 @@ class Completed[T: Lfnc | Rfnc | Coro]:
 
     def __post_init__(self) -> None:
         assert self.value.result is not None, "Result must be set."
-        self.value.suspends = []
+        # self.value.suspends = []
 
     def __repr__(self) -> str:
         return f"Completed::{self.value}"
@@ -487,6 +487,10 @@ class Computation:
 
                 # unblock waiting[v]
                 self._unblock(suspends, promise.result)
+
+            case Enabled(Completed()), _:
+                # On resume, it is possible that the node is already completed.
+                pass
 
             case _:
                 raise NotImplementedError
