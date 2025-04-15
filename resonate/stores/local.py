@@ -62,7 +62,18 @@ class LocalStore:
         for promise in self._promises.values():
             match promise, self._clock.time() >= promise.timeout:
                 case DurablePromiseRecord(state="PENDING"), True:
-                    self.promises.transition(id=promise.id, to="REJECTED_TIMEDOUT")
+                    record, applied = self.promises.transition(id=promise.id, to="REJECTED_TIMEDOUT")
+                    assert applied
+                    for callback in record.callbacks:
+                        self.tasks.transition(
+                            id=str(len(self._tasks) + 1),
+                            to="INIT",
+                            type=callback.type,
+                            recv=callback.recv,
+                            root_promise_id=callback.root_promise_id,
+                            leaf_promise_id=callback.promise_id,
+                        )
+                    record.callbacks.clear()
 
         for task in self._tasks.values():
             match task, self._clock.time() >= (task.expiry or 0):

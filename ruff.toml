@@ -1,7 +1,6 @@
 line-length = 200
 
 [lint]
-select = ["ALL"]
 ignore = [
     "A001",
     "A002",
@@ -32,10 +31,12 @@ ignore = [
     "PLR0912",
     "PLR0913",
     "PLR0915",
+    "PLR2004",
     "S101",
     "S311",
     "TD003",
 ]
+select = ["ALL"]
 logger-objects = ["resonate.logging.logger"]
 
 [lint.isort]

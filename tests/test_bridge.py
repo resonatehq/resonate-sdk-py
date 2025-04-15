@@ -14,6 +14,7 @@ from resonate.task_sources.poller import Poller
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from resonate.models.context import Yieldable
     from resonate.models.message_source import MessageSource
     from resonate.models.store import Store
     from resonate.resonate import Context
@@ -93,6 +94,11 @@ def fib_rfc(ctx: Context, n: int) -> Generator[Any, Any, int]:
     return v1 + v2
 
 
+def sleep(ctx: Context) -> Generator[Yieldable, Any, int]:
+    yield ctx.sleep(0)
+    return 1
+
+
 def get_stores_config() -> list[tuple[Store, MessageSource]]:
     local_store = LocalStore()
     local_message_source = local_store.as_msg_source()
@@ -119,6 +125,7 @@ def resonate_instance(request: pytest.FixtureRequest) -> Generator[Resonate, Non
     resonate.register(fib_lfc)
     resonate.register(fib_rfi)
     resonate.register(fib_rfc)
+    resonate.register(sleep)
     resonate.start()
     yield resonate
     resonate.stop()
@@ -158,3 +165,9 @@ def test_fib_rfc(resonate_instance: Resonate) -> None:
     timestamp = int(time.time())
     handle = resonate_instance.run(f"fib_rfc-{timestamp}", fib_rfc, 5)
     assert handle.result() == 5
+
+
+def test_sleep(resonate_instance: Resonate) -> None:
+    timestamp = int(time.time())
+    handle = resonate_instance.run(f"sleep-{timestamp}", sleep)
+    assert handle.result() == 1
