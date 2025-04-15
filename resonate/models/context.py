@@ -5,10 +5,12 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from resonate.errors import ResonateValidationError
 from resonate.models.options import Options
+from resonate.models.promise import Promise
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from resonate.models.conventions import Convention
     from resonate.models.retry_policies import RetryPolicy
 
 
@@ -18,17 +20,11 @@ class Info(Protocol):
 
 
 class Context(Protocol):
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-    def lfi(self, *args: Any, **kwargs: Any) -> LFI | LFC | RFI | RFC: ...
-    def lfc(self, *args: Any, **kwargs: Any) -> LFI | LFC | RFI | RFC: ...
-    def rfi(self, *args: Any, **kwargs: Any) -> LFI | LFC | RFI | RFC: ...
-    def rfc(self, *args: Any, **kwargs: Any) -> LFI | LFC | RFI | RFC: ...
-    def detached(self, *args: Any, **kwargs: Any) -> LFI | LFC | RFI | RFC: ...
     @property
     def info(self) -> Info: ...
 
 
-type Yieldable = LFI | LFC | RFI | RFC | AWT
+type Yieldable = LFI | LFC | RFI | RFC | Promise
 
 
 @dataclass
@@ -48,8 +44,8 @@ class LFX:
         self,
         *,
         id: str | None = None,
+        durable: bool | None = None,
         retry_policy: RetryPolicy | None = None,
-        send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
@@ -64,7 +60,7 @@ class LFX:
             timeout = min(self._max_timeout, timeout)
 
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
+        self.opts = self.opts.merge(timeout=timeout, version=version, tags=tags, retry_policy=retry_policy, durable=durable)
         return self
 
 
@@ -81,35 +77,20 @@ class LFC(LFX):
 @dataclass
 class RFX:
     id: str
-    func: str
-    args: tuple[Any, ...]
-    kwargs: dict[str, Any]
-    opts: Options = field(default_factory=Options)
-    versions: set[int] | None = None
-
-    def __post_init__(self) -> None:
-        # Initially, timeout is set to the parent context timeout. This is the upper bound for the timeout.
-        self._max_timeout = self.opts.timeout
+    convention: Convention
 
     def options(
         self,
         *,
         id: str | None = None,
-        retry_policy: RetryPolicy | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
     ) -> Self:
-        if version is not None and self.versions is not None and version not in self.versions:
-            msg = f"version={version} not found."
-            raise ResonateValidationError(msg)
-
-        if timeout is not None:
-            timeout = min(self._max_timeout, timeout)
-
         self.id = id or self.id
-        self.opts = self.opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
+        self.convention.options(send_to=send_to, tags=tags, timeout=timeout, version=version)
+
         return self
 
 

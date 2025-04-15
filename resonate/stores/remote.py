@@ -36,7 +36,7 @@ class RemoteStore:
 
     @property
     def tasks(self) -> RemoteTaskStore:
-        return RemoteTaskStore(self)
+        return RemoteTaskStore(self, self._encoder)
 
 
 class RemotePromiseStore:
@@ -120,12 +120,15 @@ class RemotePromiseStore:
         )
         res = _call(req.prepare()).json()
 
-        return DurablePromise.from_dict(
+        promise = DurablePromise.from_dict(
             self._store,
             res["promise"],
             self._encoder.decode(res["promise"]["param"].get("data")),
             self._encoder.decode(res["promise"]["value"].get("data")),
-        ), Task.from_dict(self._store, res["task"]) if "task" in res else None
+        )
+        task_dict = res.get("task")
+        task = Task.from_dict(self._store, task_dict) if task_dict is not None else None
+        return promise, task
 
     def resolve(
         self,
@@ -242,17 +245,20 @@ class RemotePromiseStore:
         )
         res = _call(req.prepare()).json()
 
+        callback_dict = res.get("callback", None)
+
         return DurablePromise.from_dict(
             self._store,
             res["promise"],
             self._encoder.decode(res["promise"]["param"].get("data")),
             self._encoder.decode(res["promise"]["value"].get("data")),
-        ), Callback.from_dict(res["callback"]) if "callback" in res else None
+        ), Callback.from_dict(callback_dict) if callback_dict is not None else None
 
 
 class RemoteTaskStore:
-    def __init__(self, store: RemoteStore) -> None:
+    def __init__(self, store: RemoteStore, encoder: Encoder[Any, str | None]) -> None:
         self._store = store
+        self._encoder = encoder
 
     def claim(
         self,
@@ -273,7 +279,30 @@ class RemoteTaskStore:
             },
         )
 
-        return _call(req.prepare()).json()
+        res = _call(req.prepare()).json()
+
+        promises_dict = res["promises"]
+        root_dict = promises_dict["root"]["data"]
+        root = DurablePromise.from_dict(
+            self._store,
+            root_dict,
+            self._encoder.decode(root_dict["param"].get("data")),
+            self._encoder.decode(root_dict["value"].get("data")),
+        )
+
+        leaf_dict = promises_dict.get("leaf", {}).get("data", None)
+        leaf = (
+            DurablePromise.from_dict(
+                self._store,
+                leaf_dict,
+                self._encoder.decode(leaf_dict["param"].get("data")),
+                self._encoder.decode(leaf_dict["value"].get("data")),
+            )
+            if leaf_dict
+            else None
+        )
+
+        return (root, leaf)
 
     def complete(self, *, id: str, counter: int) -> bool:
         req = Request(

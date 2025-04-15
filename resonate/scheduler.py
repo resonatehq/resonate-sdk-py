@@ -38,6 +38,7 @@ from resonate.models.context import (
     Yieldable,
 )
 from resonate.models.options import Options
+from resonate.models.promise import Promise
 from resonate.models.result import Ko, Ok, Result
 
 if TYPE_CHECKING:
@@ -75,8 +76,8 @@ class Scheduler:
         self.pid = pid or uuid.uuid4().hex
 
         # unicast / anycast
-        self.unicast = unicast or f"poller://default/{pid}"
-        self.anycast = anycast or f"poller://default/{pid}"
+        self.unicast = unicast or f"poll://default/{pid}"
+        self.anycast = anycast or f"poll://default/{pid}"
 
         # computations
         self.computations: dict[str, Computation] = {}
@@ -354,15 +355,18 @@ class PoppableList[T](list[T]):
     def spop(self) -> T | None:
         return self.pop() if self else None
 
+
 @dataclass
 class More:
     reqs: list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]]
     done: Literal[False] = False
 
+
 @dataclass
 class Done:
     reqs: list[Network[CreateCallbackReq]]
     done: Literal[True] = True
+
 
 class Computation:
     def __init__(self, id: str, ctx: Callable[[str, Info], Context], pid: str, unicast: str, anycast: str) -> None:
@@ -441,8 +445,9 @@ class Computation:
 
                 self._apply_retry(node)
 
-            case _:
-                raise NotImplementedError
+            case c:
+                msg = f"Command {c} not supported"
+                raise NotImplementedError(msg)
 
     def _apply_return(self, node: Node[State], result: Result) -> None:
         match node.value:
@@ -513,13 +518,19 @@ class Computation:
 
                 if isinstance(node.value, Enabled) and isinstance(node.value.exec, Suspended) and isinstance(node.value.func, Rfnc) and node.value.func.suspends:
                     assert node is not self.graph.root, "Node must not be root node."
-                    done.append(Network(node.id, self.id, CreateCallbackReq(
-                        f"{self.id}:{node.id}",
-                        node.id,
-                        self.id,
-                        sys.maxsize,
-                        self.anycast,
-                    )))
+                    done.append(
+                        Network(
+                            node.id,
+                            self.id,
+                            CreateCallbackReq(
+                                f"{self.id}:{node.id}",
+                                node.id,
+                                self.id,
+                                sys.maxsize,
+                                self.anycast,
+                            ),
+                        )
+                    )
 
         if self.suspendable():
             assert not more, "More requests must be empty."
@@ -542,20 +553,24 @@ class Computation:
             case Enabled(Running(Init(Lfnc(id, opts=opts) | Coro(id, opts=opts))) as exec):
                 assert id == node.id, "Id must match node id."
                 assert node is not self.graph.root, "Node must not be root node."
-                node.transition(Blocked(exec))
+                match opts.durable:
+                    case True:
+                        node.transition(Blocked(exec))
 
-                return [
-                    Network(
-                        id,
-                        self.id,
-                        CreatePromiseReq(
-                            id=id,
-                            ikey=id,
-                            timeout=opts.timeout,
-                            tags={**opts.tags, "resonate:scope": "local"},
-                        ),
-                    ),
-                ]
+                        return [
+                            Network(
+                                id,
+                                self.id,
+                                CreatePromiseReq(
+                                    id=id,
+                                    ikey=id,
+                                    timeout=opts.timeout,
+                                    tags={**opts.tags, "resonate:scope": "local"},
+                                ),
+                            ),
+                        ]
+                    case False:
+                        return []
 
             case Enabled(Running(Init(Rfnc(id, timeout, ikey, headers, data, tags))) as exec):
                 assert id == node.id, "Id must match node id."
@@ -581,23 +596,26 @@ class Computation:
                 assert func is not None, "Func is required for local function."
                 node.transition(Blocked(Running(f)))
 
-                match result, opts.retry_policy.next(info.attempt):
-                    case None, _:
+                match result, opts.retry_policy.next(info.attempt), opts.durable:
+                    case None, _, _:
                         return [
                             Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
                         ]
 
-                    case Ok(v), _:
+                    case Ok(v), _, True:
                         return [
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
-
-                    case Ko(v), None:
+                    case Ok(v), _, False:
+                        return []
+                    case Ko(v), None, True:
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
+                    case Ko(v), None, False:
+                        return []
 
-                    case Ko(), delay:
+                    case Ko(), delay, _:
                         info.increment_attempt()
                         return [
                             Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay),
@@ -618,16 +636,9 @@ class Computation:
                         child.transition(Enabled(Running(Init(next, suspends=[node]))))
                         return []
 
-                    case RFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        # assert opts.version > 0, "Version must be greater than 0."
-
-                        next = Rfnc(
-                            id=id,
-                            timeout=opts.timeout,
-                            ikey=id,
-                            data={"func": func, "args": args, "kwargs": kwargs, "version": opts.version},
-                            tags={**opts.tags, "resonate:invoke": opts.send_to},
-                        )
+                    case RFI(id, convention), Enabled(Suspended(Init(next=None))):
+                        data, tags, timeout, headers = convention.format()
+                        next = Rfnc(id=id, timeout=timeout, ikey=id, data=data, tags=tags, headers=headers)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -687,14 +698,22 @@ class Computation:
 
                         match result, opts.retry_policy.next(info.attempt):
                             case Ok(v), _:
-                                return [
-                                    Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
-                                ]
+                                match opts.durable:
+                                    case True:
+                                        return [
+                                            Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
+                                        ]
+                                    case False:
+                                        return []
 
                             case Ko(v), None:
-                                return [
-                                    Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
-                                ]
+                                match opts.durable:
+                                    case True:
+                                        return [
+                                            Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
+                                        ]
+                                    case False:
+                                        return []
 
                             case Ko(), delay:
                                 c.reset()
@@ -770,6 +789,12 @@ class Coroutine:
     def send(self, value: None | AWT | Result) -> LFI | RFI | AWT | TRM:
         assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow AWT."
 
+        match value:
+            case AWT(id, cid):
+                send_value = Promise(id, cid)
+            case _:
+                send_value = value
+
         if self.done:
             match self.unyielded:
                 case [head, *tail]:
@@ -779,17 +804,17 @@ class Coroutine:
                     raise StopIteration
 
         try:
-            match value, self.skip:
+            match send_value, self.skip:
                 case Ok(v), False:
                     yielded = self.gen.send(v)
                 case Ko(e), False:
                     yielded = self.gen.throw(e)
-                case awt, True:
-                    assert isinstance(awt, AWT), "Skipped value must be an AWT."
+                case promise, True:
+                    assert isinstance(promise, Promise), "Skipped value must be a Promise."
                     self.skip = False
-                    yielded = awt
+                    yielded = promise
                 case _:
-                    yielded = self.gen.send(value)
+                    yielded = self.gen.send(send_value)
 
             match yielded:
                 case LFI(id) | RFI(id, mode="attached"):
@@ -799,11 +824,11 @@ class Coroutine:
                     self.next = AWT
                     self.skip = True
                     yielded = LFI(id, func, args, kwargs, opts)
-                case RFC(id, func, args, kwargs, opts):
+                case RFC(id, convention):
                     self.next = AWT
                     self.skip = True
-                    yielded = RFI(id, func, args, kwargs, opts)
-                case AWT(id):
+                    yielded = RFI(id, convention)
+                case Promise(id):
                     self.next = (Ok, Ko)
                     self.unyielded = [y for y in self.unyielded if y.id != id]
 
@@ -816,4 +841,8 @@ class Coroutine:
             self.unyielded.append(TRM(self.id, Ko(e)))
             return self.unyielded.pop(0)
         else:
-            return yielded
+            match yielded:
+                case Promise(id, cid):
+                    return AWT(id, cid)
+                case _:
+                    return yielded
