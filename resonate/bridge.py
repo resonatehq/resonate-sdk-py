@@ -84,6 +84,9 @@ class Bridge:
 
     def invoke(self, cmd: Invoke, futures: tuple[Future, Future]) -> DurablePromise:
         # TODO(avillega): Handle the case where func is None which means an rpc
+        assert cmd.opts.version is not None, "Version must be set"
+        assert cmd.opts.version > 0, "Version must be greater than zero"
+
         promise, task = self._store.promises.create_with_task(
             id=cmd.id,
             ikey=cmd.id,
