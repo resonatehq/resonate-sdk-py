@@ -84,13 +84,16 @@ class Bridge:
 
     def invoke(self, cmd: Invoke, futures: tuple[Future, Future]) -> DurablePromise:
         # TODO(avillega): Handle the case where func is None which means an rpc
+        assert cmd.opts.version is not None, "Version must be set"
+        assert cmd.opts.version > 0, "Version must be greater than zero"
+
         promise, task = self._store.promises.create_with_task(
             id=cmd.id,
             ikey=cmd.id,
             timeout=cmd.opts.timeout,
             pid=self._pid,
             ttl=self._ttl * 1000,
-            data={"func": cmd.name, "args": cmd.args, "kwargs": cmd.kwargs},
+            data={"func": cmd.name, "args": cmd.args, "kwargs": cmd.kwargs, "version": cmd.opts.version},
             tags={
                 **cmd.opts.tags,
                 "resonate:invoke": cmd.opts.send_to,
@@ -187,13 +190,14 @@ class Bridge:
 
     def _process_msgs(self) -> None:
         def _invoke(root: DurablePromise) -> Invoke:
+            version = root.param.data.get("version")
             return Invoke(
                 root.id,
                 root.param.data["func"],
                 self._registry.get(root.param.data["func"])[0],
                 root.param.data["args"],
                 root.param.data["kwargs"],
-                Options(),
+                Options().merge(version=version),
             )
 
         while True:
