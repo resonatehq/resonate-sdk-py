@@ -220,7 +220,6 @@ class Completed[T: Lfnc | Rfnc | Coro]:
 
     def __post_init__(self) -> None:
         assert self.value.result is not None, "Result must be set."
-        self.value.suspends = []
 
     def __repr__(self) -> str:
         return f"Completed::{self.value}"
@@ -546,13 +545,13 @@ class Computation:
 
     def _eval(self, node: Node[State]) -> list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]]:
         match node.value:
-            case Enabled(Running(Init(Lfnc(id, opts=opts) | Coro(id, opts=opts))) as exec):
+            case Enabled(Running(Init(Lfnc(id, opts=opts) | Coro(id, opts=opts) as func, suspends)) as exec):
                 assert id == node.id, "Id must match node id."
                 assert node is not self.graph.root, "Node must not be root node."
+
                 match opts.durable:
                     case True:
                         node.transition(Blocked(exec))
-
                         return [
                             Network(
                                 id,
@@ -566,6 +565,9 @@ class Computation:
                             ),
                         ]
                     case False:
+                        assert len(suspends) == 1, "Nothing should be blocked"
+                        node.transition(Enabled(Running(func)))
+                        self._unblock(suspends, AWT(id, self.id))
                         return []
 
             case Enabled(Running(Init(Rfnc(id, timeout, ikey, headers, data, tags))) as exec):
@@ -587,31 +589,37 @@ class Computation:
                     ),
                 ]
 
-            case Enabled(Running(Lfnc(id, func, args, kwargs, opts, info, result=result) as f)):
+            case Enabled(Running(Lfnc(id, func, args, kwargs, opts, info, result=result, suspends=suspends) as f)):
                 assert id == node.id, "Id must match node id."
                 assert func is not None, "Func is required for local function."
-                node.transition(Blocked(Running(f)))
+
 
                 match result, opts.retry_policy.next(info.attempt), opts.durable:
                     case None, _, _:
+                        node.transition(Blocked(Running(f)))
                         return [
                             Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
                         ]
-
                     case Ok(v), _, True:
+                        node.transition(Blocked(Running(f)))
                         return [
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
-                    case Ok(v), _, False:
-                        return []
                     case Ko(v), None, True:
+                        node.transition(Blocked(Running(f)))
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
-                    case Ko(v), None, False:
+                    case Ok(v), _, False:
+                        node.transition(Enabled(Completed(f.map(result=result))))
+                        self._unblock(suspends, result)
                         return []
-
+                    case Ko(v), None, False:
+                        node.transition(Enabled(Completed(f.map(result=result))))
+                        self._unblock(suspends, result)
+                        return []
                     case Ko(), delay, _:
+                        node.transition(Blocked(Running(f)))
                         info.increment_attempt()
                         return [
                             Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay),
@@ -690,31 +698,29 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
-                        node.transition(Blocked(Running(c)))
-
-                        match result, opts.retry_policy.next(info.attempt):
-                            case Ok(v), _:
-                                match opts.durable:
-                                    case True:
-                                        return [
-                                            Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
-                                        ]
-                                    case False:
-                                        return []
-
-                            case Ko(v), None:
-                                match opts.durable:
-                                    case True:
-                                        return [
-                                            Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
-                                        ]
-                                    case False:
-                                        return []
-
-                            case Ko(), delay:
+                        match result, opts.retry_policy.next(info.attempt), opts.durable:
+                            case Ok(v), _, True:
+                                node.transition(Blocked(Running(c)))
+                                return [
+                                    Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
+                                ]
+                            case Ko(v), None, True:
+                                node.transition(Blocked(Running(c)))
+                                return [
+                                    Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
+                                ]
+                            case Ok(v), _, False:
+                                node.transition(Enabled(Completed(c.map(result=result))))
+                                self._unblock(c.suspends, result)
+                                return []
+                            case Ko(v), None, False:
+                                node.transition(Enabled(Completed(c.map(result=result))))
+                                self._unblock(c.suspends, result)
+                                return []
+                            case Ko(), delay, _:
+                                node.transition(Blocked(Running(c)))
                                 c.reset()
                                 info.increment_attempt()
-
                                 return [
                                     Delayed(Retry(id, self.id), delay),
                                 ]
