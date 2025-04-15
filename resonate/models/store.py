@@ -83,6 +83,15 @@ class PromiseStore(Protocol):
         recv: str,
     ) -> tuple[DurablePromise, Callback | None]: ...
 
+    def subscribe(
+        self,
+        *,
+        id: str,
+        promise_id: str,
+        timeout: int,
+        recv: str,
+    ) -> tuple[DurablePromise, Callback | None]:...
+
 
 class TaskStore(Protocol):
     def claim(
