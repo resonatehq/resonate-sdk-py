@@ -1,52 +1,24 @@
 from __future__ import annotations
 
 import threading
-import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, final
+from typing import TYPE_CHECKING, Any, Literal, final
 
 from resonate.encoders.base64 import Base64Encoder
 from resonate.encoders.chain import ChainEncoder
 from resonate.encoders.json import JsonEncoder
 from resonate.errors import ResonateStoreError
 from resonate.models.callback import Callback
+from resonate.models.clock import Clock, WallClock
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.message import InvokeMesg, Mesg, NotifyMesg, ResumeMesg, TaskMesg
+from resonate.models.routers import Router, TagRouter
 from resonate.models.task import Task
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
     from resonate.models.enqueueable import Enqueueable
     from resonate.models.message_source import MessageSource
-
-# Fake it till you make it
-# -------------------------------->
-
-# type Recv = str
-
-
-class Router(Protocol):
-    def route(self, promise: DurablePromiseRecord) -> Any: ...
-
-
-class TagRouter:
-    def __init__(self, tag: str = "resonate:invoke") -> None:
-        self.tag = tag
-
-    def route(self, promise: DurablePromiseRecord) -> Any:
-        return (promise.tags or {}).get(self.tag)
-
-
-class Clock(Protocol):
-    def time(self) -> int: ...
-
-
-class WallClock:
-    def time(self) -> int:
-        return int(time.time() * 1000)
-
-
-# <--------------------------------
 
 
 class LocalStore:
@@ -90,7 +62,18 @@ class LocalStore:
         for promise in self._promises.values():
             match promise, self._clock.time() >= promise.timeout:
                 case DurablePromiseRecord(state="PENDING"), True:
-                    self.promises.transition(id=promise.id, to="REJECTED_TIMEDOUT")
+                    record, applied = self.promises.transition(id=promise.id, to="REJECTED_TIMEDOUT")
+                    assert applied
+                    for callback in record.callbacks:
+                        self.tasks.transition(
+                            id=str(len(self._tasks) + 1),
+                            to="INIT",
+                            type=callback.type,
+                            recv=callback.recv,
+                            root_promise_id=callback.root_promise_id,
+                            leaf_promise_id=callback.promise_id,
+                        )
+                    record.callbacks.clear()
 
         for task in self._tasks.values():
             match task, self._clock.time() >= (task.expiry or 0):
@@ -567,7 +550,7 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=record.pid,
                     ttl=record.ttl,
-                    expiry=self._clock.time() + 5000, # TODO(dfarr): make this configurable
+                    expiry=self._clock.time() + 5000,  # TODO(dfarr): make this configurable
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
