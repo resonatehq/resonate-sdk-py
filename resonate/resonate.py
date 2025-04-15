@@ -103,7 +103,7 @@ class Resonate:
         version: int | None = None,
     ) -> Resonate:
         copied: Resonate = copy.copy(self)
-        copied._opts = self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)  # noqa: SLF001
+        copied._opts = self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
         return copied
 
     @overload

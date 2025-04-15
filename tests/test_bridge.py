@@ -158,4 +158,3 @@ def test_fib_rfc(resonate_instance: Resonate) -> None:
     timestamp = int(time.time())
     handle = resonate_instance.run(f"fib_rfc-{timestamp}", fib_rfc, 5)
     assert handle.result() == 5
-
