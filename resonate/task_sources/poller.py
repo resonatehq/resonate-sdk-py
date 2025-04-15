@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-import threading
-from threading import Thread
 import time
+from threading import Thread
 from typing import TYPE_CHECKING, Any
 
 import requests
