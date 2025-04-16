@@ -15,10 +15,13 @@ from resonate.models.commands import (
     CreateCallbackReq,
     CreatePromiseReq,
     CreatePromiseRes,
+    CreateSubscriptionReq,
     Delayed,
     Function,
     Invoke,
+    Listen,
     Network,
+    Notify,
     Receive,
     RejectPromiseReq,
     RejectPromiseRes,
@@ -363,7 +366,7 @@ class More:
 
 @dataclass
 class Done:
-    reqs: list[Network[CreateCallbackReq]]
+    reqs: list[Network[CreateCallbackReq | CreateSubscriptionReq]]
     done: Literal[True] = True
 
 
@@ -444,14 +447,23 @@ class Computation:
 
                 self._apply_retry(node)
 
-            case c:
-                msg = f"Command {c} not supported"
+            case Listen(id), _:
+                assert id == self.id, "Id must match computation id."
+
+            case Notify(id, promise), _:
+                assert id == promise.id == self.id, "Id must match promise and computation id."
+
+                self._apply_notify(self.graph.root, promise)
+
+            case _:
+                msg = f"Command {cmd} not supported"
                 raise NotImplementedError(msg)
 
     def _apply_return(self, node: Node[State], result: Result) -> None:
         match node.value:
             case Blocked(Running(Lfnc() as f)):
                 node.transition(Enabled(Running(f.map(result=result))))
+
             case _:
                 raise NotImplementedError
 
@@ -504,19 +516,42 @@ class Computation:
             case Blocked(Running(Coro() as c)):
                 assert c.next is None, "Next must be None."
                 node.transition(Enabled(Running(c)))
+
             case _:
                 raise NotImplementedError
 
+    def _apply_notify(self, node: Node[State], promise: DurablePromise) -> None:
+        match node.value:
+            case Enabled(Suspended(Init(next=None))):
+                node.transition(Enabled(Completed(Rfnc(
+                    promise.id,
+                    promise.timeout,
+                    promise.ikey_for_create,
+                    promise.param.headers,
+                    promise.param.data,
+                    promise.tags,
+                    result=promise.result,
+                ))))
+
+            case _:
+                # Note: we could implement notify in a way that takes precedence over a locally
+                # running computation, however, it is easier for now to ignore the notify and let
+                # the computation finish.
+                pass
+
     def eval(self) -> More | Done:
         more: list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]] = []
-        done: list[Network[CreateCallbackReq]] = []
+        done: list[Network[CreateCallbackReq | CreateSubscriptionReq]] = []
 
         while self.runnable():
             for node in self.graph.traverse():
                 more.extend(self._eval(node))
 
+                # Enabled::Suspended::Rfnc requires a callback
                 if isinstance(node.value, Enabled) and isinstance(node.value.exec, Suspended) and isinstance(node.value.func, Rfnc) and node.value.func.suspends:
                     assert node is not self.graph.root, "Node must not be root node."
+                    assert isinstance(self.graph.root.value.func, (Lfnc, Coro))
+
                     done.append(
                         Network(
                             node.id,
@@ -525,11 +560,27 @@ class Computation:
                                 f"{self.id}:{node.id}",
                                 node.id,
                                 self.id,
-                                sys.maxsize,
+                                self.graph.root.value.func.opts.timeout,
                                 self.anycast,
                             ),
                         )
                     )
+
+        # Enabled::Suspended::Init requires a subscription
+        if isinstance(self.graph.root.value, Enabled) and isinstance(self.graph.root.value.exec, Suspended) and isinstance(self.graph.root.value.func, Init):
+            assert self.suspendable(), "Computation must be suspendable."
+            done.append(
+                Network(
+                    self.id,
+                    self.id,
+                    CreateSubscriptionReq(
+                        f"{self.pid}:{self.id}",
+                        self.id,
+                        sys.maxsize, # TODO(dfarr): evaluate default setting for subscription timeout
+                        self.unicast,
+                    ),
+                )
+            )
 
         if self.suspendable():
             assert not more, "More requests must be empty."

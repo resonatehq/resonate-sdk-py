@@ -20,9 +20,15 @@ from resonate.models.commands import (
     CreatePromiseRes,
     CreatePromiseWithTaskReq,
     CreatePromiseWithTaskRes,
+    CreateSubscriptionReq,
+    CreateSubscriptionRes,
     Function,
+    HeartbeatTasksReq,
+    HeartbeatTasksRes,
     Invoke,
+    Listen,
     Network,
+    Notify,
     Receive,
     RejectPromiseReq,
     RejectPromiseRes,
@@ -31,6 +37,7 @@ from resonate.models.commands import (
     Resume,
     Return,
 )
+from resonate.models.durable_promise import DurablePromise
 from resonate.models.options import Options
 from resonate.models.result import Ko, Ok, Result
 from resonate.models.task import Task
@@ -308,6 +315,20 @@ class Server(Component):
                 )
                 self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": CreateCallbackRes(promise, callback)})
 
+            case CreateSubscriptionReq(id, promise_id, timeout, recv):
+                try:
+                    promise, callback = self.store.promises.subscribe(
+                        id=id,
+                        promise_id=promise_id,
+                        timeout=timeout,
+                        recv=recv,
+                    )
+                    result = Ok(CreateSubscriptionRes(promise, callback))
+                except ResonateStoreError as e:
+                    result = Ko(e)
+
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
+
             case ClaimTaskReq(id, counter, pid, ttl):
                 try:
                     root, leaf = self.store.tasks.claim(
@@ -332,6 +353,10 @@ class Server(Component):
 
                 self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": result})
 
+            case HeartbeatTasksReq(pid):
+                affected = self.store.tasks.heartbeat(pid=pid)
+                self.send_msg(msg.send, {"type": "res", "uuid": msg.data.get("uuid"), "data": HeartbeatTasksRes(affected)})
+
             case _:
                 raise NotImplementedError
 
@@ -346,13 +371,15 @@ class Server(Component):
         return "server"
 
 class Worker(Component):
-    def __init__(self, r: Random, uni: str, any: str, registry: Registry, drop_at: int = 0) -> None:
+    def __init__(self, r: Random, uni: str, any: str, store: LocalStore, registry: Registry, drop_at: int = 0) -> None:
         super().__init__(r, uni, any)
+        self.store = store
         self.registry = registry
         self.drop_at = drop_at
         self.dependencies = Dependencies()
         self.commands: list[Command] = []
         self.tasks: dict[str, Task] = {}
+        self.last_heartbeat = 0
 
         self.scheduler = Scheduler(
             lambda id, info: Context(id, info, Options(),self.registry, self.dependencies),
@@ -363,6 +390,9 @@ class Worker(Component):
 
     def on_message(self, msg: Message) -> None:
         match msg.data:
+            case Listen(id):
+                self.commands.append(Listen(id))
+
             case Invoke(id, func, _, args, kwargs, opts):
                 self.send_req(
                     "sim://uni@server",
@@ -377,18 +407,26 @@ class Worker(Component):
                     ),
                     lambda res: self.__invoke(res.data.get("data")),
                 )
+
             case {"type": "invoke", "task": {"id": id, "counter": counter}}:
                 self.send_req(
                     "sim://uni@server",
                     ClaimTaskReq(id, counter, self.scheduler.pid, self.r.randint(0, 30000)),
                     lambda res: self._invoke(res.data.get("data")),
                 )
+
             case {"type": "resume", "task": {"id": id, "counter": counter}}:
                 self.send_req(
                     "sim://uni@server",
                     ClaimTaskReq(id, counter, self.scheduler.pid, self.r.randint(0, 30000)),
                     lambda res: self._resume(res.data.get("data")),
                 )
+
+            case {"type": "notify", "promise": promise}:
+                promise = DurablePromise.from_dict(self.store, promise)
+                assert promise.completed
+                self.commands.append(Notify(promise.id, promise))
+
             case _:
                 raise NotImplementedError
 
@@ -413,12 +451,18 @@ class Worker(Component):
                             self.send_req("sim://uni@server", req, lambda res, id=id, cid=cid: self.commands.append(Receive(id, cid, res.data.get("data"))))
 
             case Done(reqs):
-                assert cmd.cid in self.tasks
-
-                task = self.tasks[cmd.cid]
                 count = 0
+                task = self.tasks.get(cmd.cid)
+
+                if not reqs and task:
+                    self.send_req(
+                        "sim://uni@server",
+                        CompleteTaskReq(task.id, task.counter),
+                        lambda _: None,
+                    )
 
                 def create_callback_callback(res: CreateCallbackRes) -> None:
+                    assert task
                     nonlocal count
 
                     if res.promise.completed:
@@ -434,19 +478,36 @@ class Worker(Component):
                             lambda _: None,
                         )
 
-                for req in reqs:
-                    match req:
-                        case Network(id, cid, CreateCallbackReq() as req):
-                            self.send_req("sim://uni@server", req, lambda res: create_callback_callback(res.data.get("data")))
+                def create_subscription_callback(res: Result[CreateSubscriptionRes]) -> None:
+                    match res:
+                        case Ok(CreateSubscriptionRes(promise, callback)):
+                            assert promise.id == cmd.cid
+                            assert promise.completed or callback
+
+                            if promise.completed:
+                                self.commands.append(Notify(promise.id, promise))
+
+                        case Ko():
+                            pass
+
                         case _:
                             raise NotImplementedError
 
-                if not reqs:
-                    self.send_req(
-                        "sim://uni@server",
-                        CompleteTaskReq(task.id, task.counter),
-                        lambda _: None,
-                    )
+                for req in reqs:
+                    match req:
+                        case Network(id, cid, CreateCallbackReq() as req):
+                            assert cmd.cid in self.tasks
+                            self.send_req("sim://uni@server", req, lambda res: create_callback_callback(res.data.get("data")))
+
+                        case Network(id, cid, CreateSubscriptionReq() as req):
+                            self.send_req("sim://uni@server", req, lambda res: create_subscription_callback(res.data.get("data")))
+
+                        case _:
+                            raise NotImplementedError
+
+        # heartbeat every 15s, the midpoint of the random ttl interval [0, 30s]
+        if self.time - self.last_heartbeat >= 15000:
+            self.send_req("sim://uni@server", HeartbeatTasksReq(self.scheduler.pid), lambda _: None)
 
     def drop(self) -> bool:
         # Remove the worker when time exceeds the drop_at value.
