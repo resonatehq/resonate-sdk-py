@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, Concatenate, overload
 
 from resonate.bridge import Bridge
 from resonate.dependencies import Dependencies
+from resonate.encoders.base64 import Base64Encoder
+from resonate.encoders.chain import ChainEncoder
 from resonate.encoders.json import JsonEncoder
 from resonate.models.commands import Invoke, Listen
 from resonate.models.context import (
@@ -64,10 +66,9 @@ class Resonate:
 
         _store: Store
         _msg_src: MessageSource
-        _encoder = encoder or JsonEncoder()
 
         if store is None:
-            _store = LocalStore(_encoder)
+            _store = LocalStore(ChainEncoder(JsonEncoder(), Base64Encoder()))
             _msg_src = _store.as_msg_source()
         else:
             assert store is not None
@@ -82,7 +83,6 @@ class Resonate:
             registry=self._registry,
             pid=self._pid,
             ttl=ttl,
-            encoder=_encoder,
             anycast=self.anycast,
             unicast=self.unicast,
         )

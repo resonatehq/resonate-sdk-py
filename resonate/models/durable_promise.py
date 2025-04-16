@@ -111,7 +111,7 @@ class DurablePromise:
         self.completed_on = promise.completed_on
 
     @classmethod
-    def from_dict(cls, store: Store, data: dict[str, Any], param: Any, value: Any) -> DurablePromise:
+    def from_dict(cls, store: Store, data: dict[str, Any]) -> DurablePromise:
         return cls(
             store=store,
             id=data["id"],
@@ -119,8 +119,8 @@ class DurablePromise:
             timeout=data["timeout"],
             ikey_for_create=data.get("idempotencyKeyForCreate"),
             ikey_for_complete=data.get("idempotencyKeyForComplete"),
-            param=DurablePromiseValue(data["param"].get("headers"), param),
-            value=DurablePromiseValue(data["value"].get("headers"), value),
+            param=DurablePromiseValue(data["param"].get("headers"), store.encoder.decode(data["param"]["data"])),
+            value=DurablePromiseValue(data["value"].get("headers"), store.encoder.decode(data["value"]["data"])),
             tags=data.get("tags", {}),
             created_on=data["createdOn"],
             completed_on=data.get("completedOn"),
