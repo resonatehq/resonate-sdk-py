@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from concurrent.futures import Future
 
     from resonate.models.commands import Command
-    from resonate.models.encoder import Encoder
     from resonate.models.message import Mesg
     from resonate.models.message_source import MessageSource
     from resonate.models.store import Store
@@ -53,7 +52,6 @@ class Bridge:
         registry: Registry,
         pid: str,
         ttl: int,
-        encoder: Encoder[Any, str | None],
         unicast: str,
         anycast: str,
     ) -> None:
@@ -73,7 +71,6 @@ class Bridge:
             unicast=unicast,
             anycast=anycast,
         )
-        self._encoder = encoder
         self._promise_id_to_task: dict[str, Task] = {}
 
         self._messages_thread = threading.Thread(target=self._process_msgs, name="bridge_msg_processor", daemon=True)
@@ -229,12 +226,7 @@ class Bridge:
                     self._cq.put_nowait(cmd)
 
                 case {"type": "notify", "promise": _promise}:
-                    durable_promise = DurablePromise.from_dict(
-                        self._store,
-                        _promise,
-                        self._encoder.decode(_promise["param"]["data"]),
-                        self._encoder.decode(_promise["value"]["data"]),
-                    )
+                    durable_promise = DurablePromise.from_dict(self._store, _promise)
                     self._cq.put_nowait(Notify(durable_promise.id, durable_promise))
 
     def start_heartbeat(self) -> None:

@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 
 class LocalStore:
     def __init__(self, encoder: Encoder[Any, str | None] | None = None, clock: Clock | None = None) -> None:
-        self._encoder = encoder or ChainEncoder(JsonEncoder(), Base64Encoder())
+        self.encoder = encoder or ChainEncoder(JsonEncoder(), Base64Encoder())
+
         self._promises: dict[str, DurablePromiseRecord] = {}
         self._tasks: dict[str, TaskRecord] = {}
         self._routers: list[Router] = [TagRouter()]
@@ -33,7 +34,7 @@ class LocalStore:
     def promises(self) -> LocalPromiseStore:
         return LocalPromiseStore(
             self,
-            self._encoder,
+            self.encoder,
             self._promises,
             self._tasks,
             self._routers,
@@ -44,7 +45,7 @@ class LocalStore:
     def tasks(self) -> LocalTaskStore:
         return LocalTaskStore(
             self,
-            self._encoder,
+            self.encoder,
             self._promises,
             self._tasks,
             self._clock,
@@ -103,8 +104,9 @@ class LocalStore:
 
 class LocalPromiseStore:
     def __init__(self, store: LocalStore, encoder: Encoder[Any, str | None], promises: dict[str, DurablePromiseRecord], tasks: dict[str, TaskRecord], routers: list[Router], clock: Clock) -> None:
+        self.encoder = encoder
+
         self._store = store
-        self._encoder = encoder
         self._promises = promises
         self._tasks = tasks
         self._routers = routers
@@ -207,8 +209,6 @@ class LocalPromiseStore:
         durable_promise = DurablePromise.from_dict(
             self._store,
             promise.to_dict(),
-            self._encoder.decode(promise.param.data),
-            self._encoder.decode(promise.value.data),
         )
         if promise.state != "PENDING":
             return durable_promise, None
@@ -237,8 +237,6 @@ class LocalPromiseStore:
         durable_promise = DurablePromise.from_dict(
             self._store,
             promise.to_dict(),
-            self._encoder.decode(promise.param.data),
-            self._encoder.decode(promise.value.data),
         )
         if promise.state != "PENDING":
             return durable_promise, None
@@ -295,8 +293,6 @@ class LocalPromiseStore:
         return DurablePromise.from_dict(
             self._store,
             record.to_dict(),
-            self._encoder.decode(record.param.data),
-            self._encoder.decode(record.value.data),
         ), task
 
     def _complete(
@@ -329,8 +325,6 @@ class LocalPromiseStore:
         return DurablePromise.from_dict(
             self._store,
             record.to_dict(),
-            self._encoder.decode(record.param.data),
-            self._encoder.decode(record.value.data),
         )
 
     def transition(
@@ -354,7 +348,7 @@ class LocalPromiseStore:
                     timeout=timeout,
                     param=DurablePromiseRecordValue(
                         headers=headers or {},
-                        data=self._encoder.encode(data),
+                        data=self.encoder.encode(data),
                     ),
                     value=DurablePromiseRecordValue(headers={}, data=None),
                     created_on=self._clock.time(),
@@ -379,7 +373,7 @@ class LocalPromiseStore:
                     state=to,
                     timeout=record.timeout,
                     param=record.param,
-                    value=DurablePromiseRecordValue(headers=headers, data=self._encoder.encode(data)),
+                    value=DurablePromiseRecordValue(headers=headers, data=self.encoder.encode(data)),
                     created_on=record.created_on,
                     completed_on=self._clock.time(),
                     ikey_for_create=record.ikey_for_create,
@@ -459,8 +453,6 @@ class LocalTaskStore:
                 return DurablePromise.from_dict(
                     self._store,
                     root_promise.to_dict(),
-                    self._encoder.decode(root_promise.param.data),
-                    self._encoder.decode(root_promise.value.data),
                 ), None
             case "resume":
                 root_promise = self._promises[task_record.root_promise_id]
@@ -468,13 +460,9 @@ class LocalTaskStore:
                 return DurablePromise.from_dict(
                     self._store,
                     root_promise.to_dict(),
-                    self._encoder.decode(root_promise.param.data),
-                    self._encoder.decode(root_promise.value.data),
                 ), DurablePromise.from_dict(
                     self._store,
                     leaf_promise.to_dict(),
-                    self._encoder.decode(leaf_promise.param.data),
-                    self._encoder.decode(leaf_promise.value.data),
                 )
             case "notify":
                 raise NotImplementedError

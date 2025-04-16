@@ -82,7 +82,6 @@ class Resonate:
             registry=self._registry,
             pid=self._pid,
             ttl=ttl,
-            encoder=_encoder,
             anycast=self.anycast,
             unicast=self.unicast,
         )
