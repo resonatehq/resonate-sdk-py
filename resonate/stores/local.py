@@ -78,22 +78,22 @@ class LocalStore:
 
         for task in self._tasks.values():
             match task, self._clock.time() >= (task.expiry or 0):
-                case TaskRecord(state="INIT", type="invoke"), _:
+                case TaskRecord(type="invoke", state="INIT"), _:
                     _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
                     if applied:
                         messages.append((task.recv, InvokeMesg(type="invoke", task=TaskMesg(id=task.id, counter=task.counter))))
-                case TaskRecord(state="INIT", type="resume"), _:
+                case TaskRecord(type="resume", state="INIT"), _:
                     _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
                     if applied:
                         messages.append((task.recv, ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter))))
-                case TaskRecord(state="ENQUEUED" | "CLAIMED"), True:
-                    self.tasks.transition(id=task.id, to="INIT")
                 case TaskRecord(type="notify"), _:
                     promise = self._promises.get(task.root_promise_id)
+                    assert promise
+
                     _, applied = self.tasks.transition(id=task.id, to="COMPLETED")
                     if applied:
-                        messages.append((task.recv, NotifyMesg(type="notify", promise=promise)))
-                case TaskRecord(state="CLAIMED"), True:
+                        messages.append((task.recv, NotifyMesg(type="notify", promise=promise.to_dict())))
+                case TaskRecord(state="ENQUEUED" | "CLAIMED"), True:
                     self.tasks.transition(id=task.id, to="INIT")
 
         return messages
