@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 
 UUID = 0
 
+
 class Message:
     def __init__(self, send: str, recv: str, data: Any, time: int) -> None:
         global UUID  # noqa: PLW0603
@@ -65,6 +66,7 @@ class Message:
     def __repr__(self) -> str:
         return f"Message(from={self.send}, to={self.recv}, payload={self.data}, time={self.time})"
 
+
 class StepClock:
     def __init__(self) -> None:
         self._time = 0
@@ -75,6 +77,7 @@ class StepClock:
     def set_time(self, time: int) -> None:
         assert time >= self._time, "The arrow of time only flows forward."
         self._time = time
+
 
 class Simulator:
     def __init__(self, r: Random, drop_rate: float = 0.15) -> None:
@@ -165,6 +168,7 @@ class Simulator:
     def freeze(self) -> str:
         return ":".join(component.freeze() for component in self.components)
 
+
 class Component:
     def __init__(self, r: Random, uni: str, any: str) -> None:
         self.r = r
@@ -229,7 +233,7 @@ class Component:
 
     def handle_messages(self, messages: list[Message]) -> None:
         for message in messages:
-            if not(isinstance(message.data, dict) and message.data.get("type") == "res"):
+            if not (isinstance(message.data, dict) and message.data.get("type") == "res"):
                 self.on_message(message)
 
     def on_message(self, msg: Message) -> None:
@@ -238,11 +242,12 @@ class Component:
     def freeze(self) -> str:
         raise NotImplementedError
 
+
 class Server(Component):
     def __init__(self, r: Random, uni: str, any: str) -> None:
-       super().__init__(r, uni, any)
-       self.clock = StepClock()
-       self.store = LocalStore(clock=self.clock)
+        super().__init__(r, uni, any)
+        self.clock = StepClock()
+        self.store = LocalStore(clock=self.clock)
 
     def on_message(self, msg: Message) -> None:
         # set clock
@@ -370,6 +375,7 @@ class Server(Component):
     def freeze(self) -> str:
         return "server"
 
+
 class Worker(Component):
     def __init__(self, r: Random, uni: str, any: str, store: LocalStore, registry: Registry, drop_at: int = 0) -> None:
         super().__init__(r, uni, any)
@@ -382,10 +388,10 @@ class Worker(Component):
         self.last_heartbeat = 0
 
         self.scheduler = Scheduler(
-            lambda id, info: Context(id, info, Options(),self.registry, self.dependencies),
+            lambda id, info: Context(id, info, Options(), self.registry, self.dependencies),
             pid=self.uni,
             unicast=f"sim://uni@{self.uni}",
-            anycast=f"sim://any@{self.uni}", # this looks silly, but this is right
+            anycast=f"sim://any@{self.uni}",  # this looks silly, but this is right
         )
 
     def on_message(self, msg: Message) -> None:
@@ -520,13 +526,15 @@ class Worker(Component):
 
         self.tasks[res.promise.id] = res.task
 
-        self.commands.append(Invoke(
-            res.promise.id,
-            res.promise.param.data["func"],
-            self.registry.get(res.promise.param.data["func"])[0],
-            res.promise.param.data["args"],
-            res.promise.param.data["kwargs"],
-        ))
+        self.commands.append(
+            Invoke(
+                res.promise.id,
+                res.promise.param.data["func"],
+                self.registry.get(res.promise.param.data["func"])[0],
+                res.promise.param.data["args"],
+                res.promise.param.data["kwargs"],
+            )
+        )
 
     def _invoke(self, result: Result[ClaimTaskRes]) -> None:
         match result:
@@ -539,13 +547,15 @@ class Worker(Component):
 
                 self.tasks[res.root.id] = res.task
 
-                self.commands.append(Invoke(
-                    res.root.id,
-                    res.root.param.data["func"],
-                    self.registry.get(res.root.param.data["func"])[0],
-                    res.root.param.data["args"],
-                    res.root.param.data["kwargs"],
-                ))
+                self.commands.append(
+                    Invoke(
+                        res.root.id,
+                        res.root.param.data["func"],
+                        self.registry.get(res.root.param.data["func"])[0],
+                        res.root.param.data["args"],
+                        res.root.param.data["kwargs"],
+                    )
+                )
 
             case Ko():
                 # It's possible that is task is already claimed or completed, in that case just
@@ -564,18 +574,20 @@ class Worker(Component):
 
                 self.tasks[res.root.id] = res.task
 
-                self.commands.append(Resume(
-                    id=res.leaf.id,
-                    cid=res.root.id,
-                    promise=res.leaf,
-                    invoke=Invoke(
-                        res.root.id,
-                        res.root.param.data["func"],
-                        self.registry.get(res.root.param.data["func"])[0],
-                        res.root.param.data["args"],
-                        res.root.param.data["kwargs"],
-                    ),
-                ))
+                self.commands.append(
+                    Resume(
+                        id=res.leaf.id,
+                        cid=res.root.id,
+                        promise=res.leaf,
+                        invoke=Invoke(
+                            res.root.id,
+                            res.root.param.data["func"],
+                            self.registry.get(res.root.param.data["func"])[0],
+                            res.root.param.data["args"],
+                            res.root.param.data["kwargs"],
+                        ),
+                    )
+                )
 
             case Ko():
                 # It's possible that is task is already claimed or completed, in that case just

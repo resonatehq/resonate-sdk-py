@@ -235,9 +235,11 @@ class CompleteTaskReq:
 class CompleteTaskRes:
     pass
 
+
 @dataclass
 class HeartbeatTasksReq:
     pid: str
+
 
 @dataclass
 class HeartbeatTasksRes:

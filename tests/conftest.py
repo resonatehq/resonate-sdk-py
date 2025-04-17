@@ -10,8 +10,10 @@ import pytest
 def pytest_configure() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption("--seed", action="store")
+
 
 @pytest.fixture
 def seed(request: pytest.FixtureRequest) -> str:

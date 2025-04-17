@@ -474,7 +474,7 @@ class Computation:
                 node.transition(Enabled(Running(next)))
 
                 # unblock waiting[p]
-                self._unblock(suspends, AWT(next.id, self.id))
+                self._unblock(suspends, AWT(next.id))
 
             case Blocked(Running(Init(Rfnc() as next, suspends))), promise if promise.pending:
                 assert not next.suspends, "Next suspends must be initially empty."
@@ -482,7 +482,7 @@ class Computation:
                 node.transition(Enabled(Suspended(next)))
 
                 # unblock waiting[p]
-                self._unblock(suspends, AWT(next.id, self.id))
+                self._unblock(suspends, AWT(next.id))
 
             case Blocked(Running(Init(next, suspends))), promise if promise.completed:
                 assert next, "Next must be set."
@@ -490,7 +490,7 @@ class Computation:
                 node.transition(Enabled(Completed(next.map(result=promise.result))))
 
                 # unblock waiting[p]
-                self._unblock(suspends, AWT(next.id, self.id))
+                self._unblock(suspends, AWT(next.id))
 
             case Blocked(Running(Lfnc(suspends=suspends) | Coro(suspends=suspends) as f)), promise if promise.completed:
                 node.transition(Enabled(Completed(f.map(result=promise.result))))
@@ -523,15 +523,21 @@ class Computation:
     def _apply_notify(self, node: Node[State], promise: DurablePromise) -> None:
         match node.value:
             case Enabled(Suspended(Init(next=None))):
-                node.transition(Enabled(Completed(Rfnc(
-                    promise.id,
-                    promise.timeout,
-                    promise.ikey_for_create,
-                    promise.param.headers,
-                    promise.param.data,
-                    promise.tags,
-                    result=promise.result,
-                ))))
+                node.transition(
+                    Enabled(
+                        Completed(
+                            Rfnc(
+                                promise.id,
+                                promise.timeout,
+                                promise.ikey_for_create,
+                                promise.param.headers,
+                                promise.param.data,
+                                promise.tags,
+                                result=promise.result,
+                            )
+                        )
+                    )
+                )
 
             case _:
                 # Note: we could implement notify in a way that takes precedence over a locally
@@ -576,7 +582,7 @@ class Computation:
                     CreateSubscriptionReq(
                         f"{self.pid}:{self.id}",
                         self.id,
-                        sys.maxsize, # TODO(dfarr): evaluate default setting for subscription timeout
+                        sys.maxsize,  # TODO(dfarr): evaluate default setting for subscription timeout
                         self.unicast,
                     ),
                 )
@@ -622,7 +628,7 @@ class Computation:
                     case False:
                         assert len(suspends) == 1, "Nothing should be blocked"
                         node.transition(Enabled(Running(func)))
-                        self._unblock(suspends, AWT(id, self.id))
+                        self._unblock(suspends, AWT(id))
                         return []
 
             case Enabled(Running(Init(Rfnc(id, timeout, ikey, headers, data, tags))) as exec):
@@ -647,7 +653,6 @@ class Computation:
             case Enabled(Running(Lfnc(id, func, args, kwargs, opts, info, result=result, suspends=suspends) as f)):
                 assert id == node.id, "Id must match node id."
                 assert func is not None, "Func is required for local function."
-
 
                 match result, opts.retry_policy.next(info.attempt), opts.durable:
                     case None, _, _:
@@ -721,32 +726,28 @@ class Computation:
 
                     case LFI(id) | RFI(id), _:
                         node.add_edge(child)
-                        node.transition(Enabled(Running(c.map(next=AWT(id, self.id)))))
+                        node.transition(Enabled(Running(c.map(next=AWT(id)))))
                         return []
 
-                    case AWT(id, cid), Enabled(Running(f)):
-                        assert cid == self.id, "Await id must match computation id."
+                    case AWT(), Enabled(Running(f)):
                         node.add_edge(child, "waiting[v]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Enabled(Running(f.map(suspends=node))))
                         return []
 
-                    case AWT(id, cid), Blocked(Running(f)):
-                        assert cid == self.id, "Await id must match computation id."
+                    case AWT(), Blocked(Running(f)):
                         node.add_edge(child, "waiting[v]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Blocked(Running(f.map(suspends=node))))
                         return []
 
-                    case AWT(id, cid), Enabled(Suspended(f)):
-                        assert cid == self.id, "Await id must match computation id."
+                    case AWT(), Enabled(Suspended(f)):
                         node.add_edge(child, "waiting[v]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Enabled(Suspended(f.map(suspends=node))))
                         return []
 
-                    case AWT(id, cid), Enabled(Completed(Lfnc(result=result) | Rfnc(result=result) | Coro(result=result))):
-                        assert cid == self.id, "Await id must match computation id."
+                    case AWT(), Enabled(Completed(Lfnc(result=result) | Rfnc(result=result) | Coro(result=result))):
                         assert result is not None, "Completed result must be set."
                         node.transition(Enabled(Running(c.map(next=result))))
                         return []
@@ -844,50 +845,64 @@ class Coroutine:
         return f"Coroutine(done={self.done})"
 
     def send(self, value: None | AWT | Result) -> LFI | RFI | AWT | TRM:
-        assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow AWT."
-
-        match value:
-            case AWT(id, cid):
-                send_value = Promise(id, cid)
-            case _:
-                send_value = value
+        assert self.done or isinstance(value, self.next), "AWT must follow LFI/RFI. Value must follow AWT."
+        assert not self.skip or isinstance(value, AWT), "If skipped, value must be an AWT."
 
         if self.done:
+            # When done, yield all unyielded values to enforce structured concurrency, the final
+            # value must be a TRM.
+
             match self.unyielded:
+                case []:
+                    raise StopIteration
+                case [trm]:
+                    assert isinstance(trm, TRM), "Last unyielded value must be a TRM."
+                    self.unyielded = []
+                    return trm
                 case [head, *tail]:
                     self.unyielded = tail
                     return head
-                case _:
-                    raise StopIteration
-
         try:
-            match send_value, self.skip:
-                case Ok(v), False:
+            match value, self.skip:
+                case None, _:
+                    yielded = self.gen.send(None)
+                case Ok(v), _:
                     yielded = self.gen.send(v)
-                case Ko(e), False:
+                case Ko(e), _:
                     yielded = self.gen.throw(e)
-                case promise, True:
-                    assert isinstance(promise, Promise), "Skipped value must be a Promise."
+                case awt, True:
+                    # When skipped, pretend as if the generator yielded a promise
                     self.skip = False
-                    yielded = promise
-                case _:
-                    yielded = self.gen.send(send_value)
+                    yielded = Promise(awt.id, self.cid)
+                case awt, False:
+                    yielded = self.gen.send(Promise(awt.id, self.cid))
 
             match yielded:
                 case LFI(id) | RFI(id, mode="attached"):
+                    # LFIs and attached RFIs require an AWT
                     self.next = AWT
-                    self.unyielded.append(AWT(id, self.cid))
+                    self.unyielded.append(AWT(id))
+                    command = yielded
                 case LFC(id, func, args, kwargs, opts):
+                    # LFCs can be converted to an LFI+AWT
                     self.next = AWT
                     self.skip = True
-                    yielded = LFI(id, func, args, kwargs, opts)
+                    command = LFI(id, func, args, kwargs, opts)
                 case RFC(id, convention):
+                    # RFCs can be converted to an RFI+AWT
                     self.next = AWT
                     self.skip = True
-                    yielded = RFI(id, convention)
+                    command = RFI(id, convention)
                 case Promise(id):
+                    # When a promise is yielded we can remove it from unyielded
                     self.next = (Ok, Ko)
                     self.unyielded = [y for y in self.unyielded if y.id != id]
+                    command = AWT(id)
+                case _:
+                    assert isinstance(yielded, RFI), "Yielded must be an RFI."
+                    assert yielded.mode == "detached", "RFI must be detached."
+                    self.next = AWT
+                    command = yielded
 
         except StopIteration as e:
             self.done = True
@@ -898,8 +913,5 @@ class Coroutine:
             self.unyielded.append(TRM(self.id, Ko(e)))
             return self.unyielded.pop(0)
         else:
-            match yielded:
-                case Promise(id, cid):
-                    return AWT(id, cid)
-                case _:
-                    return yielded
+            assert not isinstance(yielded, Promise) or yielded.cid == self.cid, "If promise, cids must match."
+            return command
