@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from resonate.models import retry_policies
 from resonate.resonate import Resonate
 from resonate.stores.local import LocalStore
 from resonate.stores.remote import RemoteStore
@@ -175,3 +176,32 @@ def test_sleep(resonate_instance: Resonate) -> None:
     timestamp = int(time.time())
     handle = resonate_instance.run(f"sleep-{timestamp}", sleep)
     assert handle.result() == 1
+
+
+def test_basic_retries() -> None:
+    # Use a different instance that only do local store
+    resonate = Resonate()
+
+    n = 0
+
+    def retriable(ctx: Context) -> int:
+        nonlocal n
+        n += 1
+        if n == 4:
+            return n
+        raise RuntimeError
+
+    f = resonate.register(retriable, retry_policy=retry_policies.Constant(delay=1, max_retries=3))
+    resonate.start()
+
+    start_time = time.time()
+    handle = f.run(f"retriable-{int(start_time)}")
+    result = handle.result()
+    end_time = time.time()
+
+    assert result == 4
+    delta = end_time - start_time
+    assert delta >= 3.0
+    assert delta < 4.0  # This is kind of arbitrary, if it is failing feel free to increase the number
+
+    resonate.stop()
