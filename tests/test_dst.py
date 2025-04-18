@@ -27,6 +27,7 @@ def foo(ctx: Context) -> Generator[Any, Any, Any]:
 
     return (yield p1), (yield p2)
 
+
 def bar(ctx: Context) -> Generator[Any, Any, Any]:
     p1 = yield ctx.lfi(baz)
     p2 = yield ctx.rfi(baz).options(send_to="sim://any@default")
@@ -38,8 +39,10 @@ def bar(ctx: Context) -> Generator[Any, Any, Any]:
 
     return (yield p1), (yield p2)
 
+
 def baz(ctx: Context) -> str:
     return "baz"
+
 
 def foo_lfi(ctx: Context) -> Generator:
     p = yield ctx.lfi(bar_lfi)
