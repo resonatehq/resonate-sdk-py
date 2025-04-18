@@ -425,9 +425,9 @@ class Computation:
 
             case Resume(id, promise=promise), _:
                 node = self.graph.find(lambda n: n.id == id)
-                assert node, "Node must exist."
 
-                self._apply_receive(node, promise)
+                if node:
+                    self._apply_resume(node, promise)
 
             case Return(id, res=res), _:
                 node = self.graph.find(lambda n: n.id == id)
@@ -458,6 +458,23 @@ class Computation:
             case _:
                 msg = f"Command {cmd} not supported"
                 raise NotImplementedError(msg)
+
+    def _apply_resume(self, node: Node[State], promise: DurablePromise) -> None:
+        assert promise.completed, "Promise must be completed."
+
+        match node.value, promise:
+            case Enabled(Suspended(Rfnc(suspends=suspends) as f)) | Blocked(Running(Init(next=Rfnc(suspends=suspends) as f))), promise:
+                node.transition(Enabled(Completed(f.map(result=promise.result))))
+
+                # unblock waiting[v]
+                self._unblock(suspends, promise.result)
+
+            case Enabled(Completed()), _:
+                # On resume, it is possible that the node is already completed.
+                pass
+
+            case _:
+                raise NotImplementedError
 
     def _apply_return(self, node: Node[State], result: Result) -> None:
         match node.value:
@@ -493,12 +510,6 @@ class Computation:
                 self._unblock(suspends, AWT(next.id))
 
             case Blocked(Running(Lfnc(suspends=suspends) | Coro(suspends=suspends) as f)), promise if promise.completed:
-                node.transition(Enabled(Completed(f.map(result=promise.result))))
-
-                # unblock waiting[v]
-                self._unblock(suspends, promise.result)
-
-            case Enabled(Suspended(Rfnc(suspends=suspends) as f)), promise if promise.completed:
                 node.transition(Enabled(Completed(f.map(result=promise.result))))
 
                 # unblock waiting[v]
@@ -865,7 +876,7 @@ class Coroutine:
         try:
             match value, self.skip:
                 case None, _:
-                    yielded = self.gen.send(None)
+                    yielded = next(self.gen)
                 case Ok(v), _:
                     yielded = self.gen.send(v)
                 case Ko(e), _:

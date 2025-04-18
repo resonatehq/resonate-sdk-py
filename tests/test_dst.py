@@ -16,6 +16,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def foo(ctx: Context) -> Generator[Any, Any, Any]:
+    p1 = yield ctx.lfi(bar)
+    p2 = yield ctx.rfi(bar).options(send_to="sim://any@default")
+    yield ctx.lfi(bar)
+    yield ctx.lfc(bar)
+    yield ctx.rfi(bar).options(send_to="sim://any@default")
+    yield ctx.rfc(bar).options(send_to="sim://any@default")
+    yield ctx.detached(bar).options(send_to="sim://any@default")
+
+    return (yield p1), (yield p2)
+
+def bar(ctx: Context) -> Generator[Any, Any, Any]:
+    p1 = yield ctx.lfi(baz)
+    p2 = yield ctx.rfi(baz).options(send_to="sim://any@default")
+    yield ctx.lfi(baz)
+    yield ctx.lfc(baz)
+    yield ctx.rfi(baz).options(send_to="sim://any@default")
+    yield ctx.rfc(baz).options(send_to="sim://any@default")
+    yield ctx.detached(baz).options(send_to="sim://any@default")
+
+    return (yield p1), (yield p2)
+
+def baz(ctx: Context) -> str:
+    return "baz"
+
 def foo_lfi(ctx: Context) -> Generator:
     p = yield ctx.lfi(bar_lfi)
     v = yield p
@@ -66,10 +91,6 @@ def foo_detached(ctx: Context) -> Generator:
 
 def bar_detached(ctx: Context) -> Generator:
     yield ctx.detached(baz).options(send_to="sim://any@default")
-
-
-def baz(ctx: Context) -> str:
-    return "baz"
 
 
 def structured_concurrency(ctx: Context) -> Generator:
@@ -132,6 +153,9 @@ def test_dst(seed: str, steps: int = 10000) -> None:
 
     # create a registry
     registry = Registry()
+    registry.add(foo, "foo")
+    registry.add(bar, "bar")
+    registry.add(baz, "baz")
     registry.add(foo_lfi, "foo_lfi")
     registry.add(bar_lfi, "bar_lfi")
     registry.add(foo_lfc, "foo_lfc")
@@ -142,7 +166,6 @@ def test_dst(seed: str, steps: int = 10000) -> None:
     registry.add(bar_rfc, "bar_rfc")
     registry.add(foo_detached, "foo_detached")
     registry.add(bar_detached, "bar_detached")
-    registry.add(baz, "baz")
     registry.add(structured_concurrency, "structured_concurrency")
     registry.add(fib_lfi, "fib_lfi")
     registry.add(fib_lfc, "fib_lfc")
@@ -153,8 +176,8 @@ def test_dst(seed: str, steps: int = 10000) -> None:
     sim = Simulator(r)
 
     servers = [Server(r, "server", "server")]
-    workers = [Worker(r, f"default/{n}", "default", registry=registry, store=servers[0].store) for n in range(3)]
-    # workers = [Worker(r, f"default/{n}", "default", registry=registry, store=servers[0].store, drop_at=r.randint(0, steps) * 1000) for n in range(3)]
+    # workers = [Worker(r, f"default/{n}", "default", registry=registry, store=servers[0].store) for n in range(3)]
+    workers = [Worker(r, f"default/{n}", "default", registry=registry, store=servers[0].store, drop_at=r.randint(0, steps) * 1000) for n in range(3)]
 
     for s in servers:
         sim.add_component(s)
@@ -163,48 +186,52 @@ def test_dst(seed: str, steps: int = 10000) -> None:
         sim.add_component(w)
 
     for _ in range(steps):
-        n = r.randint(0, 10)
+        n = r.randint(0, 99)
 
         # generate commands
-        match r.randint(0, 14):
+        match r.randint(0, 18):
             case 0:
                 sim.send_msg("sim://any@default", Listen(str(n)))
             case 1:
-                sim.send_msg("sim://any@default", Invoke(str(n), "foo_lfi", foo_lfi))
+                sim.send_msg("sim://any@default", Invoke(str(n), "foo", foo))
             case 2:
-                sim.send_msg("sim://any@default", Invoke(str(n), "bar_lfi", bar_lfi))
+                sim.send_msg("sim://any@default", Invoke(str(n), "bar", bar))
             case 3:
-                sim.send_msg("sim://any@default", Invoke(str(n), "foo_lfc", foo_lfc))
-            case 4:
-                sim.send_msg("sim://any@default", Invoke(str(n), "bar_lfc", bar_lfc))
-            case 5:
-                sim.send_msg("sim://any@default", Invoke(str(n), "foo_rfi", foo_rfi))
-            case 6:
-                sim.send_msg("sim://any@default", Invoke(str(n), "bar_rfi", bar_rfi))
-            case 7:
-                sim.send_msg("sim://any@default", Invoke(str(n), "foo_rfc", foo_rfc))
-            case 8:
-                sim.send_msg("sim://any@default", Invoke(str(n), "bar_rfc", bar_rfc))
-            case 7:
-                sim.send_msg("sim://any@default", Invoke(str(n), "foo_detached", foo_detached))
-            case 8:
-                sim.send_msg("sim://any@default", Invoke(str(n), "bar_detached", bar_detached))
-            case 9:
                 sim.send_msg("sim://any@default", Invoke(str(n), "baz", baz))
+            case 4:
+                sim.send_msg("sim://any@default", Invoke(str(n), "foo_lfi", foo_lfi))
+            case 5:
+                sim.send_msg("sim://any@default", Invoke(str(n), "bar_lfi", bar_lfi))
+            case 6:
+                sim.send_msg("sim://any@default", Invoke(str(n), "foo_lfc", foo_lfc))
+            case 7:
+                sim.send_msg("sim://any@default", Invoke(str(n), "bar_lfc", bar_lfc))
+            case 8:
+                sim.send_msg("sim://any@default", Invoke(str(n), "foo_rfi", foo_rfi))
+            case 9:
+                sim.send_msg("sim://any@default", Invoke(str(n), "bar_rfi", bar_rfi))
             case 10:
-                sim.send_msg("sim://any@default", Invoke(str(n), "structured_concurrency", structured_concurrency))
+                sim.send_msg("sim://any@default", Invoke(str(n), "foo_rfc", foo_rfc))
             case 11:
-                sim.send_msg("sim://any@default", Invoke(f"fibl-{n}", "fib_lfi", fib_lfi, (n,)))
+                sim.send_msg("sim://any@default", Invoke(str(n), "bar_rfc", bar_rfc))
             case 12:
-                sim.send_msg("sim://any@default", Invoke(f"fibl-{n}", "fib_lfc", fib_lfc, (n,)))
+                sim.send_msg("sim://any@default", Invoke(str(n), "foo_detached", foo_detached))
             case 13:
-                sim.send_msg("sim://any@default", Invoke(f"fibr-{n}", "fib_rfi", fib_rfi, (n,)))
+                sim.send_msg("sim://any@default", Invoke(str(n), "bar_detached", bar_detached))
             case 14:
+                sim.send_msg("sim://any@default", Invoke(str(n), "structured_concurrency", structured_concurrency))
+            case 15:
+                sim.send_msg("sim://any@default", Invoke(f"fibl-{n}", "fib_lfi", fib_lfi, (n,)))
+            case 16:
+                sim.send_msg("sim://any@default", Invoke(f"fibl-{n}", "fib_lfc", fib_lfc, (n,)))
+            case 17:
+                sim.send_msg("sim://any@default", Invoke(f"fibr-{n}", "fib_rfi", fib_rfi, (n,)))
+            case 18:
                 sim.send_msg("sim://any@default", Invoke(f"fibr-{n}", "fib_rfc", fib_rfc, (n,)))
 
         # step
         sim.step()
 
-        # log
-        # for log in sim.logs:
-        #     logger.info(log)
+    # log
+    for log in sim.logs:
+        logger.info(log)

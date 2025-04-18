@@ -131,23 +131,23 @@ class Simulator:
             match parsed:
                 case urllib.parse.ParseResult(scheme="sim", username="uni", hostname=hostname, path=path):
                     if comp := components_by_uni.get(f"{hostname}{path}"):
-                        self.buffer.remove(send)
                         outgoing.setdefault(comp, []).append(send)
+                        self.buffer.remove(send)
 
                 case urllib.parse.ParseResult(scheme="sim", username="any", hostname=hostname, path=""):
                     if hostname in components_by_any:
-                        self.buffer.remove(send)
                         comp = self.r.choice(components_by_any[hostname])
                         outgoing.setdefault(comp, []).append(send)
+                        self.buffer.remove(send)
 
                 case urllib.parse.ParseResult(scheme="sim", username="any", hostname=hostname, path=path):
                     if comp := components_by_uni.get(f"{hostname}{path}"):
-                        self.buffer.remove(send)
                         outgoing.setdefault(comp, []).append(send)
-                    elif hostname in components_by_any:
                         self.buffer.remove(send)
+                    elif hostname in components_by_any:
                         comp = self.r.choice(components_by_any[hostname])
                         outgoing.setdefault(comp, []).append(send)
+                        self.buffer.remove(send)
 
                 case _:
                     raise NotImplementedError
