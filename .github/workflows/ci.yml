@@ -64,5 +64,5 @@ jobs:
       - name: Run tests
         env:
           RESONATE_STORE_URL: http://localhost:8001
-          RESONATE_TASKS_URL: http://localhost:8002
+          RESONATE_MSG_SRC_URL: http://localhost:8002
         run: uv run pytest tests
