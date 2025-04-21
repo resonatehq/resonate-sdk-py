@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import TYPE_CHECKING, Any
 
+from resonate.delay_queue import DelayQ
 from resonate.models.commands import (
     CancelPromiseReq,
     CancelPromiseRes,
@@ -23,6 +25,7 @@ from resonate.models.commands import (
     ResolvePromiseReq,
     ResolvePromiseRes,
     Resume,
+    Retry,
     Return,
 )
 from resonate.models.durable_promise import DurablePromise
@@ -75,9 +78,14 @@ class Bridge:
 
         self._messages_thread = threading.Thread(target=self._process_msgs, name="bridge_msg_processor", daemon=True)
         self._bridge_thread = threading.Thread(target=self._process_cq, name="bridge_main_thread", daemon=True)
+
         self._heartbeat_thread = threading.Thread(target=self._heartbeat, name="bridge_hearthbeat", daemon=True)
         self._heartbeat_active = threading.Event()
         self._shutdown = threading.Event()
+
+        self._delay_queue = DelayQ[Function | Retry]()
+        self._delay_condition = threading.Condition()
+        self._delay_thread = threading.Thread(target=self._process_delayed_events, name="delay_thread", daemon=True)
 
     def invoke(self, cmd: Invoke, futures: tuple[Future, Future]) -> DurablePromise:
         # TODO(avillega): Handle the case where func is None which means an rpc
@@ -124,6 +132,9 @@ class Bridge:
         if not self._heartbeat_thread.is_alive():
             self._heartbeat_thread.start()
 
+        if not self._delay_thread.is_alive():
+            self._delay_thread.start()
+
     def stop(self) -> None:
         self._message_src.stop()
         self._cq.put_nowait(None)
@@ -161,8 +172,8 @@ class Bridge:
                                 self._cq.put_nowait(self._handle_network_request(id, cid, n_req))
                             case Function(id, cid, func):
                                 self._cq.put_nowait(Return(id, cid, self._handle_function(func)))
-                            case Delayed():
-                                raise NotImplementedError
+                            case Delayed() as item:
+                                self._handle_delay(item)
 
                 case Done(reqs):
                     task = self._promise_id_to_task.get(cid, None)
@@ -229,6 +240,39 @@ class Bridge:
                     durable_promise = DurablePromise.from_dict(self._store, _promise)
                     self._cq.put_nowait(Notify(durable_promise.id, durable_promise))
 
+    def _process_delayed_events(self) -> None:
+        while not self._shutdown.is_set():
+            with self._delay_condition:
+                while not self._delay_queue.empty():
+                    if self._shutdown.is_set():
+                        self._delay_condition.release()
+                        return
+
+                    self._delay_condition.wait()
+
+                now = time.time()
+                events, next_time = self._delay_queue.get(now)
+
+                # Release the lock so more event can be added to the delay queue while
+                # the ones just pulled get processed.
+                self._delay_condition.release()
+
+                for item in events:
+                    match item:
+                        case Function(id, cid, func):
+                            self._cq.put_nowait(Return(id, cid, self._handle_function(func)))
+                        case Retry() as retry:
+                            self._cq.put_nowait(retry)
+                        case _:
+                            raise NotImplementedError  # Unreachble
+
+                if self._shutdown.is_set():
+                    return
+
+                timeout = max(0.0, next_time - now)
+                self._delay_condition.acquire()
+                self._delay_condition.wait(timeout=timeout)
+
     def start_heartbeat(self) -> None:
         self._heartbeat_active.set()
 
@@ -241,6 +285,15 @@ class Bridge:
                     self._heartbeat_active.clear()
                 else:
                     self._shutdown.wait(self._ttl * 0.5)
+
+    def _handle_delay(self, delay: Delayed) -> None:
+        """Add a command to the delay queue.
+
+        Uses a threading.condition to synchronize access to the underlaying delay_q.
+        """
+        with self._delay_condition:
+            self._delay_queue.add(delay.item, time.time() + delay.delay)
+            self._delay_condition.notify()
 
     def _handle_network_request(self, cmd_id: str, cid: str, req: CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq) -> Command:
         match req:
