@@ -22,7 +22,7 @@ type Command = Invoke | Resume | Return | Receive | Retry | Listen | Notify
 class Invoke:
     id: str
     name: str
-    func: Callable[..., Any] | None
+    func: Callable[..., Any] | None = field(repr=False)
     args: tuple[Any, ...] = field(default_factory=tuple)
     kwargs: dict[str, Any] = field(default_factory=dict)
     opts: Options = field(default_factory=Options)
@@ -85,7 +85,7 @@ type Request = Network | Function | Delayed
 
 
 @dataclass
-class Network[T: CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq]:
+class Network[T: CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq | CreateCallbackReq | CreateSubscriptionReq]:
     id: str
     cid: str
     req: T
@@ -197,6 +197,20 @@ class CreateCallbackRes:
 
 
 @dataclass
+class CreateSubscriptionReq:
+    id: str
+    promise_id: str
+    timeout: int
+    recv: str
+
+
+@dataclass
+class CreateSubscriptionRes:
+    promise: DurablePromise
+    callback: Callback | None
+
+
+@dataclass
 class ClaimTaskReq:
     id: str
     counter: int
@@ -220,3 +234,13 @@ class CompleteTaskReq:
 @dataclass
 class CompleteTaskRes:
     pass
+
+
+@dataclass
+class HeartbeatTasksReq:
+    pid: str
+
+
+@dataclass
+class HeartbeatTasksRes:
+    affected: int

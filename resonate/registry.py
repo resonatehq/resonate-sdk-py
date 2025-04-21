@@ -7,6 +7,7 @@ from resonate.errors import ResonateValidationError
 
 # Registry
 
+
 class Registry:
     def __init__(self) -> None:
         self._forward_registry: dict[str, dict[int, Callable]] = {}

@@ -107,4 +107,3 @@ class RFC(RFX):
 @dataclass
 class AWT:
     id: str
-    cid: str

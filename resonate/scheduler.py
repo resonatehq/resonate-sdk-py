@@ -15,10 +15,13 @@ from resonate.models.commands import (
     CreateCallbackReq,
     CreatePromiseReq,
     CreatePromiseRes,
+    CreateSubscriptionReq,
     Delayed,
     Function,
     Invoke,
+    Listen,
     Network,
+    Notify,
     Receive,
     RejectPromiseReq,
     RejectPromiseRes,
@@ -363,7 +366,7 @@ class More:
 
 @dataclass
 class Done:
-    reqs: list[Network[CreateCallbackReq]]
+    reqs: list[Network[CreateCallbackReq | CreateSubscriptionReq]]
     done: Literal[True] = True
 
 
@@ -422,9 +425,9 @@ class Computation:
 
             case Resume(id, promise=promise), _:
                 node = self.graph.find(lambda n: n.id == id)
-                assert node, "Node must exist."
 
-                self._apply_receive(node, promise)
+                if node:
+                    self._apply_resume(node, promise)
 
             case Return(id, res=res), _:
                 node = self.graph.find(lambda n: n.id == id)
@@ -444,14 +447,40 @@ class Computation:
 
                 self._apply_retry(node)
 
-            case c:
-                msg = f"Command {c} not supported"
+            case Listen(id), _:
+                assert id == self.id, "Id must match computation id."
+
+            case Notify(id, promise), _:
+                assert id == promise.id == self.id, "Id must match promise and computation id."
+
+                self._apply_notify(self.graph.root, promise)
+
+            case _:
+                msg = f"Command {cmd} not supported"
                 raise NotImplementedError(msg)
+
+    def _apply_resume(self, node: Node[State], promise: DurablePromise) -> None:
+        assert promise.completed, "Promise must be completed."
+
+        match node.value, promise:
+            case Enabled(Suspended(Rfnc(suspends=suspends) as f)) | Blocked(Running(Init(next=Rfnc(suspends=suspends) as f))), promise:
+                node.transition(Enabled(Completed(f.map(result=promise.result))))
+
+                # unblock waiting[v]
+                self._unblock(suspends, promise.result)
+
+            case Enabled(Completed()), _:
+                # On resume, it is possible that the node is already completed.
+                pass
+
+            case _:
+                raise NotImplementedError
 
     def _apply_return(self, node: Node[State], result: Result) -> None:
         match node.value:
             case Blocked(Running(Lfnc() as f)):
                 node.transition(Enabled(Running(f.map(result=result))))
+
             case _:
                 raise NotImplementedError
 
@@ -462,7 +491,7 @@ class Computation:
                 node.transition(Enabled(Running(next)))
 
                 # unblock waiting[p]
-                self._unblock(suspends, AWT(next.id, self.id))
+                self._unblock(suspends, AWT(next.id))
 
             case Blocked(Running(Init(Rfnc() as next, suspends))), promise if promise.pending:
                 assert not next.suspends, "Next suspends must be initially empty."
@@ -470,7 +499,7 @@ class Computation:
                 node.transition(Enabled(Suspended(next)))
 
                 # unblock waiting[p]
-                self._unblock(suspends, AWT(next.id, self.id))
+                self._unblock(suspends, AWT(next.id))
 
             case Blocked(Running(Init(next, suspends))), promise if promise.completed:
                 assert next, "Next must be set."
@@ -478,15 +507,9 @@ class Computation:
                 node.transition(Enabled(Completed(next.map(result=promise.result))))
 
                 # unblock waiting[p]
-                self._unblock(suspends, AWT(next.id, self.id))
+                self._unblock(suspends, AWT(next.id))
 
             case Blocked(Running(Lfnc(suspends=suspends) | Coro(suspends=suspends) as f)), promise if promise.completed:
-                node.transition(Enabled(Completed(f.map(result=promise.result))))
-
-                # unblock waiting[v]
-                self._unblock(suspends, promise.result)
-
-            case Enabled(Suspended(Rfnc(suspends=suspends) as f)), promise if promise.completed:
                 node.transition(Enabled(Completed(f.map(result=promise.result))))
 
                 # unblock waiting[v]
@@ -504,19 +527,48 @@ class Computation:
             case Blocked(Running(Coro() as c)):
                 assert c.next is None, "Next must be None."
                 node.transition(Enabled(Running(c)))
+
             case _:
                 raise NotImplementedError
 
+    def _apply_notify(self, node: Node[State], promise: DurablePromise) -> None:
+        match node.value:
+            case Enabled(Suspended(Init(next=None))):
+                node.transition(
+                    Enabled(
+                        Completed(
+                            Rfnc(
+                                promise.id,
+                                promise.timeout,
+                                promise.ikey_for_create,
+                                promise.param.headers,
+                                promise.param.data,
+                                promise.tags,
+                                result=promise.result,
+                            )
+                        )
+                    )
+                )
+
+            case _:
+                # Note: we could implement notify in a way that takes precedence over a locally
+                # running computation, however, it is easier for now to ignore the notify and let
+                # the computation finish.
+                pass
+
     def eval(self) -> More | Done:
         more: list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]] = []
-        done: list[Network[CreateCallbackReq]] = []
+        done: list[Network[CreateCallbackReq | CreateSubscriptionReq]] = []
 
         while self.runnable():
             for node in self.graph.traverse():
                 more.extend(self._eval(node))
 
+                # Enabled::Suspended::Rfnc requires a callback
                 if isinstance(node.value, Enabled) and isinstance(node.value.exec, Suspended) and isinstance(node.value.func, Rfnc) and node.value.func.suspends:
                     assert node is not self.graph.root, "Node must not be root node."
+                    assert isinstance(self.graph.root.value.func, (Lfnc, Coro))
+
                     done.append(
                         Network(
                             node.id,
@@ -525,11 +577,27 @@ class Computation:
                                 f"{self.id}:{node.id}",
                                 node.id,
                                 self.id,
-                                sys.maxsize,
+                                self.graph.root.value.func.opts.timeout,
                                 self.anycast,
                             ),
                         )
                     )
+
+        # Enabled::Suspended::Init requires a subscription
+        if isinstance(self.graph.root.value, Enabled) and isinstance(self.graph.root.value.exec, Suspended) and isinstance(self.graph.root.value.func, Init):
+            assert self.suspendable(), "Computation must be suspendable."
+            done.append(
+                Network(
+                    self.id,
+                    self.id,
+                    CreateSubscriptionReq(
+                        f"{self.pid}:{self.id}",
+                        self.id,
+                        sys.maxsize,  # TODO(dfarr): evaluate default setting for subscription timeout
+                        self.unicast,
+                    ),
+                )
+            )
 
         if self.suspendable():
             assert not more, "More requests must be empty."
@@ -571,7 +639,7 @@ class Computation:
                     case False:
                         assert len(suspends) == 1, "Nothing should be blocked"
                         node.transition(Enabled(Running(func)))
-                        self._unblock(suspends, AWT(id, self.id))
+                        self._unblock(suspends, AWT(id))
                         return []
 
             case Enabled(Running(Init(Rfnc(id, timeout, ikey, headers, data, tags))) as exec):
@@ -596,7 +664,6 @@ class Computation:
             case Enabled(Running(Lfnc(id, func, args, kwargs, opts, info, result=result, suspends=suspends) as f)):
                 assert id == node.id, "Id must match node id."
                 assert func is not None, "Func is required for local function."
-
 
                 match result, opts.retry_policy.next(info.attempt), opts.durable:
                     case None, _, _:
@@ -670,32 +737,28 @@ class Computation:
 
                     case LFI(id) | RFI(id), _:
                         node.add_edge(child)
-                        node.transition(Enabled(Running(c.map(next=AWT(id, self.id)))))
+                        node.transition(Enabled(Running(c.map(next=AWT(id)))))
                         return []
 
-                    case AWT(id, cid), Enabled(Running(f)):
-                        assert cid == self.id, "Await id must match computation id."
+                    case AWT(), Enabled(Running(f)):
                         node.add_edge(child, "waiting[v]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Enabled(Running(f.map(suspends=node))))
                         return []
 
-                    case AWT(id, cid), Blocked(Running(f)):
-                        assert cid == self.id, "Await id must match computation id."
+                    case AWT(), Blocked(Running(f)):
                         node.add_edge(child, "waiting[v]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Blocked(Running(f.map(suspends=node))))
                         return []
 
-                    case AWT(id, cid), Enabled(Suspended(f)):
-                        assert cid == self.id, "Await id must match computation id."
+                    case AWT(), Enabled(Suspended(f)):
                         node.add_edge(child, "waiting[v]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Enabled(Suspended(f.map(suspends=node))))
                         return []
 
-                    case AWT(id, cid), Enabled(Completed(Lfnc(result=result) | Rfnc(result=result) | Coro(result=result))):
-                        assert cid == self.id, "Await id must match computation id."
+                    case AWT(), Enabled(Completed(Lfnc(result=result) | Rfnc(result=result) | Coro(result=result))):
                         assert result is not None, "Completed result must be set."
                         node.transition(Enabled(Running(c.map(next=result))))
                         return []
@@ -793,50 +856,64 @@ class Coroutine:
         return f"Coroutine(done={self.done})"
 
     def send(self, value: None | AWT | Result) -> LFI | RFI | AWT | TRM:
-        assert isinstance(value, self.next), "Promise must follow LFI/RFI. Value must follow AWT."
-
-        match value:
-            case AWT(id, cid):
-                send_value = Promise(id, cid)
-            case _:
-                send_value = value
+        assert self.done or isinstance(value, self.next), "AWT must follow LFI/RFI. Value must follow AWT."
+        assert not self.skip or isinstance(value, AWT), "If skipped, value must be an AWT."
 
         if self.done:
+            # When done, yield all unyielded values to enforce structured concurrency, the final
+            # value must be a TRM.
+
             match self.unyielded:
+                case []:
+                    raise StopIteration
+                case [trm]:
+                    assert isinstance(trm, TRM), "Last unyielded value must be a TRM."
+                    self.unyielded = []
+                    return trm
                 case [head, *tail]:
                     self.unyielded = tail
                     return head
-                case _:
-                    raise StopIteration
-
         try:
-            match send_value, self.skip:
-                case Ok(v), False:
+            match value, self.skip:
+                case None, _:
+                    yielded = next(self.gen)
+                case Ok(v), _:
                     yielded = self.gen.send(v)
-                case Ko(e), False:
+                case Ko(e), _:
                     yielded = self.gen.throw(e)
-                case promise, True:
-                    assert isinstance(promise, Promise), "Skipped value must be a Promise."
+                case awt, True:
+                    # When skipped, pretend as if the generator yielded a promise
                     self.skip = False
-                    yielded = promise
-                case _:
-                    yielded = self.gen.send(send_value)
+                    yielded = Promise(awt.id, self.cid)
+                case awt, False:
+                    yielded = self.gen.send(Promise(awt.id, self.cid))
 
             match yielded:
                 case LFI(id) | RFI(id, mode="attached"):
+                    # LFIs and attached RFIs require an AWT
                     self.next = AWT
-                    self.unyielded.append(AWT(id, self.cid))
+                    self.unyielded.append(AWT(id))
+                    command = yielded
                 case LFC(id, func, args, kwargs, opts):
+                    # LFCs can be converted to an LFI+AWT
                     self.next = AWT
                     self.skip = True
-                    yielded = LFI(id, func, args, kwargs, opts)
+                    command = LFI(id, func, args, kwargs, opts)
                 case RFC(id, convention):
+                    # RFCs can be converted to an RFI+AWT
                     self.next = AWT
                     self.skip = True
-                    yielded = RFI(id, convention)
+                    command = RFI(id, convention)
                 case Promise(id):
+                    # When a promise is yielded we can remove it from unyielded
                     self.next = (Ok, Ko)
                     self.unyielded = [y for y in self.unyielded if y.id != id]
+                    command = AWT(id)
+                case _:
+                    assert isinstance(yielded, RFI), "Yielded must be an RFI."
+                    assert yielded.mode == "detached", "RFI must be detached."
+                    self.next = AWT
+                    command = yielded
 
         except StopIteration as e:
             self.done = True
@@ -847,8 +924,5 @@ class Coroutine:
             self.unyielded.append(TRM(self.id, Ko(e)))
             return self.unyielded.pop(0)
         else:
-            match yielded:
-                case Promise(id, cid):
-                    return AWT(id, cid)
-                case _:
-                    return yielded
+            assert not isinstance(yielded, Promise) or yielded.cid == self.cid, "If promise, cids must match."
+            return command

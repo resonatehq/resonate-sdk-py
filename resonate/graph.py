@@ -23,6 +23,7 @@ class Graph[T]:
     def traverse_with_level(self, edge: str = "default") -> Generator[tuple[Node[T], int], None, None]:
         return self.root.traverse_with_level(edge)
 
+
 class Node[T]:
     def __init__(self, id: str, value: T) -> None:
         self.id = id
