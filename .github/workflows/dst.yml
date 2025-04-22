@@ -30,7 +30,7 @@ jobs:
         ticks: ${{ inputs.steps || 10000 }}
 
   dst:
-    name: DST(os=${{ matrix.os }}, python=${{ matrix.python-version }})
+    name: os=${{ matrix.os }} python=${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     needs: [values]
     timeout-minutes: 15
@@ -62,5 +62,43 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.run }}-logs
+          name: ${{ matrix.os }}-${{ matrix.python-version }}-logs-${{ matrix.run }}
           path: logs.txt
+
+  diff:
+    runs-on: ubuntu-22.04
+    needs: [values, dst]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Download logs from run 1
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.python-version }}-logs-1
+          path: logs-1.txt
+      - name: Download logs from run 2
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.python-version }}-logs-2
+          path: logs-2.txt
+      - name: Diff
+        run: diff logs-1.txt logs-2.txt
+      # - name: Create issue if diff
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.github_token }}
+      #   if: ${{ failure() }}
+      #   run: |
+      #     ./resonate dst issue \
+      #       --seed ${{ needs.values.outputs.seed }} \
+      #       --ticks ${{ needs.values.outputs.ticks }} \
+      #       --scenario ${{ matrix.scenario }} \
+      #       --store ${{ matrix.store }} \
+      #       --reason "Two DST runs produced different results for seed=${{ needs.values.outputs.seed }}, ticks=${{ needs.values.outputs.ticks }}, scenario=${{ matrix.scenario }}, store=${{ matrix.store }}." \
+      #       --repo $GITHUB_REPOSITORY \
+      #       --commit $GITHUB_SHA \
+      #       --url $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
