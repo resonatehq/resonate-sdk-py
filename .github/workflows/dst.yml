@@ -4,9 +4,6 @@ permissions:
   contents: read
 
 on:
-  push:
-    branches:
-      - dst-github-action
   workflow_dispatch:
     inputs:
       seed:
@@ -30,7 +27,6 @@ jobs:
         ticks: ${{ inputs.steps || 10000 }}
 
   dst:
-    # name: os=${{ matrix.os }} python=${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     needs: [values]
     timeout-minutes: 15
@@ -88,17 +84,3 @@ jobs:
           path: logs-2.txt
       - name: Diff
         run: diff logs-1.txt logs-2.txt
-      # - name: Create issue if diff
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.github_token }}
-      #   if: ${{ failure() }}
-      #   run: |
-      #     ./resonate dst issue \
-      #       --seed ${{ needs.values.outputs.seed }} \
-      #       --ticks ${{ needs.values.outputs.ticks }} \
-      #       --scenario ${{ matrix.scenario }} \
-      #       --store ${{ matrix.store }} \
-      #       --reason "Two DST runs produced different results for seed=${{ needs.values.outputs.seed }}, ticks=${{ needs.values.outputs.ticks }}, scenario=${{ matrix.scenario }}, store=${{ matrix.store }}." \
-      #       --repo $GITHUB_REPOSITORY \
-      #       --commit $GITHUB_SHA \
-      #       --url $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
