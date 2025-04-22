@@ -4,6 +4,9 @@ permissions:
   contents: read
 
 on:
+  push:
+    branches:
+      - dst-github-action
   workflow_dispatch:
     inputs:
       seed:
