@@ -30,7 +30,7 @@ jobs:
         ticks: ${{ inputs.steps || 10000 }}
 
   dst:
-    name: os=${{ matrix.os }} python=${{ matrix.python-version }}
+    # name: os=${{ matrix.os }} python=${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     needs: [values]
     timeout-minutes: 15
