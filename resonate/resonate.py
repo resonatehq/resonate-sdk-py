@@ -194,7 +194,7 @@ class Resonate:
             case Callable():
                 name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
-        # For rpc make version == 1 as the defulat instead of 0
+        # For rpc make version = 1 as the default instead of 0
         version = version or 1
 
         fp, fv = Future[DurablePromise](), Future[R]()
