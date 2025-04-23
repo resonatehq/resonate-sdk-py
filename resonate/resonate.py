@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
 from inspect import isgeneratorfunction
+from types import NoneType
 from typing import TYPE_CHECKING, Any, Concatenate, overload
 
 from resonate.bridge import Bridge
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
     from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
-    from resonate.models.store import Store
+    from resonate.models.store import PromiseStore, Store, TaskStore
 
 
 class Resonate:
@@ -38,44 +39,48 @@ class Resonate:
         self,
         *,
         url: str | None = None,
+        group: str = "default",
         pid: str | None = None,
         ttl: int = 10,
         opts: Options | None = None,
-        anycast: str | None = None,
-        unicast: str | None = None,
         store: Store | None = None,
         message_source: MessageSource | None = None,
         encoder: Encoder[Any, str | None] | None = None,
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
     ) -> None:
+        assert not isinstance(store, (NoneType, LocalStore)) or message_source is None
+
         self._started = False
 
+        self._group = group
         self._pid = pid or uuid.uuid4().hex
         self._opts = opts or Options()
 
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
-        self.store = store or LocalStore() if url is None else RemoteStore(url)
-        assert not isinstance(self.store, LocalStore) or message_source is None
-
-        message_source = message_source or self.store.as_msg_source() if isinstance(self.store, LocalStore) else Poller()
-
-        # TODO(dfarr): grab default addresses from message source
-        self._unicast = unicast or f"poll://default/{self._pid}"
-        self._anycast = anycast or f"poll://default/{self._pid}"
+        self._store = store or LocalStore() if url is None else RemoteStore(url)
+        self._message_source = message_source or self._store.message_source(self._group, self._pid) if isinstance(self._store, LocalStore) else Poller(self._group, self._pid)
 
         self._bridge = Bridge(
             ctx=lambda id, info: Context(id, info, self._opts, self._registry, self._dependencies),
             pid=self._pid,
             ttl=ttl,
-            anycast=self._anycast,
-            unicast=self._unicast,
-            store=self.store,
-            message_source=message_source,
+            store=self._store,
+            message_source=self._message_source,
+            anycast=self._message_source.anycast,
+            unicast=self._message_source.unicast,
             registry=self._registry,
         )
+
+    @property
+    def promises(self) -> PromiseStore:
+        return self._store.promises
+
+    @property
+    def tasks(self) -> TaskStore:
+        return self._store.tasks
 
     def start(self) -> None:
         if not self._started:

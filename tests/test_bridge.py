@@ -128,7 +128,7 @@ def get_stores_config() -> list[tuple[Store, MessageSource | None]]:
 
     if "RESONATE_STORE_URL" in os.environ and "RESONATE_MSG_SRC_URL" in os.environ:
         remote_store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
-        remote_msg_source = Poller(os.environ["RESONATE_MSG_SRC_URL"])
+        remote_msg_source = Poller("default", "test", os.environ["RESONATE_MSG_SRC_URL"])
         stores.append((remote_store, remote_msg_source))
 
     return stores
@@ -162,7 +162,7 @@ def test_hitl(resonate_instance: Resonate, id: str | None) -> None:
     timestamp = int(time.time())
     handle = resonate_instance.run(f"hitl-{timestamp}", hitl, id)
     time.sleep(1)
-    resonate_instance.store.promises.resolve(id=id or f"hitl-{timestamp}.1", data=1)
+    resonate_instance.promises.resolve(id=id or f"hitl-{timestamp}.1", data=1)
     assert handle.result() == 1
 
 
