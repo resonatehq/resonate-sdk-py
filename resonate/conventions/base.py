@@ -17,7 +17,4 @@ class Base:
         return self.data, self.opts.tags, self.opts.timeout, self.headers
 
     def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:
-        if send_to is not None or version is not None:
-            msg = "`send_to` and `version` cannot be set for the convention."
-            raise ResonateValidationError(msg)
         self.opts.merge(timeout=timeout, tags=tags)
