@@ -224,10 +224,6 @@ class Context:
         return self._id
 
     @property
-    def deps(self) -> Dependencies:
-        return self._dependencies
-
-    @property
     def info(self) -> Info:
         return self._info
 
