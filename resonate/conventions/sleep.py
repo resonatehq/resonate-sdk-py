@@ -12,8 +12,21 @@ class Sleep:
     secs: int
     opts: Options = field(default_factory=Options)
 
-    def format(self) -> tuple[Any, dict[str, str], int, dict[str, str] | None]:
-        return (None, {"resonate:timeout": "true"}, int((time.time() + self.secs) * 1000), None)
+    @property
+    def data(self) -> Any:
+        return None
+
+    @property
+    def tags(self) -> dict[str, str]:
+        return {"resonate:timeout": "true"}
+
+    @property
+    def timeout(self) -> int:
+        return int((time.time() + self.secs) * 1000)
+
+    @property
+    def headers(self) -> dict[str, str] | None:
+        return None
 
     def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:
         return
