@@ -241,13 +241,9 @@ def test_basic_retries() -> None:
     # Use a different instance that only do local store
     resonate = Resonate()
 
-    n = 0
-
     def retriable(ctx: Context) -> int:
-        nonlocal n
-        n += 1
-        if n == 4:
-            return n
+        if ctx.info.attempt == 4:
+            return ctx.info.attempt
         raise RuntimeError
 
     f = resonate.register(retriable)
