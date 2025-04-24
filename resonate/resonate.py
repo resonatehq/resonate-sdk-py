@@ -58,9 +58,8 @@ class Resonate:
 
         self._store = store or (LocalStore() if url is None else RemoteStore(url))
         self._message_source = message_source or (self._store.message_source(self._group, self._pid) if isinstance(self._store, LocalStore) else Poller(self._group, self._pid))
-        assert (isinstance(self._store, LocalStore) and isinstance(self._message_source, _LocalMessageSource)) or (
-            isinstance(self._store, RemoteStore) and not isinstance(self._message_source, _LocalMessageSource)
-        )
+        assert not isinstance(self._store, LocalStore) or isinstance(self._message_source, _LocalMessageSource)
+        assert not isinstance(self._store, RemoteStore) or not isinstance(self._message_source, _LocalMessageSource)
 
         self._bridge = Bridge(
             ctx=lambda id, info: Context(id, info, self._opts, self._registry, self._dependencies),
