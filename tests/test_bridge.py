@@ -8,6 +8,7 @@ import pytest
 
 from resonate.message_sources.poller import Poller
 from resonate.resonate import Resonate
+from resonate.retry_policies.constant import Constant
 from resonate.stores.local import LocalStore
 from resonate.stores.remote import RemoteStore
 
@@ -253,7 +254,7 @@ def test_basic_retries() -> None:
     resonate.start()
 
     start_time = time.time()
-    handle = f.run(f"retriable-{int(start_time)}")
+    handle = f.options(retry_policy=Constant(delay=1, max_retries=3)).run(f"retriable-{int(start_time)}")
     result = handle.result()
     end_time = time.time()
 
