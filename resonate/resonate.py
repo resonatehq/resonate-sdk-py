@@ -210,10 +210,6 @@ class Resonate:
     def set_dependency(self, name: str, obj: Any) -> None:
         self._dependencies.add(name, obj)
 
-    @property
-    def promises(self) -> PromiseStore:
-        return self._store.promises
-
 
 # Context
 class Context:
