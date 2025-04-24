@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
     from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
-    from resonate.models.store import PromiseStore, Store, TaskStore
+    from resonate.models.store import PromiseStore, Store
 
 
 class Resonate:
@@ -77,10 +77,6 @@ class Resonate:
     @property
     def promises(self) -> PromiseStore:
         return self._store.promises
-
-    @property
-    def tasks(self) -> TaskStore:
-        return self._store.tasks
 
     def start(self) -> None:
         if not self._started:
@@ -213,6 +209,10 @@ class Resonate:
 
     def set_dependency(self, name: str, obj: Any) -> None:
         self._dependencies.add(name, obj)
+
+    @property
+    def promises(self) -> PromiseStore:
+        return self._store.promises
 
 
 # Context
