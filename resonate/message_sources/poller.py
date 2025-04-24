@@ -26,13 +26,15 @@ class Poller:
         self,
         group: str,
         id: str,
-        url: str | None = None,
+        host: str | None = None,
+        port: str | None = None,
         timeout: int | None = None,
         encoder: Encoder[Any, str] | None = None,
     ) -> None:
         self._group = group
         self._id = id
-        self._url = url or os.getenv("RESONATE_MSG_SRC_URL", "http://localhost:8002")
+        self._host = host or os.getenv("RESONATE_HOST", "http://localhost")
+        self._port = port or os.getenv("RESONATE_PORT_MESSAGE_SOURCE", "8002")
         self._timeout = timeout
         self._encoder = encoder or JsonEncoder()
         self._thread: Thread | None = None
@@ -40,7 +42,7 @@ class Poller:
 
     @property
     def url(self) -> str:
-        return f"{self._url}/{self._group}/{self._id}"
+        return f"{self._host}:{self._port}/{self._group}/{self._id}"
 
     @property
     def unicast(self) -> str:

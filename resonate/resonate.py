@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate.models.context import Info
-    from resonate.models.encoder import Encoder
     from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
     from resonate.models.store import PromiseStore, Store
@@ -38,38 +37,90 @@ class Resonate:
     def __init__(
         self,
         *,
-        url: str | None = None,
         pid: str | None = None,
         ttl: int = 10,
         group: str = "default",
-        store: Store | None = None,
-        message_source: MessageSource | None = None,
-        encoder: Encoder[Any, str | None] | None = None,
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
+        store: Store | None = None,
+        message_source: MessageSource | None = None,
     ) -> None:
+        # enforce mutual inclusion/exclusion of store and message source
+        assert (store is None) == (message_source is None), "store and message source must both be set or both be unset"
+        assert not isinstance(store, LocalStore) or isinstance(message_source, _LocalMessageSource), "message source must be local message source"
+        assert not isinstance(store, RemoteStore) or not isinstance(message_source, _LocalMessageSource), "message source must not be local message source"
+
         self._started = False
 
         self._pid = pid or uuid.uuid4().hex
+        self._ttl = ttl
         self._group = group
         self._opts = Options()
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
-        self._store = store or (LocalStore() if url is None else RemoteStore(url))
-        self._message_source = message_source or (self._store.message_source(self._group, self._pid) if isinstance(self._store, LocalStore) else Poller(self._group, self._pid))
-        assert not isinstance(self._store, LocalStore) or isinstance(self._message_source, _LocalMessageSource)
-        assert not isinstance(self._store, RemoteStore) or not isinstance(self._message_source, _LocalMessageSource)
+        if store and message_source:
+            self._store = store
+            self._message_source = message_source
+        else:
+            self._store = LocalStore()
+            self._message_source = self._store.message_source(self._group, self._pid)
 
         self._bridge = Bridge(
             ctx=lambda id, info: Context(id, info, self._opts, self._registry, self._dependencies),
             pid=self._pid,
             ttl=ttl,
-            store=self._store,
-            message_source=self._message_source,
             anycast=self._message_source.anycast,
             unicast=self._message_source.unicast,
             registry=self._registry,
+            store=self._store,
+            message_source=self._message_source,
+        )
+
+    @classmethod
+    def local(
+        cls,
+        pid: str | None = None,
+        ttl: int = 10,
+        group: str = "default",
+        registry: Registry | None = None,
+        dependencies: Dependencies | None = None,
+    ) -> Resonate:
+        pid = pid or uuid.uuid4().hex
+        store = LocalStore()
+
+        return cls(
+            pid=pid,
+            ttl=ttl,
+            group=group,
+            registry=registry,
+            dependencies=dependencies,
+            store=store,
+            message_source=store.message_source(group=group, id=pid),
+        )
+
+    @classmethod
+    def remote(
+        cls,
+        host: str | None = None,
+        store_port: str | None = None,
+        message_source_port: str | None = None,
+        pid: str | None = None,
+        ttl: int = 10,
+        group: str = "default",
+        registry: Registry | None = None,
+        dependencies: Dependencies | None = None,
+    ) -> Resonate:
+        pid = pid or uuid.uuid4().hex
+
+        return cls(
+            pid=pid,
+            ttl=ttl,
+            group=group,
+            registry=registry,
+            dependencies=dependencies,
+            store=RemoteStore(host=host, port=store_port),
+            message_source=Poller(group=group, id=pid, host=host, port=message_source_port),
         )
 
     @property

@@ -57,15 +57,10 @@ def steps(request: pytest.FixtureRequest) -> int:
 
 @pytest.fixture(
     scope="module",
-    ids=lambda p: "local" if p == 0 else "remote",
-    params=range(2 if "RESONATE_STORE_URL" in os.environ else 1),
+    params=[LocalStore, RemoteStore] if "RESONATE_HOST" in os.environ else [LocalStore],
 )
 def store(request: pytest.FixtureRequest) -> Store:
-    match request.param:
-        case 0:
-            return LocalStore()
-        case _:
-            return RemoteStore(os.environ["RESONATE_STORE_URL"])
+    return request.param()
 
 
 @pytest.fixture(scope="module")
