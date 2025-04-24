@@ -36,6 +36,7 @@ class Poller:
         self._timeout = timeout
         self._encoder = encoder or JsonEncoder()
         self._thread: Thread | None = None
+        self._shutdown = False
 
     @property
     def url(self) -> str:
@@ -61,14 +62,16 @@ class Poller:
         # iter_lines is blocking and request.get is also blocking, this makes it so
         # the only way to stop it is waiting for a timeout on the request itself
         # which could never happen.
-        #
-        # Assuming we will have a high load on the nodes it would be possible to
-        # check for a 'shutdown' flag inside the process lines function but it
-        # could be that it never gets called when running tests for example.
-        pass
+
+        # This shutdown is only respected when the poller is instantiated with a timeout
+        # value, which is not the default. This is still useful for tests.
+        self._shutdown = True
 
     def loop(self, mq: MessageQ) -> None:
         while True:
+            if self._shutdown:
+                break
+
             try:
                 with requests.get(self.url, stream=True, timeout=self._timeout) as res:
                     res.raise_for_status()

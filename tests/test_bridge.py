@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate.coroutine import Yieldable
+    from resonate.models.message_source import MessageSource
     from resonate.models.store import Store
     from resonate.resonate import Context
 
@@ -118,9 +119,8 @@ def hitl(ctx: Context, id: str | None) -> Generator[Yieldable, Any, int]:
 
 
 @pytest.fixture(scope="module")
-def resonate_instance(store: Store) -> Generator[Resonate, None, None]:
-    # resonate = Resonate(store=store, group="bridge", opts=Options(send_to="poll://bridge"))
-    resonate = Resonate(store=store)
+def resonate_instance(store: Store, message_source: MessageSource) -> Generator[Resonate, None, None]:
+    resonate = Resonate(store=store, message_source=message_source)
     resonate.register(foo_lfi)
     resonate.register(bar_lfi)
     resonate.register(foo_rfi)
@@ -138,6 +138,10 @@ def resonate_instance(store: Store) -> Generator[Resonate, None, None]:
     resonate.start()
     yield resonate
     resonate.stop()
+
+    # this timeout is set to cover the timeout time of the test poller, you can
+    # see where this is set in conftest.py
+    time.sleep(3)
 
 
 @pytest.mark.parametrize("id", ["foo", None])

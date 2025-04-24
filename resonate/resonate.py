@@ -5,7 +5,6 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
 from inspect import isgeneratorfunction
-from types import NoneType
 from typing import TYPE_CHECKING, Any, Concatenate, overload
 
 from resonate.bridge import Bridge
@@ -21,7 +20,7 @@ from resonate.models.handle import Handle
 from resonate.options import Options
 from resonate.registry import Registry
 from resonate.retry_policies import Exponential, Never
-from resonate.stores.local import LocalStore
+from resonate.stores.local import LocalStore, _LocalMessageSource
 from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
@@ -49,8 +48,6 @@ class Resonate:
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
     ) -> None:
-        assert not isinstance(store, (NoneType, LocalStore)) or message_source is None
-
         self._started = False
 
         self._group = group
@@ -60,8 +57,12 @@ class Resonate:
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
-        self._store = store or LocalStore() if url is None else RemoteStore(url)
-        self._message_source = message_source or self._store.message_source(self._group, self._pid) if isinstance(self._store, LocalStore) else Poller(self._group, self._pid)
+        self._store = store or (LocalStore() if url is None else RemoteStore(url))
+        self._message_source = message_source or (self._store.message_source(self._group, self._pid) if isinstance(self._store, LocalStore) else Poller(self._group, self._pid))
+        assert (
+            (isinstance(self._store, LocalStore) and isinstance(self._message_source, _LocalMessageSource)) or
+            (isinstance(self._store, RemoteStore) and not isinstance(self._message_source, _LocalMessageSource))
+        )
 
         self._bridge = Bridge(
             ctx=lambda id, info: Context(id, info, self._opts, self._registry, self._dependencies),

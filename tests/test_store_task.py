@@ -7,9 +7,6 @@ from typing import TYPE_CHECKING
 import pytest
 
 from resonate.errors import ResonateStoreError
-from resonate.message_sources.poller import Poller
-from resonate.stores.local import LocalStore
-from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -20,18 +17,6 @@ if TYPE_CHECKING:
 
 TICK_TIME = 1
 COUNTER = 0
-
-
-@pytest.fixture(ids=lambda c: c.__class__, scope="module")
-def message_source(store: Store) -> MessageSource:
-    match store:
-        case LocalStore():
-            return store.message_source(group="default", id="test")
-        case RemoteStore():
-            return Poller(group="default", id="test", timeout=5)
-        case _:
-            msg = "Unknown store type"
-            raise ValueError(msg)
 
 
 @pytest.fixture
