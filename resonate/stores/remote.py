@@ -25,7 +25,7 @@ class RemoteStore:
         port: str | None = None,
         encoder: Encoder[Any, str | None] | None = None,
     ) -> None:
-        self.host = host or os.getenv("RESONATE_HOST", "http://localhost")
+        self.host = host or os.getenv("RESONATE_HOST_STORE", os.getenv("RESONATE_HOST", "http://localhost"))
         self.port = port or os.getenv("RESONATE_PORT_STORE", "8001")
         self.encoder = encoder or ChainEncoder(
             JsonEncoder(),

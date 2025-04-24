@@ -33,7 +33,7 @@ class Poller:
     ) -> None:
         self._group = group
         self._id = id
-        self._host = host or os.getenv("RESONATE_HOST", "http://localhost")
+        self._host = host or os.getenv("RESONATE_HOST_MESSAGE_SOURCE", os.getenv("RESONATE_HOST", "http://localhost"))
         self._port = port or os.getenv("RESONATE_PORT_MESSAGE_SOURCE", "8002")
         self._timeout = timeout
         self._encoder = encoder or JsonEncoder()
