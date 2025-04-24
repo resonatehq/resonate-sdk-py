@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import random
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
@@ -38,10 +39,9 @@ class Resonate:
         self,
         *,
         url: str | None = None,
-        group: str = "default",
         pid: str | None = None,
         ttl: int = 10,
-        opts: Options | None = None,
+        group: str = "default",
         store: Store | None = None,
         message_source: MessageSource | None = None,
         encoder: Encoder[Any, str | None] | None = None,
@@ -50,18 +50,16 @@ class Resonate:
     ) -> None:
         self._started = False
 
-        self._group = group
         self._pid = pid or uuid.uuid4().hex
-        self._opts = opts or Options()
-
+        self._group = group
+        self._opts = Options()
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
         self._store = store or (LocalStore() if url is None else RemoteStore(url))
         self._message_source = message_source or (self._store.message_source(self._group, self._pid) if isinstance(self._store, LocalStore) else Poller(self._group, self._pid))
-        assert (
-            (isinstance(self._store, LocalStore) and isinstance(self._message_source, _LocalMessageSource)) or
-            (isinstance(self._store, RemoteStore) and not isinstance(self._message_source, _LocalMessageSource))
+        assert (isinstance(self._store, LocalStore) and isinstance(self._message_source, _LocalMessageSource)) or (
+            isinstance(self._store, RemoteStore) and not isinstance(self._message_source, _LocalMessageSource)
         )
 
         self._bridge = Bridge(
@@ -107,36 +105,24 @@ class Resonate:
         /,
         *,
         name: str | None = None,
-        send_to: str | None = None,
-        timeout: int | None = None,
         version: int = 1,
-        tags: dict[str, str] | None = None,
-        retry_policy: RetryPolicy | None = None,
     ) -> Function[P, R]: ...
     @overload
     def register[**P, R](
         self,
         *,
         name: str | None = None,
-        send_to: str | None = None,
-        timeout: int | None = None,
         version: int = 1,
-        tags: dict[str, str] | None = None,
-        retry_policy: RetryPolicy | None = None,
     ) -> Callable[[Callable], Function[P, Any]]: ...
     def register[**P, R](
         self,
         *args: Callable | None,
         name: str | None = None,
-        send_to: str | None = None,
-        timeout: int | None = None,
         version: int = 1,
-        tags: dict[str, str] | None = None,
-        retry_policy: RetryPolicy | None = None,
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
             self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
-            return Function(self, name or func.__name__, func, self._opts.merge(send_to=send_to, version=version, timeout=timeout, tags=tags, retry_policy=retry_policy))
+            return Function(self, name or func.__name__, func, self._opts.merge(version=version))
 
         if args and callable(args[0]):
             return wrapper(args[0])
@@ -212,7 +198,6 @@ class Resonate:
         self._dependencies.add(name, obj)
 
 
-# Context
 class Context:
     def __init__(self, id: str, info: Info, opts: Options, registry: Registry, dependencies: Dependencies) -> None:
         self._id = id
@@ -221,6 +206,7 @@ class Context:
         self._registry = registry
         self._dependencies = dependencies
         self._counter = 0
+        self._random = Random(self)
 
     @property
     def id(self) -> str:
@@ -229,6 +215,10 @@ class Context:
     @property
     def info(self) -> Info:
         return self._info
+
+    @property
+    def random(self) -> Random:
+        return self._random
 
     @overload
     def lfi[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
@@ -295,8 +285,8 @@ class Context:
         self._counter += 1
         return RFI(f"{self.id}.{self._counter}", Base(data, headers))
 
-    def get_dependency(self, name: str) -> Any:
-        return self._dependencies.get(name)
+    def get_dependency[T](self, key: str, default: T = None) -> Any | T:
+        return self._dependencies.get(key, default)
 
     def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
         match f:
@@ -313,7 +303,30 @@ class Context:
                 return *self._registry.get(f), self._registry.all(f)
 
 
-# Function
+class Random:
+    def __init__(self, ctx: Context) -> None:
+        self.ctx = ctx
+
+    def random(self) -> LFC:
+        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).random())
+
+    def betavariate(self, alpha: float, beta: float) -> LFC:
+        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).betavariate(alpha, beta))
+
+    def randrange(self, start: int, stop: int | None = None, step: int = 1) -> LFC:
+        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).randrange(start, stop, step))
+
+    def randint(self, a: int, b: int) -> LFC:
+        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).randint(a, b))
+
+    def getrandbits(self, k: int) -> LFC:
+        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).getrandbits(k))
+
+    def triangular(self, low: float = 0, high: float = 1, mode: float | None = None) -> LFC:
+        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).triangular(low, high, mode))
+
+    def expovariate(self, lambd: float = 1) -> LFC:
+        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).expovariate(lambd))
 
 
 class Function[**P, R]:

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from resonate.resonate import Resonate
-from resonate.retry_policies import Constant
+from resonate.retry_policies.constant import Constant
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -101,7 +101,9 @@ def add_one(ctx: Context, n: int) -> int:
 
 
 def get_dependency(ctx: Context) -> int:
-    return ctx.get_dependency("foo") + 1
+    dep = ctx.get_dependency("foo")
+    assert dep is not None
+    return dep + 1
 
 
 def rfi_add_one_by_name(ctx: Context, n: int) -> Generator[Any, Any, int]:
@@ -116,6 +118,10 @@ def hitl(ctx: Context, id: str | None) -> Generator[Yieldable, Any, int]:
         p = yield ctx.promise()
     v = yield p
     return v
+
+
+def random_generation(ctx: Context) -> Generator[Yieldable, Any, float]:
+    return (yield ctx.random.randint(0, 10))
 
 
 @pytest.fixture(scope="module")
@@ -135,6 +141,7 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     resonate.register(rfi_add_one_by_name)
     resonate.register(get_dependency)
     resonate.register(hitl)
+    resonate.register(random_generation)
     resonate.start()
     yield resonate
     resonate.stop()
@@ -142,6 +149,13 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     # this timeout is set to cover the timeout time of the test poller, you can
     # see where this is set in conftest.py
     time.sleep(3)
+
+
+def test_random_generation(resonate_instance: Resonate) -> None:
+    timestamp = int(time.time())
+    handle = resonate_instance.run(f"random-gen-{timestamp}", random_generation)
+    v = handle.result()
+    assert v == resonate_instance.run(f"random-gen-{timestamp}", random_generation).result()
 
 
 @pytest.mark.parametrize("id", ["foo", None])
@@ -216,20 +230,16 @@ def test_basic_retries() -> None:
     # Use a different instance that only do local store
     resonate = Resonate()
 
-    n = 0
-
     def retriable(ctx: Context) -> int:
-        nonlocal n
-        n += 1
-        if n == 4:
-            return n
+        if ctx.info.attempt == 4:
+            return ctx.info.attempt
         raise RuntimeError
 
-    f = resonate.register(retriable, retry_policy=Constant(delay=1, max_retries=3))
+    f = resonate.register(retriable)
     resonate.start()
 
     start_time = time.time()
-    handle = f.run(f"retriable-{int(start_time)}")
+    handle = f.options(retry_policy=Constant(delay=1, max_retries=3)).run(f"retriable-{int(start_time)}")
     result = handle.result()
     end_time = time.time()
 
