@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.message_sources.poller import Poller
 from resonate.stores.local import LocalStore
 from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
-    from resonate.models.message_source import MessageSource
+    from collections.abc import Callable
+
     from resonate.models.store import Store
 
 
@@ -54,24 +54,16 @@ def steps(request: pytest.FixtureRequest) -> int:
 
 # Store fixtures
 
-stores: list[Store] = [LocalStore()]
 
-if "RESONATE_STORE_URL" in os.environ:
-    stores.append(RemoteStore(os.environ["RESONATE_STORE_URL"]))
+def stores() -> list[Callable[[], Store]]:
+    s: list[Callable[[], Store]] = [lambda: LocalStore()]
+
+    if "RESONATE_STORE_URL" in os.environ:
+        s.append(lambda: RemoteStore(os.environ["RESONATE_STORE_URL"]))
+
+    return s
 
 
-@pytest.fixture(scope="module", params=stores)
+@pytest.fixture(scope="module", params=stores())
 def store(request: pytest.FixtureRequest) -> Store:
-    return request.param
-
-
-@pytest.fixture(scope="module")
-def message_source(store: Store) -> MessageSource:
-    match store:
-        case LocalStore():
-            return store.message_source(group="default", id="test")
-        case RemoteStore():
-            return Poller(group="default", id="test", timeout=2)
-        case _:
-            msg = "Unknown store type"
-            raise ValueError(msg)
+    return request.param()

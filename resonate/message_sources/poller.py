@@ -12,6 +12,8 @@ from resonate.logging import logger
 from resonate.models.message import InvokeMesg, NotifyMesg, ResumeMesg
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from requests.models import Response
 
     from resonate.models.encoder import Encoder
@@ -71,7 +73,7 @@ class Poller:
                 with requests.get(self.url, stream=True, timeout=self._timeout) as res:
                     res.raise_for_status()
 
-                    if msg := self._step(res):
+                    for msg in self._step(res):
                         mq.enqueue(msg)
 
             except requests.exceptions.Timeout:
@@ -88,18 +90,14 @@ class Poller:
 
     def step(self) -> list[Mesg]:
         with requests.get(self.url, stream=True, timeout=self._timeout) as res:
-            msg = self._step(res)
-            assert msg
-
+            msg = next(self._step(res))
             return [msg]
 
-    def _step(self, res: Response) -> Mesg | None:
+    def _step(self, res: Response) -> Generator[Mesg, None, None]:
         for line in res.iter_lines(chunk_size=None, decode_unicode=True):
             assert isinstance(line, str), "line must be a string"
             if msg := self._process_line(line):
-                return msg
-
-        return None
+                yield msg
 
     def _process_line(self, line: str) -> Mesg | None:
         if not line:

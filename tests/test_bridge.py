@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-import os
 import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from resonate.message_sources.poller import Poller
 from resonate.resonate import Resonate
 from resonate.retry_policies import Constant
-from resonate.stores.local import LocalStore
-from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate.coroutine import Yieldable
-    from resonate.models.message_source import MessageSource
     from resonate.models.store import Store
     from resonate.resonate import Context
 
@@ -122,22 +117,10 @@ def hitl(ctx: Context, id: str | None) -> Generator[Yieldable, Any, int]:
     return v
 
 
-def get_stores_config() -> list[tuple[Store, MessageSource | None]]:
-    local_store = LocalStore()
-    stores: list[tuple[Store, MessageSource | None]] = [(local_store, None)]
-
-    if "RESONATE_STORE_URL" in os.environ and "RESONATE_MSG_SRC_URL" in os.environ:
-        remote_store = RemoteStore(url=os.environ["RESONATE_STORE_URL"])
-        remote_msg_source = Poller("default", "test", os.environ["RESONATE_MSG_SRC_URL"])
-        stores.append((remote_store, remote_msg_source))
-
-    return stores
-
-
-@pytest.fixture(params=get_stores_config(), ids=lambda s: f"{s[0]}", scope="session")
-def resonate_instance(request: pytest.FixtureRequest) -> Generator[Resonate, None, None]:
-    store, msg_src = request.param
-    resonate = Resonate(store=store, message_source=msg_src)
+@pytest.fixture(scope="module")
+def resonate_instance(store: Store) -> Generator[Resonate, None, None]:
+    # resonate = Resonate(store=store, group="bridge", opts=Options(send_to="poll://bridge"))
+    resonate = Resonate(store=store)
     resonate.register(foo_lfi)
     resonate.register(bar_lfi)
     resonate.register(foo_rfi)
