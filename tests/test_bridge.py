@@ -8,7 +8,6 @@ import pytest
 
 from resonate.message_sources.poller import Poller
 from resonate.resonate import Resonate
-from resonate.retry_policies import Constant
 from resonate.stores.local import LocalStore
 from resonate.stores.remote import RemoteStore
 
@@ -250,7 +249,7 @@ def test_basic_retries() -> None:
             return n
         raise RuntimeError
 
-    f = resonate.register(retriable, retry_policy=Constant(delay=1, max_retries=3))
+    f = resonate.register(retriable)
     resonate.start()
 
     start_time = time.time()
