@@ -23,10 +23,6 @@ class Local:
     registry: Registry
 
     def __post_init__(self) -> None:
-        # print(self.opts)
-        # assert self.opts.version == 0
-        # assert isinstance(self.opts.retry_policy, Never)
-
         # Initially, timeout is set to the parent context timeout. This is the upper bound for the timeout.
         self._max_timeout = self.opts.timeout
 
