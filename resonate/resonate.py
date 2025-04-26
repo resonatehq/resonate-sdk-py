@@ -3,29 +3,24 @@ from __future__ import annotations
 import copy
 import random
 import uuid
-from collections.abc import Callable
 from concurrent.futures import Future
-from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Concatenate, overload
 
 from resonate.bridge import Bridge
 from resonate.conventions.base import Base
-from resonate.conventions.default import Default
+from resonate.conventions.default import Local, Remote
 from resonate.conventions.sleep import Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
 from resonate.message_sources.poller import Poller
-from resonate.models.commands import Invoke, Listen
-from resonate.models.durable_promise import DurablePromise
 from resonate.models.handle import Handle
 from resonate.options import Options
 from resonate.registry import Registry
-from resonate.retry_policies import Exponential, Never
 from resonate.stores.local import LocalStore, _LocalMessageSource
 from resonate.stores.remote import RemoteStore
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
     from resonate.models.context import Info
     from resonate.models.message_source import MessageSource
@@ -138,6 +133,7 @@ class Resonate:
     def options(
         self,
         *,
+        # id: str | None = None,
         retry_policy: RetryPolicy | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
@@ -145,7 +141,7 @@ class Resonate:
         version: int | None = None,
     ) -> Resonate:
         copied: Resonate = copy.copy(self)
-        copied._opts = self._opts.merge(send_to=send_to, timeout=timeout, version=version, tags=tags, retry_policy=retry_policy)
+        copied._opts = self._opts.merge(retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version)
         return copied
 
     @overload
@@ -193,19 +189,15 @@ class Resonate:
         **kwargs: P.kwargs,
     ) -> Handle[R]:
         self.start()
-        match func:
-            case str():
-                name = func
-                func, version = self._registry.get(func, self._opts.version)
-            case Callable():
-                func = func.func if isinstance(func, Function) else func
-                name, version = self._registry.get(func, self._opts.version)
 
-        fp, fv = Future[DurablePromise](), Future[R]()
-        self._bridge.invoke(Invoke(id, name, func, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
+        future = Future[R]()
+        self._bridge.run(
+            Remote(func, args, kwargs, self._opts.merge(id=id), self._registry),
+            Local(func, args, kwargs, self._opts.merge(id=id), self._registry),
+            future,
+        )
 
-        fp.result()
-        return Handle(fv)
+        return Handle(future)
 
     @overload
     def rpc[**P, R](self, id: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> Handle[R]: ...
@@ -221,28 +213,19 @@ class Resonate:
         **kwargs: P.kwargs,
     ) -> Handle[R]:
         self.start()
-        match func:
-            case str():
-                name, version = func, self._registry.latest(func)
-            case Callable():
-                name, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
 
-        # For rpc make version = 1 as the default instead of 0
-        version = version or 1
+        future = Future[R]()
+        self._bridge.rpc(Remote(func, args, kwargs, self._opts.merge(id=id), self._registry), future)
 
-        fp, fv = Future[DurablePromise](), Future[R]()
-        self._bridge.invoke(Invoke(id, name, None, args, kwargs, self._opts.merge(version=version)), futures=(fp, fv))
-
-        fp.result()
-        return Handle(fv)
+        return Handle(future)
 
     def get(self, id: str) -> Handle[Any]:
         self.start()
-        fp, fv = Future[DurablePromise](), Future[Any]()
-        self._bridge.listen(Listen(id), futures=(fp, fv))
 
-        fp.result()
-        return Handle(fv)
+        future = Future()
+        self._bridge.get(id, future)
+
+        return Handle(future)
 
     def set_dependency(self, name: str, obj: Any) -> None:
         self._dependencies.add(name, obj)
@@ -278,9 +261,9 @@ class Context:
     def lfi(self, func: str, *args: Any, **kwargs: Any) -> LFI: ...
     def lfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> LFI:
         self._counter += 1
-        func, version, versions = self._lfi_func(func)
-        retry_policy = Never() if isgeneratorfunction(func) else Exponential()
-        return LFI(f"{self.id}.{self._counter}", func, args, kwargs, Options(version=version, retry_policy=retry_policy, timeout=self._opts.timeout), versions)
+        return LFI(
+            Local(func, args, kwargs, Options(id=f"{self.id}.{self._counter}", timeout=self._opts.timeout), self._registry),
+        )
 
     @overload
     def lfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> LFC: ...
@@ -290,9 +273,9 @@ class Context:
     def lfc(self, func: str, *args: Any, **kwargs: Any) -> LFC: ...
     def lfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> LFC:
         self._counter += 1
-        retry_policy = Never() if isgeneratorfunction(func) else Exponential()
-        func, version, versions = self._lfi_func(func)
-        return LFC(f"{self.id}.{self._counter}", func, args, kwargs, Options(version=version, retry_policy=retry_policy, timeout=self._opts.timeout), versions)
+        return LFC(
+            Local(func, args, kwargs, Options(id=f"{self.id}.{self._counter}", timeout=self._opts.timeout), self._registry),
+        )
 
     @overload
     def rfi[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -302,8 +285,9 @@ class Context:
     def rfi(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
     def rfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
-        func, version, versions = self._rfi_func(func)
-        return RFI(f"{self.id}.{self._counter}", Default(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
+        return RFI(
+            Remote(func, args, kwargs, Options(id=f"{self.id}.{self._counter}", timeout=self._opts.timeout), self._registry),
+        )
 
     @overload
     def rfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
@@ -313,8 +297,9 @@ class Context:
     def rfc(self, func: str, *args: Any, **kwargs: Any) -> RFC: ...
     def rfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFC:
         self._counter += 1
-        func, version, versions = self._rfi_func(func)
-        return RFC(f"{self.id}.{self._counter}", Default(func, args, kwargs, versions, self._registry, Options(version=version, timeout=self._opts.timeout)))
+        return RFC(
+            Remote(func, args, kwargs, Options(id=f"{self.id}.{self._counter}", timeout=self._opts.timeout), self._registry),
+        )
 
     @overload
     def detached[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -324,33 +309,21 @@ class Context:
     def detached(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
     def detached(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
         self._counter += 1
-        func, version, versions = self._rfi_func(func)
-        return RFI(f"{self.id}.{self._counter}", Default(func, args, kwargs, versions, self._registry, Options(version=version)), mode="detached")
+        return RFI(
+            Remote(func, args, kwargs, Options(id=f"{self.id}.{self._counter}"), self._registry),
+            mode="detached",
+        )
 
     def sleep(self, secs: int) -> RFC:
         self._counter += 1
-        return RFC(f"{self.id}.{self._counter}", Sleep(secs))
+        return RFC(Sleep(f"{self.id}.{self._counter}", secs))
 
     def promise(self, data: Any = None, headers: dict[str, str] | None = None) -> RFI:
         self._counter += 1
-        return RFI(f"{self.id}.{self._counter}", Base(data, headers))
+        return RFI(Base(headers, data, Options(id=f"{self.id}.{self._counter}")))
 
     def get_dependency[T](self, key: str, default: T = None) -> Any | T:
         return self._dependencies.get(key, default)
-
-    def _lfi_func(self, f: str | Callable) -> tuple[Callable, int, dict[int, Callable] | None]:
-        match f:
-            case str():
-                return *self._registry.get(f), self._registry.all(f)
-            case Callable():
-                return f, self._registry.latest(f), None
-
-    def _rfi_func(self, f: str | Callable) -> tuple[str, int, set[int] | None]:
-        match f:
-            case str():
-                return f, self._registry.latest(f), None
-            case Callable():
-                return *self._registry.get(f), self._registry.all(f)
 
 
 class Random:

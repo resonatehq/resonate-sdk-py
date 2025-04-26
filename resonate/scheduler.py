@@ -33,7 +33,6 @@ from resonate.models.commands import (
     Return,
 )
 from resonate.models.result import Ko, Ok, Result
-from resonate.options import Options
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,6 +40,7 @@ if TYPE_CHECKING:
 
     from resonate.models.context import Context
     from resonate.models.durable_promise import DurablePromise
+    from resonate.options import Options
 
 
 class Scheduler:
@@ -67,12 +67,12 @@ class Scheduler:
     def __repr__(self) -> str:
         return f"Scheduler(pid={self.pid}, computations={list(self.computations.values())})"
 
-    def step(self, cmd: Command, futures: tuple[Future, Future] | None = None) -> More | Done:
+    def step(self, cmd: Command, future: Future | None = None) -> More | Done:
         computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.pid, self.unicast, self.anycast))
 
         # subscribe
-        if futures:
-            computation.subscribe(*futures)
+        if future:
+            computation.subscribe(future)
 
         # apply
         computation.apply(cmd)
@@ -259,7 +259,7 @@ class Lfnc:
     func: Callable[..., Any]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
-    opts: Options = field(default_factory=Options)
+    opts: Options
     info: Info = field(default_factory=Info)
 
     suspends: list[Node[State]] = field(default_factory=list)
@@ -367,7 +367,7 @@ class Computation:
         self.anycast = anycast
 
         self.graph = Graph[State](id, Enabled(Suspended(Init())))
-        self.futures: tuple[PoppableList[Future], PoppableList[Future]] = (PoppableList(), PoppableList())
+        self.futures: PoppableList[Future] = PoppableList()
         self.history: list[Command | Function | Delayed | Network | tuple[str, None | AWT | Result, LFI | RFI | AWT | TRM]] = []
 
     def __repr__(self) -> str:
@@ -379,9 +379,8 @@ class Computation:
     def suspendable(self) -> bool:
         return all(n.value.suspended for n in self.graph.traverse())
 
-    def subscribe(self, fp: Future, fv: Future) -> None:
-        self.futures[0].append(fp)
-        self.futures[1].append(fv)
+    def subscribe(self, future: Future) -> None:
+        self.futures.append(future)
 
     def result(self) -> Result | None:
         match self.graph.root.value.exec:
@@ -393,13 +392,10 @@ class Computation:
 
     def apply(self, cmd: Command) -> None:
         self.history.append(cmd)
-
         match cmd, self.graph.root.value.func:
-            case Invoke(id, _, func, args, kwargs, opts), Init(next=None):
+            case Invoke(id, func, args, kwargs, opts), Init(next=None):
                 if isgeneratorfunction(func):
                     self.graph.root.transition(Enabled(Running(Coro(id, func, args, kwargs, opts, self.id, self.ctx))))
-                elif func is None:
-                    self.graph.root.transition(Enabled(Suspended(Rfnc(id, opts.timeout))))
                 else:
                     self.graph.root.transition(Enabled(Running(Lfnc(id, func, args, kwargs, opts))))
 
@@ -593,7 +589,7 @@ class Computation:
             self.history.extend(more)
 
         if result := self.result():
-            while future := self.futures[1].spop():
+            while future := self.futures.spop():
                 match result:
                     case Ok(v):
                         future.set_result(v)
@@ -689,8 +685,11 @@ class Computation:
                 self.history.append((id, next, cmd))
 
                 match cmd, child.value:
-                    case LFI(id, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        next = Coro(id, func, args, kwargs, opts, self.id, self.ctx) if isgeneratorfunction(func) else Lfnc(id, func, args, kwargs, opts)
+                    case LFI(conv), Enabled(Suspended(Init(next=None))):
+                        if isgeneratorfunction(conv.func):
+                            next = Coro(conv.id, conv.func, conv.args, conv.kwargs, conv.opts, self.id, self.ctx)
+                        else:
+                            next = Lfnc(conv.id, conv.func, conv.args, conv.kwargs, conv.opts)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -698,8 +697,8 @@ class Computation:
                         child.transition(Enabled(Running(Init(next, suspends=[node]))))
                         return []
 
-                    case RFI(id, convention), Enabled(Suspended(Init(next=None))):
-                        next = Rfnc(id=id, timeout=convention.timeout, ikey=id, data=convention.data, tags=convention.tags, headers=convention.headers)
+                    case RFI(conv), Enabled(Suspended(Init(next=None))):
+                        next = Rfnc(conv.id, conv.timeout, conv.id, conv.headers, conv.data, conv.tags)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -721,9 +720,9 @@ class Computation:
                         child.transition(Blocked(Running(f.map(suspends=node))))
                         return []
 
-                    case LFI(id) | RFI(id), _:
+                    case LFI(conv) | RFI(conv), _:
                         node.add_edge(child)
-                        node.transition(Enabled(Running(c.map(next=AWT(id)))))
+                        node.transition(Enabled(Running(c.map(next=AWT(conv.id)))))
                         return []
 
                     case AWT(), Enabled(Running(f)):

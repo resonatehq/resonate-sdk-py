@@ -66,17 +66,6 @@ class Registry:
         return name, version
 
     @overload
-    def all(self, func: str) -> dict[int, Callable]: ...
-    @overload
-    def all(self, func: Callable) -> set[int]: ...
-    def all(self, func: str | Callable) -> dict[int, Callable] | set[int]:
-        match func:
-            case str():
-                return self._forward_registry.get(func, {})
-            case Callable():
-                return self._reverse_registry.get(func, ("", set()))[1]
-
-    @overload
     def latest(self, func: str) -> int: ...
     @overload
     def latest(self, func: Callable) -> int: ...

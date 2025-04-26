@@ -1,24 +1,30 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
-from resonate.options import Options
+if TYPE_CHECKING:
+    from resonate.options import Options
 
 
 @dataclass
 class Base:
-    data: Any
     headers: dict[str, str] | None
-    opts: Options = field(default_factory=Options)
+    data: Any
+    opts: Options
 
     @property
-    def tags(self) -> dict[str, str]:
-        return self.opts.tags
+    def id(self) -> str:
+        return self.opts.id
 
     @property
     def timeout(self) -> int:
         return self.opts.timeout
 
-    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None:
-        self.opts = self.opts.merge(timeout=timeout, tags=tags)
+    @property
+    def tags(self) -> dict[str, str]:
+        return self.opts.tags
+
+    def options(self, id: str | None, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> Base:
+        self.opts = self.opts.merge(id=id, tags=tags, timeout=timeout)
+        return self

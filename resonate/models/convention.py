@@ -3,18 +3,53 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from resonate.models.retry_policy import RetryPolicy
     from resonate.options import Options
 
 
-class Convention(Protocol):
+class LConv(Protocol):
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def func(self) -> Callable: ...
+    @property
+    def args(self) -> tuple[Any, ...]: ...
+    @property
+    def kwargs(self) -> dict[str, Any]: ...
     @property
     def opts(self) -> Options: ...
+
+    def options(
+        self,
+        id: str | None,
+        durable: bool | None,
+        retry_policy: RetryPolicy | None,
+        tags: dict[str, str] | None = None,
+        timeout: int | None = None,
+        version: int | None = None,
+    ) -> LConv: ...
+
+
+class RConv(Protocol):
+    @property
+    def id(self) -> str: ...
+    @property
+    def headers(self) -> dict[str, str] | None: ...
     @property
     def data(self) -> Any: ...
     @property
-    def tags(self) -> dict[str, str]: ...
-    @property
     def timeout(self) -> int: ...
     @property
-    def headers(self) -> dict[str, str] | None: ...
-    def options(self, send_to: str | None, tags: dict[str, str] | None, timeout: int | None, version: int | None) -> None: ...
+    def tags(self) -> dict[str, str]: ...
+
+    def options(
+        self,
+        id: str | None,
+        send_to: str | None,
+        tags: dict[str, str] | None,
+        timeout: int | None,
+        version: int | None,
+    ) -> RConv: ...

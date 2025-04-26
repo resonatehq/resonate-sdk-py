@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class Options:
+    id: str = ""
     durable: bool = True
     retry_policy: RetryPolicy = field(default_factory=Never)
     send_to: str = "poll://default"
@@ -31,6 +32,7 @@ class Options:
     def merge(
         self,
         *,
+        id: str | None = None,
         durable: bool | None = None,
         retry_policy: RetryPolicy | None = None,
         send_to: str | None = None,
@@ -46,6 +48,7 @@ class Options:
             raise ResonateValidationError(msg)
 
         return Options(
+            id=id if id is not None else self.id,
             durable=durable if durable is not None else self.durable,
             retry_policy=retry_policy if retry_policy is not None else self.retry_policy,
             send_to=send_to if send_to is not None else self.send_to,
