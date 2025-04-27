@@ -130,15 +130,15 @@ class Resonate:
     def options(
         self,
         *,
-        # id: str | None = None,
-        retry_policy: RetryPolicy | None = None,
+        idempotency_key: str | Callable[[str], str] | None = None,
+        retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
     ) -> Resonate:
         copied: Resonate = copy.copy(self)
-        copied._opts = self._opts.merge(retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version)
+        copied._opts = self._opts.merge(idempotency_key=idempotency_key, retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version)
         return copied
 
     @overload
@@ -188,11 +188,8 @@ class Resonate:
         self.start()
 
         future = Future[R]()
-        self._bridge.run(
-            Remote(func, args, kwargs, self._opts.merge(id=id), self._registry),
-            Local(func, args, kwargs, self._opts.merge(id=id), self._registry),
-            future,
-        )
+        opts = self._opts.merge(id=id)
+        self._bridge.run(Remote(func, args, kwargs, opts, self._registry), Local(func, args, kwargs, opts, self._registry), future)
 
         return Handle(future)
 
@@ -235,20 +232,39 @@ class Context:
         self._opts = opts
         self._registry = registry
         self._dependencies = dependencies
-        self._counter = 0
         self._random = Random(self)
+        self._counter = 0
 
     @property
     def id(self) -> str:
         return self._id
 
     @property
-    def info(self) -> Info:
-        return self._info
+    def idempotency_key(self) -> str:
+        return self._info.idempotency_key
+
+    @property
+    def timeout(self) -> int:
+        return self._info.timeout
+
+    @property
+    def tags(self) -> dict[str, str]:
+        return self._info.tags
+
+    @property
+    def counter(self) -> int:
+        return self._counter
+
+    @property
+    def attempt(self) -> int:
+        return self._info.attempt
 
     @property
     def random(self) -> Random:
         return self._random
+
+    def get_dependency[T](self, key: str, default: T = None) -> Any | T:
+        return self._dependencies.get(key, default)
 
     @overload
     def lfi[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
@@ -319,9 +335,6 @@ class Context:
         self._counter += 1
         return RFI(Base(headers, data, Options(id=f"{self.id}.{self._counter}")))
 
-    def get_dependency[T](self, key: str, default: T = None) -> Any | T:
-        return self._dependencies.get(key, default)
-
 
 class Random:
     def __init__(self, ctx: Context) -> None:
@@ -378,21 +391,41 @@ class Function[**P, R]:
     def options(
         self,
         *,
-        retry_policy: RetryPolicy | None = None,
+        idempotency_key: str | Callable[[str], str] | None = None,
+        retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
-    ) -> Function[P, Generator[Any, Any, R] | R]:
-        return Function(
-            self._resonate,
-            self._name,
-            self._func,
-            self._opts.merge(retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version),
+    ) -> Function[P, R]:
+        self._opts = self._opts.merge(
+            idempotency_key=idempotency_key,
+            retry_policy=retry_policy,
+            send_to=send_to,
+            tags=tags,
+            timeout=timeout,
+            version=version,
         )
+        return self
 
     def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
-        return self._resonate.options(**self._opts.to_dict()).run(id, self._name, *args, **kwargs)
+        resonate = self._resonate.options(
+            idempotency_key=self._opts.idempotency_key,
+            retry_policy=self._opts.retry_policy,
+            send_to=self._opts.send_to,
+            tags=self._opts.tags,
+            timeout=self._opts.timeout,
+            version=self._opts.version,
+        )
+        return resonate.run(id, self._name, *args, **kwargs)
 
     def rpc(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
-        return self._resonate.options(**self._opts.to_dict()).rpc(id, self._name, *args, **kwargs)
+        resonate = self._resonate.options(
+            idempotency_key=self._opts.idempotency_key,
+            retry_policy=self._opts.retry_policy,
+            send_to=self._opts.send_to,
+            tags=self._opts.tags,
+            timeout=self._opts.timeout,
+            version=self._opts.version,
+        )
+        return resonate.rpc(id, self._name, *args, **kwargs)

@@ -231,8 +231,8 @@ def test_basic_retries() -> None:
     resonate = Resonate()
 
     def retriable(ctx: Context) -> int:
-        if ctx.info.attempt == 4:
-            return ctx.info.attempt
+        if ctx.attempt == 4:
+            return ctx.attempt
         raise RuntimeError
 
     f = resonate.register(retriable)

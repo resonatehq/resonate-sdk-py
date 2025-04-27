@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 class LConv(Protocol):
     @property
     def id(self) -> str: ...
-
     @property
     def func(self) -> Callable: ...
     @property
@@ -24,9 +23,10 @@ class LConv(Protocol):
 
     def options(
         self,
-        id: str | None,
         durable: bool | None,
-        retry_policy: RetryPolicy | None,
+        id: str | None,
+        idempotency_key: str | Callable[[str], str] | None,
+        retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
@@ -36,6 +36,8 @@ class LConv(Protocol):
 class RConv(Protocol):
     @property
     def id(self) -> str: ...
+    @property
+    def idempotency_key(self) -> str | None: ...
     @property
     def headers(self) -> dict[str, str] | None: ...
     @property
@@ -48,6 +50,7 @@ class RConv(Protocol):
     def options(
         self,
         id: str | None,
+        idempotency_key: str | Callable[[str], str] | None,
         send_to: str | None,
         tags: dict[str, str] | None,
         timeout: int | None,

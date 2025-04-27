@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
     from resonate.models.context import Context
     from resonate.models.durable_promise import DurablePromise
+    from resonate.models.retry_policy import RetryPolicy
     from resonate.options import Options
 
 
@@ -82,8 +83,23 @@ class Scheduler:
 
 
 class Info:
-    def __init__(self) -> None:
+    def __init__(self, idempotency_key: str, timeout: int, tags: dict[str, str]) -> None:
+        self._idempotency_key = idempotency_key
+        self._timeout = timeout
+        self._tags = tags
         self._attempt = 1
+
+    @property
+    def idempotency_key(self) -> str:
+        return self._idempotency_key
+
+    @property
+    def timeout(self) -> int:
+        return self._timeout
+
+    @property
+    def tags(self) -> dict[str, str]:
+        return self._tags
 
     @property
     def attempt(self) -> int:
@@ -260,10 +276,21 @@ class Lfnc:
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options
-    info: Info = field(default_factory=Info)
 
     suspends: list[Node[State]] = field(default_factory=list)
     result: Result | None = None
+
+    def __post_init__(self) -> None:
+        self.info = Info(self.idempotency_key, self.opts.timeout, self.opts.tags)
+        self._retry_policy = self.opts.retry_policy(self.func) if callable(self.opts.retry_policy) else self.opts.retry_policy
+
+    @property
+    def idempotency_key(self) -> str:
+        return self.opts.idempotency_key(self.id) if callable(self.opts.idempotency_key) else self.opts.idempotency_key
+
+    @property
+    def retry_policy(self) -> RetryPolicy:
+        return self._retry_policy
 
     def map(self, *, suspends: Node[State] | None = None, result: Result | None = None) -> Lfnc:
         if suspends:
@@ -311,7 +338,6 @@ class Coro:
 
     cid: str
     ctx: Callable[[str, Info], Context]
-    info: Info = field(default_factory=Info)
 
     coro: Coroutine = field(init=False)
     next: None | AWT | Result = None
@@ -320,7 +346,17 @@ class Coro:
     result: Result | None = None
 
     def __post_init__(self) -> None:
+        self.info = Info(self.idempotency_key, self.opts.timeout, self.opts.tags)
         self.coro = Coroutine(self.id, self.cid, self.func(self.ctx(self.id, self.info), *self.args, **self.kwargs))
+        self._retry_policy = self.opts.retry_policy(self.func) if callable(self.opts.retry_policy) else self.opts.retry_policy
+
+    @property
+    def idempotency_key(self) -> str:
+        return self.opts.idempotency_key(self.id) if callable(self.opts.idempotency_key) else self.opts.idempotency_key
+
+    @property
+    def retry_policy(self) -> RetryPolicy:
+        return self._retry_policy
 
     def reset(self) -> None:
         self.next = None
@@ -613,7 +649,7 @@ class Computation:
                                 self.id,
                                 CreatePromiseReq(
                                     id=id,
-                                    ikey=id,
+                                    ikey=func.idempotency_key,
                                     timeout=opts.timeout,
                                     tags={**opts.tags, "resonate:scope": "local"},
                                 ),
@@ -644,15 +680,15 @@ class Computation:
                     ),
                 ]
 
-            case Enabled(Running(Lfnc(id, func, args, kwargs, opts, info, result=result, suspends=suspends) as f)):
+            case Enabled(Running(Lfnc(id, func, args, kwargs, opts, result=result, suspends=suspends) as f)):
                 assert id == node.id, "Id must match node id."
                 assert func is not None, "Func is required for local function."
 
-                match result, opts.retry_policy.next(info.attempt), opts.durable:
+                match result, f.retry_policy.next(f.info.attempt), opts.durable:
                     case None, _, _:
                         node.transition(Blocked(Running(f)))
                         return [
-                            Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)),
+                            Function(id, self.id, lambda: func(self.ctx(id, f.info), *args, **kwargs)),
                         ]
                     case Ok(v), _, True:
                         node.transition(Blocked(Running(f)))
@@ -674,9 +710,9 @@ class Computation:
                         return []
                     case Ko(), delay, _:
                         node.transition(Blocked(Running(f)))
-                        info.increment_attempt()
+                        f.info.increment_attempt()
                         return [
-                            Delayed(Function(id, self.id, lambda: func(self.ctx(id, info), *args, **kwargs)), delay),
+                            Delayed(Function(id, self.id, lambda: func(self.ctx(id, f.info), *args, **kwargs)), delay),
                         ]
 
             case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, info=info) as c)):
@@ -750,7 +786,7 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
-                        match result, opts.retry_policy.next(info.attempt), opts.durable:
+                        match result, c.retry_policy.next(info.attempt), opts.durable:
                             case Ok(v), _, True:
                                 node.transition(Blocked(Running(c)))
                                 return [

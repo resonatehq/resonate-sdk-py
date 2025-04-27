@@ -83,6 +83,7 @@ def test_register(func: Callable, name: str | None) -> None:
     assert registry.get(func) == (name or func.__name__, 2)
 
 
+@pytest.mark.parametrize("idempotency_key", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("send_to", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
@@ -101,6 +102,7 @@ def test_register(func: Callable, name: str | None) -> None:
 )
 def test_run(
     resonate: Resonate,
+    idempotency_key: str | None,
     send_to: str | None,
     version: int | None,
     timeout: int | None,
@@ -111,11 +113,21 @@ def test_run(
     args: tuple,
     kwargs: dict,
 ) -> None:
-    opts = Options(version=1).merge(send_to=send_to, version=version, timeout=timeout, tags=tags, retry_policy=retry_policy)
+    opts = Options(version=1).merge(
+        idempotency_key=idempotency_key,
+        send_to=send_to,
+        version=version,
+        timeout=timeout,
+        tags=tags,
+        retry_policy=retry_policy,
+    )
+
+    opts_dict = {k: v for k, v in vars(opts).items() if k not in ("id", "durable")}
+
     f1 = resonate.register(func, name=name, version=version or 1)
 
     def invoke(id: str) -> Invoke:
-        return Invoke(id=id, func=func, args=args, kwargs=kwargs, opts=Options(id=id, version=version or 1, retry_policy=Never() if isgeneratorfunction(func) else Exponential()))
+        return Invoke(id=id, func=func, args=args, kwargs=kwargs, opts=Options(id=id, version=version or 1))
 
     def invoke_with_opts(id: str) -> Invoke:
         return Invoke(id=id, func=func, args=args, kwargs=kwargs, opts=opts.merge(id=id))
@@ -126,24 +138,25 @@ def test_run(
     resonate.run("f2", name, *args, **kwargs)
     assert cmd(resonate) == invoke("f2")
 
-    resonate.options(**opts.to_dict()).run("f3", func, *args, **kwargs)
+    resonate.options(**opts_dict).run("f3", func, *args, **kwargs)
     assert cmd(resonate) == invoke_with_opts("f3")
 
-    resonate.options(**opts.to_dict()).run("f4", name, *args, **kwargs)
+    resonate.options(**opts_dict).run("f4", name, *args, **kwargs)
     assert cmd(resonate) == invoke_with_opts("f4")
 
     f1.run("f5", *args, **kwargs)
     assert cmd(resonate) == invoke("f5")
 
-    f1.options(**opts.to_dict()).run("f6", *args, **kwargs)
+    f1.options(**opts_dict).run("f6", *args, **kwargs)
     assert cmd(resonate) == invoke_with_opts("f6")
 
     version = (version or 1) + 1
+    opts_dict["version"] = version
 
     f2 = resonate.register(func, name=name, version=version)
     opts = opts.merge(version=version)
 
-    f2.options(**opts.to_dict()).run("f7", *args, **kwargs)
+    f2.options(**opts_dict).run("f7", *args, **kwargs)
     assert cmd(resonate) == invoke_with_opts("f7")
 
 
@@ -176,6 +189,7 @@ def test_rpc(
     kwargs: dict,
 ) -> None:
     opts = Options(version=1).merge(send_to=send_to, version=version, timeout=timeout, tags=tags, retry_policy=retry_policy)
+    opts_dict = {k: v for k, v in vars(opts).items() if k not in ("id", "durable")}
     f1 = resonate.register(func, name=name, version=version or 1)
 
     resonate.rpc("f1", func, *args, **kwargs)
@@ -184,16 +198,16 @@ def test_rpc(
     resonate.rpc("f2", name, *args, **kwargs)
     assert cmd(resonate) == Listen(id="f2")
 
-    resonate.options(**opts.to_dict()).rpc("f3", func, *args, **kwargs)
+    resonate.options(**opts_dict).rpc("f3", func, *args, **kwargs)
     assert cmd(resonate) == Listen(id="f3")
 
-    resonate.options(**opts.to_dict()).rpc("f4", name, *args, **kwargs)
+    resonate.options(**opts_dict).rpc("f4", name, *args, **kwargs)
     assert cmd(resonate) == Listen(id="f4")
 
     f1.rpc("f5", *args, **kwargs)
     assert cmd(resonate) == Listen(id="f5")
 
-    f1.options(**opts.to_dict()).rpc("f6", *args, **kwargs)
+    f1.options(**opts_dict).rpc("f6", *args, **kwargs)
     assert cmd(resonate) == Listen(id="f6")
 
 
@@ -289,7 +303,7 @@ def test_propagation(func: Callable, timeout: int | None, version: int | None, s
     registry.add(func, "func", 100)
 
     opts = Options(timeout=100)
-    ctx = Context("f", Info(), opts, registry, Dependencies())
+    ctx = Context("f", Info("", 0, {}), opts, registry, Dependencies())
 
     counter = 0
 
@@ -306,7 +320,8 @@ def test_propagation(func: Callable, timeout: int | None, version: int | None, s
             assert cmd.conv.opts.timeout == opts.timeout
             assert cmd.conv.opts.version == 100
             assert cmd.conv.opts.tags == opts.tags
-            assert isinstance(cmd.conv.opts.retry_policy, Never if isgeneratorfunction(func) else Exponential)
+            assert callable(cmd.conv.opts.retry_policy)
+            assert isinstance(cmd.conv.opts.retry_policy(func), Never if isgeneratorfunction(func) else Exponential)
 
             # update the command
             cmd = cmd.options(timeout=timeout, version=version, retry_policy=retry_policy)
@@ -333,4 +348,4 @@ def test_propagation(func: Callable, timeout: int | None, version: int | None, s
             if version and isinstance(f, Callable):
                 assert cmd.conv.data == {"func": "func", "args": (1, 2), "kwargs": {}, "version": version}
             if send_to:
-                assert cmd.conv.tags == {**opts.tags, "resonate:invoke": send_to}
+                assert cmd.conv.tags["resonate:invoke"] == send_to

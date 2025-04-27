@@ -4,10 +4,15 @@ from typing import Protocol
 
 
 class Context(Protocol):
-    @property
-    def info(self) -> Info: ...
+    pass
 
 
 class Info(Protocol):
+    @property
+    def idempotency_key(self) -> str: ...
+    @property
+    def timeout(self) -> int: ...
+    @property
+    def tags(self) -> dict[str, str]: ...
     @property
     def attempt(self) -> int: ...

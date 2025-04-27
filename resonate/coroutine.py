@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 from resonate.models.result import Ko, Ok, Result
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
     from resonate.models.convention import LConv, RConv
     from resonate.models.retry_policy import RetryPolicy
@@ -23,14 +23,15 @@ class LFX:
     def options(
         self,
         *,
-        id: str | None = None,
         durable: bool | None = None,
-        retry_policy: RetryPolicy | None = None,
+        id: str | None = None,
+        idempotency_key: str | Callable[[str], str] | None = None,
+        retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
     ) -> Self:
-        self.conv = self.conv.options(id, durable, retry_policy, tags, timeout, version)
+        self.conv = self.conv.options(durable, id, idempotency_key, retry_policy, tags, timeout, version)
         return self
 
 
@@ -56,12 +57,13 @@ class RFX:
         self,
         *,
         id: str | None = None,
+        idempotency_key: str | Callable[[str], str] | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
     ) -> Self:
-        self.conv = self.conv.options(id, send_to, tags, timeout, version)
+        self.conv = self.conv.options(id, idempotency_key, send_to, tags, timeout, version)
         return self
 
 
