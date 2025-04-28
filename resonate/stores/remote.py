@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import time
 from typing import TYPE_CHECKING, Any
 
 from requests import PreparedRequest, Request, Response, Session
@@ -369,24 +368,22 @@ class _status_codes:  # noqa: N801
 
 def _call(req: PreparedRequest) -> Response:
     with Session() as s:
-        while True:
-            res = s.send(req, timeout=10)
-            if res.ok:
-                return res
-            if res.status_code == _status_codes.BAD_REQUEST:
-                msg = "Invalid Request"
-                raise ResonateStoreError(msg, "STORE_PAYLOAD")
-            if res.status_code == _status_codes.UNAUTHORIZED:
-                msg = "Unauthorized request"
-                raise ResonateStoreError(msg, "STORE_UNAUTHORIZED")
-            if res.status_code == _status_codes.FORBIDDEN:
-                msg = "Forbidden request"
-                raise ResonateStoreError(msg, "STORE_FORBIDDEN")
-            if res.status_code == _status_codes.NOT_FOUND:
-                msg = "Not found"
-                raise ResonateStoreError(msg, "STORE_NOT_FOUND")
-            if res.status_code == _status_codes.CONFLICT:
-                msg = "Already exists"
-                raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
-        time.sleep(1)
-    raise NotImplementedError
+        res = s.send(req, timeout=10)
+        if res.ok:
+            return res
+        if res.status_code == _status_codes.BAD_REQUEST:
+            msg = "Invalid Request"
+            raise ResonateStoreError(msg, "STORE_PAYLOAD")
+        if res.status_code == _status_codes.UNAUTHORIZED:
+            msg = "Unauthorized request"
+            raise ResonateStoreError(msg, "STORE_UNAUTHORIZED")
+        if res.status_code == _status_codes.FORBIDDEN:
+            msg = "Forbidden request"
+            raise ResonateStoreError(msg, "STORE_FORBIDDEN")
+        if res.status_code == _status_codes.NOT_FOUND:
+            msg = "Not found"
+            raise ResonateStoreError(msg, "STORE_NOT_FOUND")
+        if res.status_code == _status_codes.CONFLICT:
+            msg = "Already exists"
+            raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
+    return res

@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from resonate.models.commands import Command
     from resonate.models.message import Mesg
     from resonate.models.message_source import MessageSource
+    from resonate.models.retry_policy import RetryPolicy
     from resonate.models.store import Store
     from resonate.registry import Registry
     from resonate.resonate import Context
@@ -49,15 +50,7 @@ if TYPE_CHECKING:
 
 class Bridge:
     def __init__(
-        self,
-        ctx: Callable[[str, Info], Context],
-        store: Store,
-        message_source: MessageSource,
-        registry: Registry,
-        pid: str,
-        ttl: int,
-        unicast: str,
-        anycast: str,
+        self, ctx: Callable[[str, Info], Context], store: Store, message_source: MessageSource, registry: Registry, pid: str, ttl: int, unicast: str, anycast: str, store_retry_policy: RetryPolicy
     ) -> None:
         self._store = store
         self._message_src = message_source
@@ -67,6 +60,7 @@ class Bridge:
         self._unicast = unicast
         self._anycast = unicast
 
+        self._store_retry_policy = store_retry_policy
         self._pid = pid
         self._ttl = ttl
         self._scheduler = Scheduler(
