@@ -57,25 +57,22 @@ class RemoteStore:
             if res.ok:
                 return res
 
-            if res.status_code == _status_codes.BAD_REQUEST:
-                msg = "Invalid Request"
-                raise ResonateStoreError(msg, "STORE_PAYLOAD")
-
-            if res.status_code == _status_codes.UNAUTHORIZED:
-                msg = "Unauthorized request"
-                raise ResonateStoreError(msg, "STORE_UNAUTHORIZED")
-
-            if res.status_code == _status_codes.FORBIDDEN:
-                msg = "Forbidden request"
-                raise ResonateStoreError(msg, "STORE_FORBIDDEN")
-
-            if res.status_code == _status_codes.NOT_FOUND:
-                msg = "Not found"
-                raise ResonateStoreError(msg, "STORE_NOT_FOUND")
-
-            if res.status_code == _status_codes.CONFLICT:
-                msg = "Already exists"
-                raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
+            match res.status_code:
+                case _status_codes.BAD_REQUEST:
+                    msg = "Invalid Request"
+                    raise ResonateStoreError(msg, "STORE_PAYLOAD")
+                case _status_codes.UNAUTHORIZED:
+                    msg = "Unauthorized request"
+                    raise ResonateStoreError(msg, "STORE_UNAUTHORIZED")
+                case _status_codes.FORBIDDEN:
+                    msg = "Forbidden request"
+                    raise ResonateStoreError(msg, "STORE_FORBIDDEN")
+                case _status_codes.NOT_FOUND:
+                    msg = "Not found"
+                    raise ResonateStoreError(msg, "STORE_NOT_FOUND")
+                case _status_codes.CONFLICT:
+                    msg = "Already exists"
+                    raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
 
             attempt += 1
 
@@ -88,7 +85,7 @@ class RemoteStore:
             # otherwise sleep then retry
             time.sleep(delay)
 
-        # final error handling (no successful retry)
+        # final error
         return res
 
 
