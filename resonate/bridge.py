@@ -50,7 +50,16 @@ if TYPE_CHECKING:
 
 class Bridge:
     def __init__(
-        self, ctx: Callable[[str, Info], Context], store: Store, message_source: MessageSource, registry: Registry, pid: str, ttl: int, unicast: str, anycast: str, store_retry_policy: RetryPolicy
+        self,
+        ctx: Callable[[str, Info], Context],
+        store: Store,
+        message_source: MessageSource,
+        registry: Registry,
+        pid: str,
+        ttl: int,
+        unicast: str,
+        anycast: str,
+        store_retry_policy: RetryPolicy,
     ) -> None:
         self._store = store
         self._message_src = message_source
