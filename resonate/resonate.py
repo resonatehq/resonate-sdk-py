@@ -19,7 +19,6 @@ from resonate.models.handle import Handle
 from resonate.options import Options
 from resonate.registry import Registry
 from resonate.retry_policies import Exponential, Never
-from resonate.retry_policies.constant import Constant
 from resonate.stores import LocalStore, RemoteStore
 
 if TYPE_CHECKING:
@@ -49,7 +48,6 @@ class Resonate:
         assert not isinstance(store, RemoteStore) or not isinstance(message_source, LocalMessageSource), "message source must not be local message source"
 
         self._started = False
-        self._store_retry_policy = Constant(delay=1, max_retries=3)
         self._pid = pid or uuid.uuid4().hex
         self._ttl = ttl
         self._group = group
@@ -73,7 +71,6 @@ class Resonate:
             registry=self._registry,
             store=self._store,
             message_source=self._message_source,
-            store_retry_policy=self._store_retry_policy,
         )
 
     @classmethod
@@ -109,6 +106,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> Resonate:
         pid = pid or uuid.uuid4().hex
 
@@ -118,7 +116,7 @@ class Resonate:
             group=group,
             registry=registry,
             dependencies=dependencies,
-            store=RemoteStore(host=host, port=store_port),
+            store=RemoteStore(host=host, port=store_port, retry_policy=retry_policy),
             message_source=Poller(group=group, id=pid, host=host, port=message_source_port),
         )
 
