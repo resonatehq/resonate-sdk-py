@@ -85,7 +85,7 @@ class RemoteStore:
 
                         case _:
                             msg = f"Unknow error {res.status_code} {res.reason}"
-                            raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
+                            raise ResonateStoreError(msg, "UNKNOWN")
 
                 except requests.exceptions.RequestException:
                     attempt += 1
