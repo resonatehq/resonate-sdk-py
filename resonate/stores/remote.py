@@ -49,9 +49,8 @@ class RemoteStore:
 
     def call(self, req: PreparedRequest) -> Response:
         attempt = 0
-        while True:
-            # make the request
-            with Session() as s:
+        with Session() as s:
+            while True:
                 try:
                     res = s.send(req, timeout=10)
                     if res.ok:
