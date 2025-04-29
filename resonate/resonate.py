@@ -12,6 +12,7 @@ from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
 from resonate.message_sources import LocalMessageSource, Poller
+from resonate.models.durable_promise import DurablePromise
 from resonate.models.handle import Handle
 from resonate.options import Options
 from resonate.registry import Registry
@@ -218,7 +219,6 @@ class Resonate:
 
     def get(self, id: str) -> Handle[Any]:
         self.start()
-
         future = Future()
         self._bridge.get(id, future)
 
