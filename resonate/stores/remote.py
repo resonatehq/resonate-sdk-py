@@ -77,8 +77,8 @@ class RemoteStore:
 
                             delay = self.retry_policy.next(attempt)
                             if delay is None:
-                                msg = f"Unknow error {res.status_code} {res.reason}"
-                                raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
+                                msg = f"Unexpected error on the server {res.status_code} {res.reason}"
+                                raise ResonateStoreError(msg, "UNKNOWN")
 
                             time.sleep(delay)
                             continue
