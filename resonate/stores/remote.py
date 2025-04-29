@@ -76,7 +76,7 @@ class RemoteStore:
                         case _:
                             raise NotImplementedError
 
-                except requests.exceptions.ConnectionError:
+                except requests.exceptions.RequestException:
                     attempt += 1
 
                     # ask our retry policy how long (if at all) to wait
