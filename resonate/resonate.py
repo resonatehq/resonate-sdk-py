@@ -43,7 +43,6 @@ class Resonate:
         assert not isinstance(store, RemoteStore) or not isinstance(message_source, LocalMessageSource), "message source must not be local message source"
 
         self._started = False
-
         self._pid = pid or uuid.uuid4().hex
         self._ttl = ttl
         self._group = group
@@ -102,6 +101,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> Resonate:
         pid = pid or uuid.uuid4().hex
 
@@ -111,7 +111,7 @@ class Resonate:
             group=group,
             registry=registry,
             dependencies=dependencies,
-            store=RemoteStore(host=host, port=store_port),
+            store=RemoteStore(host=host, port=store_port, retry_policy=retry_policy),
             message_source=Poller(group=group, id=pid, host=host, port=message_source_port),
         )
 
