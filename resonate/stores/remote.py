@@ -4,6 +4,7 @@ import os
 import time
 from typing import TYPE_CHECKING, Any
 
+import requests
 from requests import PreparedRequest, Request, Response, Session
 
 from resonate.encoders import Base64Encoder, ChainEncoder, JsonEncoder
@@ -51,42 +52,41 @@ class RemoteStore:
         while True:
             # make the request
             with Session() as s:
-                res = s.send(req, timeout=10)
+                try:
+                    res = s.send(req, timeout=10)
+                    if res.ok:
+                        return res
 
-            # if it succeeded, return immediately
-            if res.ok:
-                return res
+                    match res.status_code:
+                        case _status_codes.BAD_REQUEST:
+                            msg = "Invalid Request"
+                            raise ResonateStoreError(msg, "STORE_PAYLOAD")
+                        case _status_codes.UNAUTHORIZED:
+                            msg = "Unauthorized request"
+                            raise ResonateStoreError(msg, "STORE_UNAUTHORIZED")
+                        case _status_codes.FORBIDDEN:
+                            msg = "Forbidden request"
+                            raise ResonateStoreError(msg, "STORE_FORBIDDEN")
+                        case _status_codes.NOT_FOUND:
+                            msg = "Not found"
+                            raise ResonateStoreError(msg, "STORE_NOT_FOUND")
+                        case _status_codes.CONFLICT:
+                            msg = "Already exists"
+                            raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
+                        case _:
+                            raise NotImplementedError
 
-            match res.status_code:
-                case _status_codes.BAD_REQUEST:
-                    msg = "Invalid Request"
-                    raise ResonateStoreError(msg, "STORE_PAYLOAD")
-                case _status_codes.UNAUTHORIZED:
-                    msg = "Unauthorized request"
-                    raise ResonateStoreError(msg, "STORE_UNAUTHORIZED")
-                case _status_codes.FORBIDDEN:
-                    msg = "Forbidden request"
-                    raise ResonateStoreError(msg, "STORE_FORBIDDEN")
-                case _status_codes.NOT_FOUND:
-                    msg = "Not found"
-                    raise ResonateStoreError(msg, "STORE_NOT_FOUND")
-                case _status_codes.CONFLICT:
-                    msg = "Already exists"
-                    raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
+                except requests.exceptions.ConnectionError:
+                    attempt += 1
 
-            attempt += 1
+                    # ask our retry policy how long (if at all) to wait
+                    delay = self.retry_policy.next(attempt)
+                    if delay is None:
+                        # no more retries — break out to error handling
+                        raise
 
-            # ask our retry policy how long (if at all) to wait
-            delay = self.retry_policy.next(attempt)
-            if delay is None:
-                # no more retries — break out to error handling
-                break
-
-            # otherwise sleep then retry
-            time.sleep(delay)
-
-        # final error
-        return res
+                    # otherwise sleep then retry
+                    time.sleep(delay)
 
 
 class RemotePromiseStore:
