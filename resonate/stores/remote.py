@@ -72,19 +72,28 @@ class RemoteStore:
                         case _status_codes.CONFLICT:
                             msg = "Already exists"
                             raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
+                        case _status_codes.SERVER_ERROR:
+                            attempt += 1
+
+                            delay = self.retry_policy.next(attempt)
+                            if delay is None:
+                                msg = f"Unknow error {res.status_code} {res.reason}"
+                                raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
+
+                            time.sleep(delay)
+                            continue
+
                         case _:
-                            raise NotImplementedError
+                            msg = f"Unknow error {res.status_code} {res.reason}"
+                            raise ResonateStoreError(msg, "STORE_ALREADY_EXISTS")
 
                 except requests.exceptions.RequestException:
                     attempt += 1
 
-                    # ask our retry policy how long (if at all) to wait
                     delay = self.retry_policy.next(attempt)
                     if delay is None:
-                        # no more retries — break out to error handling
                         raise
 
-                    # otherwise sleep then retry
                     time.sleep(delay)
 
 
@@ -410,3 +419,4 @@ class _status_codes:  # noqa: N801
     FORBIDDEN = 403
     NOT_FOUND = 404
     CONFLICT = 409
+    SERVER_ERROR = 500
