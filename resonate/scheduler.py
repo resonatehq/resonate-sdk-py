@@ -715,7 +715,6 @@ class Computation:
 
                 match cmd, child.value:
                     case LFI(conv, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
-                        # assert conv.id == opts.id
                         next = Coro(conv.id, conv, func, args, kwargs, opts, self.id, self.ctx) if isgeneratorfunction(func) else Lfnc(conv.id, conv, func, args, kwargs, opts)
 
                         node.add_edge(child)

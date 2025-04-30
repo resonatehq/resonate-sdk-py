@@ -259,7 +259,7 @@ class Context:
     def lfi[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
     def lfi(self, func: Callable, *args: Any, **kwargs: Any) -> LFI:
         self._counter += 1
-        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func) or 1)
+        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func))
         return LFI(Local(f"{self.id}.{self._counter}", opts), func, args, kwargs, opts)
 
     @overload
@@ -268,7 +268,7 @@ class Context:
     def lfc[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFC: ...
     def lfc(self, func: Callable, *args: Any, **kwargs: Any) -> LFC:
         self._counter += 1
-        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func) or 1)
+        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func))
         return LFC(Local(f"{self.id}.{self._counter}", opts), func, args, kwargs, opts)
 
     @overload
