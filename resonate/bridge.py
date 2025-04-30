@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from concurrent.futures import Future
 
     from resonate.models.commands import Command
-    from resonate.models.convention import LConv, RConv
+    from resonate.models.convention import Convention
     from resonate.models.message import Mesg
     from resonate.models.message_source import MessageSource
     from resonate.models.store import Store
@@ -89,13 +89,14 @@ class Bridge:
         self._delay_condition = threading.Condition()
         self._delay_thread = threading.Thread(target=self._process_delayed_events, name="delay_thread", daemon=True)
 
-    def run(self, rconv: RConv, lconv: LConv, future: Future) -> DurablePromise:
+    def run(self, conv: Convention, func: Callable, args: tuple, kwargs: dict, opts: Options, future: Future) -> DurablePromise:
         promise, task = self._store.promises.create_with_task(
-            id=rconv.id,
-            ikey=rconv.id,
-            timeout=rconv.timeout,
-            data=rconv.data,
-            tags={**rconv.tags, "resonate:scope": "global"},
+            id=conv.id,
+            ikey=conv.idempotency_key,
+            timeout=conv.timeout,
+            headers=conv.headers,
+            data=conv.data,
+            tags=conv.tags,
             pid=self._pid,
             ttl=self._ttl * 1000,
         )
@@ -110,19 +111,20 @@ class Bridge:
         elif task is not None:
             self._promise_id_to_task[promise.id] = task
             self.start_heartbeat()
-            self._cq.put_nowait((Invoke(lconv.id, lconv.func, lconv.args, lconv.kwargs, lconv.opts), future))
+            self._cq.put_nowait((Invoke(conv.id, func, args, kwargs, opts), future))
         else:
             self._cq.put_nowait((Listen(promise.id), future))
 
         return promise
 
-    def rpc(self, rconv: RConv, future: Future) -> DurablePromise:
+    def rpc(self, conv: Convention, future: Future) -> DurablePromise:
         promise = self._store.promises.create(
-            id=rconv.id,
-            ikey=rconv.id,
-            timeout=rconv.timeout,
-            data=rconv.data,
-            tags={**rconv.tags, "resonate:scope": "global"},
+            id=conv.id,
+            ikey=conv.idempotency_key,
+            timeout=conv.timeout,
+            headers=conv.headers,
+            data=conv.data,
+            tags=conv.tags,
         )
 
         if promise.completed:
@@ -241,7 +243,7 @@ class Bridge:
             assert isinstance(f, str)
             assert isinstance(v, int)
 
-            func, version = self._registry.get(f, v)
+            _, func, version = self._registry.get(f, v)
             return Invoke(
                 root.id,
                 func,

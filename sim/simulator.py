@@ -518,7 +518,7 @@ class Worker(Component):
         self.commands.append(
             Invoke(
                 res.promise.id,
-                self.registry.get(res.promise.param.data["func"])[0],
+                self.registry.get(res.promise.param.data["func"])[1],
                 res.promise.param.data["args"],
                 res.promise.param.data["kwargs"],
             )
@@ -538,7 +538,7 @@ class Worker(Component):
                 self.commands.append(
                     Invoke(
                         res.root.id,
-                        self.registry.get(res.root.param.data["func"])[0],
+                        self.registry.get(res.root.param.data["func"])[1],
                         res.root.param.data["args"],
                         res.root.param.data["kwargs"],
                     )
@@ -568,7 +568,7 @@ class Worker(Component):
                         promise=res.leaf,
                         invoke=Invoke(
                             res.root.id,
-                            self.registry.get(res.root.param.data["func"])[0],
+                            self.registry.get(res.root.param.data["func"])[1],
                             res.root.param.data["args"],
                             res.root.param.data["kwargs"],
                         ),

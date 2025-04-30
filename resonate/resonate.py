@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import random
+import time
 import uuid
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, overload
@@ -188,8 +189,9 @@ class Resonate:
         self.start()
 
         future = Future[R]()
-        opts = self._opts.merge(id=id)
-        self._bridge.run(Remote(func, args, kwargs, opts, self._registry), Local(func, args, kwargs, opts, self._registry), future)
+        name, func, version = self._registry.get(func, self._opts.version)
+        opts = self._opts.merge(version=version)
+        self._bridge.run(Remote(id, name, args, kwargs, opts), func, args, kwargs, opts, future)
 
         return Handle(future)
 
@@ -209,7 +211,8 @@ class Resonate:
         self.start()
 
         future = Future[R]()
-        self._bridge.rpc(Remote(func, args, kwargs, self._opts.merge(id=id), self._registry), future)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func, self._opts.version)
+        self._bridge.rpc(Remote(id, name, args, kwargs, self._opts.merge(version=version)), future)
 
         return Handle(future)
 
@@ -240,24 +243,28 @@ class Context:
         return self._id
 
     @property
-    def idempotency_key(self) -> str:
-        return self._info.idempotency_key
+    def info(self) -> Info:
+        return self._info
 
-    @property
-    def timeout(self) -> int:
-        return self._info.timeout
+    # @property
+    # def idempotency_key(self) -> str | None:
+    #     return self._info.idempotency_key
 
-    @property
-    def tags(self) -> dict[str, str]:
-        return self._info.tags
+    # @property
+    # def timeout(self) -> int:
+    #     return self._info.timeout
 
-    @property
-    def counter(self) -> int:
-        return self._counter
+    # @property
+    # def tags(self) -> dict[str, str] | None:
+    #     return self._info.tags
 
-    @property
-    def attempt(self) -> int:
-        return self._info.attempt
+    # @property
+    # def counter(self) -> int:
+    #     return self._counter
+
+    # @property
+    # def attempt(self) -> int:
+    #     return self._info.attempt
 
     @property
     def random(self) -> Random:
@@ -270,25 +277,19 @@ class Context:
     def lfi[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
     @overload
     def lfi[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
-    @overload
-    def lfi(self, func: str, *args: Any, **kwargs: Any) -> LFI: ...
-    def lfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> LFI:
+    def lfi(self, func: Callable, *args: Any, **kwargs: Any) -> LFI:
         self._counter += 1
-        return LFI(
-            Local(func, args, kwargs, Options(id=f"{self.id}.{self._counter}", timeout=self._opts.timeout), self._registry),
-        )
+        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func) or 1)
+        return LFI(Local(f"{self.id}.{self._counter}", opts), func, args, kwargs, opts)
 
     @overload
     def lfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> LFC: ...
     @overload
     def lfc[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFC: ...
-    @overload
-    def lfc(self, func: str, *args: Any, **kwargs: Any) -> LFC: ...
-    def lfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> LFC:
+    def lfc(self, func: Callable, *args: Any, **kwargs: Any) -> LFC:
         self._counter += 1
-        return LFC(
-            Local(func, args, kwargs, Options(id=f"{self.id}.{self._counter}", timeout=self._opts.timeout), self._registry),
-        )
+        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func) or 1)
+        return LFC(Local(f"{self.id}.{self._counter}", opts), func, args, kwargs, opts)
 
     @overload
     def rfi[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -297,10 +298,11 @@ class Context:
     @overload
     def rfi(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
     def rfi(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
+        assert self._opts.version == 0
+
         self._counter += 1
-        return RFI(
-            Remote(func, args, kwargs, Options(id=f"{self.id}.{self._counter}", timeout=self._opts.timeout), self._registry),
-        )
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
+        return RFI(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(timeout=self._opts.timeout, version=version)))
 
     @overload
     def rfc[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFC: ...
@@ -309,10 +311,11 @@ class Context:
     @overload
     def rfc(self, func: str, *args: Any, **kwargs: Any) -> RFC: ...
     def rfc(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFC:
+        assert self._opts.version == 0
+
         self._counter += 1
-        return RFC(
-            Remote(func, args, kwargs, Options(id=f"{self.id}.{self._counter}", timeout=self._opts.timeout), self._registry),
-        )
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
+        return RFC(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(timeout=self._opts.timeout, version=version)))
 
     @overload
     def detached[**P, R](self, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], *args: P.args, **kwargs: P.kwargs) -> RFI: ...
@@ -321,19 +324,33 @@ class Context:
     @overload
     def detached(self, func: str, *args: Any, **kwargs: Any) -> RFI: ...
     def detached(self, func: Callable | str, *args: Any, **kwargs: Any) -> RFI:
+        assert self._opts.version == 0
+
         self._counter += 1
-        return RFI(
-            Remote(func, args, kwargs, Options(id=f"{self.id}.{self._counter}"), self._registry),
-            mode="detached",
-        )
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
+        return RFI(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(version=version)), mode="detached")
 
     def sleep(self, secs: int) -> RFC:
         self._counter += 1
-        return RFC(Sleep(f"{self.id}.{self._counter}", secs))
+        return RFC(Sleep(f"{self.id}.{self._counter}", int((time.time() + secs) * 1000)))
 
-    def promise(self, data: Any = None, headers: dict[str, str] | None = None) -> RFI:
+    def promise(
+        self,
+        *,
+        id: str | None = None,
+        idempotency_key: str | None = None,
+        headers: dict[str, str] | None = None,
+        data: Any = None,
+        timeout: int | None = None,
+        tags: dict[str, str] | None = None,
+    ) -> RFI:
         self._counter += 1
-        return RFI(Base(headers, data, Options(id=f"{self.id}.{self._counter}")))
+
+        id = id or self._opts.id or f"{self.id}.{self._counter}"
+        ikey = idempotency_key or self._opts.idempotency_key
+        timeout = timeout or self._opts.timeout
+        tags = tags or self._opts.tags
+        return RFI(Base(id, ikey(id) if callable(ikey) else ikey, headers, data, timeout, tags))
 
 
 class Random:

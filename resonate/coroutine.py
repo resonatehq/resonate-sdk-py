@@ -1,20 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Self
 
 from resonate.models.result import Ko, Ok, Result
+from resonate.options import Options
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
-    from resonate.models.convention import LConv, RConv
+    from resonate.models.convention import Convention
     from resonate.models.retry_policy import RetryPolicy
 
 
 @dataclass
 class LFX:
-    conv: LConv
+    conv: Convention
+    func: Callable[..., Any]
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
+    opts: Options = field(default_factory=Options)
 
     @property
     def id(self) -> str:
@@ -31,7 +36,9 @@ class LFX:
         timeout: int | None = None,
         version: int | None = None,
     ) -> Self:
-        self.conv = self.conv.options(durable, id, idempotency_key, retry_policy, tags, timeout, version)
+        # Note: we deliberately ignore the version for LFX
+        self.conv = self.conv.options(id=id, idempotency_key=idempotency_key, tags=tags, timeout=timeout)
+        self.opts = self.opts.merge(durable=durable, retry_policy=retry_policy)
         return self
 
 
@@ -47,7 +54,7 @@ class LFC(LFX):
 
 @dataclass
 class RFX:
-    conv: RConv
+    conv: Convention
 
     @property
     def id(self) -> str:
@@ -63,7 +70,7 @@ class RFX:
         timeout: int | None = None,
         version: int | None = None,
     ) -> Self:
-        self.conv = self.conv.options(id, idempotency_key, send_to, tags, timeout, version)
+        self.conv = self.conv.options(id=id, idempotency_key=idempotency_key, send_to=send_to, tags=tags, timeout=timeout, version=version)
         return self
 
 
@@ -150,11 +157,11 @@ class Coroutine:
                     self.next = AWT
                     self.unyielded.append(AWT(conv.id))
                     command = yielded
-                case LFC(conv):
+                case LFC(conv, func, args, kwargs, opts):
                     # LFCs can be converted to an LFI+AWT
                     self.next = AWT
                     self.skip = True
-                    command = LFI(conv)
+                    command = LFI(conv, func, args, kwargs, opts)
                 case RFC(conv):
                     # RFCs can be converted to an RFI+AWT
                     self.next = AWT

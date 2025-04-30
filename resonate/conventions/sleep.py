@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -11,7 +10,7 @@ if TYPE_CHECKING:
 @dataclass
 class Sleep:
     id: str
-    secs: int
+    timeout: int
 
     @property
     def idempotency_key(self) -> str:
@@ -20,10 +19,6 @@ class Sleep:
     @property
     def headers(self) -> dict[str, str] | None:
         return None
-
-    @property
-    def timeout(self) -> int:
-        return int((time.time() + self.secs) * 1000)
 
     @property
     def data(self) -> Any:
@@ -35,12 +30,12 @@ class Sleep:
 
     def options(
         self,
-        id: str | None,
-        idempotency_key: str | Callable[[str], str] | None,
-        send_to: str | None,
-        tags: dict[str, str] | None,
-        timeout: int | None,
-        version: int | None,
+        id: str | None = None,
+        idempotency_key: str | Callable[[str], str] | None = None,
+        send_to: str | None = None,
+        tags: dict[str, str] | None = None,
+        timeout: int | None = None,
+        version: int | None = None,
     ) -> Sleep:
         self.id = id or self.id
         return self

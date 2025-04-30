@@ -6,7 +6,7 @@ from concurrent.futures import Future
 from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Protocol
 
-from resonate.conventions import Local, Sleep
+from resonate.conventions import Local
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.models.commands import (
     CancelPromiseReq,
@@ -27,7 +27,6 @@ from resonate.models.commands import (
     Resume,
 )
 from resonate.models.task import Task
-from resonate.options import Options
 from resonate.registry import Registry
 from resonate.resonate import Remote
 from resonate.scheduler import Scheduler
@@ -36,14 +35,7 @@ from resonate.stores import LocalStore
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-
-class Info:
-    def __init__(self) -> None:
-        self._attempt = 1
-
-    @property
-    def attempt(self) -> int:
-        return self._attempt
+    from resonate.models.context import Info
 
 
 # Context
@@ -51,90 +43,99 @@ class Context:
     def __init__(self, registry: Registry) -> None:
         self._registry = registry
 
-    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
-        assert not isinstance(func, str)
-        return LFI(Local(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
-        assert not isinstance(func, str)
-        return LFC(Local(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
-        assert not isinstance(func, str)
-        return RFI(Remote(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
-        assert not isinstance(func, str)
-        return RFC(Remote(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
-        assert not isinstance(func, str)
-        return RFI(Remote(func, args, kwargs, Options(str(uuid.uuid4())), self._registry), mode="detached")
-
-    def sleep(self, secs: int) -> RFC:
-        return RFC(Sleep(str(uuid.uuid4()), secs))
+    @property
+    def id(self) -> str:
+        raise NotImplementedError
 
     @property
     def info(self) -> Info:
-        return Info()
+        raise NotImplementedError
+
+    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
+        assert not isinstance(func, str)
+        return LFI(Local(uuid.uuid4().hex), func, args, kwargs)
+
+    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
+        assert not isinstance(func, str)
+        return LFC(Local(uuid.uuid4().hex), func, args, kwargs)
+
+    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        assert not isinstance(func, str)
+        return RFI(Remote(uuid.uuid4().hex, func.__name__, args, kwargs))
+
+    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
+        assert not isinstance(func, str)
+        return RFC(Remote(uuid.uuid4().hex, func.__name__, args, kwargs))
+
+    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        assert not isinstance(func, str)
+        return RFI(Remote(uuid.uuid4().hex, func.__name__, args, kwargs), mode="detached")
 
 
 class LocalContext:
     def __init__(self, registry: Registry) -> None:
         self._registry = registry
 
-    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
-        assert not isinstance(func, str)
-        return LFI(Local(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
-        assert not isinstance(func, str)
-        return LFC(Local(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
-        assert not isinstance(func, str)
-        return LFI(Local(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
-        assert not isinstance(func, str)
-        return LFC(Local(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
-        assert not isinstance(func, str)
-        return LFI(Local(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
+    @property
+    def id(self) -> str:
+        raise NotImplementedError
 
     @property
     def info(self) -> Info:
-        return Info()
+        raise NotImplementedError
+
+    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
+        assert not isinstance(func, str)
+        return LFI(Local(uuid.uuid4().hex), func, args, kwargs)
+
+    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
+        assert not isinstance(func, str)
+        return LFC(Local(uuid.uuid4().hex), func, args, kwargs)
+
+    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
+        assert not isinstance(func, str)
+        return LFI(Local(uuid.uuid4().hex), func, args, kwargs)
+
+    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFC:
+        assert not isinstance(func, str)
+        return LFC(Local(uuid.uuid4().hex), func, args, kwargs)
+
+    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
+        assert not isinstance(func, str)
+        return LFI(Local(uuid.uuid4().hex), func, args, kwargs)
 
 
 class RemoteContext:
     def __init__(self, registry: Registry) -> None:
         self._registry = registry
 
-    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
-        assert not isinstance(func, str)
-        return RFI(Remote(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
-        assert not isinstance(func, str)
-        return RFC(Remote(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
-        assert not isinstance(func, str)
-        return RFI(Remote(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
-        assert not isinstance(func, str)
-        return RFC(Remote(func, args, kwargs, Options(str(uuid.uuid4())), self._registry))
-
-    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
-        assert not isinstance(func, str)
-        return RFI(Remote(func, args, kwargs, Options(str(uuid.uuid4())), self._registry), mode="detached")
+    @property
+    def id(self) -> str:
+        raise NotImplementedError
 
     @property
     def info(self) -> Info:
-        return Info()
+        raise NotImplementedError
+
+    def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        assert not isinstance(func, str)
+        return RFI(Remote(uuid.uuid4().hex, func.__name__, args, kwargs))
+
+    def lfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
+        assert not isinstance(func, str)
+        return RFC(Remote(uuid.uuid4().hex, func.__name__, args, kwargs))
+
+    def rfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        assert not isinstance(func, str)
+        return RFI(Remote(uuid.uuid4().hex, func.__name__, args, kwargs))
+
+    def rfc(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFC:
+        assert not isinstance(func, str)
+        return RFC(Remote(uuid.uuid4().hex, func.__name__, args, kwargs))
+
+    def detached(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
+        assert not isinstance(func, str)
+        return RFI(Remote(uuid.uuid4().hex, func.__name__, args, kwargs), mode="detached")
 
 
 # Runners
@@ -158,10 +159,10 @@ class SimpleRunner:
         try:
             while True:
                 match g.send(v):
-                    case LFI(conv):
-                        v = (conv.func, conv.args, conv.kwargs)
-                    case LFC(conv):
-                        v = self._run(conv.func, conv.args, conv.kwargs)
+                    case LFI(_, func, args, kwargs):
+                        v = (func, args, kwargs)
+                    case LFC(_, func, args, kwargs):
+                        v = self._run(func, args, kwargs)
                     case (func, args, kwargs):
                         v = self._run(func, args, kwargs)
         except StopIteration as e:
@@ -281,7 +282,7 @@ class ResonateRunner:
                         cmds.append(
                             Invoke(
                                 root.id,
-                                self.registry.get(root.param.data["func"])[0],
+                                self.registry.get(root.param.data["func"])[1],
                                 root.param.data["args"],
                                 root.param.data["kwargs"],
                             )
