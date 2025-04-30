@@ -246,26 +246,6 @@ class Context:
     def info(self) -> Info:
         return self._info
 
-    # @property
-    # def idempotency_key(self) -> str | None:
-    #     return self._info.idempotency_key
-
-    # @property
-    # def timeout(self) -> int:
-    #     return self._info.timeout
-
-    # @property
-    # def tags(self) -> dict[str, str] | None:
-    #     return self._info.tags
-
-    # @property
-    # def counter(self) -> int:
-    #     return self._counter
-
-    # @property
-    # def attempt(self) -> int:
-    #     return self._info.attempt
-
     @property
     def random(self) -> Random:
         return self._random
