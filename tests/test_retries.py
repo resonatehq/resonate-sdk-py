@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.conventions.base import Base
+from resonate.conventions import Base
 from resonate.dependencies import Dependencies
 from resonate.models.commands import Delayed, Function, Invoke, Network, RejectPromiseReq, ResolvePromiseReq, Retry, Return
 from resonate.models.result import Ko, Ok

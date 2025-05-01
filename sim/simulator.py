@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from resonate import Context
 from resonate.clocks import StepClock
-from resonate.conventions.base import Base
+from resonate.conventions import Base
 from resonate.dependencies import Dependencies
 from resonate.errors import ResonateStoreError
 from resonate.models.commands import (

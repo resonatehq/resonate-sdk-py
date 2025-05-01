@@ -4,7 +4,7 @@ import logging
 import random
 from typing import TYPE_CHECKING, Any
 
-from resonate.conventions.remote import Remote
+from resonate.conventions import Remote
 from resonate.models.commands import Invoke, Listen
 from resonate.options import Options
 from resonate.registry import Registry

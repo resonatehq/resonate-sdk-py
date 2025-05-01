@@ -6,8 +6,7 @@ from concurrent.futures import Future
 from inspect import isgeneratorfunction
 from typing import TYPE_CHECKING, Any, Protocol
 
-from resonate.conventions import Local
-from resonate.conventions.base import Base
+from resonate.conventions import Base, Local
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.models.commands import (
     CancelPromiseReq,

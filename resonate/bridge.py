@@ -5,7 +5,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
-from resonate.conventions.base import Base
+from resonate.conventions import Base
 from resonate.delay_q import DelayQ
 from resonate.models.commands import (
     CancelPromiseReq,
