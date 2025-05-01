@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import threading
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -321,3 +323,20 @@ def test_info(
     handle = resonate.run(id, "info", idempotency_key or id, {**(tags or {}), "resonate:scope": "global", "resonate:invoke": send_to or "poll://default"}, version)
 
     handle.result()
+
+
+def test_resonate_get(resonate_instance: Resonate) -> None:
+    def resolve_promise_slow(id: str) -> None:
+        time.sleep(1)
+        resonate_instance.promises.resolve(id=id, data=42)
+
+    timestamp = int(time.time())
+    id = f"get.{timestamp}"
+    resonate_instance.promises.create(id=id, timeout=sys.maxsize)
+    thread = threading.Thread(target=resolve_promise_slow, args=(id,))  # Do this in a different thread to simulate concurrency
+
+    handle = resonate_instance.get(id)
+    thread.start()
+    res = handle.result()
+    assert res == 42
+    thread.join()
