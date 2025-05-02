@@ -134,6 +134,7 @@ class Resonate:
         self,
         *,
         idempotency_key: str | Callable[[str], str] | None = None,
+        non_retriable_errors: tuple[type[Exception], ...] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
@@ -141,7 +142,9 @@ class Resonate:
         version: int | None = None,
     ) -> Resonate:
         copied: Resonate = copy.copy(self)
-        copied._opts = self._opts.merge(idempotency_key=idempotency_key, retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version)
+        copied._opts = self._opts.merge(
+            idempotency_key=idempotency_key, non_retriable_errors=non_retriable_errors, retry_policy=retry_policy, send_to=send_to, tags=tags, timeout=timeout, version=version
+        )
         return copied
 
     @overload
@@ -438,6 +441,7 @@ class Function[**P, R]:
         self,
         *,
         idempotency_key: str | Callable[[str], str] | None = None,
+        non_retriable_errors: tuple[type[Exception], ...] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         send_to: str | None = None,
         tags: dict[str, str] | None = None,
@@ -446,6 +450,7 @@ class Function[**P, R]:
     ) -> Function[P, R]:
         self._opts = self._opts.merge(
             idempotency_key=idempotency_key,
+            non_retriable_errors=non_retriable_errors,
             retry_policy=retry_policy,
             send_to=send_to,
             tags=tags,
@@ -462,12 +467,14 @@ class Function[**P, R]:
             tags=self._opts.tags,
             timeout=self._opts.timeout,
             version=self._opts.version,
+            non_retriable_errors=self._opts.non_retriable_errors,
         )
         return resonate.run(id, self._name, *args, **kwargs)
 
     def rpc(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
         resonate = self._resonate.options(
             idempotency_key=self._opts.idempotency_key,
+            non_retriable_errors=self._opts.non_retriable_errors,
             retry_policy=self._opts.retry_policy,
             send_to=self._opts.send_to,
             tags=self._opts.tags,
