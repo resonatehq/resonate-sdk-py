@@ -232,7 +232,7 @@ def test_handle_timeout(resonate_instance: Resonate) -> None:
     timestamp = int(time.time())
     handle = resonate_instance.run(f"sleep-{timestamp}", sleep, 1)
     with pytest.raises(TimeoutError):
-        handle.result(timeout=0.3)
+        handle.result(timeout=0)
     assert handle.result() == 1
 
 
