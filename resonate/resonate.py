@@ -189,7 +189,7 @@ class Resonate:
         self.start()
 
         future = Future[R]()
-        name, func, version = self._registry.get(func, self._opts.version)
+        name, func, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
         opts = self._opts.merge(version=version)
         self._bridge.run(Remote(id, name, args, kwargs, opts), func, args, kwargs, opts, future)
 
