@@ -95,7 +95,7 @@ def fib_rfc(ctx: Context, n: int) -> Generator[Any, Any, int]:
 
 
 def sleep(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
-    yield ctx.sleep(0)
+    yield ctx.sleep(n)
     return 1
 
 
