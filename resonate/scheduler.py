@@ -712,6 +712,10 @@ class Computation:
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
+                    case Ko(), delay, _ if type(result.value) in opts.non_retriable_errors:
+                        node.transition(Enabled(Completed(f.map(result=result))))
+                        self._unblock(suspends, result)
+                        return []
                     case Ko(), delay, _:
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
@@ -786,6 +790,7 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
+
                         match result, c.retry_policy.next(attempt), opts.durable:
                             case Ok(v), _, True:
                                 node.transition(Blocked(Running(c)))
@@ -802,6 +807,10 @@ class Computation:
                                 self._unblock(c.suspends, result)
                                 return []
                             case Ko(v), None, False:
+                                node.transition(Enabled(Completed(c.map(result=result))))
+                                self._unblock(c.suspends, result)
+                                return []
+                            case Ko(), delay, _ if type(result.value) in opts.non_retriable_errors:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []
