@@ -64,7 +64,7 @@ class Registry:
 
         match func:
             case str():
-                return max(self._forward_registry.get(func, {}) or [default])
+                return max(self._forward_registry.get(func, None) or [default])
             case Callable():
                 _, version = self._reverse_registry.get(func, (None, default))
                 return version
