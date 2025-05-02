@@ -211,7 +211,7 @@ class Resonate:
         self.start()
 
         future = Future[R]()
-        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func, self._opts.version)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
         self._bridge.rpc(Remote(id, name, args, kwargs, self._opts.merge(version=version)), future)
 
         return Handle(future)
@@ -259,7 +259,7 @@ class Context:
     def lfi[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
     def lfi(self, func: Callable, *args: Any, **kwargs: Any) -> LFI:
         self._counter += 1
-        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func))
+        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func.func if isinstance(func, Function) else func))
         return LFI(Local(f"{self.id}.{self._counter}", opts), func, args, kwargs, opts)
 
     @overload
@@ -268,7 +268,7 @@ class Context:
     def lfc[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFC: ...
     def lfc(self, func: Callable, *args: Any, **kwargs: Any) -> LFC:
         self._counter += 1
-        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func))
+        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func.func if isinstance(func, Function) else func))
         return LFC(Local(f"{self.id}.{self._counter}", opts), func, args, kwargs, opts)
 
     @overload
@@ -281,7 +281,7 @@ class Context:
         assert self._opts.version == 0
 
         self._counter += 1
-        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func.func if isinstance(func, Function) else func)
         return RFI(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(timeout=self._opts.timeout, version=version)))
 
     @overload
@@ -294,7 +294,7 @@ class Context:
         assert self._opts.version == 0
 
         self._counter += 1
-        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func.func if isinstance(func, Function) else func)
         return RFC(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(timeout=self._opts.timeout, version=version)))
 
     @overload
@@ -307,7 +307,7 @@ class Context:
         assert self._opts.version == 0
 
         self._counter += 1
-        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func.func if isinstance(func, Function) else func)
         return RFI(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(version=version)), mode="detached")
 
     def sleep(self, secs: int) -> RFC:
