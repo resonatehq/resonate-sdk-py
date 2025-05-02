@@ -712,10 +712,15 @@ class Computation:
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
-                    case Ko(), delay, _ if type(result.value) in opts.non_retriable_errors:
+                    case Ko(), delay, False if type(result.value) in opts.non_retriable_errors:
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
+                    case Ko(v), delay, True if type(result.value) in opts.non_retriable_errors:
+                        node.transition(Blocked(Running(f)))
+                        return [
+                            Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
+                        ]
                     case Ko(), delay, _:
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
@@ -810,7 +815,12 @@ class Computation:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []
-                            case Ko(), delay, _ if type(result.value) in opts.non_retriable_errors:
+                            case Ko(v), delay, True if type(result.value) in opts.non_retriable_errors:
+                                node.transition(Blocked(Running(c)))
+                                return [
+                                    Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
+                                ]
+                            case Ko(), delay, False if type(result.value) in opts.non_retriable_errors:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []

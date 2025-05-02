@@ -131,10 +131,10 @@ def test_generator_sad_path(scheduler: Scheduler, retry_policy: RetryPolicy, ret
 @pytest.mark.parametrize(
     ("retry_policy", "non_retriable_errors"),
     [
-        # (Never(), (ValueError,)),
+        (Never(), (ValueError,)),
         (Constant(max_retries=2), (ValueError,)),
-        # (Linear(max_retries=3), (ValueError,)),
-        # (Exponential(max_retries=1), (ValueError,)),
+        (Linear(max_retries=3), (ValueError,)),
+        (Exponential(max_retries=1), (ValueError,)),
     ],
 )
 def test_non_retriable_errors(scheduler: Scheduler, retry_policy: RetryPolicy, non_retriable_errors: tuple[type[Exception], ...]) -> None:
