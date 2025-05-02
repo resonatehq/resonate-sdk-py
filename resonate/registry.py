@@ -12,7 +12,7 @@ class Registry:
         self._forward_registry: dict[str, dict[int, Callable]] = {}
         self._reverse_registry: dict[Callable, tuple[str, int]] = {}
 
-    def add(self, func: Callable | Function, name: str, version: int = 1) -> None:
+    def add(self, func: Callable, name: str, version: int = 1) -> None:
         func = func.func if isinstance(func, Function) else func
         if name == "<lambda>":
             msg = "Registering a lambda requires setting a name."
@@ -32,8 +32,8 @@ class Registry:
     @overload
     def get(self, func: str, version: int = 0) -> tuple[str, Callable, int]: ...
     @overload
-    def get(self, func: Callable | Function, version: int = 0) -> tuple[str, Callable, int]: ...
-    def get(self, func: str | Callable | Function, version: int = 0) -> tuple[str, Callable, int]:
+    def get(self, func: Callable, version: int = 0) -> tuple[str, Callable, int]: ...
+    def get(self, func: str | Callable, version: int = 0) -> tuple[str, Callable, int]:
         func = func.func if isinstance(func, Function) else func
         if func not in (self._forward_registry if isinstance(func, str) else self._reverse_registry):
             msg = f"Function {func if isinstance(func, str) else func.__name__} not found in registry."
@@ -57,8 +57,8 @@ class Registry:
     @overload
     def latest(self, func: str, default: int = 1) -> int: ...
     @overload
-    def latest(self, func: Callable | Function, default: int = 1) -> int: ...
-    def latest(self, func: str | Callable | Function, default: int = 1) -> int:
+    def latest(self, func: Callable, default: int = 1) -> int: ...
+    def latest(self, func: str | Callable, default: int = 1) -> int:
         func = func.func if isinstance(func, Function) else func
 
         match func:
