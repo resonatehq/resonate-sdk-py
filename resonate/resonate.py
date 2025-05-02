@@ -11,6 +11,7 @@ from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
+from resonate.function import Function
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -165,7 +166,7 @@ class Resonate:
         version: int = 1,
     ) -> Callable[[Callable], Function[P, R]] | Function[P, R]:
         def wrapper(func: Callable) -> Function[P, R]:
-            self._registry.add(func.func if isinstance(func, Function) else func, name or func.__name__, version)
+            self._registry.add(func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(version=version))
 
         if args and callable(args[0]):
@@ -189,7 +190,7 @@ class Resonate:
         self.start()
 
         future = Future[R]()
-        name, func, version = self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
+        name, func, version = self._registry.get(func, self._opts.version)
         opts = self._opts.merge(version=version)
         self._bridge.run(Remote(id, name, args, kwargs, opts), func, args, kwargs, opts, future)
 
@@ -211,7 +212,7 @@ class Resonate:
         self.start()
 
         future = Future[R]()
-        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func.func if isinstance(func, Function) else func, self._opts.version)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func, self._opts.version)
         self._bridge.rpc(Remote(id, name, args, kwargs, self._opts.merge(version=version)), future)
 
         return Handle(future)
@@ -259,7 +260,7 @@ class Context:
     def lfi[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFI: ...
     def lfi(self, func: Callable, *args: Any, **kwargs: Any) -> LFI:
         self._counter += 1
-        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func.func if isinstance(func, Function) else func))
+        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func))
         return LFI(Local(f"{self.id}.{self._counter}", opts), func, args, kwargs, opts)
 
     @overload
@@ -268,7 +269,7 @@ class Context:
     def lfc[**P, R](self, func: Callable[Concatenate[Context, P], R], *args: P.args, **kwargs: P.kwargs) -> LFC: ...
     def lfc(self, func: Callable, *args: Any, **kwargs: Any) -> LFC:
         self._counter += 1
-        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func.func if isinstance(func, Function) else func))
+        opts = Options(timeout=self._opts.timeout, version=self._registry.latest(func))
         return LFC(Local(f"{self.id}.{self._counter}", opts), func, args, kwargs, opts)
 
     @overload
@@ -281,7 +282,7 @@ class Context:
         assert self._opts.version == 0
 
         self._counter += 1
-        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func.func if isinstance(func, Function) else func)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(timeout=self._opts.timeout, version=version)))
 
     @overload
@@ -294,7 +295,7 @@ class Context:
         assert self._opts.version == 0
 
         self._counter += 1
-        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func.func if isinstance(func, Function) else func)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFC(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(timeout=self._opts.timeout, version=version)))
 
     @overload
@@ -307,7 +308,7 @@ class Context:
         assert self._opts.version == 0
 
         self._counter += 1
-        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func.func if isinstance(func, Function) else func)
+        name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(f"{self.id}.{self._counter}", name, args, kwargs, Options(version=version)), mode="detached")
 
     def sleep(self, secs: int) -> RFC:
@@ -368,72 +369,3 @@ class Random:
 
     def expovariate(self, lambd: float = 1) -> LFC:
         return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).expovariate(lambd))
-
-
-class Function[**P, R]:
-    @overload
-    def __init__(self, resonate: Resonate, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]], opts: Options) -> None: ...
-    @overload
-    def __init__(self, resonate: Resonate, name: str, func: Callable[Concatenate[Context, P], R], opts: Options) -> None: ...
-    def __init__(self, resonate: Resonate, name: str, func: Callable[Concatenate[Context, P], Generator[Any, Any, R]] | Callable[Concatenate[Context, P], R], opts: Options) -> None:
-        self._resonate = resonate
-        self._name = name
-        self._func = func
-        self._opts = opts
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def func(self) -> Callable:
-        return self._func
-
-    @property
-    def __name__(self) -> str:
-        return self._name
-
-    def __call__(self, ctx: Context, *args: P.args, **kwargs: P.kwargs) -> Generator[Any, Any, R] | R:
-        return self._func(ctx, *args, **kwargs)
-
-    def options(
-        self,
-        *,
-        idempotency_key: str | Callable[[str], str] | None = None,
-        retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
-        send_to: str | None = None,
-        tags: dict[str, str] | None = None,
-        timeout: int | None = None,
-        version: int | None = None,
-    ) -> Function[P, R]:
-        self._opts = self._opts.merge(
-            idempotency_key=idempotency_key,
-            retry_policy=retry_policy,
-            send_to=send_to,
-            tags=tags,
-            timeout=timeout,
-            version=version,
-        )
-        return self
-
-    def run(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
-        resonate = self._resonate.options(
-            idempotency_key=self._opts.idempotency_key,
-            retry_policy=self._opts.retry_policy,
-            send_to=self._opts.send_to,
-            tags=self._opts.tags,
-            timeout=self._opts.timeout,
-            version=self._opts.version,
-        )
-        return resonate.run(id, self._name, *args, **kwargs)
-
-    def rpc(self, id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[R]:
-        resonate = self._resonate.options(
-            idempotency_key=self._opts.idempotency_key,
-            retry_policy=self._opts.retry_policy,
-            send_to=self._opts.send_to,
-            tags=self._opts.tags,
-            timeout=self._opts.timeout,
-            version=self._opts.version,
-        )
-        return resonate.rpc(id, self._name, *args, **kwargs)

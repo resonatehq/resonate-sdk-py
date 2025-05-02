@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import overload
 
 from resonate.errors import ResonateValidationError
+from resonate.function import Function
 
 
 class Registry:
@@ -30,8 +31,10 @@ class Registry:
     @overload
     def get(self, func: str, version: int = 0) -> tuple[str, Callable, int]: ...
     @overload
-    def get(self, func: Callable, version: int = 0) -> tuple[str, Callable, int]: ...
-    def get(self, func: str | Callable, version: int = 0) -> tuple[str, Callable, int]:
+    def get(self, func: Callable | Function, version: int = 0) -> tuple[str, Callable, int]: ...
+    def get(self, func: str | Callable | Function, version: int = 0) -> tuple[str, Callable, int]:
+        if isinstance(func, Function):
+            func = func.func
         if func not in (self._forward_registry if isinstance(func, str) else self._reverse_registry):
             msg = f"Function {func if isinstance(func, str) else func.__name__} not found in registry."
             raise ResonateValidationError(msg)
@@ -54,8 +57,11 @@ class Registry:
     @overload
     def latest(self, func: str, default: int = 1) -> int: ...
     @overload
-    def latest(self, func: Callable, default: int = 1) -> int: ...
-    def latest(self, func: str | Callable, default: int = 1) -> int:
+    def latest(self, func: Callable | Function, default: int = 1) -> int: ...
+    def latest(self, func: str | Callable | Function, default: int = 1) -> int:
+        if isinstance(func, Function):
+            func = func.func
+
         match func:
             case str():
                 return max(self._forward_registry.get(func, {}) or [default])
