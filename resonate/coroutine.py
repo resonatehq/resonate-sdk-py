@@ -39,7 +39,7 @@ class LFX:
     ) -> Self:
         # Note: we deliberately ignore the version for LFX
         self.conv = self.conv.options(id=id, idempotency_key=idempotency_key, tags=tags, timeout=timeout)
-        self.opts = self.opts.merge(durable=durable, retry_policy=retry_policy, non_retriable_errors=non_retriable_erros)
+        self.opts = self.opts.merge(durable=durable, retry_policy=retry_policy, non_retryable_exceptions=non_retriable_erros)
         return self
 
 

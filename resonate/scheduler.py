@@ -699,28 +699,28 @@ class Computation:
                         return [
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
+                    case Ok(v), _, False:
+                        node.transition(Enabled(Completed(f.map(result=result))))
+                        self._unblock(suspends, result)
+                        return []
                     case Ko(v), None, True:
                         node.transition(Blocked(Running(f)))
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
-                    case Ok(v), _, False:
-                        node.transition(Enabled(Completed(f.map(result=result))))
-                        self._unblock(suspends, result)
-                        return []
-                    case Ko(v), None, False:
-                        node.transition(Enabled(Completed(f.map(result=result))))
-                        self._unblock(suspends, result)
-                        return []
-                    case Ko(), delay, False if type(result.value) in opts.non_retriable_errors:
-                        node.transition(Enabled(Completed(f.map(result=result))))
-                        self._unblock(suspends, result)
-                        return []
-                    case Ko(v), delay, True if type(result.value) in opts.non_retriable_errors:
+                    case Ko(v), delay, True if type(v) in opts.non_retryable_exceptions:
                         node.transition(Blocked(Running(f)))
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                         ]
+                    case Ko(v), None, False:
+                        node.transition(Enabled(Completed(f.map(result=result))))
+                        self._unblock(suspends, result)
+                        return []
+                    case Ko(v), delay, False if type(v) in opts.non_retryable_exceptions:
+                        node.transition(Enabled(Completed(f.map(result=result))))
+                        self._unblock(suspends, result)
+                        return []
                     case Ko(), delay, _:
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
@@ -802,25 +802,25 @@ class Computation:
                                 return [
                                     Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                                 ]
+                            case Ok(v), _, False:
+                                node.transition(Enabled(Completed(c.map(result=result))))
+                                self._unblock(c.suspends, result)
+                                return []
                             case Ko(v), None, True:
                                 node.transition(Blocked(Running(c)))
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                 ]
-                            case Ok(v), _, False:
-                                node.transition(Enabled(Completed(c.map(result=result))))
-                                self._unblock(c.suspends, result)
-                                return []
-                            case Ko(v), None, False:
-                                node.transition(Enabled(Completed(c.map(result=result))))
-                                self._unblock(c.suspends, result)
-                                return []
-                            case Ko(v), delay, True if type(result.value) in opts.non_retriable_errors:
+                            case Ko(v), delay, True if type(v) in opts.non_retryable_exceptions:
                                 node.transition(Blocked(Running(c)))
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=v)),
                                 ]
-                            case Ko(), delay, False if type(result.value) in opts.non_retriable_errors:
+                            case Ko(v), None, False:
+                                node.transition(Enabled(Completed(c.map(result=result))))
+                                self._unblock(c.suspends, result)
+                                return []
+                            case Ko(v), delay, False if type(v) in opts.non_retryable_exceptions:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []

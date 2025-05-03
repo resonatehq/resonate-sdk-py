@@ -129,7 +129,7 @@ def test_generator_sad_path(scheduler: Scheduler, retry_policy: RetryPolicy, ret
 
 
 @pytest.mark.parametrize(
-    ("retry_policy", "non_retriable_errors"),
+    ("retry_policy", "non_retryable_exceptions"),
     [
         (Never(), (ValueError,)),
         (Constant(max_retries=2), (ValueError,)),
@@ -137,8 +137,8 @@ def test_generator_sad_path(scheduler: Scheduler, retry_policy: RetryPolicy, ret
         (Exponential(max_retries=1), (ValueError,)),
     ],
 )
-def test_non_retriable_errors(scheduler: Scheduler, retry_policy: RetryPolicy, non_retriable_errors: tuple[type[Exception], ...]) -> None:
-    next = scheduler.step(Invoke("foo", Base("foo", sys.maxsize), bar_ko, opts=Options(retry_policy=retry_policy, non_retriable_errors=non_retriable_errors)))
+def test_non_retriable_errors(scheduler: Scheduler, retry_policy: RetryPolicy, non_retryable_exceptions: tuple[type[Exception], ...]) -> None:
+    next = scheduler.step(Invoke("foo", Base("foo", sys.maxsize), bar_ko, opts=Options(retry_policy=retry_policy, non_retryable_exceptions=non_retryable_exceptions)))
     assert len(next.reqs) == 1
     req = next.reqs[0]
     assert isinstance(req, Network)
