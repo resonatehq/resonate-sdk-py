@@ -20,7 +20,7 @@ class Options:
     id: str | None = None
     idempotency_key: str | Callable[[str], str] | None = lambda id: id
     retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] = lambda f: Never() if isgeneratorfunction(f) else Exponential()
-    send_to: str = "poll://default"
+    target: str = "poll://default"
     tags: dict[str, str] = field(default_factory=dict)
     timeout: int = sys.maxsize
     version: int = 0
@@ -40,7 +40,7 @@ class Options:
         id: str | None = None,
         idempotency_key: str | Callable[[str], str] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
-        send_to: str | None = None,
+        target: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
@@ -57,7 +57,7 @@ class Options:
             id=id if id is not None else self.id,
             idempotency_key=idempotency_key if idempotency_key is not None else self.idempotency_key,
             retry_policy=retry_policy if retry_policy is not None else self.retry_policy,
-            send_to=send_to if send_to is not None else self.send_to,
+            target=target if target is not None else self.target,
             tags=tags if tags is not None else self.tags,
             timeout=timeout if timeout is not None else self.timeout,
             version=version if version is not None else self.version,
