@@ -684,7 +684,7 @@ class Computation:
                     ),
                 ]
 
-            case Enabled(Running(Lfnc(id, _, func, args, kwargs, opts, attempt=attempt, result=result, suspends=suspends) as f)):
+            case Enabled(Running(Lfnc(id, _, func, args, kwargs, opts, attempt=attempt, promise=promise, result=result, suspends=suspends) as f)):
                 assert id == node.id, "Id must match node id."
                 assert func is not None, "Func is required for local function."
 
@@ -788,7 +788,7 @@ class Computation:
                         child.transition(Enabled(Suspended(f.map(suspends=node))))
                         return []
 
-                    case AWT(), Enabled(Completed(Lfnc(result=result) | Rfnc(result=result) | Coro(result=result))):
+                    case AWT(), Enabled(Completed(Lfnc(result=result, promise=promise) | Rfnc(result=result, promise=promise) | Coro(result=result, promise=promise))):
                         assert result is not None, "Completed result must be set."
                         node.transition(Enabled(Running(c.map(next=result))))
                         return []
