@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import pathlib
+import tomllib
 import webbrowser
 from typing import Any
 from urllib.parse import urlencode
-
-import tomllib
 
 
 def project_project(cwd: pathlib.Path) -> dict[str, Any]:
