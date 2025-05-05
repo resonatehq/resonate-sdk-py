@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 from resonate import Context
 from resonate.clocks import StepClock
 from resonate.conventions import Base
-from resonate.dependencies import Dependencies
 from resonate.errors import ResonateStoreError
 from resonate.models.commands import (
     CancelPromiseReq,
@@ -51,6 +50,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from random import Random
 
+    from resonate.dependencies import Dependencies
     from resonate.registry import Registry
 
 UUID = 0

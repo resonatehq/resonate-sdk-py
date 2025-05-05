@@ -113,6 +113,7 @@ def fail_25(ctx: Context) -> None:
         msg = "Failing 25% of the time"
         raise RuntimeError(msg)
 
+
 def fail_50(ctx: Context) -> None:
     r = ctx.get_dependency("resonate:random")
     assert isinstance(r, random.Random)
@@ -120,6 +121,7 @@ def fail_50(ctx: Context) -> None:
     if r.random() < 0.50:
         msg = "Failing 50% of the time"
         raise RuntimeError(msg)
+
 
 def fail_75(ctx: Context) -> None:
     r = ctx.get_dependency("resonate:random")
@@ -129,6 +131,7 @@ def fail_75(ctx: Context) -> None:
         msg = "Failing 75% of the time"
         raise RuntimeError(msg)
 
+
 def fail_99(ctx: Context) -> None:
     r = ctx.get_dependency("resonate:random")
     assert isinstance(r, random.Random)
@@ -136,6 +139,7 @@ def fail_99(ctx: Context) -> None:
     if r.random() < 0.99:
         msg = "Failing 99% of the time"
         raise RuntimeError(msg)
+
 
 def fib(ctx: Context, n: int) -> Generator[Any, Any, int]:
     if n <= 1:
@@ -164,6 +168,7 @@ def fib(ctx: Context, n: int) -> Generator[Any, Any, int]:
 
     assert len(vs) == 2
     return sum(vs)
+
 
 def fib_lfi(ctx: Context, n: int) -> Generator[Any, Any, int]:
     if n <= 1:
@@ -209,6 +214,7 @@ def fib_rfc(ctx: Context, n: int) -> Generator[Any, Any, int]:
     v2 = yield ctx.rfc(fib_rfc, n - 2).options(id=f"fibr-{n - 2}", send_to="sim://any@default")
 
     return v1 + v2
+
 
 def test_dst(seed: str, steps: int) -> None:
     logger.info("DST(seed=%s, steps=%s)", seed, steps)

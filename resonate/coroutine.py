@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Self
 
@@ -15,9 +14,9 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class LFX[T](ABC):
+class LFX[T]:
     conv: Convention
-    func: Callable[..., T]
+    func: Callable[..., Generator[Any, Any, T] | T]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     opts: Options = field(default_factory=Options)
@@ -44,17 +43,17 @@ class LFX[T](ABC):
 
 
 @dataclass
-class LFI[T](LFX):
+class LFI[T](LFX[T]):
     pass
 
 
 @dataclass
-class LFC[T](LFX):
+class LFC[T](LFX[T]):
     pass
 
 
 @dataclass
-class RFX[T](ABC):
+class RFX[T]:
     conv: Convention
 
     @property
@@ -76,12 +75,12 @@ class RFX[T](ABC):
 
 
 @dataclass
-class RFI[T](RFX):
+class RFI[T](RFX[T]):
     mode: Literal["attached", "detached"] = "attached"
 
 
 @dataclass
-class RFC[T](RFX):
+class RFC[T](RFX[T]):
     pass
 
 
