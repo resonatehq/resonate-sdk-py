@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from resonate.models.callback import Callback
     from resonate.models.convention import Convention
     from resonate.models.durable_promise import DurablePromise
-    from resonate.models.result import Result
+    from resonate.models.result import Ko, Result
     from resonate.models.task import Task
 
 
@@ -105,6 +105,7 @@ class Function:
 class Delayed[T: Function | Retry]:
     item: T
     delay: float
+    prev_result: Ko
 
 
 @dataclass

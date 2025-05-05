@@ -687,7 +687,7 @@ class Computation:
                     ),
                 ]
 
-            case Enabled(Running(Lfnc(id, _, func, args, kwargs, opts, attempt=attempt, promise=promise, result=result, suspends=suspends) as f)):
+            case Enabled(Running(Lfnc(id, _, func, args, kwargs, opts, attempt=attempt, result=result, suspends=suspends) as f)):
                 assert id == node.id, "Id must match node id."
                 assert func is not None, "Func is required for local function."
 
@@ -727,7 +727,7 @@ class Computation:
                     case Ko(), delay, _:
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
-                            Delayed(Function(id, self.id, lambda: func(self.ctx(self.id, Info(f)), *args, **kwargs)), delay),
+                            Delayed(Function(id, self.id, lambda: func(self.ctx(self.id, Info(f)), *args, **kwargs)), delay, result),
                         ]
 
             case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt) as c)):
@@ -791,7 +791,7 @@ class Computation:
                         child.transition(Enabled(Suspended(f.map(suspends=node))))
                         return []
 
-                    case AWT(), Enabled(Completed(Lfnc(result=result, promise=promise) | Rfnc(result=result, promise=promise) | Coro(result=result, promise=promise))):
+                    case AWT(), Enabled(Completed(Lfnc(result=result) | Rfnc(result=result) | Coro(result=result))):
                         assert result is not None, "Completed result must be set."
                         node.transition(Enabled(Running(c.map(next=result))))
                         return []
@@ -830,7 +830,7 @@ class Computation:
                             case Ko(), delay, _:
                                 node.transition(Blocked(Running(c.map(attempt=attempt + 1))))
                                 return [
-                                    Delayed(Retry(id, self.id), delay),
+                                    Delayed(Retry(id, self.id), delay, result),
                                 ]
 
                     case _:
