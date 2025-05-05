@@ -135,7 +135,7 @@ class Resonate:
         *,
         idempotency_key: str | Callable[[str], str] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
-        send_to: str | None = None,
+        target: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
@@ -144,7 +144,7 @@ class Resonate:
         copied._opts = self._opts.merge(
             idempotency_key=idempotency_key,
             retry_policy=retry_policy,
-            send_to=send_to,
+            target=target,
             tags=tags,
             timeout=timeout,
             version=version,
@@ -501,7 +501,7 @@ class Function[**P, R]:
         *,
         idempotency_key: str | Callable[[str], str] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
-        send_to: str | None = None,
+        target: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
@@ -509,7 +509,7 @@ class Function[**P, R]:
         self._opts = self._opts.merge(
             idempotency_key=idempotency_key,
             retry_policy=retry_policy,
-            send_to=send_to,
+            target=target,
             tags=tags,
             timeout=timeout,
             version=version,
@@ -520,7 +520,7 @@ class Function[**P, R]:
         resonate = self._resonate.options(
             idempotency_key=self._opts.idempotency_key,
             retry_policy=self._opts.retry_policy,
-            send_to=self._opts.send_to,
+            target=self._opts.target,
             tags=self._opts.tags,
             timeout=self._opts.timeout,
             version=self._opts.version,
@@ -531,7 +531,7 @@ class Function[**P, R]:
         resonate = self._resonate.options(
             idempotency_key=self._opts.idempotency_key,
             retry_policy=self._opts.retry_policy,
-            send_to=self._opts.send_to,
+            target=self._opts.target,
             tags=self._opts.tags,
             timeout=self._opts.timeout,
             version=self._opts.version,

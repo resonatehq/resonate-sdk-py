@@ -31,6 +31,7 @@ class LFX[T]:
         durable: bool | None = None,
         id: str | None = None,
         idempotency_key: str | Callable[[str], str] | None = None,
+        non_retryable_exceptions: tuple[type[Exception], ...] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
@@ -38,7 +39,7 @@ class LFX[T]:
     ) -> Self:
         # Note: we deliberately ignore the version for LFX
         self.conv = self.conv.options(id=id, idempotency_key=idempotency_key, tags=tags, timeout=timeout)
-        self.opts = self.opts.merge(durable=durable, retry_policy=retry_policy)
+        self.opts = self.opts.merge(durable=durable, retry_policy=retry_policy, non_retryable_exceptions=non_retryable_exceptions)
         return self
 
 
@@ -65,12 +66,12 @@ class RFX[T]:
         *,
         id: str | None = None,
         idempotency_key: str | Callable[[str], str] | None = None,
-        send_to: str | None = None,
+        target: str | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
         version: int | None = None,
     ) -> Self:
-        self.conv = self.conv.options(id=id, idempotency_key=idempotency_key, send_to=send_to, tags=tags, timeout=timeout, version=version)
+        self.conv = self.conv.options(id=id, idempotency_key=idempotency_key, target=target, tags=tags, timeout=timeout, version=version)
         return self
 
 
