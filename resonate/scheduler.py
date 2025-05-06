@@ -111,9 +111,9 @@ class Info:
         return self._func.promise.tags if self._func.promise else self._func.conv.tags
 
     @property
-    def timeout(self) -> int:
+    def timeout(self) -> float:
         assert self._func.timeout is not None, "Timeout must be set."
-        return self._func.timeout
+        return self._func.timeout / 1000
 
     @property
     def version(self) -> int:

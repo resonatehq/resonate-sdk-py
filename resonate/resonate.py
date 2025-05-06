@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import functools
 import random
-import sys
 import time
 import uuid
 from concurrent.futures import Future
@@ -136,8 +135,8 @@ class Resonate:
         *,
         idempotency_key: str | Callable[[str], str] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
-        target: str | None = None,
         tags: dict[str, str] | None = None,
+        target: str | None = None,
         timeout: float | None = None,
         version: int | None = None,
     ) -> Resonate:
@@ -145,8 +144,8 @@ class Resonate:
         copied._opts = self._opts.merge(
             idempotency_key=idempotency_key,
             retry_policy=retry_policy,
-            target=target,
             tags=tags,
+            target=target,
             timeout=timeout,
             version=version,
         )
@@ -401,7 +400,7 @@ class Context:
         self,
         *,
         id: str | None = None,
-        timeout: int | None = None,
+        timeout: float | None = None,
         idempotency_key: str | None = None,
         headers: dict[str, str] | None = None,
         data: Any = None,
@@ -412,7 +411,7 @@ class Context:
         return RFI(
             Base(
                 f"{self.id}.{self._counter}",
-                timeout or sys.maxsize,
+                timeout or 31536000,
                 idempotency_key,
                 headers,
                 data,
@@ -506,16 +505,16 @@ class Function[**P, R]:
         *,
         idempotency_key: str | Callable[[str], str] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
-        target: str | None = None,
         tags: dict[str, str] | None = None,
+        target: str | None = None,
         timeout: int | None = None,
         version: int | None = None,
     ) -> Function[P, R]:
         self._opts = self._opts.merge(
             idempotency_key=idempotency_key,
             retry_policy=retry_policy,
-            target=target,
             tags=tags,
+            target=target,
             timeout=timeout,
             version=version,
         )
@@ -525,8 +524,8 @@ class Function[**P, R]:
         resonate = self._resonate.options(
             idempotency_key=self._opts.idempotency_key,
             retry_policy=self._opts.retry_policy,
-            target=self._opts.target,
             tags=self._opts.tags,
+            target=self._opts.target,
             timeout=self._opts.timeout,
             version=self._opts.version,
         )
@@ -536,8 +535,8 @@ class Function[**P, R]:
         resonate = self._resonate.options(
             idempotency_key=self._opts.idempotency_key,
             retry_policy=self._opts.retry_policy,
-            target=self._opts.target,
             tags=self._opts.tags,
+            target=self._opts.target,
             timeout=self._opts.timeout,
             version=self._opts.version,
         )

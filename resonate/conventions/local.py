@@ -38,8 +38,8 @@ class Local:
         self,
         id: str | None = None,
         idempotency_key: str | Callable[[str], str] | None = None,
-        target: str | None = None,
         tags: dict[str, str] | None = None,
+        target: str | None = None,
         timeout: float | None = None,
         version: int | None = None,
     ) -> Local:
