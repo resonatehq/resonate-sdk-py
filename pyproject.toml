@@ -1,6 +1,6 @@
 [project]
-name = "resonate"
-version = "0.1.0"
+name = "resonate-sdk"
+version = "0.5.0"
 description = "Distributed Async Await by Resonate HQ, Inc"
 readme = "README.md"
 authors = [{ name = "Resonate HQ, Inc", email = "contact@resonatehq.io" }]
@@ -27,3 +27,6 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["resonate"]
