@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 @dataclass
 class Base:
     id: str
-    timeout: int
+    timeout: float
     idempotency_key: str | None = None
     headers: dict[str, str] | None = None
     data: Any = None
@@ -22,7 +22,7 @@ class Base:
         idempotency_key: str | Callable[[str], str] | None = None,
         target: str | None = None,
         tags: dict[str, str] | None = None,
-        timeout: int | None = None,
+        timeout: float | None = None,
         version: int | None = None,
     ) -> Base:
         self.id = id or self.id

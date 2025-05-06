@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 import uuid
 from concurrent.futures import Future
 from inspect import isgeneratorfunction
@@ -17,6 +18,7 @@ from resonate.models.commands import (
     CreatePromiseRes,
     CreatePromiseWithTaskReq,
     CreatePromiseWithTaskRes,
+    Function,
     Invoke,
     Network,
     Receive,
@@ -25,25 +27,25 @@ from resonate.models.commands import (
     ResolvePromiseReq,
     ResolvePromiseRes,
     Resume,
+    Return,
 )
+from resonate.models.result import Ko, Ok
 from resonate.models.task import Task
 from resonate.options import Options
-from resonate.registry import Registry
 from resonate.resonate import Remote
 from resonate.scheduler import Scheduler
 from resonate.stores import LocalStore
+from resonate.utils import time_ms
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from resonate.models.context import Info
+    from resonate.registry import Registry
 
 
 # Context
 class Context:
-    def __init__(self, registry: Registry) -> None:
-        self._registry = registry
-
     @property
     def id(self) -> str:
         raise NotImplementedError
@@ -74,9 +76,6 @@ class Context:
 
 
 class LocalContext:
-    def __init__(self, registry: Registry) -> None:
-        self._registry = registry
-
     @property
     def id(self) -> str:
         raise NotImplementedError
@@ -107,9 +106,6 @@ class LocalContext:
 
 
 class RemoteContext:
-    def __init__(self, registry: Registry) -> None:
-        self._registry = registry
-
     @property
     def id(self) -> str:
         raise NotImplementedError
@@ -152,9 +148,9 @@ class SimpleRunner:
 
     def _run(self, func: Callable, args: tuple, kwargs: dict) -> Any:
         if not isgeneratorfunction(func):
-            return func(*args, **kwargs)
+            return func(None, *args, **kwargs)
 
-        g = func(LocalContext(Registry()), *args, **kwargs)
+        g = func(LocalContext(), *args, **kwargs)
         v = None
 
         try:
@@ -179,19 +175,18 @@ class ResonateRunner:
         self.store = LocalStore()
 
         # create scheduler and connect store
-        self.scheduler = Scheduler(ctx=lambda *_: Context(self.registry))
+        self.scheduler = Scheduler(ctx=lambda *_: Context())
 
     def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         cmds: list[Command] = []
-        time = 0
-        future = Future[R]()
-
+        init = True
         conv = Remote(id, func.__name__, args, kwargs)
+        future = Future[R]()
 
         promise, _ = self.store.promises.create_with_task(
             id=conv.id,
             ikey=conv.idempotency_key,
-            timeout=conv.timeout,
+            timeout=time_ms(time, conv.timeout),
             headers=conv.headers,
             data=conv.data,
             tags=conv.tags,
@@ -202,11 +197,18 @@ class ResonateRunner:
         cmds.append(Invoke(id, conv, func, args, kwargs, promise=promise))
 
         while cmds:
-            time += 1
-            next = self.scheduler.step(cmds.pop(0), future if time == 1 else None)
+            next = self.scheduler.step(cmds.pop(0), future if init else None)
+            init = False
 
             for req in next.reqs:
                 match req:
+                    case Function(_id, cid, f):
+                        try:
+                            r = Ok(f())
+                        except Exception as e:
+                            r = Ko(e)
+                        cmds.append(Return(_id, cid, r))
+
                     case Network(_id, cid, CreatePromiseReq(id, timeout, ikey, strict, headers, data, tags)):
                         promise = self.store.promises.create(
                             id=id,
@@ -336,7 +338,7 @@ class ResonateLFXRunner(ResonateRunner):
         self.store = LocalStore()
 
         # create scheduler
-        self.scheduler = Scheduler(ctx=lambda *_: LocalContext(self.registry))
+        self.scheduler = Scheduler(ctx=lambda *_: LocalContext())
 
 
 class ResonateRFXRunner(ResonateRunner):
@@ -347,4 +349,4 @@ class ResonateRFXRunner(ResonateRunner):
         self.store = LocalStore()
 
         # create scheduler and connect store
-        self.scheduler = Scheduler(ctx=lambda *_: RemoteContext(self.registry))
+        self.scheduler = Scheduler(ctx=lambda *_: RemoteContext())

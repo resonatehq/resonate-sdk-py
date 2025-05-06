@@ -57,7 +57,7 @@ UUID = 0
 
 
 class Message:
-    def __init__(self, send: str, recv: str, data: Any, time: int) -> None:
+    def __init__(self, send: str, recv: str, data: Any, time: float) -> None:
         global UUID  # noqa: PLW0603
         UUID += 1
         self.uuid = UUID
@@ -73,6 +73,7 @@ class Message:
 class Simulator:
     def __init__(self, r: Random, drop_rate: float = 0.15) -> None:
         self.r = r
+        self.clock = StepClock()
         self.drop_rate = drop_rate
         self.time = 0
         self.logs = []
@@ -92,8 +93,9 @@ class Simulator:
             self.step()
 
     def step(self) -> None:
-        self.time += 1000
-        # print(f"\n=== Step {self.time} ===")
+        # TODO(dfarr): determine appropriate seconds per step
+        self.time += 1
+        self.clock.clock += 1
 
         # TODO(dfarr): determine a better way to drop components
         for comp in self.components:
@@ -165,7 +167,7 @@ class Component:
         self.r = r
         self.uni = uni
         self.any = any
-        self.time = 0
+        self.time = 0.0
         self.msgcount = 0
         self.outgoing = []
         self.awaiting = {}
@@ -175,7 +177,7 @@ class Component:
     def init(self) -> None:
         pass
 
-    def step(self, time: int, messages: list[Message]) -> list[Message]:
+    def step(self, time: float, messages: list[Message]) -> list[Message]:
         self.time = time
         self.outgoing = []
         self.handle_deferred()
@@ -243,7 +245,7 @@ class Server(Component):
 
     def on_message(self, msg: Message) -> None:
         # set clock
-        self.clock.set_time(self.time)
+        self.clock.clock = self.time
 
         match msg.data.get("data"):
             case CreatePromiseReq(id, timeout, ikey, strict, headers, data, tags):
@@ -359,7 +361,7 @@ class Server(Component):
 
     def next(self) -> None:
         # set clock
-        self.clock.set_time(self.time)
+        self.clock.clock = self.time
 
         for recv, mesg in self.store.step():
             self.send_msg(recv, mesg)
@@ -369,7 +371,7 @@ class Server(Component):
 
 
 class Worker(Component):
-    def __init__(self, r: Random, uni: str, any: str, store: LocalStore, registry: Registry, dependencies: Dependencies, drop_at: int = 0) -> None:
+    def __init__(self, r: Random, uni: str, any: str, store: LocalStore, registry: Registry, dependencies: Dependencies, drop_at: float = 0) -> None:
         super().__init__(r, uni, any)
         self.store = store
         self.registry = registry
@@ -377,7 +379,7 @@ class Worker(Component):
         self.dependencies = dependencies
         self.commands: list[Command] = []
         self.tasks: dict[str, Task] = {}
-        self.last_heartbeat = 0
+        self.last_heartbeat = 0.0
 
         self.scheduler = Scheduler(
             lambda id, info: Context(id, info, self.registry, self.dependencies),
@@ -398,7 +400,7 @@ class Worker(Component):
                     "sim://uni@server",
                     CreatePromiseWithTaskReq(
                         id=id,
-                        timeout=conv.timeout,
+                        timeout=int((self.time + conv.timeout) * 1000),
                         ikey=conv.idempotency_key,
                         headers=conv.headers,
                         data=conv.data,
@@ -510,8 +512,9 @@ class Worker(Component):
                             raise NotImplementedError
 
         # heartbeat every 15s, the midpoint of the random ttl interval [0, 30s]
-        if self.time - self.last_heartbeat >= 15000:
+        if self.time - self.last_heartbeat >= 15:
             self.send_req("sim://uni@server", HeartbeatTasksReq(self.scheduler.pid), lambda _: None)
+            self.last_heartbeat = self.time
 
     def drop(self) -> bool:
         # Remove the worker when time exceeds the drop_at value.

@@ -30,7 +30,7 @@ class Remote:
         return {"func": self.name, "args": self.args, "kwargs": self.kwargs, "version": self.opts.version}
 
     @property
-    def timeout(self) -> int:
+    def timeout(self) -> float:
         return self.opts.timeout
 
     @property

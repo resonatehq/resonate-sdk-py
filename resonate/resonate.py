@@ -67,6 +67,7 @@ class Resonate:
             anycast=self._message_source.anycast,
             unicast=self._message_source.unicast,
             registry=self._registry,
+            clock=time,
             store=self._store,
             message_source=self._message_source,
         )
@@ -137,7 +138,7 @@ class Resonate:
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         target: str | None = None,
         tags: dict[str, str] | None = None,
-        timeout: int | None = None,
+        timeout: float | None = None,
         version: int | None = None,
     ) -> Resonate:
         copied: Resonate = copy.copy(self)
@@ -286,6 +287,10 @@ class Context:
     def random(self) -> Random:
         return self._random
 
+    @property
+    def time(self) -> Time:
+        return self._time
+
     def get_dependency[T](self, key: str, default: T = None) -> Any | T:
         return self._dependencies.get(key, default)
 
@@ -388,9 +393,9 @@ class Context:
     def typesafe(self, cmd: LFI | RFI | LFC | RFC | Promise) -> Generator[LFI | RFI | LFC | RFC | Promise, Any, Any]:
         return (yield cmd)
 
-    def sleep(self, secs: int) -> RFC[None]:
+    def sleep(self, secs: float) -> RFC[None]:
         self._counter += 1
-        return RFC(Sleep(f"{self.id}.{self._counter}", int((self.get_dependency("resonate:time", time).time() + secs) * 1000)))
+        return RFC(Sleep(f"{self.id}.{self._counter}", secs))
 
     def promise(
         self,
@@ -418,39 +423,39 @@ class Context:
 
 class Time:
     def __init__(self, ctx: Context) -> None:
-        self.ctx = ctx
+        self._ctx = ctx
 
     def time(self) -> LFC[float]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:time", time).time())
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:time", time).time())
 
     def strftime(self, format: str) -> LFC[str]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:time", time).strftime(format))
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:time", time).strftime(format))
 
 
 class Random:
     def __init__(self, ctx: Context) -> None:
-        self.ctx = ctx
+        self._ctx = ctx
 
     def random(self) -> LFC[float]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).random())
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:random", random).random())
 
     def betavariate(self, alpha: float, beta: float) -> LFC[float]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).betavariate(alpha, beta))
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:random", random).betavariate(alpha, beta))
 
     def randrange(self, start: int, stop: int | None = None, step: int = 1) -> LFC[int]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).randrange(start, stop, step))
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:random", random).randrange(start, stop, step))
 
     def randint(self, a: int, b: int) -> LFC[int]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).randint(a, b))
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:random", random).randint(a, b))
 
     def getrandbits(self, k: int) -> LFC[int]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).getrandbits(k))
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:random", random).getrandbits(k))
 
     def triangular(self, low: float = 0, high: float = 1, mode: float | None = None) -> LFC[float]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).triangular(low, high, mode))
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:random", random).triangular(low, high, mode))
 
     def expovariate(self, lambd: float = 1) -> LFC[float]:
-        return self.ctx.lfc(lambda _: self.ctx.get_dependency("resonate:random", random).expovariate(lambd))
+        return self._ctx.lfc(lambda _: self._ctx.get_dependency("resonate:random", random).expovariate(lambd))
 
 
 class Function[**P, R]:

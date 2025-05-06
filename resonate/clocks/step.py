@@ -3,11 +3,21 @@ from __future__ import annotations
 
 class StepClock:
     def __init__(self) -> None:
-        self._time = 0
+        self._clock = 0.0
 
-    def time(self) -> int:
-        return self._time
+    @property
+    def clock(self) -> float:
+        """Return the current time in seconds."""
+        return self._clock
 
-    def set_time(self, time: int) -> None:
-        assert time >= self._time, "The arrow of time only flows forward."
-        self._time = time
+    @clock.setter
+    def clock(self, value: float) -> None:
+        assert value >= self._clock, "The arrow of time only flows forward."
+        self._clock = value
+
+    def time(self) -> float:
+        """Return the current time in seconds."""
+        return self._clock
+
+    def strftime(self, format: str, /) -> str:
+        raise NotImplementedError

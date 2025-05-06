@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 @dataclass
 class Sleep:
     id: str
-    timeout: int
+    secs: float
 
     @property
     def idempotency_key(self) -> str:
@@ -23,6 +23,10 @@ class Sleep:
     @property
     def data(self) -> Any:
         return None
+
+    @property
+    def timeout(self) -> float:
+        return self.secs
 
     @property
     def tags(self) -> dict[str, str]:
