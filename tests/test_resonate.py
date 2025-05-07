@@ -183,11 +183,13 @@ def test_run(
 
     def invoke(id: str) -> Invoke:
         conv = Remote(id, name, args, kwargs, default_opts)
-        return Invoke(id, conv, func, args, kwargs, default_opts, resonate.promises.get(id=id))
+        promise = resonate.promises.get(id=id)
+        return Invoke(id, conv, promise.abs_timeout, func, args, kwargs, default_opts, promise)
 
     def invoke_with_opts(id: str) -> Invoke:
         conv = Remote(id, name, args, kwargs, updated_opts)
-        return Invoke(id, conv, func, args, kwargs, updated_opts, resonate.promises.get(id=id))
+        promise = resonate.promises.get(id=id)
+        return Invoke(id, conv, promise.abs_timeout, func, args, kwargs, updated_opts, promise)
 
     resonate.run("f1", func, *args, **kwargs)
     assert cmd(resonate) == invoke("f1")

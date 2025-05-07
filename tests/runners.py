@@ -35,7 +35,6 @@ from resonate.options import Options
 from resonate.resonate import Remote
 from resonate.scheduler import Scheduler
 from resonate.stores import LocalStore
-from resonate.utils import time_ms
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -53,6 +52,9 @@ class Context:
     @property
     def info(self) -> Info:
         raise NotImplementedError
+
+    def get_dependency(self, key: str, default: Any = None) -> Any:
+        return default
 
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
         assert not isinstance(func, str)
@@ -84,6 +86,9 @@ class LocalContext:
     def info(self) -> Info:
         raise NotImplementedError
 
+    def get_dependency(self, key: str, default: Any = None) -> Any:
+        return default
+
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> LFI:
         assert not isinstance(func, str)
         return LFI(Local(uuid.uuid4().hex), func, args, kwargs)
@@ -113,6 +118,9 @@ class RemoteContext:
     @property
     def info(self) -> Info:
         raise NotImplementedError
+
+    def get_dependency(self, key: str, default: Any = None) -> Any:
+        return default
 
     def lfi(self, func: str | Callable, *args: Any, **kwargs: Any) -> RFI:
         assert not isinstance(func, str)
@@ -186,7 +194,7 @@ class ResonateRunner:
         promise, _ = self.store.promises.create_with_task(
             id=conv.id,
             ikey=conv.idempotency_key,
-            timeout=time_ms(time, conv.timeout),
+            timeout=int((time.time() + conv.timeout) * 1000),
             headers=conv.headers,
             data=conv.data,
             tags=conv.tags,
@@ -194,7 +202,7 @@ class ResonateRunner:
             ttl=sys.maxsize,
         )
 
-        cmds.append(Invoke(id, conv, func, args, kwargs, promise=promise))
+        cmds.append(Invoke(id, conv, promise.abs_timeout, func, args, kwargs, promise=promise))
 
         while cmds:
             next = self.scheduler.step(cmds.pop(0), future if init else None)
@@ -295,12 +303,13 @@ class ResonateRunner:
                                 root.id,
                                 Base(
                                     root.id,
-                                    root.timeout,
+                                    root.rel_timeout,
                                     root.ikey_for_create,
                                     root.param.headers,
                                     root.param.data,
                                     root.tags,
                                 ),
+                                root.abs_timeout,
                                 func,
                                 root.param.data["args"],
                                 root.param.data["kwargs"],

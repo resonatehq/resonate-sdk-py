@@ -11,6 +11,7 @@ from resonate.conventions import Base
 from resonate.coroutine import AWT, LFI, RFI, TRM, Coroutine
 from resonate.graph import Graph, Node
 from resonate.logging import logger
+from resonate.models.clock import Clock
 from resonate.models.commands import (
     CancelPromiseReq,
     CancelPromiseRes,
@@ -35,13 +36,11 @@ from resonate.models.commands import (
     Return,
 )
 from resonate.models.result import Ko, Ok, Result
-from resonate.utils import time_ms
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from concurrent.futures import Future
 
-    from resonate.models.clock import Clock
     from resonate.models.context import Context
     from resonate.models.convention import Convention
     from resonate.models.durable_promise import DurablePromise
@@ -56,7 +55,6 @@ class Scheduler:
         pid: str | None = None,
         unicast: str | None = None,
         anycast: str | None = None,
-        clock: Clock | None = None,
     ) -> None:
         # ctx
         self.ctx = ctx
@@ -71,14 +69,11 @@ class Scheduler:
         # computations
         self.computations: dict[str, Computation] = {}
 
-        # clock
-        self.clock: Clock = clock or time
-
     def __repr__(self) -> str:
         return f"Scheduler(pid={self.pid}, computations={list(self.computations.values())})"
 
     def step(self, cmd: Command, future: Future | None = None) -> More | Done:
-        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.pid, self.unicast, self.anycast, self.clock))
+        computation = self.computations.setdefault(cmd.cid, Computation(cmd.cid, self.ctx, self.pid, self.unicast, self.anycast))
 
         # subscribe
         if future:
@@ -112,8 +107,7 @@ class Info:
 
     @property
     def timeout(self) -> float:
-        assert self._func.timeout is not None, "Timeout must be set."
-        return self._func.timeout / 1000
+        return self._func.timeout
 
     @property
     def version(self) -> int:
@@ -285,6 +279,7 @@ class Lfnc:
     id: str
     cid: str
     conv: Convention
+    timeout: float  # absolute time in seconds
     func: Callable[..., Any]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
@@ -297,7 +292,6 @@ class Lfnc:
     result: Result | None = field(default=None, init=False)
     retry_policy: RetryPolicy = field(init=False)
     suspends: list[Node[State]] = field(default_factory=list, init=False)
-    timeout: int | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self.ctx = self.ccls(self.id, Info(self))
@@ -310,22 +304,19 @@ class Lfnc:
         promise: DurablePromise | None = None,
         result: Result | None = None,
         suspends: Node[State] | None = None,
-        timeout: int | None = None,
     ) -> Lfnc:
         if attempt:
             assert attempt == self.attempt + 1, "Attempt must be monotonically incremented."
             self.attempt = attempt
         if promise:
+            assert self.opts.durable, "Func must be durable."
             self.promise = promise
             self.result = promise.result if promise.completed else None
-            self.timeout = promise.timeout
+            self.timeout = promise.abs_timeout
         if result:
             self.result = result
         if suspends:
             self.suspends.append(suspends)
-        if timeout:
-            assert timeout >= 0, "Timeout must be greater than or equal to 0."
-            self.timeout = timeout
         return self
 
     def __repr__(self) -> str:
@@ -338,12 +329,12 @@ class Rfnc:
     id: str
     cid: str
     conv: Convention
+    timeout: float  # absolute time in seconds
 
     attempt: int = field(default=1, init=False)
     promise: DurablePromise | None = field(default=None, init=False)
     result: Result | None = field(default=None, init=False)
     suspends: list[Node[State]] = field(default_factory=list, init=False)
-    timeout: int | None = field(default=None, init=False)
 
     def map(
         self,
@@ -355,7 +346,7 @@ class Rfnc:
         if promise:
             self.promise = promise
             self.result = promise.result if promise.completed else None
-            self.timeout = promise.timeout
+            self.timeout = promise.abs_timeout
         if result:
             self.result = result
         if suspends:
@@ -372,6 +363,7 @@ class Coro:
     id: str
     cid: str
     conv: Convention
+    timeout: float  # absolute time in seconds
     func: Callable[..., Any]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
@@ -386,7 +378,6 @@ class Coro:
     promise: DurablePromise | None = field(default=None, init=False)
     result: Result | None = field(default=None, init=False)
     suspends: list[Node[State]] = field(default_factory=list, init=False)
-    timeout: int | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self.ctx = self.ccls(self.id, Info(self))
@@ -411,9 +402,10 @@ class Coro:
         if next:
             self.next = next
         if promise:
+            assert self.opts.durable, "Func must be durable."
             self.promise = promise
             self.result = promise.result if promise.completed else None
-            self.timeout = promise.timeout
+            self.timeout = promise.abs_timeout
         if result:
             self.result = result
         if suspends:
@@ -446,14 +438,13 @@ class Done:
 
 
 class Computation:
-    def __init__(self, id: str, ctx: Callable[[str, Info], Context], pid: str, unicast: str, anycast: str, clock: Clock) -> None:
+    def __init__(self, id: str, ctx: Callable[[str, Info], Context], pid: str, unicast: str, anycast: str) -> None:
         self.id = id
         self.ctx = ctx
         self.pid = pid
 
         self.unicast = unicast
         self.anycast = anycast
-        self.clock = clock
 
         self.graph = Graph[State](id, Enabled(Suspended(Init())))
         self.futures: PoppableList[Future] = PoppableList()
@@ -482,13 +473,12 @@ class Computation:
     def apply(self, cmd: Command) -> None:
         self.history.append(cmd)
         match cmd, self.graph.root.value.func:
-            case Invoke(id, conv, func, args, kwargs, opts, promise), Init(next=None):
-                assert id == conv.id == (promise.id if promise else id), "Id must match convention and promise id."
+            case Invoke(id, conv, timeout, func, args, kwargs, opts, promise), Init(next=None):
+                assert id == conv.id == self.id == (promise.id if promise else id), "Ids must match."
+                assert (promise is not None) == opts.durable, "Promise must be set iff durable."
 
-                if isgeneratorfunction(func):
-                    self.graph.root.transition(Enabled(Running(Coro(id, self.id, conv, func, args, kwargs, opts, self.ctx).map(promise=promise))))
-                else:
-                    self.graph.root.transition(Enabled(Running(Lfnc(id, self.id, conv, func, args, kwargs, opts, self.ctx).map(promise=promise))))
+                cls = Coro if isgeneratorfunction(func) else Lfnc
+                self.graph.root.transition(Enabled(Running(cls(id, self.id, conv, timeout, func, args, kwargs, opts, self.ctx).map(promise=promise))))
 
             case Invoke(), _:
                 # first invoke "wins", computation will be joined
@@ -608,19 +598,20 @@ class Computation:
     def _apply_notify(self, node: Node[State], promise: DurablePromise) -> None:
         match node.value:
             case Enabled(Suspended(Init(next=None))):
-                f = Rfnc(
+                func = Rfnc(
                     promise.id,
                     self.id,
                     Base(
                         promise.id,
-                        (promise.timeout - promise.created_on) / 1000,
+                        promise.rel_timeout,
                         promise.ikey_for_create,
                         promise.param.headers,
                         promise.param.data,
                         promise.tags,
                     ),
+                    promise.abs_timeout,
                 )
-                node.transition(Enabled(Completed(f.map(promise=promise))))
+                node.transition(Enabled(Completed(func.map(promise=promise))))
 
             case _:
                 # Note: we could implement notify in a way that takes precedence over a locally
@@ -690,13 +681,11 @@ class Computation:
 
     def _eval(self, node: Node[State]) -> list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]]:
         match node.value:
-            case Enabled(Running(Init(Lfnc(id=id, conv=conv, opts=opts) | Coro(id=id, conv=conv, opts=opts) as func, suspends)) as exec):
+            case Enabled(Running(Init(Lfnc(id=id, conv=conv, timeout=timeout, opts=opts) | Coro(id=id, conv=conv, timeout=timeout, opts=opts) as func, suspends))):
                 assert id == conv.id == node.id, "Id must match convention id and node id."
                 assert node is not self.graph.root, "Node must not be root node."
 
-                # TODO(@Tomperez98): min of provded timeout and parent timeout
-                timeout = time_ms(self.clock, conv.timeout)
-                node.transition(Blocked(Running(Init(func.map(timeout=timeout), suspends))) if opts.durable else Enabled(Running(func.map(timeout=timeout))))
+                node.transition(Blocked(Running(Init(func, suspends))) if opts.durable else Enabled(Running(func)))
 
                 match opts.durable:
                     case True:
@@ -706,7 +695,7 @@ class Computation:
                                 self.id,
                                 CreatePromiseReq(
                                     id=id,
-                                    timeout=timeout,
+                                    timeout=int(timeout * 1000),
                                     ikey=conv.idempotency_key,
                                     headers=conv.headers,
                                     data=conv.data,
@@ -719,7 +708,7 @@ class Computation:
                         self._unblock(suspends, AWT(id))
                         return []
 
-            case Enabled(Running(Init(Rfnc(id, _, conv))) as exec):
+            case Enabled(Running(Init(Rfnc(id=id, conv=conv, timeout=timeout))) as exec):
                 assert id == conv.id == node.id, "Id must match convention id and node id."
                 node.transition(Blocked(exec))
 
@@ -729,7 +718,7 @@ class Computation:
                         self.id,
                         CreatePromiseReq(
                             id=id,
-                            timeout=time_ms(self.clock, conv.timeout),  # TODO(@Tomperez98): min of provded timeout and parent timeout
+                            timeout=int(timeout * 1000),
                             ikey=conv.idempotency_key,
                             headers=conv.headers,
                             data=conv.data,
@@ -782,15 +771,18 @@ class Computation:
                             Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs)), delay),
                         ]
 
-            case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt) as c)):
+            case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt, ctx=parent_ctx) as c)):
                 cmd = coro.send(next)
                 child = self.graph.find(lambda n: n.id == cmd.id) or Node(cmd.id, Enabled(Suspended(Init())))
                 self.history.append((id, next, cmd))
 
+                clock = parent_ctx.get_dependency("resonate:time", time)
+                assert isinstance(clock, Clock), "resonate:time must be an instance of clock"
+
                 match cmd, child.value:
                     case LFI(conv, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
                         cls = Coro if isgeneratorfunction(func) else Lfnc
-                        next = cls(conv.id, self.id, conv, func, args, kwargs, opts, self.ctx)
+                        next = cls(conv.id, self.id, conv, clock.time() + conv.timeout, func, args, kwargs, opts, self.ctx)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -799,7 +791,7 @@ class Computation:
                         return []
 
                     case RFI(conv), Enabled(Suspended(Init(next=None))):
-                        next = Rfnc(conv.id, self.id, conv)
+                        next = Rfnc(conv.id, self.id, conv, clock.time() + conv.timeout)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")

@@ -66,7 +66,6 @@ class Resonate:
             anycast=self._message_source.anycast,
             unicast=self._message_source.unicast,
             registry=self._registry,
-            clock=time,
             store=self._store,
             message_source=self._message_source,
         )

@@ -22,7 +22,7 @@ class Options:
     retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] = lambda f: Never() if isgeneratorfunction(f) else Exponential()
     target: str = "poll://default"
     tags: dict[str, str] = field(default_factory=dict)
-    timeout: float = 31536000  # relative time in seconds (1 year)
+    timeout: float = 31536000  # relative time in seconds, default 1 year
     version: int = 0
 
     def __post_init__(self) -> None:

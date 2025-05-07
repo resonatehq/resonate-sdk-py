@@ -4,7 +4,6 @@ import urllib.parse
 from typing import TYPE_CHECKING, Any
 
 from resonate import Context
-from resonate.clocks import StepClock
 from resonate.conventions import Base
 from resonate.errors import ResonateStoreError
 from resonate.models.commands import (
@@ -50,7 +49,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from random import Random
 
+    from resonate.clocks import StepClock
     from resonate.dependencies import Dependencies
+    from resonate.models.clock import Clock
     from resonate.registry import Registry
 
 UUID = 0
@@ -71,11 +72,11 @@ class Message:
 
 
 class Simulator:
-    def __init__(self, r: Random, drop_rate: float = 0.15) -> None:
+    def __init__(self, r: Random, clock: StepClock, drop_rate: float = 0.15) -> None:
         self.r = r
-        self.clock = StepClock()
+        self.clock = clock
+        self.time = 0.0
         self.drop_rate = drop_rate
-        self.time = 0
         self.logs = []
         self.buffer: list[Message] = []
         self.components: list[Component] = []
@@ -93,9 +94,8 @@ class Simulator:
             self.step()
 
     def step(self) -> None:
-        # TODO(dfarr): determine appropriate seconds per step
-        self.time += 1
-        self.clock.clock += 1
+        # set the clock
+        self.clock.step(self.time)
 
         # TODO(dfarr): determine a better way to drop components
         for comp in self.components:
@@ -157,6 +157,9 @@ class Simulator:
 
         # Add outgoing messages to the buffer
         self.buffer.extend(recv)
+
+        # TODO(dfarr): determine appropriate seconds per step
+        self.time += 1
 
     def freeze(self) -> str:
         return ":".join(component.freeze() for component in self.components)
@@ -238,15 +241,11 @@ class Component:
 
 
 class Server(Component):
-    def __init__(self, r: Random, uni: str, any: str) -> None:
+    def __init__(self, r: Random, uni: str, any: str, clock: Clock) -> None:
         super().__init__(r, uni, any)
-        self.clock = StepClock()
-        self.store = LocalStore(clock=self.clock)
+        self.store = LocalStore(clock=clock)
 
     def on_message(self, msg: Message) -> None:
-        # set clock
-        self.clock.clock = self.time
-
         match msg.data.get("data"):
             case CreatePromiseReq(id, timeout, ikey, strict, headers, data, tags):
                 promise = self.store.promises.create(
@@ -360,9 +359,6 @@ class Server(Component):
                 raise NotImplementedError
 
     def next(self) -> None:
-        # set clock
-        self.clock.clock = self.time
-
         for recv, mesg in self.store.step():
             self.send_msg(recv, mesg)
 
@@ -371,9 +367,8 @@ class Server(Component):
 
 
 class Worker(Component):
-    def __init__(self, r: Random, uni: str, any: str, store: LocalStore, registry: Registry, dependencies: Dependencies, drop_at: float = 0) -> None:
+    def __init__(self, r: Random, uni: str, any: str, registry: Registry, dependencies: Dependencies, drop_at: float = 0) -> None:
         super().__init__(r, uni, any)
-        self.store = store
         self.registry = registry
         self.drop_at = drop_at
         self.dependencies = dependencies
@@ -390,9 +385,6 @@ class Worker(Component):
 
     def on_message(self, msg: Message) -> None:
         match msg.data:
-            case Listen(id):
-                self.commands.append(Listen(id))
-
             case Invoke(id, conv):
                 assert id == conv.id
 
@@ -411,6 +403,9 @@ class Worker(Component):
                     lambda res: self.__invoke(res.data.get("data")),
                 )
 
+            case Listen(id):
+                self.commands.append(Listen(id))
+
             case {"type": "invoke", "task": {"id": id, "counter": counter}}:
                 self.send_req(
                     "sim://uni@server",
@@ -426,7 +421,8 @@ class Worker(Component):
                 )
 
             case {"type": "notify", "promise": promise}:
-                promise = DurablePromise.from_dict(self.store, promise)
+                # store instance does not matter
+                promise = DurablePromise.from_dict(LocalStore(), promise)
                 assert promise.completed
                 self.commands.append(Notify(promise.id, promise))
 
@@ -533,12 +529,13 @@ class Worker(Component):
                 res.promise.id,
                 Base(
                     res.promise.id,
-                    res.promise.timeout,
+                    res.promise.rel_timeout,
                     res.promise.ikey_for_create,
                     res.promise.param.headers,
                     res.promise.param.data,
                     res.promise.tags,
                 ),
+                res.promise.abs_timeout,
                 func,
                 res.promise.param.data["args"],
                 res.promise.param.data["kwargs"],
@@ -564,12 +561,13 @@ class Worker(Component):
                         res.root.id,
                         Base(
                             res.root.id,
-                            res.root.timeout,
+                            res.root.rel_timeout,
                             res.root.ikey_for_create,
                             res.root.param.headers,
                             res.root.param.data,
                             res.root.tags,
                         ),
+                        res.root.abs_timeout,
                         func,
                         res.root.param.data["args"],
                         res.root.param.data["kwargs"],
@@ -605,12 +603,13 @@ class Worker(Component):
                             res.root.id,
                             Base(
                                 res.root.id,
-                                res.root.timeout,
+                                res.root.rel_timeout,
                                 res.root.ikey_for_create,
                                 res.root.param.headers,
                                 res.root.param.data,
                                 res.root.tags,
                             ),
+                            res.root.abs_timeout,
                             func,
                             res.root.param.data["args"],
                             res.root.param.data["kwargs"],

@@ -35,13 +35,12 @@ from resonate.models.result import Ko, Ok, Result
 from resonate.models.task import Task
 from resonate.options import Options
 from resonate.scheduler import Done, Info, More, Scheduler
-from resonate.utils import exit_on_exception, time_ms
+from resonate.utils import exit_on_exception
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from concurrent.futures import Future
 
-    from resonate.models.clock import Clock
     from resonate.models.commands import Command
     from resonate.models.convention import Convention
     from resonate.models.message import Mesg
@@ -58,7 +57,6 @@ class Bridge:
         store: Store,
         message_source: MessageSource,
         registry: Registry,
-        clock: Clock,
         pid: str,
         ttl: int,
         unicast: str,
@@ -67,7 +65,6 @@ class Bridge:
         self._store = store
         self._message_src = message_source
         self._registry = registry
-        self._clock = clock
         self._cq: queue.Queue[Command | tuple[Command, Future] | None] = queue.Queue()
         self._mq: queue.Queue[Mesg | None] = queue.Queue()
         self._unicast = unicast
@@ -98,7 +95,7 @@ class Bridge:
         promise, task = self._store.promises.create_with_task(
             id=conv.id,
             ikey=conv.idempotency_key,
-            timeout=time_ms(self._clock, conv.timeout),
+            timeout=int((time.time() + conv.timeout) * 1000),
             headers=conv.headers,
             data=conv.data,
             tags=conv.tags,
@@ -116,7 +113,7 @@ class Bridge:
         elif task is not None:
             self._promise_id_to_task[promise.id] = task
             self.start_heartbeat()
-            self._cq.put_nowait((Invoke(conv.id, conv, func, args, kwargs, opts, promise), future))
+            self._cq.put_nowait((Invoke(conv.id, conv, promise.abs_timeout, func, args, kwargs, opts, promise), future))
         else:
             self._cq.put_nowait((Listen(promise.id), future))
 
@@ -126,7 +123,7 @@ class Bridge:
         promise = self._store.promises.create(
             id=conv.id,
             ikey=conv.idempotency_key,
-            timeout=time_ms(self._clock, conv.timeout),
+            timeout=int((time.time() + conv.timeout) * 1000),
             headers=conv.headers,
             data=conv.data,
             tags=conv.tags,
@@ -262,12 +259,13 @@ class Bridge:
                 root.id,
                 Base(
                     root.id,
-                    root.timeout,
+                    root.rel_timeout,
                     root.ikey_for_create,
                     root.param.headers,
                     root.param.data,
                     root.tags,
                 ),
+                root.abs_timeout,
                 func,
                 root.param.data.get("args", ()),
                 root.param.data.get("kwargs", {}),

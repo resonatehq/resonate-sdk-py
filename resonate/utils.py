@@ -12,13 +12,6 @@ from resonate.logging import logger
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from resonate.models.clock import Clock
-
-
-def time_ms(clock: Clock, timeout: float = 0) -> int:
-    """Return the current time in milliseconds."""
-    return int((clock.time() + timeout) * 1000)
-
 
 def exit_on_exception[R, **P](func: Callable[P, R]) -> Callable[P, R]:
     @wraps(func)
