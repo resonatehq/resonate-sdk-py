@@ -17,14 +17,14 @@ on:
 
 jobs:
   values:
-      runs-on: ubuntu-22.04
-      steps:
-        - id: seed
-          name: Set random seed
-          run: echo seed=$RANDOM >> $GITHUB_OUTPUT
-      outputs:
-        seed: ${{ inputs.seed || steps.seed.outputs.seed }}
-        ticks: ${{ inputs.steps || 10000 }}
+    runs-on: ubuntu-22.04
+    steps:
+      - id: seed
+        name: Set random seed
+        run: echo seed=$RANDOM >> $GITHUB_OUTPUT
+    outputs:
+      seed: ${{ inputs.seed || steps.seed.outputs.seed }}
+      ticks: ${{ inputs.steps || 10000 }}
 
   dst:
     runs-on: ${{ matrix.os }}
@@ -53,7 +53,7 @@ jobs:
         run: uv sync --dev
 
       - name: Run dst (seed=${{ needs.values.outputs.seed }}, steps=${{ needs.values.outputs.ticks }})
-        run: uv run pytest -s --seed ${{ needs.values.outputs.seed }} --steps ${{ needs.values.outputs.steps }} tests/test_dst.py 2> logs.txt
+        run: uv run pytest -s --seed ${{ needs.values.outputs.seed }} --steps ${{ needs.values.outputs.ticks }} tests/test_dst.py 2> logs.txt
 
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
