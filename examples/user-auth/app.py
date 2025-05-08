@@ -19,8 +19,8 @@ resonate = Resonate.local()
 
 @resonate.register()
 def auth_user(ctx: Context, name: str, email: str) -> Generator[Yieldable, Any, None]:
-    p = yield from ctx.typesafe(ctx.promise())
-    yield from ctx.typesafe(ctx.lfc(send_auth_email, name, email, p.id))
+    p = yield ctx.promise()
+    yield ctx.lfc(send_auth_email, name, email, p.id)
     yield p
 
 
