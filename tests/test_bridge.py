@@ -152,7 +152,7 @@ def parent_bound(ctx: Context, child_timeout_rel: int) -> Generator[Yieldable, A
 
 
 def child_bounded(ctx: Context, parent_timeout_abs: float) -> None:
-    assert not (ctx.info.timeout > parent_timeout_abs)
+    assert not (ctx.info.timeout > parent_timeout_abs) # child timeout never exceed parent timeout
 
 
 @pytest.fixture(scope="module")
