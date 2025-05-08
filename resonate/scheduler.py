@@ -793,7 +793,7 @@ class Computation:
                 match cmd, child.value:
                     case LFI(conv, func, args, kwargs, opts), Enabled(Suspended(Init(next=None))):
                         cls = Coro if isgeneratorfunction(func) else Lfnc
-                        next = cls(conv.id, self.id, conv, clock.time() + min(conv.timeout, c.opts.timeout), func, args, kwargs, opts, self.ctx)
+                        next = cls(conv.id, self.id, conv, min(clock.time() + conv.timeout, c.timeout), func, args, kwargs, opts, self.ctx)
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
@@ -802,7 +802,7 @@ class Computation:
                         return []
 
                     case RFI(conv), Enabled(Suspended(Init(next=None))):
-                        next = Rfnc(conv.id, self.id, conv, clock.time() + min(conv.timeout, c.opts.timeout))
+                        next = Rfnc(conv.id, self.id, conv, min(clock.time() + conv.timeout, c.timeout))
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
