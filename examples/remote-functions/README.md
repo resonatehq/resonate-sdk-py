@@ -1,5 +1,0 @@
-# Remote Function Calls
-
-This example demonstrates microservice orchestration using Resonate's logical groups to separate computational resources from workflow coordination. The `ml` worker group represents specialized compute nodes equipped with machine learning libraries (like *NumPy* in this case) and hardware acceleration capabilities, designed to execute resource-intensive tasks such as vectorized array operations. Meanwhile, the `general` group hosts lightweight orchestration clients that manage workflow state, task routing, and error handling without requiring domain-specific dependencies.
-
-This architecture enables efficient resource utilization - ML workers focus purely on numerical computations while orchestration nodes handle workflow logic and recovery mechanisms. The pattern allows independent scaling: ML workers can be optimized for GPU/TPU workloads, while orchestration nodes scale to manage workflow throughput, with groups communicating through Resonate's task routing system using explicit service targeting (target="poll://ml").
