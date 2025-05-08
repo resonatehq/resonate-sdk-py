@@ -189,7 +189,7 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     time.sleep(3)
 
 
-@pytest.mark.parametrize(("parent_timeout", "child_timeout"), [(110, 10), (10, 110), (10, 10), (10, 11), (11, 10)])
+@pytest.mark.parametrize(("parent_timeout", "child_timeout"), [(1100, 10), (10, 1100), (10, 10), (10, 11), (11, 10)])
 def test_timeout_bound_by_parent(resonate_instance: Resonate, parent_timeout: int, child_timeout: int) -> None:
     resonate_instance.options(timeout=parent_timeout).run(f"parent-bound-timeout-{uuid.uuid4()}", parent_bound, parent_timeout, child_timeout).result()
 
