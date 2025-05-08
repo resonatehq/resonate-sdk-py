@@ -36,7 +36,7 @@ def send_auth_email(ctx: Context, name: str, email: str, promise_id: str) -> Non
         {
             "from": {"email": "hello@demomailtrap.co", "name": "Mailtrap Test"},
             "to": [{"email": email}],
-            "template_uuid": "bbadbd29-92b1-493c-9c08-cf15d15153e7",
+            "template_uuid": "****153e7",
             "template_variables": {"company_info_name": "ResonateHQ", "name": name, "promiseId": promise_id},
         }
     )
