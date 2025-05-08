@@ -41,7 +41,7 @@ def send_auth_email(ctx: Context, name: str, email: str, promise_id: str) -> Non
             "template_variables": {"company_info_name": "ResonateHQ", "name": name, "promiseId": promise_id},
         }
     )
-    headers = {"Authorization": "Bearer d1999ad3b5ec0c4e68057df410e7cb39", "Content-Type": "application/json"}
+    headers = {"Authorization": "Bearer ****10e7cb39", "Content-Type": "application/json"}
     requests.request("POST", url, headers=headers, data=payload, timeout=10)
 
 

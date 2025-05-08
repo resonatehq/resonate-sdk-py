@@ -19,7 +19,7 @@ def workflow(ctx: Context) -> Generator[Yieldable, Any, list[int]]:
         [random.randint(0, 100) for _ in range(1_000)],
         [random.randint(0, 100) for _ in range(1_000)],
     ).options(
-        target="poll://ml",
+        target="poll://ml",  # route to `ml` logical group through task source `poll`
     )
     return v
 
