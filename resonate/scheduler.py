@@ -801,8 +801,8 @@ class Computation:
                         child.transition(Enabled(Running(Init(next, suspends=[node]))))
                         return []
 
-                    case RFI(conv), Enabled(Suspended(Init(next=None))):
-                        next = Rfnc(conv.id, self.id, conv, min(clock.time() + conv.timeout, c.timeout))
+                    case RFI(conv, mode=mode), Enabled(Suspended(Init(next=None))):
+                        next = Rfnc(conv.id, self.id, conv, (min(clock.time() + conv.timeout, c.timeout) if mode == "attached" else clock.time() + conv.timeout))
 
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
