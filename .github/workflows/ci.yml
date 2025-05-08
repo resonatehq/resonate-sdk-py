@@ -45,7 +45,7 @@ jobs:
         run: uv run ruff check
 
       - name: check types
-        run: uv run pyright
+        run: uv run pyright resonate
 
       - name: set up go
         uses: actions/setup-go@v5
