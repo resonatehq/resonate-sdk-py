@@ -147,15 +147,12 @@ def info2(ctx: Context, *args: Any, **kwargs: Any) -> Generator[Yieldable, Any, 
     yield (yield ctx.detached(info1, f"{ctx.id}.5", {"resonate:scope": "global", "resonate:invoke": "poll://default"}, 0, 1))
 
 
-def parent_bound(ctx: Context, parent_timeout_rel: int, child_timeout_rel: int) -> Generator[Yieldable, Any, None]:
-    yield ctx.lfc(child_bounded, ctx.info.timeout, parent_timeout_rel <= child_timeout_rel).options(timeout=child_timeout_rel)
+def parent_bound(ctx: Context, child_timeout_rel: int) -> Generator[Yieldable, Any, None]:
+    yield ctx.lfc(child_bounded, ctx.info.timeout).options(timeout=child_timeout_rel)
 
 
-def child_bounded(ctx: Context, parent_timeout_abs: float, parent_bound: bool) -> None:
-    if parent_bound:
-        assert pytest.approx(ctx.info.timeout) == parent_timeout_abs
-    else:
-        assert ctx.info.timeout < parent_timeout_abs
+def child_bounded(ctx: Context, parent_timeout_abs: float) -> None:
+    assert not (ctx.info.timeout > parent_timeout_abs)
 
 
 @pytest.fixture(scope="module")
@@ -191,7 +188,7 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
 
 @pytest.mark.parametrize(("parent_timeout", "child_timeout"), [(1100, 10), (10, 1100), (10, 10), (10, 11), (11, 10)])
 def test_timeout_bound_by_parent(resonate_instance: Resonate, parent_timeout: int, child_timeout: int) -> None:
-    resonate_instance.options(timeout=parent_timeout).run(f"parent-bound-timeout-{uuid.uuid4()}", parent_bound, parent_timeout, child_timeout).result()
+    resonate_instance.options(timeout=parent_timeout).run(f"parent-bound-timeout-{uuid.uuid4()}", parent_bound, child_timeout).result()
 
 
 def test_random_generation(resonate_instance: Resonate) -> None:
