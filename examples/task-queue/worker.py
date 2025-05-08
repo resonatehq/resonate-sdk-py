@@ -12,5 +12,6 @@ def add(ctx: Context, a: int, b: int) -> int:
     return a + b
 
 
-resonate.start()
-Event().wait()
+if __name__ == "__main__":
+    resonate.start()
+    Event().wait()
