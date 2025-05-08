@@ -147,6 +147,17 @@ def info2(ctx: Context, *args: Any, **kwargs: Any) -> Generator[Yieldable, Any, 
     yield (yield ctx.detached(info1, f"{ctx.id}.5", {"resonate:scope": "global", "resonate:invoke": "poll://default"}, 0, 1))
 
 
+def parent_bound(ctx: Context, parent_timeout_rel: int, child_timeout_rel: int) -> Generator[Yieldable, Any, None]:
+    yield ctx.lfc(child_bounded, ctx.info.timeout, parent_timeout_rel <= child_timeout_rel).options(timeout=child_timeout_rel)
+
+
+def child_bounded(ctx: Context, parent_timeout_abs: float, parent_bound: bool) -> None:
+    if parent_bound:
+        assert pytest.approx(ctx.info.timeout) == parent_timeout_abs
+    else:
+        assert ctx.info.timeout < parent_timeout_abs
+
+
 @pytest.fixture(scope="module")
 def resonate_instance(store: Store, message_source: MessageSource) -> Generator[Resonate, None, None]:
     resonate = Resonate(store=store, message_source=message_source)
@@ -167,6 +178,8 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     resonate.register(random_generation)
     resonate.register(info1, name="info", version=1)
     resonate.register(info2, name="info", version=2)
+    resonate.register(parent_bound)
+    resonate.register(child_bounded)
     resonate.start()
     yield resonate
     resonate.stop()
@@ -174,6 +187,11 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     # this timeout is set to cover the timeout time of the test poller, you can
     # see where this is set in conftest.py
     time.sleep(3)
+
+
+@pytest.mark.parametrize(("parent_timeout", "child_timeout"), [(110, 10), (10, 110), (10, 10), (10, 11), (11, 10)])
+def test_timeout_bound_by_parent(resonate_instance: Resonate, parent_timeout: int, child_timeout: int) -> None:
+    resonate_instance.options(timeout=parent_timeout).run(f"parent-bound-timeout-{uuid.uuid4()}", parent_bound, parent_timeout, child_timeout).result()
 
 
 def test_random_generation(resonate_instance: Resonate) -> None:
@@ -185,10 +203,10 @@ def test_random_generation(resonate_instance: Resonate) -> None:
 
 @pytest.mark.parametrize("id", ["foo", None])
 def test_hitl(resonate_instance: Resonate, id: str | None) -> None:
-    timestamp = int(time.time())
-    handle = resonate_instance.run(f"hitl-{timestamp}", hitl, id)
+    uid = uuid.uuid4()
+    handle = resonate_instance.run(f"hitl-{uid}", hitl, id)
     time.sleep(1)
-    resonate_instance.promises.resolve(id=id or f"hitl-{timestamp}.1", data=1)
+    resonate_instance.promises.resolve(id=id or f"hitl-{uid}.1", data=1)
     assert handle.result() == 1
 
 
