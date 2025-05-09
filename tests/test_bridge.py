@@ -177,6 +177,14 @@ def child_unbounded(ctx: Context, parent_timeout_rel: int, child_timeout_rel: in
         assert pytest.approx(ctx.info.timeout) == parent_timeout_abs
 
 
+def failure_wkflw(ctx: Context) -> Generator[Yieldable, Any, None]:
+    yield ctx.lfc(failure_fn).options(timeout=1, retry_policy=Constant(delay=10, max_retries=1_000_000))
+
+
+def failure_fn(ctx: Context) -> None:
+    raise RuntimeError
+
+
 @pytest.fixture(scope="module")
 def resonate_instance(store: Store, message_source: MessageSource) -> Generator[Resonate, None, None]:
     resonate = Resonate(store=store, message_source=message_source)
@@ -201,6 +209,7 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     resonate.register(child_bounded)
     resonate.register(unbound_detached)
     resonate.register(child_unbounded)
+    resonate.register(failure_wkflw)
     resonate.start()
     yield resonate
     resonate.stop()
@@ -208,6 +217,11 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     # this timeout is set to cover the timeout time of the test poller, you can
     # see where this is set in conftest.py
     time.sleep(3)
+
+
+def test_fail_inmediatelly(resonate_instance: Resonate) -> None:
+    with pytest.raises(RuntimeError):
+        resonate_instance.run(f"fail-inmediatelly-{uuid.uuid4()}", failure_wkflw).result()
 
 
 @pytest.mark.parametrize("mode", ["rfc", "lfc"])

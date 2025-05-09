@@ -555,7 +555,6 @@ class Computation:
         match node.value:
             case Blocked(Running(Lfnc() as f)):
                 node.transition(Enabled(Running(f.map(result=result))))
-
             case _:
                 raise NotImplementedError
 
