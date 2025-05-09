@@ -72,18 +72,16 @@ class RemoteStore:
                         error = {"message": e.response.text, "code": 0}
 
                     # Only a 500 response code should be retried
-                    if e.response.status_code == 500 and not delay:
-                        continue
-
-                    raise ResonateStoreError(**error) from e
+                    if delay is None or e.response.status_code != 500:
+                        raise ResonateStoreError(**error) from e
                 except requests.exceptions.Timeout as e:
-                    if not delay:
+                    if delay is None:
                         raise ResonateStoreError(message="Request timed out", code=0) from e
                 except requests.exceptions.ConnectionError as e:
-                    if not delay:
+                    if delay is None:
                         raise ResonateStoreError(message="Failed to connect", code=0) from e
                 except Exception as e:
-                    if not delay:
+                    if delay is None:
                         raise ResonateStoreError(message="Unknown exception", code=0) from e
                 else:
                     return data
