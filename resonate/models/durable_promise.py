@@ -32,10 +32,7 @@ class DurablePromise:
     @property
     def result(self) -> Result:
         assert self.completed, "Promise must be completed"
-        if self.resolved:
-            return Ok(self.value.data)
-
-        return Ko(self.value.data)
+        return Ok(self.value.data) if self.resolved else Ko(self.value.data)
 
     @property
     def pending(self) -> bool:
