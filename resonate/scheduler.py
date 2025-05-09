@@ -290,7 +290,7 @@ class Lfnc:
     id: str
     cid: str
     conv: Convention
-    timeout: float  # absolute time in seconds
+    abs_timeout: float  # absolute time in seconds
     func: Callable[..., Any]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
@@ -340,7 +340,7 @@ class Rfnc:
     id: str
     cid: str
     conv: Convention
-    timeout: float  # absolute time in seconds
+    abs_timeout: float  # absolute time in seconds
 
     attempt: int = field(default=1, init=False)
     promise: DurablePromise | None = field(default=None, init=False)
@@ -374,7 +374,7 @@ class Coro:
     id: str
     cid: str
     conv: Convention
-    timeout: float  # absolute time in seconds
+    abs_timeout: float  # absolute time in seconds
     func: Callable[..., Any]
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
@@ -486,7 +486,7 @@ class Computation:
         match cmd, self.graph.root.value.func:
             case Invoke(id, conv, timeout, func, args, kwargs, opts, promise), Init(next=None):
                 assert id == conv.id == self.id == (promise.id if promise else id), "Ids must match."
-                assert (promise is not None) == opts.durable, "Promise must be set iff durable."
+                assert (promise is not None) == opts.durable, "Promise must be set if durable."
 
                 cls = Coro if isgeneratorfunction(func) else Lfnc
                 self.graph.root.transition(Enabled(Running(cls(id, self.id, conv, timeout, func, args, kwargs, opts, self.ctx).map(promise=promise))))
@@ -692,7 +692,7 @@ class Computation:
 
     def _eval(self, node: Node[State]) -> list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]]:
         match node.value:
-            case Enabled(Running(Init(Lfnc(id=id, conv=conv, timeout=timeout, opts=opts) | Coro(id=id, conv=conv, timeout=timeout, opts=opts) as func, suspends))):
+            case Enabled(Running(Init(Lfnc(id=id, conv=conv, abs_timeout=abs_timeout, opts=opts) | Coro(id=id, conv=conv, abs_timeout=abs_timeout, opts=opts) as func, suspends))):
                 assert id == conv.id == node.id, "Id must match convention id and node id."
                 assert node is not self.graph.root, "Node must not be root node."
 
@@ -706,7 +706,7 @@ class Computation:
                                 self.id,
                                 CreatePromiseReq(
                                     id=id,
-                                    timeout=int(timeout * 1000),
+                                    timeout=int(abs_timeout * 1000),
                                     ikey=conv.idempotency_key,
                                     headers=conv.headers,
                                     data=conv.data,
@@ -719,7 +719,7 @@ class Computation:
                         self._unblock(suspends, AWT(id))
                         return []
 
-            case Enabled(Running(Init(Rfnc(id=id, conv=conv, timeout=timeout))) as exec):
+            case Enabled(Running(Init(Rfnc(id=id, conv=conv, abs_timeout=abs_timeout))) as exec):
                 assert id == conv.id == node.id, "Id must match convention id and node id."
                 node.transition(Blocked(exec))
 
@@ -729,7 +729,7 @@ class Computation:
                         self.id,
                         CreatePromiseReq(
                             id=id,
-                            timeout=int(timeout * 1000),
+                            timeout=int(abs_timeout * 1000),
                             ikey=conv.idempotency_key,
                             headers=conv.headers,
                             data=conv.data,
@@ -738,10 +738,8 @@ class Computation:
                     ),
                 ]
 
-            case Enabled(Running(Lfnc(id=id, func=func, args=args, kwargs=kwargs, opts=opts, attempt=attempt, ctx=ctx, result=result, suspends=suspends) as f)):
+            case Enabled(Running(Lfnc(id=id, func=func, args=args, kwargs=kwargs, opts=opts, attempt=attempt, ctx=ctx, result=result, suspends=suspends, abs_timeout=abs_timeout) as f)):
                 assert id == node.id, "Id must match node id."
-
-                # TODO(@Tomperez98): take timeout into account
 
                 match result, f.retry_policy.next(attempt), opts.durable:
                     case None, _, _:
@@ -776,13 +774,22 @@ class Computation:
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
-                    case Ko(), delay, _:
+                    case Ko(), delay, _ if time.time() + delay < abs_timeout:
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
                             Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs)), delay),
                         ]
+                    case Ko(e), _, True:
+                        node.transition(Blocked(Running(f)))
+                        return [
+                            Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=e)),
+                        ]
+                    case Ko(), _, False:
+                        node.transition(Enabled(Completed(f.map(result=result))))
+                        self._unblock(suspends, result)
+                        return []
 
-            case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt, ctx=parent_ctx) as c)):
+            case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt, ctx=parent_ctx, abs_timeout=abs_timeout) as c)):
                 cmd = coro.send(next)
                 child = self.graph.find(lambda n: n.id == cmd.id) or Node(cmd.id, Enabled(Suspended(Init())))
                 self.history.append((id, next, cmd))
@@ -885,11 +892,20 @@ class Computation:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []
-                            case Ko(), delay, _:
+                            case Ko(), delay, _ if time.time() + delay < abs_timeout:
                                 node.transition(Blocked(Running(c.map(attempt=attempt + 1))))
                                 return [
                                     Delayed(Retry(id, self.id), delay),
                                 ]
+                            case Ko(e), _, True:
+                                node.transition(Blocked(Running(c)))
+                                return [
+                                    Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=e)),
+                                ]
+                            case Ko(), _, False:
+                                node.transition(Enabled(Completed(c.map(result=result))))
+                                self._unblock(c.suspends, result)
+                                return []
 
                     case _:
                         raise NotImplementedError
