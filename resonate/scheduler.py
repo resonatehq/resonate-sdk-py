@@ -862,8 +862,6 @@ class Computation:
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
 
-                        # TODO(@Tomperez98): take timeout into account
-
                         match result, c.retry_policy.next(attempt), opts.durable:
                             case Ok(v), _, True:
                                 node.transition(Blocked(Running(c)))
