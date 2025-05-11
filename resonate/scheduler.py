@@ -486,7 +486,7 @@ class Computation:
         match cmd, self.graph.root.value.func:
             case Invoke(id, conv, timeout, func, args, kwargs, opts, promise), Init(next=None):
                 assert id == conv.id == self.id == (promise.id if promise else id), "Ids must match."
-                assert (promise is not None) == opts.durable, "Promise must be set if durable."
+                assert (promise is not None) == opts.durable, "Promise must be set iff durable."
 
                 cls = Coro if isgeneratorfunction(func) else Lfnc
                 self.graph.root.transition(Enabled(Running(cls(id, self.id, conv, timeout, func, args, kwargs, opts, self.ctx).map(promise=promise))))
