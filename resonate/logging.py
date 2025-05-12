@@ -14,11 +14,6 @@ _initialized = False
 def set_level(level: int) -> None:
     global _initialized  # noqa: PLW0603
 
-    # Update log level only if needed
-    current_level = logger.getEffectiveLevel()
-    if current_level != level:
-        logger.setLevel(level)
-
     # Configure handler once
     if not _initialized:
         # Add handler only if none exist
