@@ -93,6 +93,8 @@ class Scheduler:
                 assert not future.done()
                 future.set_exception(e)
 
+        logger.error("resonate has shutdown due to %s", e)
+
 
 class Info:
     def __init__(self, func: Lfnc | Coro) -> None:
@@ -774,7 +776,8 @@ class Computation:
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
-                    case Ko(), delay, _:
+                    case Ko(e), delay, _:
+                        logger.error("retrying function %s due to error %s", id, e)
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
                             Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs)), delay),
@@ -883,7 +886,8 @@ class Computation:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []
-                            case Ko(), delay, _:
+                            case Ko(e), delay, _:
+                                logger.error("retrying coroutine %s due to error %s", id, e)
                                 node.transition(Blocked(Running(c.map(attempt=attempt + 1))))
                                 return [
                                     Delayed(Retry(id, self.id), delay),
