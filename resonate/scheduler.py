@@ -773,7 +773,7 @@ class Computation:
                         self._unblock(suspends, result)
                         return []
                     case Ko(), delay, _ if delay is not None:
-                        logger.debug("due to %s", result, extra={"root_id": cid, "id": id, "event": "Retry"})
+                        logger.debug("due to result=%s", result, extra={"root_id": cid, "id": id, "event": "Retry"})
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
                             Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs)), delay),
@@ -781,7 +781,7 @@ class Computation:
                     case _:
                         raise NotImplementedError
 
-            case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt, ctx=parent_ctx, timeout=timeout) as c)):
+            case Enabled(Running(Coro(id=id, cid=cid, coro=coro, next=next, opts=opts, attempt=attempt, ctx=parent_ctx, timeout=timeout) as c)):
                 cmd = coro.send(next)
                 child = self.graph.find(lambda n: n.id == cmd.id) or Node(cmd.id, Enabled(Suspended(Init())))
                 self.history.append((id, next, cmd))
@@ -853,6 +853,8 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
+
+                        logger.info("with result=%s", result, extra={"root_id": cid, "id": id, "event": "Return"})
 
                         match result, c.retry_policy.next(attempt), opts.durable:
                             case Ok(v), _, True:
