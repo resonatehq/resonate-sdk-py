@@ -7,17 +7,25 @@ import logging
 # Name the logger after the package
 logger = logging.getLogger(__package__)
 
+# Global state tracking
+_initialized = False
+
 
 def set_level(level: int) -> None:
-    logger.setLevel(level)
+    global _initialized  # noqa: PLW0603
 
-    # Only configure handlers if none exist yet
-    if not logger.handlers:
-        # Create stream handler with stderr
-        handler = logging.StreamHandler()
+    # Update log level only if needed
+    current_level = logger.getEffectiveLevel()
+    if current_level != level:
+        logger.setLevel(level)
 
-        # Configure formatter with timestamp, name, and log level
-        handler.setFormatter(logging.Formatter(fmt="%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    # Configure handler once
+    if not _initialized:
+        # Add handler only if none exist
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter(fmt="%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+            logger.addHandler(handler)
 
-        # Add handler to the logger
-        logger.addHandler(handler)
+        # Mark initialization as complete
+        _initialized = True
