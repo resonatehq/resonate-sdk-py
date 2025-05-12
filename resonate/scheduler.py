@@ -485,6 +485,7 @@ class Computation:
                 assert id == conv.id == self.id == (promise.id if promise else id), "Ids must match."
                 assert (promise is not None) == opts.durable, "Promise must be set iff durable."
 
+                logger.info("args=%s kwargs=%s", args, kwargs, extra={"root_id": id, "id": id, "event": "Invoke"})
                 cls = Coro if isgeneratorfunction(func) else Lfnc
                 self.graph.root.transition(Enabled(Running(cls(id, self.id, conv, timeout, func, args, kwargs, opts, self.ctx).map(promise=promise))))
 
@@ -501,10 +502,10 @@ class Computation:
                 if node:
                     self._apply_resume(node, promise)
 
-            case Return(id, res=res), _:
+            case Return(id, cid, res=res), _:
                 node = self.graph.find(lambda n: n.id == id)
                 assert node, "Node must exist."
-
+                logger.info("with result=%s", res, extra={"root_id": cid, "id": id, "event": "Return"})
                 self._apply_return(node, res)
 
             case Receive(id, res=CreatePromiseRes(promise) | ResolvePromiseRes(promise) | RejectPromiseRes(promise) | CancelPromiseRes(promise)), _:
@@ -772,7 +773,7 @@ class Computation:
                         self._unblock(suspends, result)
                         return []
                     case Ko(), delay, _ if delay is not None:
-                        logger.warning("due to %s", result, extra={"root_id": cid, "id": id, "event": "Retry"})
+                        logger.debug("due to %s", result, extra={"root_id": cid, "id": id, "event": "Retry"})
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
                             Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs)), delay),

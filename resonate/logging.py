@@ -30,7 +30,7 @@ def set_level(level: int) -> None:
             handler = logging.StreamHandler()
 
             # Configure formatter with timestamp, name, and log level
-            handler.setFormatter(LogRecordFormat(fmt="%(asctime)s [%(name)s] %(levelname)s: RootPromiseID=%(root_id)s PromiseID=%(id)s Event=%(event)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+            handler.setFormatter(LogRecordFormat(fmt="%(asctime)s [%(name)s] %(levelname)s: RootPromiseID=%(root_id)s PromiseID=%(id)s Event=%(event)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
 
             # Add handler to the logger
             logger.addHandler(handler)
