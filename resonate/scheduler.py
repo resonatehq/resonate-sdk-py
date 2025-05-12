@@ -885,6 +885,7 @@ class Computation:
                                 self._unblock(c.suspends, result)
                                 return []
                             case Ko(), delay, _ if delay is not None:
+                                logger.debug("due to result=%s", result, extra={"root_id": cid, "id": id, "event": "Retry"})
                                 node.transition(Blocked(Running(c.map(attempt=attempt + 1))))
                                 return [
                                     Delayed(Retry(id, self.id), delay),
