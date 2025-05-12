@@ -753,12 +753,12 @@ class Computation:
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
-                    case Ko(e), None, True:
+                    case Ko(e), delay, True if delay is None or time.time() + delay > timeout:
                         node.transition(Blocked(Running(f)))
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=e)),
                         ]
-                    case Ko(), None, False:
+                    case Ko(), delay, False if delay is None or time.time() + delay > timeout:
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
@@ -771,20 +771,13 @@ class Computation:
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
-                    case Ko(), delay, _ if time.time() + delay < timeout:
+                    case Ko(), delay, _ if delay is not None:
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
                             Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs)), delay),
                         ]
-                    case Ko(e), _, True:
-                        node.transition(Blocked(Running(f)))
-                        return [
-                            Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=e)),
-                        ]
-                    case Ko(), _, False:
-                        node.transition(Enabled(Completed(f.map(result=result))))
-                        self._unblock(suspends, result)
-                        return []
+                    case _:
+                        raise NotImplementedError
 
             case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt, ctx=parent_ctx, timeout=timeout) as c)):
                 cmd = coro.send(next)
@@ -869,12 +862,12 @@ class Computation:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []
-                            case Ko(e), None, True:
+                            case Ko(e), delay, True if delay is None or time.time() + delay > timeout:
                                 node.transition(Blocked(Running(c)))
                                 return [
                                     Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=e)),
                                 ]
-                            case Ko(), None, False:
+                            case Ko(), delay, False if delay is None or time.time() + delay > timeout:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []
@@ -887,21 +880,13 @@ class Computation:
                                 node.transition(Enabled(Completed(c.map(result=result))))
                                 self._unblock(c.suspends, result)
                                 return []
-                            case Ko(), delay, _ if time.time() + delay < timeout:
+                            case Ko(), delay, _ if delay is not None:
                                 node.transition(Blocked(Running(c.map(attempt=attempt + 1))))
                                 return [
                                     Delayed(Retry(id, self.id), delay),
                                 ]
-                            case Ko(e), _, True:
-                                node.transition(Blocked(Running(c)))
-                                return [
-                                    Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=e)),
-                                ]
-                            case Ko(), _, False:
-                                node.transition(Enabled(Completed(c.map(result=result))))
-                                self._unblock(c.suspends, result)
-                                return []
-
+                            case _:
+                                raise NotImplementedError
                     case _:
                         raise NotImplementedError
 
