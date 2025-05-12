@@ -735,7 +735,7 @@ class Computation:
                     ),
                 ]
 
-            case Enabled(Running(Lfnc(id=id, func=func, args=args, kwargs=kwargs, opts=opts, attempt=attempt, ctx=ctx, result=result, suspends=suspends, timeout=timeout) as f)):
+            case Enabled(Running(Lfnc(id=id, cid=cid, func=func, args=args, kwargs=kwargs, opts=opts, attempt=attempt, ctx=ctx, result=result, suspends=suspends, timeout=timeout) as f)):
                 assert id == node.id, "Id must match node id."
 
                 match result, f.retry_policy.next(attempt), opts.durable:
@@ -772,6 +772,7 @@ class Computation:
                         self._unblock(suspends, result)
                         return []
                     case Ko(), delay, _ if delay is not None:
+                        logger.warning("due to %s", result, extra={"root_id": cid, "id": id, "event": "Retry"})
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
                             Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs)), delay),

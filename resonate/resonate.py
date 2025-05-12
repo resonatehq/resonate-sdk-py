@@ -42,12 +42,13 @@ class Resonate:
         message_source: MessageSource | None = None,
         log_level: int = logging.INFO,
     ) -> None:
-        set_level(log_level)
-
         # enforce mutual inclusion/exclusion of store and message source
         assert (store is None) == (message_source is None), "store and message source must both be set or both be unset"
         assert not isinstance(store, LocalStore) or isinstance(message_source, LocalMessageSource), "message source must be local message source"
         assert not isinstance(store, RemoteStore) or not isinstance(message_source, LocalMessageSource), "message source must not be local message source"
+
+        # configure logger
+        set_level(log_level)
 
         self._started = False
         self._pid = pid or uuid.uuid4().hex
