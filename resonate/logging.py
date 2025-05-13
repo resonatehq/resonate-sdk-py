@@ -12,6 +12,7 @@ logger = logging.getLogger(__package__)
 def set_level(level: int) -> None:
     global _configured  # noqa: PLW0603
 
+    # ensures one-time initialization of configuration settings, even if multiple instances of the Resonate class are created.
     if not _configured:
         logger.setLevel(level)
 
