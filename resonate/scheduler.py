@@ -777,9 +777,9 @@ class Computation:
             case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt, ctx=parent_ctx, timeout=timeout) as c)):
                 match next:
                     case None:
-                        logger.info("invoked", extra={"computation_id": self.id, "id": id, "attempt": f"(attempt={attempt})" if attempt > 1 else ""})
+                        logger.info("invoked", extra={"computation_id": self.id, "id": id, "attempt": attempt})
                     case Ok() | Ko():
-                        logger.info("resumed", extra={"computation_id": self.id, "id": id, "attempt": f"(attempt={attempt})" if attempt > 1 else ""})
+                        logger.info("resumed", extra={"computation_id": self.id, "id": id, "attempt": attempt})
                     case AWT():
                         pass
 
