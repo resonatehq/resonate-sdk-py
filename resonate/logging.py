@@ -3,28 +3,30 @@
 from __future__ import annotations
 
 import logging
+import os
 
-_configured: bool = False
 # Name the logger after the package
-logger = logging.getLogger(__package__)
 
 
-def set_level(level: int) -> None:
-    global _configured  # noqa: PLW0603
+def _configure_logger() -> logging.Logger:
+    logger = logging.getLogger(__package__)
+    logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
+    if not logger.handlers:
+        # Create stream handler with stderr
+        handler = logging.StreamHandler()
 
-    # ensures one-time initialization of configuration settings, even if multiple instances of the Resonate class are created.
-    if not _configured:
-        logger.setLevel(level)
+        # Configure formatter with timestamp, name, and log level
+        handler.setFormatter(
+            logging.Formatter(
+                fmt="%(asctime)s %(levelname)s [%(name)s] %(computation_id)s::%(id)s %(message)s %(attempt)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+                defaults={"id": "", "computation_id": "none", "attempt": ""},
+            ),
+        )
 
-        # Only configure handlers if none exist yet
-        if not logger.handlers:
-            # Create stream handler with stderr
-            handler = logging.StreamHandler()
+        # Add handler to the logger
+        logger.addHandler(handler)
+    return logger
 
-            # Configure formatter with timestamp, name, and log level
-            handler.setFormatter(logging.Formatter(fmt="%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
 
-            # Add handler to the logger
-            logger.addHandler(handler)
-
-        _configured = True
+logger = _configure_logger()

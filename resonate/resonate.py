@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import functools
-import logging
 import random
 import time
 import uuid
@@ -13,7 +12,6 @@ from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
-from resonate.logging import set_level
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -40,15 +38,11 @@ class Resonate:
         dependencies: Dependencies | None = None,
         store: Store | None = None,
         message_source: MessageSource | None = None,
-        log_level: int = logging.INFO,
     ) -> None:
         # enforce mutual inclusion/exclusion of store and message source
         assert (store is None) == (message_source is None), "store and message source must both be set or both be unset"
         assert not isinstance(store, LocalStore) or isinstance(message_source, LocalMessageSource), "message source must be local message source"
         assert not isinstance(store, RemoteStore) or not isinstance(message_source, LocalMessageSource), "message source must not be local message source"
-
-        # configure logger
-        set_level(log_level)
 
         self._started = False
         self._pid = pid or uuid.uuid4().hex
@@ -84,7 +78,6 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int = logging.INFO,
     ) -> Resonate:
         pid = pid or uuid.uuid4().hex
         store = LocalStore()
@@ -97,7 +90,6 @@ class Resonate:
             dependencies=dependencies,
             store=store,
             message_source=store.message_source(group=group, id=pid),
-            log_level=log_level,
         )
 
     @classmethod
@@ -112,7 +104,6 @@ class Resonate:
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
         retry_policy: RetryPolicy | None = None,
-        log_level: int = logging.INFO,
     ) -> Resonate:
         pid = pid or uuid.uuid4().hex
 
@@ -124,7 +115,6 @@ class Resonate:
             dependencies=dependencies,
             store=RemoteStore(host=host, port=store_port, retry_policy=retry_policy),
             message_source=Poller(group=group, id=pid, host=host, port=message_source_port),
-            log_level=log_level,
         )
 
     @property
