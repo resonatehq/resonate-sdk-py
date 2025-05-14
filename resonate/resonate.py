@@ -181,9 +181,9 @@ class Resonate:
                 if isinstance(func, type):
                     msg = "Cannot register class types. Register a function, method, or create a function that instantiates the class."
                     raise ResonateValidationError(msg)
-                else:
-                    msg = "Cannot register callable objects (instances with __call__ methods). Only functions and methods are supported."
-                    raise ResonateValidationError(msg)
+                
+                msg = "Cannot register callable objects (instances with __call__ methods). Only functions and methods are supported."
+                raise ResonateValidationError(msg)
 
             self._registry.add(func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(version=version))
