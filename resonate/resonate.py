@@ -5,6 +5,7 @@ import functools
 import random
 import time
 import uuid
+import inspect
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, TypeVarTuple, overload
 
@@ -12,6 +13,7 @@ from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
+from resonate.errors import ResonateValidationError
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
     from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
     from resonate.models.store import PromiseStore, Store
+
 
 
 class Resonate:
@@ -172,8 +175,16 @@ class Resonate:
         *args: Callable[Concatenate[Context, P], R] | None,
         name: str | None = None,
         version: int = 1,
-    ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
-        def wrapper(func: Callable[Concatenate[Context, P], R]) -> Function[P, R]:
+    ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], Generator[Any, Any, R] | R]], Function[P, R]]:
+        def wrapper(func: Callable[..., Any]) -> Function[P, R]:
+            if hasattr(func, "__call__") and not inspect.isfunction(func) and not inspect.ismethod(func):
+                if isinstance(func, type):
+                    msg = "Cannot register class types. Register a function, method, or create a function that instantiates the class."
+                    raise ResonateValidationError(msg)
+                else:
+                    msg = "Cannot register callable objects (instances with __call__ methods). Only functions and methods are supported."
+                    raise ResonateValidationError(msg)
+
             self._registry.add(func, name or func.__name__, version)
             return Function(self, name or func.__name__, func, self._opts.merge(version=version))
 
