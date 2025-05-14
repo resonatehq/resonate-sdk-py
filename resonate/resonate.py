@@ -174,7 +174,7 @@ class Resonate:
         *args: Callable[Concatenate[Context, P], R] | None,
         name: str | None = None,
         version: int = 1,
-    ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], Generator[Any, Any, R] | R]], Function[P, R]]:
+    ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
         def wrapper(func: Callable[..., Any]) -> Function[P, R]:
             if callable(func) and not inspect.isfunction(func) and not inspect.ismethod(func):
                 if isinstance(func, type):
