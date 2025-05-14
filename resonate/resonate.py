@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import copy
 import functools
+import inspect
 import random
 import time
 import uuid
-import inspect
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, TypeVarTuple, overload
 
@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
     from resonate.models.store import PromiseStore, Store
-
 
 
 class Resonate:
@@ -177,11 +176,10 @@ class Resonate:
         version: int = 1,
     ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], Generator[Any, Any, R] | R]], Function[P, R]]:
         def wrapper(func: Callable[..., Any]) -> Function[P, R]:
-            if hasattr(func, "__call__") and not inspect.isfunction(func) and not inspect.ismethod(func):
+            if callable(func) and not inspect.isfunction(func) and not inspect.ismethod(func):
                 if isinstance(func, type):
                     msg = "Cannot register class types. Register a function, method, or create a function that instantiates the class."
                     raise ResonateValidationError(msg)
-                
                 msg = "Cannot register callable objects (instances with __call__ methods). Only functions and methods are supported."
                 raise ResonateValidationError(msg)
 
