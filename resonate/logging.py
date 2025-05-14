@@ -14,22 +14,21 @@ class LogRecordFormatter(logging.Formatter):
         return super().format(record)
 
 
-def configure_logger() -> None:
-    logger = logging.getLogger(__package__)
+# Name the logger after the package
+logger = logging.getLogger(__package__)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
-    # Name the logger after the package
-    logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
-    if not logger.handlers:
-        # Create stream handler with stderr
-        handler = logging.StreamHandler()
 
-        # Configure formatter with timestamp, name, and log level
-        handler.setFormatter(
-            LogRecordFormatter(
-                fmt="%(asctime)s %(levelname)s [%(name)s] %(computation_id)s::%(id)s %(message)s %(attempt)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            ),
-        )
+# Create stream handler with stderr
+handler = logging.StreamHandler()
 
-        # Add handler to the logger
-        logger.addHandler(handler)
+# Configure formatter with timestamp, name, and log level
+handler.setFormatter(
+    LogRecordFormatter(
+        fmt="%(asctime)s %(levelname)s [%(name)s] %(computation_id)s::%(id)s %(message)s %(attempt)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ),
+)
+
+# Add handler to the logger
+logger.addHandler(handler)
