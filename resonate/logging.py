@@ -14,9 +14,10 @@ class LogRecordFormatter(logging.Formatter):
         return super().format(record)
 
 
-def _configure_logger() -> logging.Logger:
-    # Name the logger after the package
+def configure_logger() -> None:
     logger = logging.getLogger(__package__)
+
+    # Name the logger after the package
     logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
     if not logger.handlers:
         # Create stream handler with stderr
@@ -32,7 +33,3 @@ def _configure_logger() -> logging.Logger:
 
         # Add handler to the logger
         logger.addHandler(handler)
-    return logger
-
-
-logger = _configure_logger()

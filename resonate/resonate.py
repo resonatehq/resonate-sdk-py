@@ -12,6 +12,7 @@ from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
+from resonate.logging import configure_logger
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -43,6 +44,8 @@ class Resonate:
         assert (store is None) == (message_source is None), "store and message source must both be set or both be unset"
         assert not isinstance(store, LocalStore) or isinstance(message_source, LocalMessageSource), "message source must be local message source"
         assert not isinstance(store, RemoteStore) or not isinstance(message_source, LocalMessageSource), "message source must not be local message source"
+
+        configure_logger()
 
         self._started = False
         self._pid = pid or uuid.uuid4().hex
