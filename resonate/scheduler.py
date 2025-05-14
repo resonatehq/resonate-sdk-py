@@ -746,23 +746,27 @@ class Computation:
                         ]
                     case Ok(v), True, _:
                         logger.info("completed successfully", extra={"computation_id": self.id, "id": id})
+
                         node.transition(Blocked(Running(f)))
                         return [
                             Network(id, self.id, ResolvePromiseReq(id=id, ikey=id, data=v)),
                         ]
                     case Ok(), False, _:
                         logger.info("completed successfully", extra={"computation_id": self.id, "id": id})
+
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
                     case Ko(e), True, d if d is None or time.time() + d > timeout or type(e) in opts.non_retryable_exceptions:
                         logger.info("completed unsuccessfully", extra={"computation_id": self.id, "id": id})
+
                         node.transition(Blocked(Running(f)))
                         return [
                             Network(id, self.id, RejectPromiseReq(id=id, ikey=id, data=e)),
                         ]
                     case Ko(e), False, d if d is None or time.time() + d > timeout or type(e) in opts.non_retryable_exceptions:
                         logger.info("completed unsuccessfully", extra={"computation_id": self.id, "id": id})
+
                         node.transition(Enabled(Completed(f.map(result=result))))
                         self._unblock(suspends, result)
                         return []
@@ -778,8 +782,10 @@ class Computation:
                 match next:
                     case None:
                         logger.info("spawned", extra={"computation_id": self.id, "id": id, "attempt": attempt})
+
                     case Ok() | Ko():
                         logger.info("resumed", extra={"computation_id": self.id, "id": id, "attempt": attempt})
+
                     case AWT():
                         pass
 
@@ -814,6 +820,7 @@ class Computation:
 
                     case LFI(conv) | RFI(conv), Enabled(Running(Init() as f)):
                         logger.info("invoked %s", conv.id, extra={"computation_id": self.id, "id": id})
+
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
                         node.transition(Enabled(Suspended(c)))
@@ -822,6 +829,7 @@ class Computation:
 
                     case LFI(conv) | RFI(conv), Blocked(Running(Init() as f)):
                         logger.info("invoked %s", conv.id, extra={"computation_id": self.id, "id": id})
+
                         node.add_edge(child)
                         node.add_edge(child, "waiting[p]")
                         node.transition(Enabled(Suspended(c)))
@@ -830,12 +838,14 @@ class Computation:
 
                     case LFI(conv) | RFI(conv), _:
                         logger.info("invoked %s", conv.id, extra={"computation_id": self.id, "id": id})
+
                         node.add_edge(child)
                         node.transition(Enabled(Running(c.map(next=AWT(conv.id)))))
                         return []
 
                     case AWT(aid), Enabled(Running(f)):
                         logger.info("awaiting %s", aid, extra={"computation_id": self.id, "id": id})
+
                         node.add_edge(child, "waiting[v]")
                         node.transition(Enabled(Suspended(c)))
                         child.transition(Enabled(Running(f.map(suspends=node))))
