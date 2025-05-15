@@ -21,6 +21,3 @@ wheels/
 
 # docs
 apidocs/
-
-# lock
-uv.lock
