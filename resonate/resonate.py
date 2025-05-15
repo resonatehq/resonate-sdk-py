@@ -272,7 +272,7 @@ class Context:
         self._counter = 0
 
     def __repr__(self) -> str:
-        return f"Context(id={self._id}, cid={self._id}, info={self._info})"
+        return f"Context(id={self._id}, cid={self._cid}, info={self._info})"
 
     @property
     def id(self) -> str:
