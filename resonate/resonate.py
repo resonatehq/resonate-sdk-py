@@ -176,11 +176,8 @@ class Resonate:
         version: int = 1,
     ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
         def wrapper(func: Callable[..., Any]) -> Function[P, R]:
-            if callable(func) and not inspect.isfunction(func) and not inspect.ismethod(func):
-                if isinstance(func, type):
-                    msg = "Cannot register class types. Register a function, method, or create a function that instantiates the class."
-                    raise ResonateValidationError(msg)
-                msg = "Cannot register callable objects (instances with __call__ methods). Only functions and methods are supported."
+            if not inspect.isfunction(func):
+                msg = "Can only register functions"
                 raise ResonateValidationError(msg)
 
             self._registry.add(func, name or func.__name__, version)
