@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import traceback
 import urllib.parse
@@ -8,14 +7,14 @@ from functools import wraps
 from importlib.metadata import version
 from typing import TYPE_CHECKING
 
+from resonate.logging import logger
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 
 def exit_on_exception[R, **P](component: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
     def _exit_on_exception(func: Callable[P, R]) -> Callable[P, R]:
-        logger = logging.getLogger(f"{__package__}.{component}")
-
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             try:
