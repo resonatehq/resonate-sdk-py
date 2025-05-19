@@ -305,9 +305,8 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
-        func = func.func if isinstance(func, Function) else func
         opts = Options(version=self._registry.latest(func))
-        return LFI(Local(self._next(), self._cid, self._id, opts), func, args, kwargs, opts)
+        return LFI(Local(self._next(), self._cid, self._id, opts), func.func if isinstance(func, Function) else func, args, kwargs, opts)
 
     def lfc[**P, R](
         self,
@@ -315,9 +314,8 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
-        func = func.func if isinstance(func, Function) else func
         opts = Options(version=self._registry.latest(func))
-        return LFC(Local(self._next(), self._cid, self._id, opts), func, args, kwargs, opts)
+        return LFC(Local(self._next(), self._cid, self._id, opts), func.func if isinstance(func, Function) else func, args, kwargs, opts)
 
     @overload
     def rfi[**P, R](
