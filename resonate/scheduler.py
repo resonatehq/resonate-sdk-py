@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 from resonate.conventions import Base
 from resonate.coroutine import AWT, LFI, RFI, TRM, Coroutine
+from resonate.errors.errors import ResonateValidationError
 from resonate.graph import Graph, Node
 from resonate.models.clock import Clock
 from resonate.models.commands import (
@@ -763,7 +764,7 @@ class Computation:
                         logger.info("enqueued", extra={"computation_id": self.id, "id": id})
                         node.transition(Blocked(Running(f)))
                         return [
-                            Function(id, self.id, lambda: func(ctx, *args, **kwargs)),
+                            Function(id, self.id, lambda: func(ctx, *args, **kwargs), opts.validation),
                         ]
                     case Ok(v), True, _:
                         logger.info("completed successfully", extra={"computation_id": self.id, "id": id})
@@ -796,7 +797,7 @@ class Computation:
                         logger.info("enqueued(attempt=%s)", attempt + 1, extra={"computation_id": self.id, "id": id})
                         node.transition(Blocked(Running(f.map(attempt=attempt + 1))))
                         return [
-                            Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs)), d),
+                            Delayed(Function(id, self.id, lambda: func(ctx, *args, **kwargs), opts.validation), d),
                         ]
 
             case Enabled(Running(Coro(id=id, coro=coro, next=next, opts=opts, attempt=attempt, ctx=parent_ctx, timeout=timeout) as c)):
@@ -894,6 +895,11 @@ class Computation:
 
                     case TRM(id, result), _:
                         assert id == node.id, "Id must match node id."
+
+                        match result:
+                            case Ok(v) if opts.validation is not None and not opts.validation(v):
+                                msg = "function result didn't passed validation"
+                                result = Ko(ResonateValidationError(msg))
 
                         match result, opts.durable, c.retry_policy.next(attempt):
                             case Ok(v), True, _:
