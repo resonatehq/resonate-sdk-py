@@ -5,7 +5,7 @@ description = "Distributed Async Await by Resonate HQ, Inc"
 readme = "README.md"
 authors = [{ name = "Resonate HQ, Inc", email = "contact@resonatehq.io" }]
 requires-python = ">=3.12"
-dependencies = ["jsonpickle >= 1", "requests >= 2"]
+dependencies = ["jsonpickle >= 1, < 5", "requests >= 2, < 3"]
 
 [project.urls]
 Documentation = "https://github.com/resonatehq/resonate-sdk-py#readme"
