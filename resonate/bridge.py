@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from resonate.conventions import Base
 from resonate.delay_q import DelayQ
-from resonate.errors.errors import ResonateShutdownError
+from resonate.errors.errors import ResonateShutdownError, ResonateValidationError
 from resonate.models.commands import (
     CancelPromiseReq,
     CancelPromiseRes,
@@ -214,8 +214,8 @@ class Bridge:
                                     self._stop_no_join()
                                     return
 
-                            case Function(id, cid, func):
-                                self._cq.put_nowait(Return(id, cid, self._handle_function(func)))
+                            case Function(id, cid, func, validation):
+                                self._cq.put_nowait(Return(id, cid, self._handle_function(func, validation)))
                             case Delayed() as item:
                                 self._handle_delay(item)
 
@@ -342,8 +342,8 @@ class Bridge:
 
                 for item in events:
                     match item:
-                        case Function(id, cid, func):
-                            self._cq.put_nowait(Return(id, cid, self._handle_function(func)))
+                        case Function(id, cid, func, validation):
+                            self._cq.put_nowait(Return(id, cid, self._handle_function(func, validation)))
                         case Retry() as retry:
                             self._cq.put_nowait(retry)
                         case _:
@@ -440,9 +440,15 @@ class Bridge:
             case _:
                 raise NotImplementedError
 
-    def _handle_function(self, func: Callable[[], Any]) -> Result:
+    def _validate[T](self, v: T, validation: Callable[[T], bool] | None) -> T:
+        if validation is not None and not validation(v):
+            msg = "function result didn't passed validation"
+            raise ResonateValidationError(msg)
+        return v
+
+    def _handle_function(self, func: Callable[[], Any], validation: Callable[[Any], bool] | None) -> Result:
         try:
-            r = func()
+            r = self._validate(func(), validation)
             return Ok(r)
         except Exception as e:
             return Ko(e)

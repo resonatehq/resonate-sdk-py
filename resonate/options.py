@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from inspect import isgeneratorfunction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from resonate.errors import ResonateValidationError
 from resonate.retry_policies import Exponential, Never
@@ -20,9 +20,10 @@ class Options:
     idempotency_key: str | Callable[[str], str] | None = lambda id: id
     non_retryable_exceptions: tuple[type[Exception], ...] = ()
     retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] = lambda f: Never() if isgeneratorfunction(f) else Exponential()
-    target: str = "poll://default"
     tags: dict[str, str] = field(default_factory=dict)
+    target: str = "poll://default"
     timeout: float = 31536000  # relative time in seconds, default 1 year
+    validation: Callable[[Any], bool] | None = None
     version: int = 0
 
     def __post_init__(self) -> None:
@@ -41,9 +42,10 @@ class Options:
         idempotency_key: str | Callable[[str], str] | None = None,
         non_retryable_exceptions: tuple[type[Exception], ...] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
-        target: str | None = None,
         tags: dict[str, str] | None = None,
+        target: str | None = None,
         timeout: float | None = None,
+        validation: Callable[[Any], bool] | None = None,
         version: int | None = None,
     ) -> Options:
         if version and not (version >= 0):
@@ -59,8 +61,9 @@ class Options:
             idempotency_key=idempotency_key if idempotency_key is not None else self.idempotency_key,
             non_retryable_exceptions=non_retryable_exceptions if non_retryable_exceptions is not None else self.non_retryable_exceptions,
             retry_policy=retry_policy if retry_policy is not None else self.retry_policy,
-            target=target if target is not None else self.target,
             tags=tags if tags is not None else self.tags,
+            target=target if target is not None else self.target,
             timeout=timeout if timeout is not None else self.timeout,
+            validation=validation if validation is not None else self.validation,
             version=version if version is not None else self.version,
         )

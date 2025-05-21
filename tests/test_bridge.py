@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from resonate.errors.errors import ResonateShutdownError, ResonateStoreError
+from resonate.errors.errors import ResonateShutdownError, ResonateStoreError, ResonateValidationError
 from resonate.resonate import Resonate
 from resonate.retry_policies import Constant, Never
 from resonate.stores.local import LocalStore
@@ -21,6 +21,16 @@ if TYPE_CHECKING:
     from resonate.models.message_source import MessageSource
     from resonate.models.store import Store
     from resonate.resonate import Context
+
+
+def foo_fn_validation(ctx: Context) -> Generator[Yieldable, Any, str]:
+    return (yield ctx.lfc(baz).options(validation=lambda v: v != "baz", retry_policy=Never()))
+
+
+def foo_coro_validation(ctx: Context, *, exit: bool) -> Generator[Yieldable, Any, str]:
+    if exit:
+        return "foo"
+    return (yield ctx.lfc(foo_coro_validation, exit=True).options(validation=lambda v: v != "foo"))
 
 
 def foo_lfi(ctx: Context) -> Generator:
@@ -215,6 +225,8 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     resonate.register(child_unbounded)
     resonate.register(wkflw)
     resonate.register(failure_wkflw)
+    resonate.register(foo_fn_validation)
+    resonate.register(foo_coro_validation)
     resonate.start()
     yield resonate
     resonate.stop()
@@ -222,6 +234,16 @@ def resonate_instance(store: Store, message_source: MessageSource) -> Generator[
     # this timeout is set to cover the timeout time of the test poller, you can
     # see where this is set in conftest.py
     time.sleep(3)
+
+
+def test_validation_coroutine(resonate_instance: Resonate) -> None:
+    with pytest.raises(ResonateValidationError):
+        resonate_instance.run(f"foo-coro-validation-{uuid.uuid4()}", foo_coro_validation, exit=False).result()
+
+
+def test_validation_function(resonate_instance: Resonate) -> None:
+    with pytest.raises(ResonateValidationError):
+        resonate_instance.run(f"foo-fn-validation-{uuid.uuid4()}", foo_fn_validation).result()
 
 
 def test_local_invocations_with_registered_functions(resonate_instance: Resonate) -> None:

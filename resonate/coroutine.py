@@ -35,11 +35,12 @@ class LFX[T]:
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         tags: dict[str, str] | None = None,
         timeout: int | None = None,
+        validation: Callable[[Any], bool] | None = None,
         version: int | None = None,
     ) -> Self:
         # Note: we deliberately ignore the version for LFX
         self.conv = self.conv.options(id=id, idempotency_key=idempotency_key, tags=tags, timeout=timeout)
-        self.opts = self.opts.merge(durable=durable, retry_policy=retry_policy, non_retryable_exceptions=non_retryable_exceptions)
+        self.opts = self.opts.merge(durable=durable, retry_policy=retry_policy, non_retryable_exceptions=non_retryable_exceptions, validation=validation)
         return self
 
 

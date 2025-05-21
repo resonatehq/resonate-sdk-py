@@ -100,6 +100,7 @@ class Function:
     id: str
     cid: str
     func: Callable[[], Any]
+    validation: Callable[[Any], bool] | None
 
 
 @dataclass
