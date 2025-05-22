@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import random
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, final
 
 from resonate.encoders import Base64Encoder, ChainEncoder, JsonEncoder
@@ -9,39 +11,34 @@ from resonate.errors import ResonateStoreError
 from resonate.message_sources import LocalMessageSource
 from resonate.models.callback import Callback
 from resonate.models.durable_promise import DurablePromise
-from resonate.models.message import InvokeMesg, Mesg, NotifyMesg, ResumeMesg, TaskMesg
+from resonate.models.message import DurablePromiseMesg, DurablePromiseValueMesg, InvokeMesg, Mesg, NotifyMesg, ResumeMesg, TaskMesg
 from resonate.models.task import Task
 from resonate.routers import TagRouter
+from resonate.utils import exit_on_exception
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from resonate.models.clock import Clock
     from resonate.models.encoder import Encoder
-    from resonate.models.message_source import MessageSource
     from resonate.models.router import Router
 
 
 class LocalStore:
     def __init__(self, encoder: Encoder[Any, str | None] | None = None, clock: Clock | None = None) -> None:
-        self._promises: dict[str, DurablePromiseRecord] = {}
-        self._tasks: dict[str, TaskRecord] = {}
-        self._routers: list[Router] = [TagRouter()]
-
         self._encoder = encoder or ChainEncoder(JsonEncoder(), Base64Encoder())
+        self._promises = LocalPromiseStore(self)
+        self._tasks = LocalTaskStore(self)
+
+        self._routers: list[Router] = [TagRouter()]
+        self._targets: dict[str, str] = {"default": "local://any@default"}
         self._clock: Clock = clock or time
 
-        self._promise_store = LocalPromiseStore(
-            self,
-            self._promises,
-            self._tasks,
-            self._routers,
-            self._clock,
-        )
-        self._task_store = LocalTaskStore(
-            self,
-            self._promises,
-            self._tasks,
-            self._clock,
-        )
+        self._conn = set[LocalMessageSource]()
+        self._cond = threading.Condition()
+
+        self._thread: threading.Thread | None = None
+        self._stopped = False
 
     @property
     def encoder(self) -> Encoder[Any, str | None]:
@@ -49,67 +46,190 @@ class LocalStore:
 
     @property
     def promises(self) -> LocalPromiseStore:
-        return self._promise_store
+        return self._promises
 
     @property
     def tasks(self) -> LocalTaskStore:
-        return self._task_store
+        return self._tasks
+
+    @property
+    def routers(self) -> list[Router]:
+        return self._routers
+
+    @property
+    def targets(self) -> dict[str, str]:
+        return self._targets
+
+    @property
+    def clock(self) -> Clock:
+        return self._clock
 
     def add_router(self, router: Router) -> None:
         self._routers.append(router)
 
-    def message_source(self, group: str, id: str) -> MessageSource:
-        return LocalMessageSource(group, id, self)
+    def add_target(self, name: str, target: str) -> None:
+        self._targets[name] = target
 
-    def step(self) -> list[tuple[str, Mesg]]:
-        messages: list[tuple[str, Mesg]] = []
+    def message_source(self, group: str, id: str) -> LocalMessageSource:
+        source = LocalMessageSource(self, group, id)
+        self.connect(source)
 
-        for promise in self._promises.values():
-            match promise, int(self._clock.time() * 1000) >= promise.timeout:
-                case DurablePromiseRecord(state="PENDING"), True:
-                    record, applied = self.promises.transition(id=promise.id, to="REJECTED_TIMEDOUT")
-                    assert applied
-                    for callback in record.callbacks:
-                        self.tasks.transition(
-                            id=str(len(self._tasks) + 1),
-                            to="INIT",
-                            type=callback.type,
-                            recv=callback.recv,
-                            root_promise_id=callback.root_promise_id,
-                            leaf_promise_id=callback.promise_id,
-                        )
-                    record.callbacks.clear()
+        return source
 
-        for task in self._tasks.values():
-            match task, self._clock.time() * 1000 >= (task.expiry or 0):
-                case TaskRecord(type="invoke", state="INIT"), _:
-                    _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
-                    if applied:
-                        messages.append((task.recv, InvokeMesg(type="invoke", task=TaskMesg(id=task.id, counter=task.counter))))
-                case TaskRecord(type="resume", state="INIT"), _:
-                    _, applied = self.tasks.transition(id=task.id, to="ENQUEUED")
-                    if applied:
-                        messages.append((task.recv, ResumeMesg(type="resume", task=TaskMesg(id=task.id, counter=task.counter))))
-                case TaskRecord(type="notify"), _:
-                    promise = self._promises.get(task.root_promise_id)
-                    assert promise
+    def connect(self, source: LocalMessageSource) -> None:
+        self._conn.add(source)
 
-                    _, applied = self.tasks.transition(id=task.id, to="COMPLETED")
-                    if applied:
-                        messages.append((task.recv, NotifyMesg(type="notify", promise=promise.to_dict())))
-                case TaskRecord(state="ENQUEUED" | "CLAIMED"), True:
-                    self.tasks.transition(id=task.id, to="INIT")
+    def disconnect(self, source: LocalMessageSource) -> None:
+        if source in self._conn:
+            self._conn.remove(source)
 
-        return messages
+        if not self._conn:
+            self.stop()
+
+    def start(self) -> None:
+        if not self._thread or not self._thread.is_alive():
+            self._stopped = False
+            self._thread = threading.Thread(target=self.loop, name="local_store", daemon=True)
+            self._thread.start()
+
+    def stop(self) -> None:
+        self._stopped = True
+        self.notify()
+
+        if self._thread and self._thread.is_alive():
+            self._thread.join()
+
+    def notify(self) -> None:
+        with self._cond:
+            self._cond.notify()
+
+    @exit_on_exception("store")
+    def loop(self) -> None:
+        # set initial timeout to zero to prime the control loop
+        timeout = 0.0
+
+        while not self._stopped:
+            with self._cond:
+                self._cond.wait(timeout)
+
+                step = self.step()
+                next: bool | None = None
+                timeout = None
+
+                while True:
+                    try:
+                        message_sources = []
+                        addr, mesg = step.send(next)
+
+                        for message_source in self._conn:
+                            preferred, alternate = message_source.match(addr)
+                            assert not (preferred and alternate)
+
+                            if preferred:
+                                message_sources = [message_source]
+                                break
+                            if alternate:
+                                message_sources.append(message_source)
+
+                        if message_sources:
+                            random.choice(message_sources).enqueue(mesg)
+                            next = True
+                        else:
+                            next = False
+                    except StopIteration:
+                        break
+
+                # The next timeout time is the minimum of:
+                # all promise timeouts
+                # all task expirations
+
+                for r in self.promises.scan():
+                    if r.state == "PENDING":
+                        timeout = r.timeout if timeout is None else min(r.timeout, timeout)
+
+                for r in self.tasks.scan():
+                    if r.state == ("INIT", "ENQUEUED", "CLAIMED"):
+                        assert r.expiry is not None
+                        timeout = r.expiry if timeout is None else min(r.expiry, timeout)
+
+                # convert to relative time in seconds while respecting max
+                # timeout
+                if timeout is not None:
+                    timeout = min(max(0, (timeout / 1000) - self.clock.time()), threading.TIMEOUT_MAX)
+
+    def step(self) -> Generator[tuple[str, Mesg], bool | None, None]:
+        time = int(self._clock.time() * 1000)
+
+        # transition promises to timedout
+        for promise in self._promises.scan():
+            if promise.state == "PENDING" and time >= promise.timeout:
+                record, applied = self.promises.transition(id=promise.id, to="REJECTED_TIMEDOUT")
+                assert applied
+
+                for callback in record.callbacks.values():
+                    self.tasks.transition(
+                        id=callback.id,
+                        to="INIT",
+                        type=callback.type,
+                        recv=callback.recv,
+                        root_promise_id=callback.root_promise_id,
+                        leaf_promise_id=callback.promise_id,
+                    )
+                record.callbacks.clear()
+
+        # transition tasks to init
+        for task in self._tasks.scan():
+            if task.state in ("ENQUEUED", "CLAIMED") and task.expiry is not None and time >= task.expiry:
+                self.tasks.transition(id=task.id, to="INIT", force=True)
+
+        # send all outstanding messages
+        for task in self._tasks.scan():
+            if task.state == "INIT" and task.type == "invoke":
+                mesg = InvokeMesg(
+                    type="invoke",
+                    task=TaskMesg(id=task.id, counter=task.counter),
+                )
+            elif task.state == "INIT" and task.type == "resume":
+                mesg = ResumeMesg(
+                    type="resume",
+                    task=TaskMesg(id=task.id, counter=task.counter),
+                )
+            elif task.state == "INIT" and task.type == "notify":
+                promise = self._promises.get(task.root_promise_id)
+                mesg = NotifyMesg(
+                    type="notify",
+                    promise=DurablePromiseMesg(
+                        id=promise.id,
+                        state=promise.state,
+                        timeout=promise.timeout,
+                        idempotencyKeyForCreate=promise.ikey_for_create,
+                        idempotencyKeyForComplete=promise.ikey_for_complete,
+                        param=DurablePromiseValueMesg(headers=promise.param.headers, data=self._encoder.encode(promise.param.data)),
+                        value=DurablePromiseValueMesg(headers=promise.value.headers, data=self._encoder.encode(promise.value.data)),
+                        tags=promise.tags,
+                        createdOn=promise.created_on,
+                        completedOn=promise.completed_on,
+                    ),
+                )
+            else:
+                continue
+
+            success = yield task.recv, mesg
+
+            if success:
+                _, applied = self.tasks.transition(task.id, to="COMPLETED" if task.type == "notify" else "ENQUEUED")
+                assert applied
+            else:
+                pass
+                # TODO(dfarr): implement this
+                # _, applied = self.tasks.transition(task.id, to="INIT", expiry=0)
+                # assert applied
 
 
 class LocalPromiseStore:
-    def __init__(self, store: LocalStore, promises: dict[str, DurablePromiseRecord], tasks: dict[str, TaskRecord], routers: list[Router], clock: Clock) -> None:
+    def __init__(self, store: LocalStore) -> None:
+        self._promises: dict[str, DurablePromiseRecord] = {}
         self._store = store
-        self._promises = promises
-        self._tasks = tasks
-        self._routers = routers
-        self._clock = clock
 
     def get(self, id: str) -> DurablePromise:
         record = self._promises.get(id)
@@ -203,56 +323,74 @@ class LocalPromiseStore:
 
     def callback(
         self,
-        id: str,
         promise_id: str,
         root_promise_id: str,
-        timeout: int,
         recv: str,
+        timeout: int,
     ) -> tuple[DurablePromise, Callback | None]:
+        id = f"__resume:{root_promise_id}:{promise_id}"
+
         promise = self._promises.get(promise_id)
         if promise is None:
             raise ResonateStoreError(message="The specified promise was not found", code=40400)
+
         durable_promise = DurablePromise.from_dict(
             self._store,
             promise.to_dict(),
         )
-        if promise.state != "PENDING":
+
+        if promise.state != "PENDING" or id in promise.callbacks:
             return durable_promise, None
 
-        callback = CallbackRecord(id=id, type="resume", promise_id=promise_id, root_promise_id=root_promise_id, timeout=timeout, created_on=int(self._clock.time() * 1000), recv=recv)
-        promise.callbacks.append(callback)
-        return durable_promise, Callback(
-            id=callback.id,
-            promise_id=callback.promise_id,
-            timeout=callback.timeout,
-            created_on=callback.created_on,
+        callback = CallbackRecord(
+            id=id,
+            type="resume",
+            promise_id=promise_id,
+            root_promise_id=root_promise_id,
+            recv=recv,
+            timeout=timeout,
+            created_on=int(self._store.clock.time() * 1000),
         )
+
+        promise.callbacks[id] = callback
+        return durable_promise, Callback.from_dict(callback.to_dict())
 
     def subscribe(
         self,
         id: str,
         promise_id: str,
-        timeout: int,
         recv: str,
+        timeout: int,
     ) -> tuple[DurablePromise, Callback | None]:
+        id = f"__notify:{promise_id}:{id}"
+
         promise = self._promises.get(promise_id)
         if promise is None:
             raise ResonateStoreError(message="The specified promise was not found", code=40400)
+
         durable_promise = DurablePromise.from_dict(
             self._store,
             promise.to_dict(),
         )
-        if promise.state != "PENDING":
+
+        if promise.state != "PENDING" or id in promise.callbacks:
             return durable_promise, None
 
-        callback = CallbackRecord(id=id, type="notify", promise_id=promise_id, root_promise_id=promise_id, timeout=timeout, created_on=int(self._clock.time() * 1000), recv=recv)
-        promise.callbacks.append(callback)
-        return durable_promise, Callback(
-            id=callback.id,
-            promise_id=callback.promise_id,
-            timeout=callback.timeout,
-            created_on=callback.created_on,
+        callback = CallbackRecord(
+            id=id,
+            type="notify",
+            promise_id=promise_id,
+            root_promise_id=promise_id,
+            recv=recv,
+            timeout=timeout,
+            created_on=int(self._store.clock.time() * 1000),
         )
+
+        promise.callbacks[id] = callback
+        return durable_promise, Callback.from_dict(callback.to_dict())
+
+    def scan(self) -> Generator[DurablePromiseRecord, None, None]:
+        yield from self._promises.values()
 
     def _create(
         self,
@@ -267,7 +405,8 @@ class LocalPromiseStore:
         pid: str | None = None,
         ttl: int = 0,
     ) -> tuple[DurablePromise, Task | None]:
-        record, applied = self.transition(
+        task = None
+        promise_record, applied = self.transition(
             id=id,
             to="PENDING",
             strict=strict,
@@ -278,25 +417,28 @@ class LocalPromiseStore:
             timeout=timeout,
         )
 
-        task: Task | None = None
         if applied:
-            for r in self._routers:
-                if recv := r.route(record):
+            for r in self._store.routers:
+                if recv := r.route(promise_record):
                     task_record, _ = self._store.tasks.transition(
-                        id=str(len(self._tasks) + 1),
+                        id=f"__invoke:{promise_record.id}",
                         to="INIT",
                         type="invoke",
-                        recv=recv,
-                        root_promise_id=record.id,
-                        leaf_promise_id=record.id,
+                        recv=self._store.targets.get(recv, recv),
+                        root_promise_id=promise_record.id,
+                        leaf_promise_id=promise_record.id,
                     )
                     if pid is not None:
                         task_record, _ = self._store.tasks.transition(id=task_record.id, to="CLAIMED", pid=pid, ttl=ttl, counter=1)
                         task = Task.from_dict(self._store, task_record.to_dict())
                     break
+
+            # notify the store so we can interrupt the wait
+            self._store.notify()
+
         return DurablePromise.from_dict(
             self._store,
-            record.to_dict(),
+            promise_record.to_dict(),
         ), task
 
     def _complete(
@@ -311,13 +453,13 @@ class LocalPromiseStore:
     ) -> DurablePromise:
         record, applied = self.transition(id=id, to=state, strict=strict, headers=headers, data=data, ikey=ikey)
         if applied:
-            for task in self._tasks.values():
-                if (task.state in ("INIT", "ENQUEUED", "CLAIMED")) and task.root_promise_id == record.id:
+            for task in self._store.tasks.scan():
+                if task.state in ("INIT", "ENQUEUED", "CLAIMED") and task.root_promise_id == record.id:
                     self._store.tasks.transition(id=task.id, to="COMPLETED", force=True)
 
-            for callback in record.callbacks:
+            for callback in record.callbacks.values():
                 self._store.tasks.transition(
-                    id=str(len(self._tasks) + 1),
+                    id=callback.id,
                     to="INIT",
                     type=callback.type,
                     recv=callback.recv,
@@ -325,6 +467,9 @@ class LocalPromiseStore:
                     leaf_promise_id=callback.promise_id,
                 )
             record.callbacks.clear()
+
+            # notify the store so we can interrupt the wait
+            self._store.notify()
 
         return DurablePromise.from_dict(
             self._store,
@@ -342,22 +487,23 @@ class LocalPromiseStore:
         data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> tuple[DurablePromiseRecord, bool]:
+        time = int(self._store.clock.time() * 1000)
+
         match record := self._promises.get(id), to, strict:
             case None, "PENDING", _:
                 assert timeout is not None
-                assert int(self._clock.time() * 1000) is not None
+
                 record = DurablePromiseRecord(
                     id=id,
                     state=to,
                     timeout=timeout,
                     param=DurablePromiseRecordValue(headers=headers or {}, data=self._store.encoder.encode(data)),
                     value=DurablePromiseRecordValue(headers={}, data=None),
-                    created_on=int(self._clock.time() * 1000),
+                    created_on=time,
                     completed_on=None,
                     ikey_for_create=ikey,
                     ikey_for_complete=None,
                     tags=tags,
-                    callbacks=[],
                 )
                 self._promises[record.id] = record
                 return record, True
@@ -365,13 +511,13 @@ class LocalPromiseStore:
             case None, "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", _:
                 raise ResonateStoreError(message="The specified promise was not found", code=40400)
 
-            case DurablePromiseRecord(state="PENDING"), "PENDING", _ if int(self._clock.time() * 1000) < record.timeout and ikey_match(record.ikey_for_create, ikey):
+            case DurablePromiseRecord(state="PENDING"), "PENDING", _ if time < record.timeout and ikey_match(record.ikey_for_create, ikey):
                 return record, False
 
-            case DurablePromiseRecord(state="PENDING"), "PENDING", False if int(self._clock.time() * 1000) >= record.timeout and ikey_match(record.ikey_for_create, ikey):
+            case DurablePromiseRecord(state="PENDING"), "PENDING", False if time >= record.timeout and ikey_match(record.ikey_for_create, ikey):
                 return self.transition(id=id, to="REJECTED_TIMEDOUT")
 
-            case DurablePromiseRecord(state="PENDING"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", _ if int(self._clock.time() * 1000) < record.timeout:
+            case DurablePromiseRecord(state="PENDING"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", _ if time < record.timeout:
                 record = DurablePromiseRecord(
                     id=record.id,
                     state=to,
@@ -379,7 +525,7 @@ class LocalPromiseStore:
                     param=record.param,
                     value=DurablePromiseRecordValue(headers=headers, data=self._store.encoder.encode(data)),
                     created_on=record.created_on,
-                    completed_on=int(self._clock.time() * 1000),
+                    completed_on=time,
                     ikey_for_create=record.ikey_for_create,
                     ikey_for_complete=ikey,
                     tags=record.tags,
@@ -388,15 +534,16 @@ class LocalPromiseStore:
                 self._promises[record.id] = record
                 return record, True
 
-            case DurablePromiseRecord(state="PENDING"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", False if int(self._clock.time() * 1000) >= record.timeout:
+            case DurablePromiseRecord(state="PENDING"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", False if time >= record.timeout:
                 return self.transition(id=id, to="REJECTED_TIMEDOUT")
 
-            case DurablePromiseRecord(state="PENDING"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", True if int(self._clock.time() * 1000) >= record.timeout:
+            case DurablePromiseRecord(state="PENDING"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", True if time >= record.timeout:
                 self.transition(id=id, to="REJECTED_TIMEDOUT")
                 raise ResonateStoreError(message="The promise has already timedout", code=40303)
 
             case DurablePromiseRecord(state="PENDING"), "REJECTED_TIMEDOUT", _:
-                assert int(self._clock.time() * 1000) >= record.timeout
+                assert time >= record.timeout
+
                 record = DurablePromiseRecord(
                     id=record.id,
                     state="RESOLVED" if record.tags and record.tags.get("resonate:timeout") == "true" else to,
@@ -413,10 +560,13 @@ class LocalPromiseStore:
                 self._promises[record.id] = record
                 return record, True
 
-            case DurablePromiseRecord(state="RESOLVED" | "REJECTED" | "REJECTED_CANCELED"), "PENDING", False if ikey_match(record.ikey_for_create, ikey):
+            case DurablePromiseRecord(state="RESOLVED" | "REJECTED" | "REJECTED_CANCELED" | "REJECTED_TIMEDOUT"), "PENDING", False if ikey_match(record.ikey_for_create, ikey):
                 return record, False
 
             case DurablePromiseRecord(state="RESOLVED" | "REJECTED" | "REJECTED_CANCELED"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", False if ikey_match(record.ikey_for_complete, ikey):
+                return record, False
+
+            case DurablePromiseRecord(state="REJECTED_TIMEDOUT"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", False:
                 return record, False
 
             case DurablePromiseRecord(state="RESOLVED" | "REJECTED" | "REJECTED_CANCELED"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", True if (
@@ -430,11 +580,9 @@ class LocalPromiseStore:
 
 
 class LocalTaskStore:
-    def __init__(self, store: LocalStore, promises: dict[str, DurablePromiseRecord], tasks: dict[str, TaskRecord], clock: Clock) -> None:
+    def __init__(self, store: LocalStore) -> None:
+        self._tasks: dict[str, TaskRecord] = {}
         self._store = store
-        self._promises = promises
-        self._tasks = tasks
-        self._clock = clock
 
     def claim(
         self,
@@ -443,44 +591,51 @@ class LocalTaskStore:
         pid: str,
         ttl: int,
     ) -> tuple[DurablePromise, DurablePromise | None]:
-        task_record, _ = self.transition(id=id, to="CLAIMED", pid=pid, ttl=ttl, counter=counter)
+        task_record, applied = self.transition(id=id, to="CLAIMED", pid=pid, ttl=ttl, counter=counter)
         assert task_record.type in ("invoke", "resume")
+        assert applied
+
+        # notify the store so we can interrupt the wait
+        self._store.notify()
 
         match task_record.type:
             case "invoke":
-                root_promise = self._promises[task_record.root_promise_id]
-                return DurablePromise.from_dict(
-                    self._store,
-                    root_promise.to_dict(),
-                ), None
+                root_promise = self._store.promises.get(task_record.root_promise_id)
+                return root_promise, None
             case "resume":
-                root_promise = self._promises[task_record.root_promise_id]
-                leaf_promise = self._promises[task_record.leaf_promise_id]
-                return DurablePromise.from_dict(
-                    self._store,
-                    root_promise.to_dict(),
-                ), DurablePromise.from_dict(
-                    self._store,
-                    leaf_promise.to_dict(),
-                )
+                root_promise = self._store.promises.get(task_record.root_promise_id)
+                leaf_promise = self._store.promises.get(task_record.leaf_promise_id)
+                return root_promise, leaf_promise
 
     def complete(self, id: str, counter: int) -> bool:
-        self.transition(id=id, to="COMPLETED", counter=counter)
+        _, applied = self.transition(id=id, to="COMPLETED", counter=counter)
+
+        if applied:
+            # notify the store so we can interrupt the wait
+            self._store.notify()
+
         return True
 
     def heartbeat(self, pid: str) -> int:
+        applied = False
         affected_tasks = 0
-        for record in self._tasks.values():
+
+        for record in self.scan():
             if record.state != "CLAIMED" or record.pid != pid:
                 continue
 
-            assert record.ttl is not None
-
-            _, modified = self.transition(id=record.id, to="CLAIMED", force=True)
-            assert modified
+            _, applied = self.transition(id=record.id, to="CLAIMED", force=True)
+            assert applied
             affected_tasks += 1
 
+        if applied:
+            # notify the store so we can interrupt the wait
+            self._store.notify()
+
         return affected_tasks
+
+    def scan(self) -> Generator[TaskRecord, None, None]:
+        yield from self._tasks.values()
 
     def transition(
         self,
@@ -496,17 +651,15 @@ class LocalTaskStore:
         ttl: int | None = None,
         force: bool = False,
     ) -> tuple[TaskRecord, bool]:
-        """Transition a task.
+        time = int(self._store.clock.time() * 1000)
 
-        Returns the task record that was transitioned and a boolean indicating if a message should be sent.
-        """
         match record := self._tasks.get(id), to:
             case None, "INIT":
                 assert type is not None
                 assert recv is not None
                 assert root_promise_id is not None
                 assert leaf_promise_id is not None
-                assert int(self._clock.time() * 1000) is not None
+
                 record = TaskRecord(
                     id=id,
                     counter=1,
@@ -518,11 +671,11 @@ class LocalTaskStore:
                     pid=None,
                     ttl=None,
                     expiry=None,
-                    created_on=int(self._clock.time() * 1000),
+                    created_on=time,
                     completed_on=None,
                 )
                 self._tasks[record.id] = record
-                return record, False
+                return record, True
 
             case TaskRecord(state="INIT"), "ENQUEUED":
                 record = TaskRecord(
@@ -533,9 +686,9 @@ class LocalTaskStore:
                     recv=record.recv,
                     root_promise_id=record.root_promise_id,
                     leaf_promise_id=record.leaf_promise_id,
-                    pid=record.pid,
-                    ttl=record.ttl,
-                    expiry=int(self._clock.time() * 1000) + 5000,  # TODO(dfarr): make this configurable
+                    pid=None,
+                    ttl=None,
+                    expiry=time + 5000,  # TODO(dfarr): make this configurable
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
@@ -544,6 +697,8 @@ class LocalTaskStore:
 
             case TaskRecord(state="INIT"), "CLAIMED" if record.counter == counter:
                 assert ttl is not None
+                assert pid is not None
+
                 record = TaskRecord(
                     id=record.id,
                     counter=record.counter,
@@ -554,7 +709,7 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=pid,
                     ttl=ttl,
-                    expiry=int(self._clock.time() * 1000) + ttl,
+                    expiry=time + ttl,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
@@ -564,6 +719,7 @@ class LocalTaskStore:
             case TaskRecord(state="ENQUEUED"), "CLAIMED" if record.counter == counter:
                 assert ttl is not None
                 assert pid is not None
+
                 record = TaskRecord(
                     id=record.id,
                     counter=record.counter,
@@ -574,12 +730,12 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=pid,
                     ttl=ttl,
-                    expiry=int(self._clock.time() * 1000) + ttl,
+                    expiry=time + ttl,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
                 self._tasks[record.id] = record
-                return record, False
+                return record, True
 
             case TaskRecord(state="INIT" | "ENQUEUED", type="notify"), "COMPLETED":
                 record = TaskRecord(
@@ -594,13 +750,15 @@ class LocalTaskStore:
                     ttl=None,
                     expiry=None,
                     created_on=record.created_on,
-                    completed_on=int(self._clock.time() * 1000),
+                    completed_on=time,
                 )
                 self._tasks[record.id] = record
                 return record, True
+
             case TaskRecord(state="ENQUEUED" | "CLAIMED"), "INIT":
                 assert record.expiry is not None
-                assert int(self._clock.time() * 1000) >= record.expiry
+                assert time >= record.expiry
+
                 record = TaskRecord(
                     id=record.id,
                     counter=record.counter + 1,
@@ -620,6 +778,7 @@ class LocalTaskStore:
 
             case TaskRecord(state="CLAIMED"), "CLAIMED" if force:
                 assert record.ttl is not None
+
                 record = TaskRecord(
                     id=record.id,
                     counter=record.counter,
@@ -630,14 +789,14 @@ class LocalTaskStore:
                     leaf_promise_id=record.leaf_promise_id,
                     pid=record.pid,
                     ttl=record.ttl,
-                    expiry=int(self._clock.time() * 1000) + record.ttl,
+                    expiry=time + record.ttl,
                     created_on=record.created_on,
                     completed_on=record.completed_on,
                 )
                 self._tasks[record.id] = record
                 return record, True
 
-            case TaskRecord(state="CLAIMED"), "COMPLETED" if record.counter == counter and (record.expiry is not None and record.expiry >= int(self._clock.time() * 1000)):
+            case TaskRecord(state="CLAIMED"), "COMPLETED" if record.counter == counter and (record.expiry is not None and record.expiry >= time):
                 record = TaskRecord(
                     id=record.id,
                     counter=record.counter,
@@ -650,10 +809,10 @@ class LocalTaskStore:
                     ttl=None,
                     expiry=None,
                     created_on=record.created_on,
-                    completed_on=int(self._clock.time() * 1000),
+                    completed_on=time,
                 )
                 self._tasks[record.id] = record
-                return record, False
+                return record, True
 
             case TaskRecord(state="INIT" | "ENQUEUED" | "CLAIMED"), "COMPLETED" if force:
                 record = TaskRecord(
@@ -668,10 +827,10 @@ class LocalTaskStore:
                     ttl=None,
                     expiry=None,
                     created_on=record.created_on,
-                    completed_on=int(self._clock.time() * 1000),
+                    completed_on=time,
                 )
                 self._tasks[record.id] = record
-                return record, False
+                return record, True
 
             case TaskRecord(state="COMPLETED"), "COMPLETED":
                 return record, False
@@ -696,7 +855,7 @@ class DurablePromiseRecord:
     tags: dict[str, str] | None
     created_on: int
     completed_on: int | None
-    callbacks: list[CallbackRecord]
+    callbacks: dict[str, CallbackRecord] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -728,11 +887,19 @@ class DurablePromiseRecordValue:
 class CallbackRecord:
     id: str
     type: Literal["resume", "notify"]
-    root_promise_id: str
     promise_id: str
+    root_promise_id: str
+    recv: str
     timeout: int
     created_on: int
-    recv: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "promiseId": self.promise_id,
+            "timeout": self.timeout,
+            "createdOn": self.created_on,
+        }
 
 
 @final
