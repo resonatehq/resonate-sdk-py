@@ -225,6 +225,19 @@ def resonate(store: Store, message_source: MessageSource) -> Generator[Resonate,
     resonate.stop()
 
 
+def test_local_invocations_with_registered_functions(resonate: Resonate) -> None:
+    @resonate.register
+    def recursive(ctx: Context, n: int) -> Generator[Yieldable, Any, int]:
+        if n == 1:
+            return 1
+        elif n % 2 == 0:
+            return (yield ctx.lfc(recursive, n - 1))
+        else:
+            return (yield (yield ctx.lfi(recursive, n - 1)))
+
+    assert recursive.run("recursive", 5).result() == 1
+
+
 @pytest.mark.parametrize("durable", [True, False])
 def test_fail_immediately_fn(resonate: Resonate, durable: bool) -> None:
     with pytest.raises(RuntimeError):

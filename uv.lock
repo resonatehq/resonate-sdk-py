@@ -209,6 +209,15 @@ wheels = [
 ]
 
 [[package]]
+name = "jsonpickle"
+version = "4.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/4f/1dde1e344dc41c40bc3f0eb721d7ddc5fed827bf518ba410c369f6bbaa07/jsonpickle-4.1.0.tar.gz", hash = "sha256:d417d6d693a63fb137e53334164aba618d18aca05a4fd025ff01c2ec134ae4c8", size = 318466 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0e/b5/8d90bb4951a1e821d0b4e559edb3c70918b8954b566c7eb9211846a48c47/jsonpickle-4.1.0-py3-none-any.whl", hash = "sha256:763f837a0b2586b45424d9a07108a798d9feac52f3a152606336f7f9e1a22ffa", size = 46615 },
+]
+
+[[package]]
 name = "lunr"
 version = "0.7.0.post1"
 source = { registry = "https://pypi.org/simple" }
@@ -364,6 +373,7 @@ name = "resonate-sdk"
 version = "0.5.3"
 source = { editable = "." }
 dependencies = [
+    { name = "jsonpickle" },
     { name = "requests" },
 ]
 
@@ -380,7 +390,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "requests", specifier = ">=2.32.3" }]
+requires-dist = [
+    { name = "jsonpickle", specifier = ">=4,<5" },
+    { name = "requests", specifier = ">=2,<3" },
+]
 
 [package.metadata.requires-dev]
 dev = [
