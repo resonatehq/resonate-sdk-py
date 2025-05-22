@@ -420,7 +420,7 @@ class LocalPromiseStore:
         if applied:
             for r in self._store.routers:
                 if recv := r.route(promise_record):
-                    task_record, _ = self._store.tasks.transition(
+                    task_record, applied = self._store.tasks.transition(
                         id=f"__invoke:{promise_record.id}",
                         to="INIT",
                         type="invoke",
@@ -428,9 +428,14 @@ class LocalPromiseStore:
                         root_promise_id=promise_record.id,
                         leaf_promise_id=promise_record.id,
                     )
+                    assert applied
+
                     if pid is not None:
-                        task_record, _ = self._store.tasks.transition(id=task_record.id, to="CLAIMED", pid=pid, ttl=ttl, counter=1)
+                        task_record, applied = self._store.tasks.transition(id=task_record.id, to="CLAIMED", pid=pid, ttl=ttl, counter=1)
+                        assert applied
+
                         task = Task.from_dict(self._store, task_record.to_dict())
+
                     break
 
             # notify the store so we can interrupt the wait
@@ -515,7 +520,8 @@ class LocalPromiseStore:
                 return record, False
 
             case DurablePromiseRecord(state="PENDING"), "PENDING", False if time >= record.timeout and ikey_match(record.ikey_for_create, ikey):
-                return self.transition(id=id, to="REJECTED_TIMEDOUT")
+                record, _ = self.transition(id=id, to="REJECTED_TIMEDOUT")
+                return record, False
 
             case DurablePromiseRecord(state="PENDING"), "RESOLVED" | "REJECTED" | "REJECTED_CANCELED", _ if time < record.timeout:
                 record = DurablePromiseRecord(
