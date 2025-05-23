@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from resonate import Context
+    from resonate.coroutine import Promise
     from resonate.models.context import Info
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,43 @@ def structured_concurrency_rfi(ctx: Context) -> Generator[Any, Any, Any]:
     return p1.id, p2.id, p3.id
 
 
+def same_p_lfi(ctx: Context, n: int) -> Generator[Any, Any, None]:
+    for _ in range(n):
+        yield ctx.lfi(_same_p_lfi, f"{ctx.id}:common")
+
+
+def _same_p_lfi(ctx: Context, id: str) -> Generator[Any, Any, None]:
+    yield ctx.lfi(baz).options(id=id)
+    yield ctx.lfi(baz)
+
+
+def same_p_rfi(ctx: Context, n: int) -> Generator[Any, Any, None]:
+    for _ in range(n):
+        yield ctx.lfi(_same_p_rfi, f"{ctx.id}:common")
+
+
+def _same_p_rfi(ctx: Context, id: str) -> Generator[Any, Any, None]:
+    yield ctx.rfi(baz).options(id=id)
+    yield ctx.lfi(baz)
+
+
+def same_v_lfi(ctx: Context, n: int) -> Generator[Any, Any, None]:
+    p = yield ctx.lfi(baz)
+    for _ in range(n):
+        yield ctx.lfi(_same_v, p)
+
+
+def same_v_rfi(ctx: Context, n: int) -> Generator[Any, Any, None]:
+    p = yield ctx.rfi(baz)
+    for _ in range(n):
+        yield ctx.lfi(_same_v, p)
+
+
+def _same_v(ctx: Context, p: Promise) -> Generator[Any, Any, None]:
+    yield p
+    yield ctx.lfi(baz)
+
+
 def fail_25(ctx: Context) -> str:
     r = ctx.get_dependency("resonate:random")
     assert isinstance(r, random.Random)
@@ -221,6 +259,10 @@ def test_dst(seed: str, steps: int) -> None:
     registry.add(bar_detached, "bar_detached")
     registry.add(structured_concurrency_lfi, "structured_concurrency_lfi")
     registry.add(structured_concurrency_rfi, "structured_concurrency_rfi")
+    registry.add(same_p_lfi, "same_p_lfi")
+    registry.add(same_p_rfi, "same_p_rfi")
+    registry.add(same_v_lfi, "same_v_lfi")
+    registry.add(same_v_rfi, "same_v_rfi")
     registry.add(fail_25, "fail_25")
     registry.add(fail_50, "fail_50")
     registry.add(fail_75, "fail_75")
@@ -260,7 +302,7 @@ def test_dst(seed: str, steps: int) -> None:
         )
 
         # generate commands
-        match r.randint(0, 20):
+        match r.randint(0, 24):
             case 0:
                 sim.send_msg("sim://any@default", Listen(id))
             case 1:
@@ -270,7 +312,7 @@ def test_dst(seed: str, steps: int) -> None:
                 conv = Remote(id, id, id, "bar", opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, bar))
             case 3:
-                conv = Remote(id, id, id, "foo", opts=opts)
+                conv = Remote(id, id, id, "baz", opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, baz))
             case 4:
                 conv = Remote(id, id, id, "foo_lfi", opts=opts)
@@ -306,21 +348,33 @@ def test_dst(seed: str, steps: int) -> None:
                 conv = Remote(id, id, id, "structured_concurrency_lfi", opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, structured_concurrency_lfi))
             case 15:
+                conv = Remote(id, id, id, "same_p_lfi", (n,), opts=opts)
+                sim.send_msg("sim://any@default", Invoke(id, conv, 0, same_p_lfi, (n,)))
+            case 16:
+                conv = Remote(id, id, id, "same_p_rfi", (n,), opts=opts)
+                sim.send_msg("sim://any@default", Invoke(id, conv, 0, same_p_rfi, (n,)))
+            case 17:
+                conv = Remote(id, id, id, "same_v_lfi", (n,), opts=opts)
+                sim.send_msg("sim://any@default", Invoke(id, conv, 0, same_v_lfi, (n,)))
+            case 18:
+                conv = Remote(id, id, id, "same_v_rfi", (n,), opts=opts)
+                sim.send_msg("sim://any@default", Invoke(id, conv, 0, same_v_rfi, (n,)))
+            case 19:
                 conv = Remote(id, id, id, "structured_concurrency_rfi", opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, structured_concurrency_rfi))
-            case 16:
+            case 20:
                 conv = Remote(id, id, id, "fail_25", opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, fail_25))
-            case 17:
+            case 21:
                 conv = Remote(id, id, id, "fail_50", opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, fail_50))
-            case 18:
+            case 22:
                 conv = Remote(id, id, id, "fail_75", opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, fail_75))
-            case 19:
+            case 23:
                 conv = Remote(id, id, id, "fail_99", opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, fail_99))
-            case 20:
+            case 24:
                 conv = Remote(id, id, id, "fib", (n,), opts=opts)
                 sim.send_msg("sim://any@default", Invoke(id, conv, 0, fib, (n,)))
 

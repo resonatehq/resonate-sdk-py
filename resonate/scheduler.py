@@ -516,6 +516,7 @@ class Computation:
 
     def apply(self, cmd: Command) -> None:
         self.history.append(cmd)
+
         match cmd, self.graph.root.value.func:
             case Invoke(id, conv, timeout, func, args, kwargs, opts, promise), Init(next=None):
                 assert id == conv.id == self.id == (promise.id if promise else id), "Ids must match."

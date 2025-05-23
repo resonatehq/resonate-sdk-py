@@ -464,8 +464,23 @@ class Worker(Component):
             self.last_heartbeat = self.time
 
     def _next(self, cmd: Command) -> None:
+        suspends = 0
+        if (computation := self.scheduler.computations.get(cmd.cid)) and (node := computation.graph.find(lambda n: n.id == cmd.id)):
+            suspends = len(node.value.func.suspends)
+
         match self.scheduler.step(cmd):
             case More(reqs):
+                computation = self.scheduler.computations[cmd.cid]
+                assert not computation.runnable()
+                assert not computation.suspendable()
+
+                # The number of actions (create promise, complete promise, run
+                # a function) that can be performed is equal to the number of
+                # sub computations suspended by the command plus one.
+                # -> all suspended sub computations may take a step
+                # -> + a new sub computation may take a step
+                assert len(reqs) <= suspends + 1
+
                 for req in reqs:
                     match req:
                         case Function(id, cid, func) | Delayed(Function(id, cid, func)):
@@ -481,7 +496,11 @@ class Worker(Component):
                             self.send_req("sim://uni@server", req, lambda res, id=id, cid=cid: self.commands.append((Receive(id, cid, res.data.get("data")), None)))
 
             case Done([]):
+                computation = self.scheduler.computations[cmd.cid]
+                assert not computation.runnable()
+                assert computation.suspendable()
                 assert cmd.cid in self.tasks or isinstance(cmd, (Listen, Notify))
+
                 if not isinstance(cmd, (Listen, Notify)):
                     task = self.tasks[cmd.cid]
                     self.send_req(
@@ -491,6 +510,10 @@ class Worker(Component):
                     )
 
             case Done(reqs):
+                computation = self.scheduler.computations[cmd.cid]
+                assert not computation.runnable()
+                assert computation.suspendable()
+
                 # We are relying on the closure to keep track of the number
                 # of created callbacks
                 count = 0
