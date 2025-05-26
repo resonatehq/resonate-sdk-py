@@ -14,7 +14,7 @@
 
 ## About this component
 
-The Resonate Python SDK enables you to build reliable and scalable applications when paired with at least one Resonate Server.
+The Resonate Python SDK enables you to build reliable and scalable applications when paired with at least one [Resonate Server](https://github.com/resonatehq/resonate).
 
 - [Contribute to the Resonate Python SDK](./CONTRIBUTING.md)
 - [License](./LICENSE)
@@ -31,7 +31,7 @@ The Resonate Python SDK enables you to build reliable and scalable applications 
 
 ## Distributed Async Await
 
-Resonate (Resonate Server + Resonate SDK) implements the Distributed Async Await specification — [Learn more](https://www.distributed-async-await.io/)
+Resonate implements the Distributed Async Await specification — [Learn more](https://www.distributed-async-await.io/)
 
 ## Why Resonate
 
@@ -39,10 +39,10 @@ Resonate (Resonate Server + Resonate SDK) implements the Distributed Async Await
 
 Because developing distributed applications should be a delightful experience — [Learn more](https://docs.resonatehq.io/evaluate/why-resonate)
 
-## Contributing
+## Other SDKs
 
-See our [contribution guidelines](CONTRIBUTING.md).
+Add reliablity and scalability to the language you love.
 
-## License
-
-The Resonate Python SDK is available under the [Apache 2.0 License](LICENSE).
+|                                                      Language                                                       | Source Code                                   | Package                                              | Developer docs                                        |
+| :-----------------------------------------------------------------------------------------------------------------: | --------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| <img alt="ts sdk" src="https://upload.wikimedia.org/wikipedia/commons/4/4c/Typescript_logo_2020.svg" width="40px"/> | https://github.com/resonatehq/resonate-sdk-ts | [npm](https://www.npmjs.com/package/@resonatehq/sdk) | [docs](https://docs.resonatehq.io/develop/typescript) |
