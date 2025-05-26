@@ -35,7 +35,7 @@ def bar_ko(ctx: Context):  # noqa: ANN201
 
 @pytest.fixture
 def scheduler() -> Scheduler:
-    return Scheduler(lambda id, info: Context(id, info, Registry(), Dependencies()))
+    return Scheduler(lambda id, cid, info: Context(id, cid, info, Registry(), Dependencies()))
 
 
 @pytest.mark.parametrize(
@@ -139,5 +139,21 @@ def test_generator_sad_path(scheduler: Scheduler, retry_policy: RetryPolicy, ret
 def test_non_retriable_errors(scheduler: Scheduler, retry_policy: RetryPolicy, non_retryable_exceptions: tuple[type[Exception], ...]) -> None:
     opts = Options(durable=False, retry_policy=retry_policy, non_retryable_exceptions=non_retryable_exceptions)
     next = scheduler.step(Invoke("bar", Base("bar", sys.maxsize), sys.maxsize, bar_ko, opts=opts))
+    assert isinstance(next, Done)
+    assert isinstance(scheduler.computations["bar"].result(), Ko)
+
+
+@pytest.mark.parametrize(
+    "retry_policy",
+    [
+        Never(),
+        Constant(max_retries=2),
+        Linear(max_retries=3),
+        Exponential(max_retries=1),
+    ],
+)
+def test_timeout_over_delay(scheduler: Scheduler, retry_policy: RetryPolicy) -> None:
+    opts = Options(durable=False, retry_policy=retry_policy)
+    next = scheduler.step(Invoke("bar", Base("bar", 0), 0, bar_ko, opts=opts))
     assert isinstance(next, Done)
     assert isinstance(scheduler.computations["bar"].result(), Ko)

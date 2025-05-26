@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime
 import json
 from typing import Any
 
@@ -18,34 +17,54 @@ class ResonateError(Exception):
     def __str__(self) -> str:
         return f"[{self.code}] {self.mesg}{'\n' + self.details if self.details else ''}"
 
-
-class ResonateValidationError(ResonateError):
-    def __init__(self, mesg: str) -> None:
-        super().__init__(mesg, "10")
+    def __reduce__(self) -> str | tuple[Any, ...]:
+        return (self.__class__, (self.mesg, self.code, self.details))
 
 
-class ResonateShutdownError(ResonateError):
-    def __init__(self, mesg: str) -> None:
-        super().__init__(mesg, "20")
+# Error codes 100-199
 
 
 class ResonateStoreError(ResonateError):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._args = args
+        self._kwargs = kwargs
         mesg = kwargs.pop("message", "Unknown store error")
         code = kwargs.pop("code", "0")
         details = kwargs.pop("details", [])
-        super().__init__(mesg, f"30.{code}", details)
+        super().__init__(mesg, f"100.{code}", details)
+
+    def __reduce__(self) -> str | tuple[Any, ...]:
+        return (self.__class__, (self._args, self._kwargs))
+
+
+# Error codes 200-299
 
 
 class ResonateCanceledError(ResonateError):
     def __init__(self, promise_id: str) -> None:
-        super().__init__(f"Promise {promise_id} canceled", "40")
+        super().__init__(f"Promise {promise_id} canceled", "200")
         self.promise_id = promise_id
+
+    def __reduce__(self) -> str | tuple[Any, ...]:
+        return (self.__class__, (self.promise_id,))
 
 
 class ResonateTimedoutError(ResonateError):
     def __init__(self, promise_id: str, timeout: float) -> None:
-        formatted = datetime.datetime.fromtimestamp(timeout, tz=datetime.UTC).isoformat()
-        super().__init__(f"Promise {promise_id} timedout at {formatted}", "41")
+        super().__init__(f"Promise {promise_id} timedout at {timeout}", "201")
         self.promise_id = promise_id
         self.timeout = timeout
+
+    def __reduce__(self) -> str | tuple[Any, ...]:
+        return (self.__class__, (self.promise_id, self.timeout))
+
+
+# Error codes 300-399
+
+
+class ResonateShutdownError(ResonateError):
+    def __init__(self, mesg: str) -> None:
+        super().__init__(mesg, "300")
+
+    def __reduce__(self) -> str | tuple[Any, ...]:
+        return (self.__class__, (self.mesg,))
