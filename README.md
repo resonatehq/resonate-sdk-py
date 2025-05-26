@@ -12,38 +12,32 @@
 
 </div>
 
-<div align="center">
-  <a href="https://docs.resonatehq.io">Docs</a>
-  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
-  <a href="https://twitter.com/resonatehqio">Twitter</a>
-  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
-  <a href="https://resonatehq.io/discord">Discord</a>
-  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
-  <a href="https://github.com/resonatehq/resonate-sdk-py/issues">Issues</a>
-  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
-  <a href="https://github.com/resonatehq/resonate/issues/131">Roadmap</a>
-  <br /><br />
-</div>
+## About this component
 
-<div align="center">
+The Resonate Python SDK enables you to build reliable and scalable applications when paired with at least one Resonate Server.
 
-[![Static Badge](https://img.shields.io/badge/join%20our%20waitlist-8A2BE2?color=green)](https://forms.gle/bVRdiHD4RoBgNXCV9)
+- [Contribute to the Resonate Python SDK](./CONTRIBUTING.md)
+- [License](./LICENSE)
 
-</div>
+## Directory
+
+- [Get started with Resonate](https://docs.resonatehq.io/get-started)
+  - [Try an example application](https://github.com/resonatehq-examples)
+- [Join the community](https://resonatehq.io/discord)
+  - [Subscribe to Resonate HQ](https://journal.resonatehq.io/subscribe)
+  - [Follow on Twitter / X](https://twitter.com/resonatehqio)
+  - [Follow on LinkedIn](https://www.linkedin.com/company/resonatehqio)
+  - [Subscribe on YouTube](https://www.youtube.com/@resonatehqio)
 
 ## Distributed Async Await
 
-Resonate's Distributed Async Await is a new programming model that simplifies coding for the cloud. It ensures code completion even if hardware or software failures occur during execution. The programming model does this with just functions and promises, making it trivial to build `coordinated` and `reliable` distributed applications.
+Resonate (Resonate Server + Resonate SDK) implements the Distributed Async Await specification — [Learn more](https://www.distributed-async-await.io/)
 
-## Why Resonate?
+## Why Resonate
 
-- **Cloud Computing Made Dead Simple**: Resonate simplifies coding for the cloud using an intuitive paradigm you already know — async await.
+**Why Resonate?**
 
-- **Single Binary**: Resonate simplifies your deployment and operations with a single binary.
-
-- **Incremental Adoption and No Vendor Lock-In**: Resonate was designed to allow for incremental adoption without vendor lock-in ever.
-
-- **Built on an Open Standard**: Resonate's programming model is built on top of [durable promises](https://github.com/resonatehq/durable-promise-specification), an open standard with an intentionally minimal API surface area.
+Because developing distributed applications should be a delightful experience — [Learn more](https://docs.resonatehq.io/evaluate/why-resonate)
 
 ## Contributing
 
