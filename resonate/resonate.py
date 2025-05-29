@@ -13,6 +13,11 @@ from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
+from resonate.encoders.header import HeaderEncoder
+from resonate.encoders.json import JsonEncoder
+from resonate.encoders.jsonpickle import JsonPickleEncoder
+from resonate.encoders.noop import NoopEncoder
+from resonate.encoders.pair import PairEncoder
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -23,6 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
 
     from resonate.models.context import Info
+    from resonate.models.encoder import Encoder
     from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
     from resonate.models.store import PromiseStore, Store
@@ -35,6 +41,7 @@ class Resonate:
         pid: str | None = None,
         ttl: int = 10,
         group: str = "default",
+        encoder: Encoder[Any, str | None] | None = None,
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
         store: Store | None = None,
@@ -53,6 +60,13 @@ class Resonate:
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
+        # To keep resonate configuration simple for now, only a data encoder
+        # can be provided, this means complex encoders such as the pair encoder
+        # that we use by default are impossible to specify atm.
+        l_encoder = NoopEncoder() if encoder else HeaderEncoder("resonate:format-py", JsonPickleEncoder())
+        r_encoder = encoder or JsonEncoder()
+        self._encoder = PairEncoder(l_encoder, r_encoder)
+
         if store and message_source:
             self._store = store
             self._message_source = message_source
@@ -61,14 +75,15 @@ class Resonate:
             self._message_source = self._store.message_source(self._group, self._pid)
 
         self._bridge = Bridge(
-            ctx=lambda id, cid, info: Context(id, cid, info, self._registry, self._dependencies),
-            pid=self._pid,
-            ttl=ttl,
-            anycast=self._message_source.anycast,
-            unicast=self._message_source.unicast,
-            registry=self._registry,
-            store=self._store,
-            message_source=self._message_source,
+            lambda id, cid, info: Context(id, cid, info, self._registry, self._dependencies),
+            self._pid,
+            self._ttl,
+            self._message_source.anycast,
+            self._message_source.unicast,
+            self._encoder,
+            self._registry,
+            self._store,
+            self._message_source,
         )
 
     @classmethod

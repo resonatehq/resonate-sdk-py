@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 import sys
 from collections.abc import Callable, Generator
@@ -13,6 +14,7 @@ from resonate import Context, Resonate
 from resonate.conventions import Remote
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
+from resonate.encoders.json import JsonEncoder
 from resonate.models.commands import Command, Invoke, Listen
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -47,7 +49,7 @@ class Qux:
 
 @pytest.fixture
 def resonate() -> Resonate:
-    resonate = Resonate()
+    resonate = Resonate(encoder=JsonEncoder())
 
     # set private started to true so calls to run and rpc are noops
     resonate._started = True  # noqa: SLF001
@@ -244,8 +246,8 @@ def test_run(
         promise = resonate.promises.get(id=id)
         assert promise.id == id
         assert promise.ikey_for_create == id
-        assert promise.param.headers == {}
-        assert promise.param.data == {"func": name, "args": args, "kwargs": kwargs, "version": version or 1}
+        assert promise.param.headers is None
+        assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
         assert (
             promise.tags
             == {**default_conv.tags, "resonate:parent": id, "resonate:root": id, "resonate:scope": "global"}
@@ -259,8 +261,8 @@ def test_run(
         promise = resonate.promises.get(id=id)
         assert promise.id == id
         assert promise.ikey_for_create == idempotency_key if idempotency_key else id
-        assert promise.param.headers == {}
-        assert promise.param.data == {"func": name, "args": args, "kwargs": kwargs, "version": version or 1}
+        assert promise.param.headers is None
+        assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
         assert (
             promise.tags
             == {**updated_conv.tags, "resonate:parent": id, "resonate:root": id, "resonate:scope": "global"}
@@ -273,8 +275,8 @@ def test_run(
     promise = resonate.promises.get(id="f7")
     assert promise.id == "f7"
     assert promise.ikey_for_create == "f7"
-    assert promise.param.headers == {}
-    assert promise.param.data == {"func": name, "args": args, "kwargs": kwargs, "version": version or 1}
+    assert promise.param.headers is None
+    assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
     assert (
         promise.tags
         == {**default_conv.tags, "resonate:parent": "f7", "resonate:root": "f7", "resonate:scope": "global"}
@@ -287,8 +289,8 @@ def test_run(
     promise = resonate.promises.get(id="f8")
     assert promise.id == "f8"
     assert promise.ikey_for_create == idempotency_key if idempotency_key else "f8"
-    assert promise.param.headers == {}
-    assert promise.param.data == {"func": name, "args": args, "kwargs": kwargs, "version": version or 1}
+    assert promise.param.headers is None
+    assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
     assert (
         promise.tags
         == {**updated_conv.tags, "resonate:parent": "f8", "resonate:root": "f8", "resonate:scope": "global"}
@@ -356,8 +358,8 @@ def test_rpc(
         promise = resonate.promises.get(id=id)
         assert promise.id == id
         assert promise.ikey_for_create == id
-        assert promise.param.headers == {}
-        assert promise.param.data == {"func": name, "args": args, "kwargs": kwargs, "version": version or 1}
+        assert promise.param.headers is None
+        assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
         assert (
             promise.tags
             == {**default_conv.tags, "resonate:parent": id, "resonate:root": id, "resonate:scope": "global"}
@@ -371,8 +373,8 @@ def test_rpc(
         promise = resonate.promises.get(id=id)
         assert promise.id == id
         assert promise.ikey_for_create == idempotency_key if idempotency_key else id
-        assert promise.param.headers == {}
-        assert promise.param.data == {"func": name, "args": args, "kwargs": kwargs, "version": version or 1}
+        assert promise.param.headers is None
+        assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
         assert (
             promise.tags
             == {**updated_conv.tags, "resonate:parent": id, "resonate:root": id, "resonate:scope": "global"}
@@ -385,8 +387,8 @@ def test_rpc(
     promise = resonate.promises.get(id="f7")
     assert promise.id == "f7"
     assert promise.ikey_for_create == "f7"
-    assert promise.param.headers == {}
-    assert promise.param.data == {"func": name, "args": args, "kwargs": kwargs, "version": version or 1}
+    assert promise.param.headers is None
+    assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
     assert (
         promise.tags
         == {**default_conv.tags, "resonate:parent": "f7", "resonate:root": "f7", "resonate:scope": "global"}
@@ -399,8 +401,8 @@ def test_rpc(
     promise = resonate.promises.get(id="f8")
     assert promise.id == "f8"
     assert promise.ikey_for_create == idempotency_key if idempotency_key else "f8"
-    assert promise.param.headers == {}
-    assert promise.param.data == {"func": name, "args": args, "kwargs": kwargs, "version": version or 1}
+    assert promise.param.headers is None
+    assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
     assert (
         promise.tags
         == {**updated_conv.tags, "resonate:parent": "f8", "resonate:root": "f8", "resonate:scope": "global"}

@@ -281,7 +281,7 @@ def test_hitl(resonate: Resonate, id: str | None) -> None:
     uid = uuid.uuid4()
     handle = resonate.run(f"hitl-{uid}", hitl, id)
     time.sleep(1)
-    resonate.promises.resolve(id=id or f"hitl-{uid}.1", data=1)
+    resonate.promises.resolve(id=id or f"hitl-{uid}.1", data="1")
     assert handle.result() == 1
 
 
@@ -437,7 +437,7 @@ def test_info(
 def test_resonate_get(resonate: Resonate) -> None:
     def resolve_promise_slow(id: str) -> None:
         time.sleep(1)
-        resonate.promises.resolve(id=id, data=42)
+        resonate.promises.resolve(id=id, data="42")
 
     timestamp = int(time.time())
     id = f"get.{timestamp}"
