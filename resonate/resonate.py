@@ -65,6 +65,7 @@ class Resonate:
             lambda id, cid, info: Context(id, cid, info, self._registry, self._dependencies),
             self._pid,
             self._ttl,
+            self._opts,
             self._message_source.anycast,
             self._message_source.unicast,
             self._registry,
@@ -261,7 +262,7 @@ class Resonate:
         self.start()
         future = Future()
 
-        self._bridge.get(id, future)
+        self._bridge.get(id, self._opts, future)
         return Handle(future)
 
     def set_dependency(self, name: str, obj: Any) -> None:

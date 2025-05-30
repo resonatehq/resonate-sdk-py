@@ -14,7 +14,8 @@ from resonate import Context, Resonate
 from resonate.conventions import Remote
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
-from resonate.encoders.json import JsonEncoder
+from resonate.encoders import JsonEncoder, NoopEncoder
+from resonate.encoders.jsonpickle import JsonPickleEncoder
 from resonate.models.commands import Command, Invoke, Listen
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -49,13 +50,8 @@ class Qux:
 
 
 @pytest.fixture
-def encoder() -> JsonEncoder:
-    return JsonEncoder()
-
-
-@pytest.fixture
-def resonate(encoder: Encoder[Any, str | None]) -> Resonate:
-    resonate = Resonate().options(encoder=encoder)
+def resonate() -> Resonate:
+    resonate = Resonate()
 
     # set private started to true so calls to run and rpc are noops
     resonate._started = True  # noqa: SLF001
@@ -182,10 +178,11 @@ def test_register_validations(registry: Registry, func: Callable, kwargs: dict, 
         resonate.register(**kwargs)(func)
 
 
+@pytest.mark.parametrize("encoder", [JsonEncoder(), JsonPickleEncoder(), NoopEncoder(), None])
 @pytest.mark.parametrize("idempotency_key", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("retry_policy", [Constant(), Linear(), Exponential()])
 @pytest.mark.parametrize("target", ["foo", "bar", "baz", None])
-@pytest.mark.parametrize("tags", [{"a": "1"}, {"2": "foo"}, {"a": "foo"}, None])
+@pytest.mark.parametrize("tags", [{"a": "foo"}, {"b": "bar"}, {"c": "baz"}, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize(
@@ -201,7 +198,7 @@ def test_register_validations(registry: Registry, func: Callable, kwargs: dict, 
 )
 def test_run(
     resonate: Resonate,
-    encoder: Encoder[Any, str | None],
+    encoder: Encoder[Any, str | None] | None,
     idempotency_key: str | None,
     retry_policy: RetryPolicy | None,
     target: str | None,
@@ -213,9 +210,13 @@ def test_run(
     args: tuple,
     kwargs: dict,
 ) -> None:
-    f = resonate.register(func, name=name, version=version or 1)
-
+    f = resonate.register(
+        func,
+        name=name,
+        version=version or 1,
+    )
     opts = {
+        "encoder": encoder,
         "idempotency_key": idempotency_key,
         "retry_policy": retry_policy,
         "target": target,
@@ -223,13 +224,20 @@ def test_run(
         "timeout": timeout,
         "version": version,
     }
+    data = {
+        "func": name,
+        "args": args,
+        "kwargs": kwargs,
+        "version": version or 1,
+    }
 
-    default_opts = Options(encoder=encoder, version=version or 1)
+    default_opts = Options(version=version or 1)
     default_conv = Remote("f", "f", "f", name, args, kwargs, default_opts)
 
     updated_opts = Options(encoder=encoder, version=version or 1).merge(**opts)
     updated_conv = Remote("f", "f", "f", name, args, kwargs, updated_opts)
 
+    assert updated_opts.encoder == (encoder or default_opts.encoder)
     assert updated_opts.idempotency_key == (idempotency_key or default_opts.idempotency_key)
     assert updated_opts.target == (target or default_opts.target)
     assert updated_opts.version == (version or default_opts.version)
@@ -253,8 +261,8 @@ def test_run(
         promise = resonate.promises.get(id=id)
         assert promise.id == id
         assert promise.ikey_for_create == id
-        assert promise.param.headers is None
-        assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
+        assert "resonate:format-py" in (promise.param.headers or {})
+        assert promise.param.data == json.dumps(data)
         assert (
             promise.tags
             == {**default_conv.tags, "resonate:parent": id, "resonate:root": id, "resonate:scope": "global"}
@@ -268,8 +276,12 @@ def test_run(
         promise = resonate.promises.get(id=id)
         assert promise.id == id
         assert promise.ikey_for_create == idempotency_key if idempotency_key else id
-        assert promise.param.headers is None
-        assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
+        if encoder:
+            assert promise.param.headers is None
+            assert promise.param.data == encoder.encode(data)
+        else:
+            assert "resonate:format-py" in (promise.param.headers or {})
+            assert promise.param.data == json.dumps(data)
         assert (
             promise.tags
             == {**updated_conv.tags, "resonate:parent": id, "resonate:root": id, "resonate:scope": "global"}
@@ -282,8 +294,8 @@ def test_run(
     promise = resonate.promises.get(id="f7")
     assert promise.id == "f7"
     assert promise.ikey_for_create == "f7"
-    assert promise.param.headers is None
-    assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
+    assert "resonate:format-py" in (promise.param.headers or {})
+    assert promise.param.data == json.dumps(data)
     assert (
         promise.tags
         == {**default_conv.tags, "resonate:parent": "f7", "resonate:root": "f7", "resonate:scope": "global"}
@@ -296,8 +308,12 @@ def test_run(
     promise = resonate.promises.get(id="f8")
     assert promise.id == "f8"
     assert promise.ikey_for_create == idempotency_key if idempotency_key else "f8"
-    assert promise.param.headers is None
-    assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
+    if encoder:
+        assert promise.param.headers is None
+        assert promise.param.data == encoder.encode(data)
+    else:
+        assert "resonate:format-py" in (promise.param.headers or {})
+        assert promise.param.data == json.dumps(data)
     assert (
         promise.tags
         == {**updated_conv.tags, "resonate:parent": "f8", "resonate:root": "f8", "resonate:scope": "global"}
@@ -305,11 +321,12 @@ def test_run(
     )
 
 
+@pytest.mark.parametrize("encoder", [JsonEncoder(), JsonPickleEncoder(), NoopEncoder(), None])
 @pytest.mark.parametrize("idempotency_key", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("target", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize("timeout", [3, 2, 1, None])
-@pytest.mark.parametrize("tags", [{"a": "1"}, {"2": "foo"}, {"a": "foo"}, None])
+@pytest.mark.parametrize("tags", [{"a": "foo"}, {"b": "bar"}, {"c": "baz"}, None])
 @pytest.mark.parametrize("retry_policy", [Constant(), Linear(), Exponential()])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
@@ -324,6 +341,7 @@ def test_run(
 )
 def test_rpc(
     resonate: Resonate,
+    encoder: Encoder[Any, str | None] | None,
     idempotency_key: str | None,
     retry_policy: RetryPolicy | None,
     target: str | None,
@@ -335,15 +353,25 @@ def test_rpc(
     args: tuple,
     kwargs: dict,
 ) -> None:
-    f = resonate.register(func, name=name, version=version or 1)
-
+    f = resonate.register(
+        func,
+        name=name,
+        version=version or 1,
+    )
     opts = {
+        "encoder": encoder,
         "idempotency_key": idempotency_key,
         "retry_policy": retry_policy,
         "target": target,
         "tags": tags,
         "timeout": timeout,
         "version": version,
+    }
+    data = {
+        "func": name,
+        "args": args,
+        "kwargs": kwargs,
+        "version": version or 1,
     }
 
     default_opts = Options(version=version or 1)
@@ -352,6 +380,7 @@ def test_rpc(
     updated_opts = Options(version=version or 1).merge(**opts)
     updated_conv = Remote("f", "f", "f", name, args, kwargs, updated_opts)
 
+    assert updated_opts.encoder == (encoder or default_opts.encoder)
     assert updated_opts.idempotency_key == (idempotency_key or default_opts.idempotency_key)
     assert updated_opts.target == (target or default_opts.target)
     assert updated_opts.version == (version or default_opts.version)
@@ -365,8 +394,8 @@ def test_rpc(
         promise = resonate.promises.get(id=id)
         assert promise.id == id
         assert promise.ikey_for_create == id
-        assert promise.param.headers is None
-        assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
+        assert "resonate:format-py" in (promise.param.headers or {})
+        assert promise.param.data == json.dumps(data)
         assert (
             promise.tags
             == {**default_conv.tags, "resonate:parent": id, "resonate:root": id, "resonate:scope": "global"}
@@ -380,8 +409,12 @@ def test_rpc(
         promise = resonate.promises.get(id=id)
         assert promise.id == id
         assert promise.ikey_for_create == idempotency_key if idempotency_key else id
-        assert promise.param.headers is None
-        assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
+        if encoder:
+            assert promise.param.headers is None
+            assert promise.param.data == encoder.encode(data)
+        else:
+            assert "resonate:format-py" in (promise.param.headers or {})
+            assert promise.param.data == json.dumps(data)
         assert (
             promise.tags
             == {**updated_conv.tags, "resonate:parent": id, "resonate:root": id, "resonate:scope": "global"}
@@ -394,8 +427,8 @@ def test_rpc(
     promise = resonate.promises.get(id="f7")
     assert promise.id == "f7"
     assert promise.ikey_for_create == "f7"
-    assert promise.param.headers is None
-    assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
+    assert "resonate:format-py" in (promise.param.headers or {})
+    assert promise.param.data == json.dumps(data)
     assert (
         promise.tags
         == {**default_conv.tags, "resonate:parent": "f7", "resonate:root": "f7", "resonate:scope": "global"}
@@ -408,8 +441,12 @@ def test_rpc(
     promise = resonate.promises.get(id="f8")
     assert promise.id == "f8"
     assert promise.ikey_for_create == idempotency_key if idempotency_key else "f8"
-    assert promise.param.headers is None
-    assert promise.param.data == json.dumps({"func": name, "args": args, "kwargs": kwargs, "version": version or 1})
+    if encoder:
+        assert promise.param.headers is None
+        assert promise.param.data == encoder.encode(data)
+    else:
+        assert "resonate:format-py" in (promise.param.headers or {})
+        assert promise.param.data == json.dumps(data)
     assert (
         promise.tags
         == {**updated_conv.tags, "resonate:parent": "f8", "resonate:root": "f8", "resonate:scope": "global"}
@@ -641,12 +678,23 @@ def test_context_rfx_validations(registry: Registry, func: Callable, match: str)
 
 
 @pytest.mark.parametrize("funcs", [(foo, bar), (bar, baz), (baz, foo)])
+@pytest.mark.parametrize("encoder", [JsonEncoder(), JsonPickleEncoder(), NoopEncoder(), None])
+@pytest.mark.parametrize("non_retryable_exceptions", [(NameError,), (ValueError,), (NameError, ValueError), None])
 @pytest.mark.parametrize("retry_policy", [Constant(), Exponential(), Linear(), Never(), None])
 @pytest.mark.parametrize("target", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("tags", [{"a": "1"}, {"b": "2"}, {"c": "3"}, None])
 @pytest.mark.parametrize("timeout", [1, 2, 3, 101, 102, 103, None])
 @pytest.mark.parametrize("version", [1, 2, 3])
-def test_options(funcs: tuple[Callable, Callable], retry_policy: RetryPolicy | None, target: str | None, tags: dict[str, str] | None, timeout: float | None, version: int) -> None:
+def test_options(
+    funcs: tuple[Callable, Callable],
+    encoder: Encoder[Any, str | None] | None,
+    non_retryable_exceptions: tuple[type[Exception], ...] | None,
+    retry_policy: RetryPolicy | None,
+    target: str | None,
+    tags: dict[str, str] | None,
+    timeout: float | None,
+    version: int,
+) -> None:
     f1, f2 = funcs
 
     registry = Registry()
@@ -676,18 +724,29 @@ def test_options(funcs: tuple[Callable, Callable], retry_policy: RetryPolicy | N
             assert cmd.opts.version == v
 
             # update the command
-            cmd = cmd.options(tags=tags, timeout=timeout, version=version + 1, retry_policy=retry_policy)
+            cmd = cmd.options(
+                encoder=encoder,
+                non_retryable_exceptions=non_retryable_exceptions,
+                retry_policy=retry_policy,
+                tags=tags,
+                timeout=timeout,
+                version=version + 1,
+            )
 
             # version is a noop for lfx
             assert cmd.opts.version == v
 
-            if timeout:
-                assert cmd.conv.timeout == timeout
+            if encoder:
+                assert cmd.opts.encoder is encoder
+            if non_retryable_exceptions:
+                assert cmd.opts.non_retryable_exceptions == non_retryable_exceptions
             if retry_policy:
                 assert isinstance(cmd.opts.retry_policy, retry_policy.__class__)
             if tags:
                 assert cmd.conv.tags
                 assert all(k in cmd.conv.tags and cmd.conv.tags[k] == v for k, v in tags.items())
+            if timeout:
+                assert cmd.conv.timeout == timeout
 
         for rf in (ctx.rfi, ctx.rfc, ctx.detached):
             counter += 1
@@ -699,19 +758,27 @@ def test_options(funcs: tuple[Callable, Callable], retry_policy: RetryPolicy | N
             assert cmd.conv.timeout == 31536000
             assert cmd.conv.tags == {"resonate:parent": "f", "resonate:root": "f", "resonate:scope": "global", "resonate:invoke": "default"}
 
-            cmd = cmd.options(tags=tags, timeout=timeout, version=version, target=target)
+            cmd = cmd.options(
+                encoder=encoder,
+                tags=tags,
+                target=target,
+                timeout=timeout,
+                version=version,
+            )
 
             # version is applicable for rfx
             assert cmd.conv.data == {"func": "func", "args": (1, 2), "kwargs": {}, "version": version}
 
-            if timeout:
-                assert cmd.conv.timeout == timeout
+            if encoder:
+                assert cmd.opts.encoder is encoder
             if target:
                 assert cmd.conv.tags
                 assert cmd.conv.tags["resonate:invoke"] == target
             if tags:
                 assert cmd.conv.tags
                 assert all(k in cmd.conv.tags and cmd.conv.tags[k] == v for k, v in tags.items())
+            if timeout:
+                assert cmd.conv.timeout == timeout
 
 
 @pytest.mark.parametrize("value", [-1, -2, -3])

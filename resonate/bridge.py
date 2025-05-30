@@ -56,6 +56,7 @@ class Bridge:
         ctx: Callable[[str, str, Info], Context],
         pid: str,
         ttl: int,
+        opts: Options,
         unicast: str,
         anycast: str,
         registry: Registry,
@@ -68,10 +69,10 @@ class Bridge:
         self._ctx = ctx
         self._pid = pid
         self._ttl = ttl
+        self._opts = opts
         self._unicast = unicast
         self._anycast = unicast
 
-        self._encoder = Options().get_encoder()  # get a default encoder
         self._registry = registry
         self._store = store
         self._message_source = message_source
@@ -149,11 +150,11 @@ class Bridge:
 
         return promise
 
-    def get(self, id: str, future: Future) -> DurablePromise:
+    def get(self, id: str, opts: Options, future: Future) -> DurablePromise:
         promise = self._store.promises.get(id=id)
 
         if promise.completed:
-            match promise.result(self._encoder):
+            match promise.result(opts.get_encoder()):
                 case Ok(v):
                     future.set_result(v)
                 case Ko(e):
@@ -262,8 +263,10 @@ class Bridge:
 
     @exit_on_exception("bridge.messages")
     def _process_msgs(self) -> None:
+        encoder = self._opts.get_encoder()
+
         def _invoke(root: DurablePromise) -> Invoke:
-            data = self._encoder.decode(root.param.to_tuple())
+            data = encoder.decode(root.param.to_tuple())
             assert isinstance(data, dict)
 
             assert "func" in data

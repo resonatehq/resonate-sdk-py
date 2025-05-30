@@ -44,6 +44,7 @@ def test_base64_enconder(value: str) -> None:
         (0, 1, 2),
         Exception("foo"),
         ValueError("bar"),
+        BaseException("baz"),
     ],
 )
 def test_json_encoder(value: Any) -> None:
@@ -52,10 +53,10 @@ def test_json_encoder(value: Any) -> None:
     assert isinstance(encoded, (str, NoneType))
 
     match decoded := encoder.decode(encoded):
-        case Exception(args=args):
+        case BaseException() as e:
             # all exceptions are flattened to Exception
             assert isinstance(decoded, Exception)
-            assert args == value.args
+            assert str(e) == str(value)
         case list(items):
             # tuples are converted to lists
             assert isinstance(value, (list, tuple))
@@ -87,6 +88,7 @@ def test_json_encoder(value: Any) -> None:
         (0, 1, 2),
         Exception("foo"),
         ValueError("bar"),
+        BaseException("baz"),
     ],
 )
 def test_jsonpickle_encoder(value: Any) -> None:
@@ -97,7 +99,7 @@ def test_jsonpickle_encoder(value: Any) -> None:
     decoded = encoder.decode(encoded)
     assert type(decoded) is type(value)
 
-    if not isinstance(value, Exception):
+    if not isinstance(value, BaseException):
         assert decoded == value
 
 
@@ -141,10 +143,10 @@ def test_default_encoder(value: Any) -> None:
 
     # backup decoder
     match decoded := JsonEncoder().decode(encoded):
-        case Exception(args=args):
+        case BaseException() as e:
             # all exceptions are flattened to Exception
             assert isinstance(decoded, Exception)
-            assert args == value.args
+            assert str(e) == str(value)
         case list(items):
             # tuples are converted to lists
             assert isinstance(value, (list, tuple))
