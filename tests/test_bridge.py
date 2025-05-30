@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from resonate.errors.errors import ResonateShutdownError, ResonateStoreError
+from resonate.errors import ResonateShutdownError, ResonateStoreError
 from resonate.resonate import Resonate
 from resonate.retry_policies import Constant, Never
 from resonate.stores.local import LocalStore

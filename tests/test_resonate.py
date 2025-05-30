@@ -14,8 +14,7 @@ from resonate import Context, Resonate
 from resonate.conventions import Remote
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
-from resonate.encoders import JsonEncoder, NoopEncoder
-from resonate.encoders.jsonpickle import JsonPickleEncoder
+from resonate.encoders import JsonEncoder, JsonPickleEncoder, NoopEncoder
 from resonate.models.commands import Command, Invoke, Listen
 from resonate.models.handle import Handle
 from resonate.options import Options
