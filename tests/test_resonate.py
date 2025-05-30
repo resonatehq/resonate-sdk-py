@@ -24,6 +24,7 @@ from resonate.retry_policies import Constant, Exponential, Linear, Never
 from resonate.scheduler import Info
 
 if TYPE_CHECKING:
+    from resonate.models.encoder import Encoder
     from resonate.models.retry_policy import RetryPolicy
 
 
@@ -48,8 +49,13 @@ class Qux:
 
 
 @pytest.fixture
-def resonate() -> Resonate:
-    resonate = Resonate(encoder=JsonEncoder())
+def encoder() -> JsonEncoder:
+    return JsonEncoder()
+
+
+@pytest.fixture
+def resonate(encoder: Encoder[Any, str | None]) -> Resonate:
+    resonate = Resonate().options(encoder=encoder)
 
     # set private started to true so calls to run and rpc are noops
     resonate._started = True  # noqa: SLF001
@@ -195,6 +201,7 @@ def test_register_validations(registry: Registry, func: Callable, kwargs: dict, 
 )
 def test_run(
     resonate: Resonate,
+    encoder: Encoder[Any, str | None],
     idempotency_key: str | None,
     retry_policy: RetryPolicy | None,
     target: str | None,
@@ -217,10 +224,10 @@ def test_run(
         "version": version,
     }
 
-    default_opts = Options(version=version or 1)
+    default_opts = Options(encoder=encoder, version=version or 1)
     default_conv = Remote("f", "f", "f", name, args, kwargs, default_opts)
 
-    updated_opts = Options(version=version or 1).merge(**opts)
+    updated_opts = Options(encoder=encoder, version=version or 1).merge(**opts)
     updated_conv = Remote("f", "f", "f", name, args, kwargs, updated_opts)
 
     assert updated_opts.idempotency_key == (idempotency_key or default_opts.idempotency_key)
@@ -663,7 +670,6 @@ def test_options(funcs: tuple[Callable, Callable], retry_policy: RetryPolicy | N
             assert callable(cmd.opts.retry_policy)
             assert isinstance(cmd.opts.retry_policy(f1), Never if isgeneratorfunction(f1) else Exponential)
             assert cmd.conv.idempotency_key == cmd.id
-            assert cmd.conv.headers is None
             assert cmd.conv.data is None
             assert cmd.conv.timeout == 31536000
             assert cmd.conv.tags == {"resonate:parent": "f", "resonate:root": "f", "resonate:scope": "local"}
@@ -689,7 +695,6 @@ def test_options(funcs: tuple[Callable, Callable], retry_policy: RetryPolicy | N
             cmd = rf(f, 1, 2)
             assert cmd.id == cmd.conv.id == f"f.{counter}"
             assert cmd.conv.idempotency_key == cmd.id
-            assert cmd.conv.headers is None
             assert cmd.conv.data == {"func": "func", "args": (1, 2), "kwargs": {}, "version": v}
             assert cmd.conv.timeout == 31536000
             assert cmd.conv.tags == {"resonate:parent": "f", "resonate:root": "f", "resonate:scope": "global", "resonate:invoke": "default"}

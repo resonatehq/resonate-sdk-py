@@ -445,6 +445,7 @@ def test_resonate_get(resonate: Resonate) -> None:
     thread = threading.Thread(target=resolve_promise_slow, args=(id,))  # Do this in a different thread to simulate concurrency
 
     handle = resonate.get(id)
+
     thread.start()
     res = handle.result()
     assert res == 42

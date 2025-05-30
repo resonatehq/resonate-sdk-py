@@ -13,11 +13,6 @@ from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
-from resonate.encoders.header import HeaderEncoder
-from resonate.encoders.json import JsonEncoder
-from resonate.encoders.jsonpickle import JsonPickleEncoder
-from resonate.encoders.noop import NoopEncoder
-from resonate.encoders.pair import PairEncoder
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -41,7 +36,6 @@ class Resonate:
         pid: str | None = None,
         ttl: int = 10,
         group: str = "default",
-        encoder: Encoder[Any, str | None] | None = None,
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
         store: Store | None = None,
@@ -60,13 +54,6 @@ class Resonate:
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
 
-        # To keep resonate configuration simple for now, only a data encoder
-        # can be provided, this means complex encoders such as the pair encoder
-        # that we use by default are impossible to specify atm.
-        l_encoder = NoopEncoder() if encoder else HeaderEncoder("resonate:format-py", JsonPickleEncoder())
-        r_encoder = encoder or JsonEncoder()
-        self._encoder = PairEncoder(l_encoder, r_encoder)
-
         if store and message_source:
             self._store = store
             self._message_source = message_source
@@ -80,7 +67,6 @@ class Resonate:
             self._ttl,
             self._message_source.anycast,
             self._message_source.unicast,
-            self._encoder,
             self._registry,
             self._store,
             self._message_source,
@@ -148,6 +134,7 @@ class Resonate:
     def options(
         self,
         *,
+        encoder: Encoder[Any, str | None] | None = None,
         idempotency_key: str | Callable[[str], str] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         tags: dict[str, str] | None = None,
@@ -157,6 +144,7 @@ class Resonate:
     ) -> Resonate:
         copied: Resonate = copy.copy(self)
         copied._opts = self._opts.merge(
+            encoder=encoder,
             idempotency_key=idempotency_key,
             retry_policy=retry_policy,
             tags=tags,
@@ -265,7 +253,8 @@ class Resonate:
         else:
             name, _, version = self._registry.get(func, self._opts.version)
 
-        self._bridge.rpc(Remote(id, id, id, name, args, kwargs, self._opts.merge(version=version)), future)
+        opts = self._opts.merge(version=version)
+        self._bridge.rpc(Remote(id, id, id, name, args, kwargs, opts), opts, future)
         return Handle(future)
 
     def get(self, id: str) -> Handle[Any]:
@@ -429,7 +418,6 @@ class Context:
         id: str | None = None,
         timeout: float | None = None,
         idempotency_key: str | None = None,
-        headers: dict[str, str] | None = None,
         data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> RFI:
@@ -441,7 +429,6 @@ class Context:
                 id,
                 timeout or 31536000,
                 idempotency_key or id,
-                headers,
                 data,
                 tags,
             ),
@@ -538,6 +525,7 @@ class Function[**P, R]:
     def options(
         self,
         *,
+        encoder: Encoder[Any, str | None] | None = None,
         idempotency_key: str | Callable[[str], str] | None = None,
         retry_policy: RetryPolicy | Callable[[Callable], RetryPolicy] | None = None,
         tags: dict[str, str] | None = None,
@@ -546,6 +534,7 @@ class Function[**P, R]:
         version: int | None = None,
     ) -> Function[P, R]:
         self._opts = self._opts.merge(
+            encoder=encoder,
             idempotency_key=idempotency_key,
             retry_policy=retry_policy,
             tags=tags,
@@ -557,6 +546,7 @@ class Function[**P, R]:
 
     def run[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[T]:
         resonate = self._resonate.options(
+            encoder=self._opts.encoder,
             idempotency_key=self._opts.idempotency_key,
             retry_policy=self._opts.retry_policy,
             tags=self._opts.tags,
@@ -568,6 +558,7 @@ class Function[**P, R]:
 
     def rpc[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[T]:
         resonate = self._resonate.options(
+            encoder=self._opts.encoder,
             idempotency_key=self._opts.idempotency_key,
             retry_policy=self._opts.retry_policy,
             tags=self._opts.tags,

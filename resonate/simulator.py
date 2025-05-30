@@ -3,7 +3,7 @@ from __future__ import annotations
 import urllib.parse
 from typing import TYPE_CHECKING, Any
 
-from resonate import Context, utils
+from resonate import Context
 from resonate.conventions import Base
 from resonate.encoders import HeaderEncoder, JsonEncoder, JsonPickleEncoder, PairEncoder
 from resonate.errors import ResonateStoreError
@@ -386,13 +386,15 @@ class Worker(Component):
         self.tasks: dict[str, Task] = {}
         self.last_heartbeat = 0.0
 
-        self.encoder = PairEncoder(HeaderEncoder("resonate:format-py", JsonPickleEncoder()), JsonEncoder())
+        self.encoder = PairEncoder(
+            HeaderEncoder("resonate:format-py", JsonPickleEncoder()),
+            JsonEncoder(),
+        )
         self.scheduler = Scheduler(
             lambda id, cid, info: Context(id, cid, info, self.registry, self.dependencies),
             pid=self.uni,
             unicast=self.uni,
             anycast=self.any,
-            encoder=self.encoder,
         )
 
     def on_message(self, msg: Message) -> None:
@@ -407,7 +409,7 @@ class Worker(Component):
                         id=id,
                         timeout=int((self.time + conv.timeout) * 1000),
                         ikey=conv.idempotency_key,
-                        headers=utils.merge_optional_dicts(conv.headers, headers),
+                        headers=headers,
                         data=data,
                         tags=conv.tags,
                         pid=self.scheduler.pid,
@@ -622,7 +624,6 @@ class Worker(Component):
                 promise.id,
                 promise.rel_timeout,
                 promise.ikey_for_create,
-                promise.param.headers,
                 promise.param.data,
                 promise.tags,
             ),

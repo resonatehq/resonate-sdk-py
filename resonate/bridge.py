@@ -6,7 +6,6 @@ import time
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any
 
-from resonate import utils
 from resonate.conventions import Base
 from resonate.delay_q import DelayQ
 from resonate.errors import ResonateShutdownError
@@ -45,7 +44,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from resonate.models.convention import Convention
-    from resonate.models.encoder import Encoder
     from resonate.models.message_source import MessageSource
     from resonate.models.store import Store
     from resonate.registry import Registry
@@ -60,7 +58,6 @@ class Bridge:
         ttl: int,
         unicast: str,
         anycast: str,
-        encoder: Encoder[Any, tuple[dict[str, str] | None, str | None]],
         registry: Registry,
         store: Store,
         message_source: MessageSource,
@@ -74,7 +71,7 @@ class Bridge:
         self._unicast = unicast
         self._anycast = unicast
 
-        self._encoder = encoder
+        self._encoder = Options().get_encoder()  # get a default encoder
         self._registry = registry
         self._store = store
         self._message_source = message_source
@@ -84,7 +81,6 @@ class Bridge:
             self._pid,
             self._unicast,
             self._anycast,
-            self._encoder,
         )
 
         self._messages_thread = threading.Thread(target=self._process_msgs, name="bridge_msg_processor", daemon=True)
@@ -99,12 +95,14 @@ class Bridge:
         self._delay_thread = threading.Thread(target=self._process_delayed_events, name="delay_thread", daemon=True)
 
     def run(self, conv: Convention, func: Callable, args: tuple, kwargs: dict, opts: Options, future: Future) -> DurablePromise:
-        headers, data = self._encoder.encode(conv.data)
+        encoder = opts.get_encoder()
+
+        headers, data = encoder.encode(conv.data)
         promise, task = self._store.promises.create_with_task(
             id=conv.id,
             ikey=conv.idempotency_key,
             timeout=int((time.time() + conv.timeout) * 1000),
-            headers=utils.merge_optional_dicts(conv.headers, headers),
+            headers=headers,
             data=data,
             tags=conv.tags,
             pid=self._pid,
@@ -113,7 +111,7 @@ class Bridge:
 
         if promise.completed:
             assert not task
-            match promise.result(self._encoder):
+            match promise.result(encoder):
                 case Ok(v):
                     future.set_result(v)
                 case Ko(e):
@@ -127,19 +125,21 @@ class Bridge:
 
         return promise
 
-    def rpc(self, conv: Convention, future: Future) -> DurablePromise:
-        headers, data = self._encoder.encode(conv.data)
+    def rpc(self, conv: Convention, opts: Options, future: Future) -> DurablePromise:
+        encoder = opts.get_encoder()
+
+        headers, data = encoder.encode(conv.data)
         promise = self._store.promises.create(
             id=conv.id,
             ikey=conv.idempotency_key,
             timeout=int((time.time() + conv.timeout) * 1000),
-            headers=utils.merge_optional_dicts(conv.headers, headers),
+            headers=headers,
             data=data,
             tags=conv.tags,
         )
 
         if promise.completed:
-            match promise.result(self._encoder):
+            match promise.result(encoder):
                 case Ok(v):
                     future.set_result(v)
                 case Ko(e):
@@ -278,7 +278,6 @@ class Bridge:
                     root.id,
                     root.rel_timeout,
                     root.ikey_for_create,
-                    root.param.headers,
                     root.param.data,
                     root.tags,
                 ),

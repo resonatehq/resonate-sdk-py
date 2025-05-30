@@ -187,7 +187,7 @@ class ResonateRunner:
         self.encoder = PairEncoder(NoopEncoder(), JsonEncoder())
 
         # create scheduler and connect store
-        self.scheduler = Scheduler(ctx=lambda id, cid, *_: Context(id, cid), encoder=self.encoder)
+        self.scheduler = Scheduler(ctx=lambda id, cid, *_: Context(id, cid))
 
     def run[**P, R](self, id: str, func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         cmds: list[Command] = []
@@ -202,7 +202,6 @@ class ResonateRunner:
             id=conv.id,
             ikey=conv.idempotency_key,
             timeout=int((time.time() + conv.timeout) * 1000),
-            headers=conv.headers,
             data=data,
             tags=conv.tags,
             pid=self.scheduler.pid,
@@ -317,7 +316,6 @@ class ResonateRunner:
                                     root.id,
                                     root.rel_timeout,
                                     root.ikey_for_create,
-                                    root.param.headers,
                                     root.param.data,
                                     root.tags,
                                 ),
@@ -362,7 +360,7 @@ class ResonateLFXRunner(ResonateRunner):
         self.encoder = PairEncoder(NoopEncoder(), JsonEncoder())
 
         # create scheduler
-        self.scheduler = Scheduler(ctx=lambda id, cid, *_: LocalContext(id, cid), encoder=self.encoder)
+        self.scheduler = Scheduler(ctx=lambda id, cid, *_: LocalContext(id, cid))
 
 
 class ResonateRFXRunner(ResonateRunner):
@@ -376,4 +374,4 @@ class ResonateRFXRunner(ResonateRunner):
         self.encoder = PairEncoder(NoopEncoder(), JsonEncoder())
 
         # create scheduler and connect store
-        self.scheduler = Scheduler(ctx=lambda id, cid, *_: RemoteContext(id, cid), encoder=self.encoder)
+        self.scheduler = Scheduler(ctx=lambda id, cid, *_: RemoteContext(id, cid))
