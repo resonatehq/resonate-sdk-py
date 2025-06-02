@@ -94,3 +94,9 @@ def truncate(s: str, n: int) -> str:
     if len(s) > n:
         return s[:n] + "..."
     return s
+
+
+def merge_optional_dicts[K, V](d1: dict[K, V] | None, d2: dict[K, V] | None) -> dict[K, V] | None:
+    if d1 is None and d2 is None:
+        return None
+    return {**(d1 or {}), **(d2 or {})}
