@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 import re
 from typing import TYPE_CHECKING, Any
 
 from tabulate import tabulate
 
-from resonate.clocks.step import StepClock
+from resonate.clocks import StepClock
 from resonate.conventions import Remote
 from resonate.dependencies import Dependencies
-from resonate.logging import logger
 from resonate.models.commands import Invoke, Listen
 from resonate.models.result import Ko, Ok, Result
 from resonate.options import Options
@@ -24,6 +24,9 @@ if TYPE_CHECKING:
     from resonate import Context
     from resonate.coroutine import Promise
     from resonate.models.context import Info
+
+
+logger = logging.getLogger(__name__)
 
 
 def foo(ctx: Context) -> Generator[Any, Any, Any]:
@@ -233,10 +236,8 @@ def fib(ctx: Context, n: int) -> Generator[Any, Any, int]:
 
 
 def test_dst(seed: str, steps: int, log_level: int) -> None:
+    logger.setLevel(log_level or logging.INFO)  # if log level is not set use INFO for dst
     logger.info("DST(seed=%s, steps=%s, log_level=%s)", seed, steps, log_level)
-
-    # set log level
-    logger.setLevel(log_level)
 
     # create seeded random number generator
     r = random.Random(seed)
@@ -400,7 +401,7 @@ def test_dst(seed: str, steps: int, log_level: int) -> None:
 
     # log
     for log in sim.logs:
-        logger.critical(log)
+        logger.info(log)
 
     print_worker_computations(workers)
 

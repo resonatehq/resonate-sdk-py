@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import traceback
@@ -8,10 +9,10 @@ from functools import wraps
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Any
 
-from resonate.logging import logger
-
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
 
 
 def exit_on_exception[**P, R](func: Callable[P, R]) -> Callable[P, R]:
@@ -50,9 +51,9 @@ Please provide any additional context that might help us debug this issue.
             format = """
 Resonate encountered an unexpected exception and had to shut down.
 
-📦 Version:\t%s
-🧵 Thread:\t%s
-❌ Exception:\t%s
+📦 Version:     %s
+🧵 Thread:      %s
+❌ Exception:   %s
 📄 Stacktrace:
 ─────────────────────────────────────────────────────────────────────
 %s
@@ -94,9 +95,3 @@ def truncate(s: str, n: int) -> str:
     if len(s) > n:
         return s[:n] + "..."
     return s
-
-
-def merge_optional_dicts[K, V](d1: dict[K, V] | None, d2: dict[K, V] | None) -> dict[K, V] | None:
-    if d1 is None and d2 is None:
-        return None
-    return {**(d1 or {}), **(d2 or {})}

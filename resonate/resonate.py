@@ -14,8 +14,7 @@ from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
-from resonate.loggers.context import ContextLogger
-from resonate.logging import logger
+from resonate.loggers import ContextLogger
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -59,9 +58,6 @@ class Resonate:
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
         self._log_level = log_level
-
-        # set log level for resonate logger
-        logger.setLevel(log_level)
 
         if store and message_source:
             self._store = store

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -10,7 +11,6 @@ from resonate import utils
 from resonate.conventions import Base
 from resonate.coroutine import AWT, LFI, RFI, TRM, Coroutine
 from resonate.graph import Graph, Node
-from resonate.logging import logger
 from resonate.models.clock import Clock
 from resonate.models.commands import (
     CancelPromiseReq,
@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from resonate.models.durable_promise import DurablePromise
     from resonate.models.encoder import Encoder
     from resonate.models.retry_policy import RetryPolicy
+
+logger = logging.getLogger(__name__)
 
 
 class Scheduler:
@@ -478,7 +480,6 @@ class Computation:
 
         self.graph = Graph[State](id, Enabled(Suspended(Init())))
         self.futures: PoppableList[Future] = PoppableList()
-        self.history: list[Command | Function | Delayed | Network | tuple[str, None | AWT | Result, LFI | RFI | AWT | TRM]] = []
         self.max_len: Final[int] = 100
 
     def __repr__(self) -> str:
@@ -502,8 +503,6 @@ class Computation:
                 return None
 
     def apply(self, cmd: Command) -> None:
-        self.history.append(cmd)
-
         match cmd, self.graph.root.value.func:
             case Invoke(id, conv, timeout, func, args, kwargs, opts, promise), Init(next=None):
                 assert id == conv.id == self.id == (promise.id if promise else id), "Ids must match."
@@ -732,7 +731,6 @@ class Computation:
                     case Ko(e):
                         future.set_exception(e)
 
-        self.history.extend(done if self.suspendable() else more)
         return Done(done) if self.suspendable() else More(more)
 
     def _eval(self, node: Node[State]) -> list[Function | Delayed[Function | Retry] | Network[CreatePromiseReq | ResolvePromiseReq | RejectPromiseReq | CancelPromiseReq]]:
@@ -878,7 +876,6 @@ class Computation:
 
                 cmd = coro.send(next)
                 child = self.graph.find(lambda n: n.id == cmd.id) or Node(cmd.id, Enabled(Suspended(Init())))
-                self.history.append((id, next, cmd))
 
                 clock = c.ctx.get_dependency("resonate:time", time)
                 assert isinstance(clock, Clock), "resonate:time must be an instance of clock"
@@ -1036,23 +1033,3 @@ class Computation:
                     node.transition(Enabled(Running(c.map(next=next))))
                 case _:
                     raise NotImplementedError
-
-    def print(self) -> None:
-        format = """
-========================================
-Computation: %s
-========================================
-
-Graph:
-  %s
-
-History:
-  %s
-"""
-
-        logger.info(
-            format,
-            self.id,
-            "\n  ".join(f"{'  ' * level}{node}" for node, level in self.graph.traverse_with_level()),
-            "\n  ".join(str(event) for event in self.history) if self.history else "None",
-        )

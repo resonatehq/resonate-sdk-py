@@ -8,7 +8,7 @@ from resonate import Context
 from resonate.conventions import Base
 from resonate.encoders import HeaderEncoder, JsonEncoder, JsonPickleEncoder, PairEncoder
 from resonate.errors import ResonateStoreError
-from resonate.loggers.dst import DSTLogger
+from resonate.loggers import DSTLogger
 from resonate.models.commands import (
     CancelPromiseReq,
     CancelPromiseRes,

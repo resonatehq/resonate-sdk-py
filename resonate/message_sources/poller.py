@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import time
@@ -9,12 +10,13 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from resonate.encoders import JsonEncoder
-from resonate.logging import logger
 from resonate.models.message import InvokeMesg, Mesg, NotifyMesg, ResumeMesg
 from resonate.utils import exit_on_exception
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
+
+logger = logging.getLogger(__name__)
 
 
 class Poller:

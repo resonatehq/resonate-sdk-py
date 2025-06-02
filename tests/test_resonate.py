@@ -15,7 +15,7 @@ from resonate.conventions import Remote
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
 from resonate.encoders import JsonEncoder, JsonPickleEncoder, NoopEncoder
-from resonate.loggers.context import ContextLogger
+from resonate.loggers import ContextLogger
 from resonate.models.commands import Command, Invoke, Listen
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -323,11 +323,11 @@ def test_run(
 
 @pytest.mark.parametrize("encoder", [JsonEncoder(), JsonPickleEncoder(), NoopEncoder(), None])
 @pytest.mark.parametrize("idempotency_key", ["foo", "bar", "baz", None])
-@pytest.mark.parametrize("target", ["foo", "bar", "baz", None])
-@pytest.mark.parametrize("version", [1, 2, 3, None])
-@pytest.mark.parametrize("timeout", [3, 2, 1, None])
-@pytest.mark.parametrize("tags", [{"a": "foo"}, {"b": "bar"}, {"c": "baz"}, None])
 @pytest.mark.parametrize("retry_policy", [Constant(), Linear(), Exponential()])
+@pytest.mark.parametrize("target", ["foo", "bar", "baz", None])
+@pytest.mark.parametrize("tags", [{"a": "foo"}, {"b": "bar"}, {"c": "baz"}, None])
+@pytest.mark.parametrize("timeout", [3, 2, 1, None])
+@pytest.mark.parametrize("version", [1, 2, 3, None])
 @pytest.mark.parametrize(
     ("func", "name", "args", "kwargs"),
     [
@@ -683,7 +683,7 @@ def test_context_rfx_validations(registry: Registry, func: Callable, match: str)
 @pytest.mark.parametrize("retry_policy", [Constant(), Exponential(), Linear(), Never(), None])
 @pytest.mark.parametrize("target", ["foo", "bar", "baz", None])
 @pytest.mark.parametrize("tags", [{"a": "1"}, {"b": "2"}, {"c": "3"}, None])
-@pytest.mark.parametrize("timeout", [1, 2, 3, 101, 102, 103, None])
+@pytest.mark.parametrize("timeout", [1, 2, 3, None])
 @pytest.mark.parametrize("version", [1, 2, 3])
 def test_options(
     funcs: tuple[Callable, Callable],

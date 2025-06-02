@@ -209,7 +209,7 @@ class Bridge:
                                     cmd = self._handle_network_request(id, cid, n_req)
                                     self._cq.put_nowait(cmd)
                                 except Exception as e:
-                                    err = ResonateShutdownError(mesg="Store error occurred, shutting down")
+                                    err = ResonateShutdownError(mesg="An unexpected store error has occurred, shutting down")
                                     err.__cause__ = e  # bind original error
 
                                     # bypass the cq and shutdown right away

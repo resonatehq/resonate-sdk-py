@@ -7,7 +7,7 @@ import pytest
 
 from resonate.conventions import Base
 from resonate.dependencies import Dependencies
-from resonate.loggers.context import ContextLogger
+from resonate.loggers import ContextLogger
 from resonate.models.commands import Delayed, Function, Invoke, Retry, Return
 from resonate.models.result import Ko, Ok
 from resonate.options import Options
