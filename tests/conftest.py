@@ -71,10 +71,8 @@ def log_level(request: pytest.FixtureRequest) -> int:
             return logging.INFO
         case "debug":
             return logging.DEBUG
-        case "notset":
-            return logging.NOTSET
         case _:
-            return logging.ERROR  # default for tests is very high
+            return logging.NOTSET
 
 
 # Store fixtures
