@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def pytest_configure() -> None:
-    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+    logging.basicConfig(level=logging.ERROR)  # set log levels very high for tests
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -74,7 +74,7 @@ def log_level(request: pytest.FixtureRequest) -> int:
         case "notset":
             return logging.NOTSET
         case _:
-            return logging.INFO
+            return logging.ERROR  # default for tests is very high
 
 
 # Store fixtures

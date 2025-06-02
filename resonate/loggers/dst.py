@@ -14,7 +14,7 @@ class DSTFormatter(logging.Formatter):
 
 
 class DSTLogger:
-    def __init__(self, cid: str, id: str, clock: Clock, level: int = logging.INFO) -> None:
+    def __init__(self, cid: str, id: str, clock: Clock, level: int = logging.NOTSET) -> None:
         self.cid = cid
         self.id = id
         self.clock = clock

@@ -400,7 +400,7 @@ def test_dst(seed: str, steps: int, log_level: int) -> None:
 
     # log
     for log in sim.logs:
-        logger.info(log)
+        logger.critical(log)
 
     print_worker_computations(workers)
 

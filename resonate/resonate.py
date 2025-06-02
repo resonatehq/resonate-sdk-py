@@ -15,7 +15,6 @@ from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
 from resonate.loggers.context import ContextLogger
-from resonate.logging import logger
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -42,7 +41,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int = logging.INFO,
+        log_level: int = logging.NOTSET,
         store: Store | None = None,
         message_source: MessageSource | None = None,
     ) -> None:
@@ -117,9 +116,6 @@ class Resonate:
         log_level: int = logging.INFO,
     ) -> Resonate:
         pid = pid or uuid.uuid4().hex
-
-        # set log level for resonate logs
-        logger.setLevel(log_level)
 
         return cls(
             pid=pid,
