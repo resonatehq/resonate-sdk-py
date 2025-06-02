@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -48,8 +47,6 @@ if TYPE_CHECKING:
     from resonate.models.durable_promise import DurablePromise
     from resonate.models.encoder import Encoder
     from resonate.models.retry_policy import RetryPolicy
-
-logger = logging.getLogger(__name__)
 
 
 class Scheduler:
