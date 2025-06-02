@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import functools
 import inspect
+import logging
 import random
 import time
 import uuid
@@ -13,6 +14,8 @@ from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
+from resonate.loggers.context import ContextLogger
+from resonate.logging import logger
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.options import Options
@@ -24,6 +27,7 @@ if TYPE_CHECKING:
 
     from resonate.models.context import Info
     from resonate.models.encoder import Encoder
+    from resonate.models.logger import Logger
     from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
     from resonate.models.store import PromiseStore, Store
@@ -38,6 +42,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
+        log_level: int = logging.INFO,
         store: Store | None = None,
         message_source: MessageSource | None = None,
     ) -> None:
@@ -53,6 +58,7 @@ class Resonate:
         self._opts = Options()
         self._registry = registry or Registry()
         self._dependencies = dependencies or Dependencies()
+        self._log_level = log_level
 
         if store and message_source:
             self._store = store
@@ -62,7 +68,7 @@ class Resonate:
             self._message_source = self._store.message_source(self._group, self._pid)
 
         self._bridge = Bridge(
-            lambda id, cid, info: Context(id, cid, info, self._registry, self._dependencies),
+            lambda id, cid, info: Context(id, cid, info, self._registry, self._dependencies, ContextLogger(cid, id, self._log_level)),
             self._pid,
             self._ttl,
             self._opts,
@@ -81,6 +87,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
+        log_level: int = logging.INFO,
     ) -> Resonate:
         pid = pid or uuid.uuid4().hex
         store = LocalStore()
@@ -91,6 +98,7 @@ class Resonate:
             group=group,
             registry=registry,
             dependencies=dependencies,
+            log_level=log_level,
             store=store,
             message_source=store.message_source(group=group, id=pid),
         )
@@ -106,9 +114,12 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        retry_policy: RetryPolicy | None = None,
+        log_level: int = logging.INFO,
     ) -> Resonate:
         pid = pid or uuid.uuid4().hex
+
+        # set log level for resonate logs
+        logger.setLevel(log_level)
 
         return cls(
             pid=pid,
@@ -116,7 +127,8 @@ class Resonate:
             group=group,
             registry=registry,
             dependencies=dependencies,
-            store=RemoteStore(host=host, port=store_port, retry_policy=retry_policy),
+            log_level=log_level,
+            store=RemoteStore(host=host, port=store_port),
             message_source=Poller(group=group, id=pid, host=host, port=message_source_port),
         )
 
@@ -270,12 +282,13 @@ class Resonate:
 
 
 class Context:
-    def __init__(self, id: str, cid: str, info: Info, registry: Registry, dependencies: Dependencies) -> None:
+    def __init__(self, id: str, cid: str, info: Info, registry: Registry, dependencies: Dependencies, logger: Logger) -> None:
         self._id = id
         self._cid = cid
         self._info = info
         self._registry = registry
         self._dependencies = dependencies
+        self._logger = logger
         self._random = Random(self)
         self._time = Time(self)
         self._counter = 0
@@ -290,6 +303,10 @@ class Context:
     @property
     def info(self) -> Info:
         return self._info
+
+    @property
+    def logger(self) -> Logger:
+        return self._logger
 
     @property
     def random(self) -> Random:

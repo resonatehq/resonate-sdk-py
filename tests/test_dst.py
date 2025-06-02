@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import random
 import re
 from typing import TYPE_CHECKING, Any
@@ -11,6 +10,7 @@ from tabulate import tabulate
 from resonate.clocks.step import StepClock
 from resonate.conventions import Remote
 from resonate.dependencies import Dependencies
+from resonate.logging import logger
 from resonate.models.commands import Invoke, Listen
 from resonate.models.result import Ko, Ok, Result
 from resonate.options import Options
@@ -24,8 +24,6 @@ if TYPE_CHECKING:
     from resonate import Context
     from resonate.coroutine import Promise
     from resonate.models.context import Info
-
-logger = logging.getLogger(__name__)
 
 
 def foo(ctx: Context) -> Generator[Any, Any, Any]:
@@ -234,8 +232,11 @@ def fib(ctx: Context, n: int) -> Generator[Any, Any, int]:
     return sum(vs)
 
 
-def test_dst(seed: str, steps: int) -> None:
-    logger.info("DST(seed=%s, steps=%s)", seed, steps)
+def test_dst(seed: str, steps: int, log_level: int) -> None:
+    logger.info("DST(seed=%s, steps=%s, log_level=%s)", seed, steps, log_level)
+
+    # set log level
+    logger.setLevel(log_level)
 
     # create seeded random number generator
     r = random.Random(seed)
@@ -277,8 +278,26 @@ def test_dst(seed: str, steps: int) -> None:
 
     # create a simulator
     sim = Simulator(r, clock)
-    servers: list[Server] = [Server(r, "sim://uni@server", "sim://any@server", clock=clock)]
-    workers: list[Worker] = [Worker(r, f"sim://uni@default/{n}", f"sim://any@default/{n}", registry=registry, dependencies=dependencies) for n in range(10)]
+    servers: list[Server] = [
+        Server(
+            r,
+            "sim://uni@server",
+            "sim://any@server",
+            clock=clock,
+        ),
+    ]
+    workers: list[Worker] = [
+        Worker(
+            r,
+            f"sim://uni@default/{n}",
+            f"sim://any@default/{n}",
+            clock=clock,
+            registry=registry,
+            dependencies=dependencies,
+            log_level=log_level,
+        )
+        for n in range(10)
+    ]
 
     # add components to simlator
     for c in servers + workers:
@@ -383,7 +402,7 @@ def test_dst(seed: str, steps: int) -> None:
     for log in sim.logs:
         logger.info(log)
 
-    # print_worker_computations(workers)
+    print_worker_computations(workers)
 
 
 def print_worker_computations(workers: list[Worker]) -> None:
@@ -396,7 +415,7 @@ def print_worker_computations(workers: list[Worker]) -> None:
         ],
         key=lambda row: natsort(row[0]),  # sort by computation id
     )
-    logger.info(tabulate(data, head, tablefmt="outline", colalign=("left", "left", "left", "left", "right", "right")))
+    logger.debug("\n%s", tabulate(data, head, tablefmt="outline", colalign=("left", "left", "left", "left", "right", "right")))
 
 
 def func(f: Init | Lfnc | Rfnc | Coro | None) -> str:

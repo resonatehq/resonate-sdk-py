@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import queue
 import time
@@ -10,13 +9,12 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from resonate.encoders import JsonEncoder
+from resonate.logging import logger
 from resonate.models.message import InvokeMesg, Mesg, NotifyMesg, ResumeMesg
 from resonate.utils import exit_on_exception
 
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
-
-logger = logging.getLogger(f"{__package__}.poller")
 
 
 class Poller:
@@ -36,7 +34,7 @@ class Poller:
         self._port = port or os.getenv("RESONATE_PORT_MESSAGE_SOURCE", "8002")
         self._timeout = timeout
         self._encoder = encoder or JsonEncoder()
-        self._thread = Thread(name="poller-thread", target=self.loop, daemon=True)
+        self._thread = Thread(name="message-source::poller", target=self.loop, daemon=True)
         self._stopped = False
 
     @property
@@ -74,7 +72,7 @@ class Poller:
     def next(self) -> Mesg | None:
         return self._messages.get()
 
-    @exit_on_exception("mesg_source.poller")
+    @exit_on_exception
     def loop(self) -> None:
         while not self._stopped:
             try:

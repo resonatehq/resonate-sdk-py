@@ -442,7 +442,7 @@ def test_resonate_get(resonate: Resonate) -> None:
     timestamp = int(time.time())
     id = f"get.{timestamp}"
     resonate.promises.create(id=id, timeout=sys.maxsize)
-    thread = threading.Thread(target=resolve_promise_slow, args=(id,))  # Do this in a different thread to simulate concurrency
+    thread = threading.Thread(target=resolve_promise_slow, args=(id,), daemon=True)  # Do this in a different thread to simulate concurrency
 
     handle = resonate.get(id)
 

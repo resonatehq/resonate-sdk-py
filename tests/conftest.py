@@ -53,6 +53,30 @@ def steps(request: pytest.FixtureRequest) -> int:
     return 10000
 
 
+@pytest.fixture
+def log_level(request: pytest.FixtureRequest) -> int:
+    level = request.config.getoption("--log-level")
+
+    if isinstance(level, str) and level.isdigit():
+        return int(level)
+
+    match str(level).lower():
+        case "critical":
+            return logging.CRITICAL
+        case "error":
+            return logging.ERROR
+        case "warning" | "warn":
+            return logging.WARNING
+        case "info":
+            return logging.INFO
+        case "debug":
+            return logging.DEBUG
+        case "notset":
+            return logging.NOTSET
+        case _:
+            return logging.INFO
+
+
 # Store fixtures
 
 

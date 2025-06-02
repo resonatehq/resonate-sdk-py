@@ -89,7 +89,7 @@ class LocalStore:
     def start(self) -> None:
         if not self._thread or not self._thread.is_alive():
             self._stopped = False
-            self._thread = threading.Thread(target=self.loop, name="local_store", daemon=True)
+            self._thread = threading.Thread(target=self.loop, name="store", daemon=True)
             self._thread.start()
 
     def stop(self) -> None:
@@ -103,7 +103,7 @@ class LocalStore:
         with self._cond:
             self._cond.notify()
 
-    @exit_on_exception("store")
+    @exit_on_exception
     def loop(self) -> None:
         # set initial timeout to zero to prime the control loop
         timeout = 0.0
