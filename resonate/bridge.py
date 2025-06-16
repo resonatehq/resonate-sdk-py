@@ -31,6 +31,7 @@ from resonate.models.commands import (
     ResolvePromiseRes,
     Resume,
     Retry,
+    Return,
 )
 from resonate.models.durable_promise import DurablePromise
 from resonate.models.result import Ko, Ok
@@ -84,7 +85,7 @@ class Bridge:
             self._unicast,
             self._anycast,
         )
-        self._processor = Processor(self._cq)
+        self._processor = Processor()
 
         self._bridge_thread = threading.Thread(target=self._process_cq, name="bridge", daemon=True)
         self._message_source_thread = threading.Thread(target=self._process_msgs, name="message-source", daemon=True)
@@ -222,7 +223,7 @@ class Bridge:
                                     return
 
                             case Function(id, cid, func):
-                                self._processor.enqueue(id, cid, func)
+                                self._processor.enqueue(func, lambda r, id=id, cid=cid: self._cq.put_nowait(Return(id, cid, r)))
                             case Delayed() as item:
                                 self._handle_delay(item)
 
@@ -345,7 +346,7 @@ class Bridge:
                 for item in events:
                     match item:
                         case Function(id, cid, func):
-                            self._processor.enqueue(id, cid, func)
+                            self._processor.enqueue(func, lambda r, id=id, cid=cid: self._cq.put_nowait(Return(id, cid, r)))
                         case retry:
                             self._cq.put_nowait(retry)
 
