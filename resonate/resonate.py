@@ -98,9 +98,6 @@ class Resonate:
         if not isinstance(ttl, int):
             msg = f"ttl must be `int`, got {utils.type_name(ttl)}"
             raise TypeError(msg)
-        if ttl <= 0:
-            msg = f"ttl must be > 0, got {ttl}"
-            raise ValueError(msg)
 
         # group
         if not isinstance(group, str):
