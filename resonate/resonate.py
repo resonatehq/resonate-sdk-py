@@ -10,7 +10,6 @@ import uuid
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, TypeVarTuple, overload
 
-from resonate import utils
 from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
@@ -91,32 +90,32 @@ class Resonate:
     ) -> Resonate:
         # pid
         if pid is not None and not isinstance(pid, str):
-            msg = f"pid must be `str | None`, got {utils.type_name(pid)}"
+            msg = f"pid must be `str | None`, got {type(pid).__name__}"
             raise TypeError(msg)
 
         # ttl
         if not isinstance(ttl, int):
-            msg = f"ttl must be `int`, got {utils.type_name(ttl)}"
+            msg = f"ttl must be `int`, got {type(ttl).__name__}"
             raise TypeError(msg)
 
         # group
         if not isinstance(group, str):
-            msg = f"group must be `str`, got {utils.type_name(group)}"
+            msg = f"group must be `str`, got {type(group).__name__}"
             raise TypeError(msg)
 
         # registry
         if registry is not None and not isinstance(registry, Registry):
-            msg = f"registry must be `Registry | None`, got {utils.type_name(registry)}"
+            msg = f"registry must be `Registry | None`, got {type(registry).__name__}"
             raise TypeError(msg)
 
         # dependencies
         if dependencies is not None and not isinstance(dependencies, Dependencies):
-            msg = f"dependencies must be `Dependencies | None`, got {utils.type_name(dependencies)}"
+            msg = f"dependencies must be `Dependencies | None`, got {type(dependencies).__name__}"
             raise TypeError(msg)
 
         # log_level
         if not isinstance(log_level, int):
-            msg = f"log_level must be `int`, got {utils.type_name(log_level)}"
+            msg = f"log_level must be `int`, got {type(log_level).__name__}"
             raise TypeError(msg)
 
         pid = pid or uuid.uuid4().hex
@@ -148,47 +147,47 @@ class Resonate:
     ) -> Resonate:
         # host
         if host is not None and not isinstance(host, str):
-            msg = f"host must be `str | None`, got {utils.type_name(host)}"
+            msg = f"host must be `str | None`, got {type(host).__name__}"
             raise TypeError(msg)
 
         # store_port
         if store_port is not None and not isinstance(store_port, str):
-            msg = f"store_port must be `str | None`, got {utils.type_name(store_port)}"
+            msg = f"store_port must be `str | None`, got {type(store_port).__name__}"
             raise TypeError(msg)
 
         # message_source_port
         if message_source_port is not None and not isinstance(message_source_port, str):
-            msg = f"message_source_port must be `str | None`, got {utils.type_name(message_source_port)}"
+            msg = f"message_source_port must be `str | None`, got {type(message_source_port).__name__}"
             raise TypeError(msg)
 
         # pid
         if pid is not None and not isinstance(pid, str):
-            msg = f"pid must be `str | None`, got {utils.type_name(pid)}"
+            msg = f"pid must be `str | None`, got {type(pid).__name__}"
             raise TypeError(msg)
 
         # ttl
         if not isinstance(ttl, int):
-            msg = f"ttl must be `int`, got {utils.type_name(ttl)}"
+            msg = f"ttl must be `int`, got {type(ttl).__name__}"
             raise TypeError(msg)
 
         # group
         if not isinstance(group, str):
-            msg = f"group must be `str`, got {utils.type_name(group)}"
+            msg = f"group must be `str`, got {type(group).__name__}"
             raise TypeError(msg)
 
         # registry
         if registry is not None and not isinstance(registry, Registry):
-            msg = f"registry must be `Registry | None`, got {utils.type_name(registry)}"
+            msg = f"registry must be `Registry | None`, got {type(registry).__name__}"
             raise TypeError(msg)
 
         # dependencies
         if dependencies is not None and not isinstance(dependencies, Dependencies):
-            msg = f"dependencies must be `Dependencies | None`, got {utils.type_name(dependencies)}"
+            msg = f"dependencies must be `Dependencies | None`, got {type(dependencies).__name__}"
             raise TypeError(msg)
 
         # log_level
         if not isinstance(log_level, int):
-            msg = f"log_level must be `int`, got {utils.type_name(log_level)}"
+            msg = f"log_level must be `int`, got {type(log_level).__name__}"
             raise TypeError(msg)
 
         pid = pid or uuid.uuid4().hex
@@ -263,11 +262,11 @@ class Resonate:
         version: int = 1,
     ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
         if name is not None and not isinstance(name, str):
-            msg = f"name must be `str | None`, got {utils.type_name(name)}"
+            msg = f"name must be `str | None`, got {type(name).__name__}"
             raise TypeError(msg)
 
         if not isinstance(version, int):
-            msg = f"version must be `int`, got {utils.type_name(version)}"
+            msg = f"version must be `int`, got {type(version).__name__}"
             raise TypeError(msg)
 
         def wrapper(func: Callable[..., Any]) -> Function[P, R]:
@@ -311,19 +310,19 @@ class Resonate:
     ) -> Handle[R]:
         # id
         if not isinstance(id, str):
-            msg = f"id must be `str`, got {utils.type_name(id)}"
+            msg = f"id must be `str`, got {type(id).__name__}"
             raise TypeError(msg)
         # func
         if not (callable(func) or isinstance(func, str)):
-            msg = f"func must be `Callable | str`, got {utils.type_name(func)}"
+            msg = f"func must be `Callable | str`, got {type(func).__name__}"
             raise TypeError(msg)
         # tuple
         if not isinstance(args, tuple):
-            msg = f"args must be `tuple`, got {utils.type_name(args)}"
+            msg = f"args must be `tuple`, got {type(args).__name__}"
             raise TypeError(args)
         # dict
         if not isinstance(kwargs, dict):
-            msg = f"kwargs must be `dict`, got {utils.type_name(kwargs)}"
+            msg = f"kwargs must be `dict`, got {type(kwargs).__name__}"
             raise TypeError(kwargs)
 
         self.start()
@@ -360,19 +359,19 @@ class Resonate:
     ) -> Handle[R]:
         # id
         if not isinstance(id, str):
-            msg = f"id must be `str`, got {utils.type_name(id)}"
+            msg = f"id must be `str`, got {type(id).__name__}"
             raise TypeError(msg)
         # func
         if not (callable(func) or isinstance(func, str)):
-            msg = f"func must be `Callable | str`, got {utils.type_name(func)}"
+            msg = f"func must be `Callable | str`, got {type(func).__name__}"
             raise TypeError(msg)
         # tuple
         if not isinstance(args, tuple):
-            msg = f"args must be `tuple`, got {utils.type_name(args)}"
+            msg = f"args must be `tuple`, got {type(args).__name__}"
             raise TypeError(args)
         # dict
         if not isinstance(kwargs, dict):
-            msg = f"kwargs must be `dict`, got {utils.type_name(kwargs)}"
+            msg = f"kwargs must be `dict`, got {type(kwargs).__name__}"
             raise TypeError(kwargs)
 
         self.start()
@@ -391,7 +390,7 @@ class Resonate:
     def get(self, id: str) -> Handle[Any]:
         # id
         if not isinstance(id, str):
-            msg = f"id must be `str`, got {utils.type_name(id)}"
+            msg = f"id must be `str`, got {type(id).__name__}"
             raise TypeError(msg)
 
         self.start()
@@ -403,7 +402,7 @@ class Resonate:
     def set_dependency(self, name: str, obj: Any) -> None:
         # name
         if not isinstance(name, str):
-            msg = f"name must be `str`, got {utils.type_name(name)}"
+            msg = f"name must be `str`, got {type(name).__name__}"
             raise TypeError(msg)
 
         self._dependencies.add(name, obj)
@@ -446,7 +445,7 @@ class Context:
 
     def get_dependency[T](self, key: str, default: T = None) -> Any | T:
         if not isinstance(key, str):
-            msg = f"key must be `str`, got {utils.type_name(key)}"
+            msg = f"key must be `str`, got {type(key).__name__}"
             raise TypeError(msg)
 
         return self._dependencies.get(key, default)
@@ -561,7 +560,7 @@ class Context:
 
     def sleep(self, secs: float) -> RFC[None]:
         if not isinstance(secs, int | float):
-            msg = f"secs must be `float`, got {utils.type_name(secs)}"
+            msg = f"secs must be `float`, got {type(secs).__name__}"
             raise TypeError(msg)
 
         return RFC(Sleep(self._next(), secs))
@@ -576,19 +575,19 @@ class Context:
         tags: dict[str, str] | None = None,
     ) -> RFI:
         if id is not None and not isinstance(id, str):
-            msg = f"id must be `str | None`, got {utils.type_name(id)}"
+            msg = f"id must be `str | None`, got {type(id).__name__}"
             raise TypeError(msg)
 
         if timeout is not None and isinstance(timeout, int | float):
-            msg = f"timeout must be `float`, got {utils.type_name(timeout)}"
+            msg = f"timeout must be `float`, got {type(timeout).__name__}"
             raise TypeError(msg)
 
         if idempotency_key is not None and not isinstance(idempotency_key, str):
-            msg = f"idempotency_key must be `str | None`, got {utils.type_name(idempotency_key)}"
+            msg = f"idempotency_key must be `str | None`, got {type(idempotency_key).__name__}"
             raise TypeError(msg)
 
         if tags is not None and not isinstance(tags, dict):
-            msg = f"tags must be `dict | None`, got {utils.type_name(tags)}"
+            msg = f"tags must be `dict | None`, got {type(tags).__name__}"
             raise TypeError(tags)
 
         default_id = self._next()
