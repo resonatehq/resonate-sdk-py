@@ -77,8 +77,14 @@ jobs:
         run: ./resonate serve --system-signal-timeout 0.1s &
         working-directory: server
 
-      - name: run tests
+      - name: run tests with coverage
+        if: matrix.server-version == "latest" && matrix.python-version == "3.13" && matrix.os == "ubuntu-latest"
         env:
           RESONATE_HOST: http://localhost
+        run: uv run pytest --cov --cov-branch --cov-report=xml
 
+      - name: run tests
+        if: ${{ ! (matrix.server-version == 'latest' && matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest') }}
+        env:
+          RESONATE_HOST: http://localhost
         run: uv run pytest
