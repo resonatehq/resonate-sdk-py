@@ -11,9 +11,9 @@ from resonate.utils import exit_on_exception
 
 
 class Processor:
-    def __init__(self) -> None:
+    def __init__(self, workers: int | None = None) -> None:
         self.threads = set[Thread]()
-        for _ in range(min(32, (os.cpu_count() or 1))):
+        for _ in range(min(32, workers or (os.cpu_count() or 1))):
             self.threads.add(Thread(target=self._run, daemon=True))
 
         self.sq = queue.Queue[tuple[Callable[[], Any], Callable[[Result[Any]], None]] | None]()
