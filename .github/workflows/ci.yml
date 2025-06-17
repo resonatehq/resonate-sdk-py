@@ -26,8 +26,8 @@ jobs:
       fail-fast: true
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.12", "3.13"]
-        server-version: ["main", "latest"]
+        python-version: [3.12, 3.13]
+        server-version: [main, latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +81,7 @@ jobs:
         working-directory: server
 
       - name: run tests with coverage
-        if: matrix.server-version == "latest" && matrix.python-version == "3.13" && matrix.os == "ubuntu-latest"
+        if: ${{ matrix.server-version == 'latest' && matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest' }}
         run: uv run pytest --cov --cov-branch --cov-report=xml
 
       - name: run tests
