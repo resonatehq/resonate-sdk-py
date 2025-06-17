@@ -223,7 +223,7 @@ class Bridge:
                                     return
 
                             case Function(id, cid, func):
-                                self._processor.enqueue(func, lambda r: self._cq.put_nowait(Return(id, cid, r)))
+                                self._processor.enqueue(func, lambda r, id=id, cid=cid: self._cq.put_nowait(Return(id, cid, r)))
                             case Delayed() as item:
                                 self._handle_delay(item)
 
@@ -346,7 +346,7 @@ class Bridge:
                 for item in events:
                     match item:
                         case Function(id, cid, func):
-                            self._processor.enqueue(func, lambda r: self._cq.put_nowait(Return(id, cid, r)))
+                            self._processor.enqueue(func, lambda r, id=id, cid=cid: self._cq.put_nowait(Return(id, cid, r)))
                         case retry:
                             self._cq.put_nowait(retry)
 

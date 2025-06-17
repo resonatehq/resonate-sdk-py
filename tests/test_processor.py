@@ -27,7 +27,7 @@ def test_processor(workers: int) -> None:
     expected_greet = [greet("A"), greet("B")]
     p.start()
     for name, expected in zip(names, expected_greet, strict=False):
-        p.enqueue(lambda: greet(name), lambda r: callback(q, expected, r))
+        p.enqueue(lambda name=name: greet(name), lambda r, expected=expected: callback(q, expected, r))
 
     p.stop()
     assert q.qsize() == len(names)
