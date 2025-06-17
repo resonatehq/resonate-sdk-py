@@ -95,3 +95,7 @@ def truncate(s: str, n: int) -> str:
     if len(s) > n:
         return s[:n] + "..."
     return s
+
+
+def type_name(v: Any) -> str:
+    return type(v).__name__
