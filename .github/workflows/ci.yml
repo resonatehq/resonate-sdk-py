@@ -19,6 +19,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
 
+    env:
+      RESONATE_HOST: http://localhost
+
     strategy:
       fail-fast: true
       matrix:
@@ -79,12 +82,8 @@ jobs:
 
       - name: run tests with coverage
         if: matrix.server-version == "latest" && matrix.python-version == "3.13" && matrix.os == "ubuntu-latest"
-        env:
-          RESONATE_HOST: http://localhost
         run: uv run pytest --cov --cov-branch --cov-report=xml
 
       - name: run tests
         if: ${{ ! (matrix.server-version == 'latest' && matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest') }}
-        env:
-          RESONATE_HOST: http://localhost
         run: uv run pytest
