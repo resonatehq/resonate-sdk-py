@@ -16,16 +16,12 @@ class Processor:
         for _ in range(min(32, (os.cpu_count() or 1))):
             self.threads.add(Thread(target=self._run, daemon=True))
 
-        self.sq = queue.Queue[tuple[Callable[[], Any], Callable[[Result[Any]], None]]]()
+        self.sq = queue.Queue[tuple[Callable[[], Any], Callable[[Result[Any]], None]] | None]()
 
     @exit_on_exception
     def _run(self) -> None:
-        while True:
-            try:
-                func, callback = self.sq.get()
-            except queue.ShutDown:
-                break
-
+        while sqe := self.sq.get():
+            func, callback = sqe
             try:
                 r = Ok(func())
             except Exception as e:
@@ -33,6 +29,8 @@ class Processor:
 
             callback(r)
             self.sq.task_done()
+
+        self.sq.put(None)
 
     def enqueue(self, func: Callable[[], Any], callback: Callable[[Result[Any]], None]) -> None:
         self.sq.put((func, callback))
@@ -43,7 +41,6 @@ class Processor:
                 t.start()
 
     def stop(self) -> None:
-        self.sq.shutdown()
+        self.sq.put(None)
         for t in self.threads:
             t.join()
-        self.sq.join()
