@@ -20,6 +20,7 @@ def callback(q: Queue[tuple[str, str]], expected: str, result: Result[str]) -> N
 @pytest.mark.parametrize("workers", [1, 2, 3])
 def test_processor(workers: int) -> None:
     q = Queue[tuple[str, str]]()
+
     p = Processor(workers)
     assert len(p.threads) == workers
 

@@ -29,9 +29,6 @@ class Processor:
                 r = Ko(e)
 
             callback(r)
-            self.sq.task_done()
-
-        self.sq.task_done()
 
     def enqueue(self, func: Callable[[], Any], callback: Callable[[Result[Any]], None]) -> None:
         self.sq.put((func, callback))
@@ -45,7 +42,7 @@ class Processor:
         for _ in self.threads:
             self.sq.put(None)
 
-        self.sq.join()
-
         for t in self.threads:
+            # we might want to consider specifying a timeout
+            # in the case the user has a long-running function blocking
             t.join()
