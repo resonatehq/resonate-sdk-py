@@ -22,6 +22,7 @@ class Processor:
     def _run(self) -> None:
         while sqe := self.sq.get():
             func, callback = sqe
+
             try:
                 r = Ok(func())
             except Exception as e:
