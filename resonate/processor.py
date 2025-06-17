@@ -30,7 +30,7 @@ class Processor:
             callback(r)
             self.sq.task_done()
 
-        self.sq.put(None)
+        self.sq.task_done()
 
     def enqueue(self, func: Callable[[], Any], callback: Callable[[Result[Any]], None]) -> None:
         self.sq.put((func, callback))
@@ -41,6 +41,10 @@ class Processor:
                 t.start()
 
     def stop(self) -> None:
-        self.sq.put(None)
+        for _ in self.threads:
+            self.sq.put(None)
+
+        self.sq.join()
+
         for t in self.threads:
             t.join()
