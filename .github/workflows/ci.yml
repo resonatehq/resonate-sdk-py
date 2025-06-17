@@ -85,6 +85,12 @@ jobs:
         if: ${{ matrix.server-version == 'latest' && matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest' }}
         run: uv run pytest --cov --cov-branch --cov-report=xml
 
+      - name: Upload coverage reports to Codecov
+        if: ${{ steps.coverage.outcome != 'skipped' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
       - name: run tests
         if: ${{ steps.coverage.outcome == 'skipped' }}
         run: uv run pytest
