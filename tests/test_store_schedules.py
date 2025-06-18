@@ -5,7 +5,7 @@ from resonate.resonate import Resonate
 
 def test_create() -> None:
     resonate = Resonate.remote()
-    schedule = resonate.schedules.create("foo", "foo", 10, promise_data="foo", promise_headers={"a": "1"}, description="clean up", promise_tags={"a": "b"})
+    schedule = resonate.schedules.create("foo", "foo", 10)
     schedule_r = resonate.schedules.read("foo")
     assert schedule == schedule_r
     # resonate.schedules.delete("foo")
