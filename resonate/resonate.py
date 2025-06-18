@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from resonate.models.logger import Logger
     from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
-    from resonate.models.store import PromiseStore, Store
+    from resonate.models.store import PromiseStore, ScheduleStore, Store
 
 
 class Resonate:
@@ -206,6 +206,10 @@ class Resonate:
     @property
     def promises(self) -> PromiseStore:
         return self._store.promises
+
+    @property
+    def schedules(self) -> ScheduleStore:
+        return self._store.schedules
 
     def start(self) -> None:
         if not self._started:

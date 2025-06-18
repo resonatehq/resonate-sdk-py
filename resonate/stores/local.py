@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from resonate.models.clock import Clock
     from resonate.models.encoder import Encoder
     from resonate.models.router import Router
+    from resonate.models.schedules import Schedule
 
 
 class LocalStore:
@@ -29,6 +30,7 @@ class LocalStore:
         self._encoder = encoder or Base64Encoder()
         self._promises = LocalPromiseStore(self)
         self._tasks = LocalTaskStore(self)
+        self._schedules = LocalScheduleStore(self)
 
         self._routers: list[Router] = [TagRouter()]
         self._targets: dict[str, str] = {"default": "local://any@default"}
@@ -51,6 +53,10 @@ class LocalStore:
     @property
     def tasks(self) -> LocalTaskStore:
         return self._tasks
+
+    @property
+    def schedules(self) -> LocalScheduleStore:
+        return self._schedules
 
     @property
     def routers(self) -> list[Router]:
@@ -873,6 +879,30 @@ class LocalTaskStore:
 
             case _:
                 raise ResonateStoreError(mesg="The task is already claimed, completed, or an invalid counter was provided", code=40305)
+
+
+class LocalScheduleStore:
+    def __init__(self, store: LocalStore) -> None:
+        self._store = store
+
+    def create(
+        self,
+        id: str,
+        promise_id: str,
+        promise_timeout: int,
+        *,
+        ikey: str | None = None,
+        description: str | None = None,
+        cron: str = "0 * * * *",  # once an hour
+        tags: dict[str, str] | None = None,
+        promise_headers: dict[str, str] | None = None,
+        promise_data: str | None = None,
+        promise_tags: dict[str, str] | None = None,
+    ) -> Schedule: ...
+
+    def read(self, id: str) -> Schedule: ...
+
+    def delete(self, id: str) -> None: ...
 
 
 @final
