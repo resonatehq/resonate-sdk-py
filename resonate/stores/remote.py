@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 from requests import PreparedRequest, Request, Session
+from requests.auth import _basic_auth_str
 
 from resonate.encoders import Base64Encoder
 from resonate.errors import ResonateStoreError
@@ -27,12 +28,16 @@ class RemoteStore:
         encoder: Encoder[str | None, str | None] | None = None,
         timeout: float | tuple[float, float] = 5,
         retry_policy: RetryPolicy | None = None,
+        auth: tuple[str, str] | None = None,
     ) -> None:
         self._host = host or os.getenv("RESONATE_HOST_STORE", os.getenv("RESONATE_HOST", "http://localhost"))
         self._port = port or os.getenv("RESONATE_PORT_STORE", "8001")
         self._encoder = encoder or Base64Encoder()
         self._timeout = timeout
         self._retry_policy = retry_policy or Constant(delay=1, max_retries=3)
+        env_auth = os.getenv("RESONATE_AUTH")
+        env_pair = tuple(env_auth.split(":", 1)) if env_auth and ":" in env_auth else None
+        self._auth = auth or env_pair
 
         self._promises = RemotePromiseStore(self)
         self._tasks = RemoteTaskStore(self)
@@ -62,6 +67,8 @@ class RemoteStore:
                 attempt += 1
 
                 try:
+                    if self._auth is not None:
+                        req.headers["Authorization"] = _basic_auth_str(*self._auth)
                     res = s.send(req, timeout=self._timeout)
                     res.raise_for_status()
                     data = res.json()
