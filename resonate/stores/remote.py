@@ -431,13 +431,13 @@ class RemoteScheduleStore:
             headers=self._headers(ikey=ikey),
             json={
                 "id": id,
-                "description": description,
+                "description": description or "",
                 "cron": cron,
                 "tags": tags or {},
                 "promiseId": promise_id,
                 "promiseTimeout": promise_timeout,
                 "promiseParam": promise_param,
-                "promiseTags": promise_tags,
+                "promiseTags": promise_tags or {},
             },
         )
         res = self._store.call(req.prepare())
