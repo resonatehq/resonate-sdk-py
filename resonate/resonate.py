@@ -46,6 +46,16 @@ class Resonate:
         store: Store | None = None,
         message_source: MessageSource | None = None,
     ) -> None:
+        """Resonate, an implementation [Distributed Async Await](https://www.distributed-async-await.io).
+
+        Today, every application is a concurrent, distributed application.
+        While many popular concurrent programming models have emerged,
+        aiming to improve the developer experience for concurrent
+        applications, no distributed programming models have emerged yet.
+        Distributed Async Await aims to fill that gap.
+
+        Resonate is dead simple, formally modeled, and deterministically tested — the way software should be.
+        """
         # pid
         if pid is not None and not isinstance(pid, str):
             msg = f"pid must be `str | None`, got {type(pid).__name__}"
@@ -195,6 +205,7 @@ class Resonate:
         dependencies: Dependencies | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
+        """Create a Resonate instance with remote setup."""
         # host
         if host is not None and not isinstance(host, str):
             msg = f"host must be `str | None`, got {type(host).__name__}"
@@ -315,6 +326,18 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
     ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
+        """Register a new function or a new version of an existing function.
+
+        This method makes the provided function available for top level
+        execution under the specified name and version.
+
+        It can be used directly by passing the target function, or as a decorator.
+
+        When used without arguments, the function itself is decorated and
+        registered with the default name (derived from the function) and version.
+        Providing a ``name`` or ``version`` allows explicit control over the
+        function identifier and its versioning for subsequent invocations.
+        """
         if name is not None and not isinstance(name, str):
             msg = f"name must be `str | None`, got {type(name).__name__}"
             raise TypeError(msg)
@@ -362,6 +385,14 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
+        """Start execution of a task locally, creating or reusing a durable promise.
+
+        If a durable promise with the same `id` already exists, the method
+        will subscribe to its result or return the value immediately if
+        the promise has been resolved.
+
+        Resonate will prevent duplicate executions for the same `id`.
+        """
         # id
         if not isinstance(id, str):
             msg = f"id must be `str`, got {type(id).__name__}"
@@ -411,6 +442,14 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
+        """Start execution of a task remotely, creating or reusing a durable promise.
+
+        If a durable promise with the same `id` already exists, the method
+        will subscribe to its result or return the value immediately if
+        the promise has been resolved.
+
+        Resonate will prevent duplicate executions for the same `id`.
+        """
         # id
         if not isinstance(id, str):
             msg = f"id must be `str`, got {type(id).__name__}"
@@ -442,6 +481,11 @@ class Resonate:
         return Handle(future)
 
     def get(self, id: str) -> Handle[Any]:
+        """Subscribe to an execution.
+
+        A durable promise with the same `id` must exist. Returns immediately
+        if the promise has been resolved.
+        """
         # id
         if not isinstance(id, str):
             msg = f"id must be `str`, got {type(id).__name__}"
@@ -454,6 +498,11 @@ class Resonate:
         return Handle(future)
 
     def set_dependency(self, name: str, obj: Any) -> None:
+        """Store a named dependency for use within function Context.
+
+        The dependency is made available to all functions via
+        their execution Context.
+        """
         # name
         if not isinstance(name, str):
             msg = f"name must be `str`, got {type(name).__name__}"
@@ -498,6 +547,12 @@ class Context:
         return self._time
 
     def get_dependency[T](self, key: str, default: T = None) -> Any | T:
+        """Retrieve a previously stored dependency by its key.
+
+        If the dependency identified by ``key`` exists, its value is returned;
+        otherwise, the specified ``default`` value is returned. A TypeError is
+        raised if ``key`` is not a string.
+        """
         if not isinstance(key, str):
             msg = f"key must be `str`, got {type(key).__name__}"
             raise TypeError(msg)
@@ -510,6 +565,12 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
+        """Schedule a function for local execution and return a `Promise[T]`.
+
+        The function is executed in the current process, and the returned promise
+        can be awaited for the final result.By default, execution is durable;
+        non-durable behavior can be configured if needed.
+        """
         if isinstance(func, Function):
             func = func.func
 
@@ -526,6 +587,11 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
+        """Schedule a function for local execution and receive a value `T`.
+
+        The function is executed in the current process.
+        By default, execution is durable; non-durable behavior can be configured if needed.
+        """
         if isinstance(func, Function):
             func = func.func
 
@@ -556,6 +622,12 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
+        """Schedule a function for remote execution and return a `Promise[T]`.
+
+        The function is scheduled by the global event loop and potentially executed
+        on a different process, and the returned promise can be awaited for the final
+        result. Function must be registered.
+        """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
 
@@ -579,6 +651,11 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFC:
+        """Schedule a function for remote execution and receive a  value `T`.
+
+        The function is scheduled by the global event loop and potentially executed
+        on a different process. Function must be registered.
+        """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFC(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
 
@@ -602,6 +679,12 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
+        """Schedule a function for remote execution (detached) and return a `Promise[T]`.
+
+        The function is scheduled by the global event loop and potentially executed
+        on a different process, and the returned promise can be awaited for the final
+        result. Function must be registered.
+        """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)), mode="detached")
 
