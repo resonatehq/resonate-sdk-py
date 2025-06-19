@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from resonate.models.callback import Callback
@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from resonate.models.task import Task
 
 
+@runtime_checkable
 class Store(Protocol):
     @property
     def encoder(self) -> Encoder[str | None, str | None]: ...

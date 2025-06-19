@@ -17,6 +17,8 @@ from resonate.dependencies import Dependencies
 from resonate.loggers import ContextLogger
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
+from resonate.models.message_source import MessageSource
+from resonate.models.store import Store
 from resonate.options import Options
 from resonate.registry import Registry
 from resonate.stores import LocalStore, RemoteStore
@@ -27,9 +29,8 @@ if TYPE_CHECKING:
     from resonate.models.context import Info
     from resonate.models.encoder import Encoder
     from resonate.models.logger import Logger
-    from resonate.models.message_source import MessageSource
     from resonate.models.retry_policy import RetryPolicy
-    from resonate.models.store import PromiseStore, ScheduleStore, Store
+    from resonate.models.store import PromiseStore, ScheduleStore
 
 
 class Resonate:
@@ -45,6 +46,46 @@ class Resonate:
         store: Store | None = None,
         message_source: MessageSource | None = None,
     ) -> None:
+        # pid
+        if pid is not None and not isinstance(pid, str):
+            msg = f"pid must be `str | None`, got {type(pid).__name__}"
+            raise TypeError(msg)
+
+        # ttl
+        if not isinstance(ttl, int):
+            msg = f"ttl must be `int`, got {type(ttl).__name__}"
+            raise TypeError(msg)
+
+        # group
+        if not isinstance(group, str):
+            msg = f"group must be `str`, got {type(group).__name__}"
+            raise TypeError(msg)
+
+        # registry
+        if registry is not None and not isinstance(registry, Registry):
+            msg = f"registry must be `Registry | None`, got {type(registry).__name__}"
+            raise TypeError(msg)
+
+        # dependencies
+        if dependencies is not None and not isinstance(dependencies, Dependencies):
+            msg = f"dependencies must be `Dependencies | None`, got {type(dependencies).__name__}"
+            raise TypeError(msg)
+
+        # log_level
+        if not (isinstance(log_level, int) or log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")):
+            msg = f"log_level must be an int or one of ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), got {type(log_level).__name__}"
+            raise TypeError(msg)
+
+        # store
+        if store is not None and not isinstance(store, Store):
+            msg = f"store must be `Store | None`, got {type(registry).__name__}"
+            raise TypeError(msg)
+
+        # message_source
+        if message_source is not None and not isinstance(message_source, MessageSource):
+            msg = f"message_source must be `MessageSource | None`, got {type(dependencies).__name__}"
+            raise TypeError(msg)
+
         # enforce mutual inclusion/exclusion of store and message source
         if (store is None) != (message_source is None):
             msg = "store and message source must both be set or both be unset"
@@ -94,7 +135,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int = logging.INFO,
+        log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
         # pid
         if pid is not None and not isinstance(pid, str):
@@ -122,8 +163,8 @@ class Resonate:
             raise TypeError(msg)
 
         # log_level
-        if not isinstance(log_level, int):
-            msg = f"log_level must be `int`, got {type(log_level).__name__}"
+        if not (isinstance(log_level, int) or log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")):
+            msg = f"log_level must be an int or one of ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), got {type(log_level).__name__}"
             raise TypeError(msg)
 
         pid = pid or uuid.uuid4().hex
@@ -151,7 +192,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int = logging.INFO,
+        log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
         # host
         if host is not None and not isinstance(host, str):
@@ -194,8 +235,8 @@ class Resonate:
             raise TypeError(msg)
 
         # log_level
-        if not isinstance(log_level, int):
-            msg = f"log_level must be `int`, got {type(log_level).__name__}"
+        if not (isinstance(log_level, int) or log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")):
+            msg = f"log_level must be an int or one of ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), got {type(log_level).__name__}"
             raise TypeError(msg)
 
         pid = pid or uuid.uuid4().hex
