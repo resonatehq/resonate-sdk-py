@@ -568,8 +568,9 @@ class Context:
         """Schedule a function for local execution and return a `Promise[T]`.
 
         The function is executed in the current process, and the returned promise
-        can be awaited for the final result.By default, execution is durable;
-        non-durable behavior can be configured if needed.
+        can be awaited for the final result.
+
+        By default, execution is durable; non-durable behavior can be configured if needed.
         """
         if isinstance(func, Function):
             func = func.func
@@ -590,6 +591,7 @@ class Context:
         """Schedule a function for local execution and receive a value `T`.
 
         The function is executed in the current process.
+
         By default, execution is durable; non-durable behavior can be configured if needed.
         """
         if isinstance(func, Function):
@@ -626,7 +628,9 @@ class Context:
 
         The function is scheduled by the global event loop and potentially executed
         on a different process, and the returned promise can be awaited for the final
-        result. Function must be registered.
+        result.
+
+        Function must be registered.
         """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
@@ -654,7 +658,9 @@ class Context:
         """Schedule a function for remote execution and receive a  value `T`.
 
         The function is scheduled by the global event loop and potentially executed
-        on a different process. Function must be registered.
+        on a different process.
+
+        Function must be registered.
         """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFC(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
@@ -683,7 +689,9 @@ class Context:
 
         The function is scheduled by the global event loop and potentially executed
         on a different process, and the returned promise can be awaited for the final
-        result. Function must be registered.
+        result.
+
+        Function must be registered.
         """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)), mode="detached")
