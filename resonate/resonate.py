@@ -335,7 +335,7 @@ class Resonate:
 
         When used without arguments, the function itself is decorated and
         registered with the default name (derived from the function) and version.
-        Providing a ``name`` or ``version`` allows explicit control over the
+        Providing a `name` or `version` allows explicit control over the
         function identifier and its versioning for subsequent invocations.
         """
         if name is not None and not isinstance(name, str):
@@ -549,9 +549,9 @@ class Context:
     def get_dependency[T](self, key: str, default: T = None) -> Any | T:
         """Retrieve a previously stored dependency by its key.
 
-        If the dependency identified by ``key`` exists, its value is returned;
-        otherwise, the specified ``default`` value is returned. A TypeError is
-        raised if ``key`` is not a string.
+        If the dependency identified by `key` exists, its value is returned;
+        otherwise, the specified `default` value is returned. A TypeError is
+        raised if `key` is not a string.
         """
         if not isinstance(key, str):
             msg = f"key must be `str`, got {type(key).__name__}"
