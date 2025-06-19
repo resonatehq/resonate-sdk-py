@@ -137,6 +137,7 @@ class Resonate:
         dependencies: Dependencies | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
+        """Create a Resonate instance with local setup."""
         # pid
         if pid is not None and not isinstance(pid, str):
             msg = f"pid must be `str | None`, got {type(pid).__name__}"
