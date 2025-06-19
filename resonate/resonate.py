@@ -46,15 +46,14 @@ class Resonate:
         store: Store | None = None,
         message_source: MessageSource | None = None,
     ) -> None:
-        """Resonate, an implementation [Distributed Async Await](https://www.distributed-async-await.io).
+        """Initialize a Resonate client with fully customizable options.
 
-        Today, every application is a concurrent, distributed application.
-        While many popular concurrent programming models have emerged,
-        aiming to improve the developer experience for concurrent
-        applications, no distributed programming models have emerged yet.
-        Distributed Async Await aims to fill that gap.
+        While you can fully customize Resonate, we also provide two convenience helpers:
 
-        Resonate is dead simple, formally modeled, and deterministically tested — the way software should be.
+        - `Resonate.local()`: Configures an in-memory, non-durable store
+        for rapid development and testing.
+        - `Resonate.remote()`: Configures a remote, durable store with
+        full coordination, recovery, and persistence for production use.
         """
         # pid
         if pid is not None and not isinstance(pid, str):
@@ -147,7 +146,13 @@ class Resonate:
         dependencies: Dependencies | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
-        """Create a Resonate instance with local setup."""
+        """Create a Resonate client configured for in-process, in-memory execution.
+
+        This configuration keeps all task state in memory, with no external
+        persistence or network I/O. The in-memory store implements the same
+        API as the remote store, making it perfect for rapid development,
+        local testing, and experimentation.
+        """
         # pid
         if pid is not None and not isinstance(pid, str):
             msg = f"pid must be `str | None`, got {type(pid).__name__}"
@@ -205,7 +210,14 @@ class Resonate:
         dependencies: Dependencies | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
-        """Create a Resonate instance with remote setup."""
+        """Create a Resonate client configured for remote, durable execution.
+
+        This configuration persists all state to a remote store, enabling
+        full durability, coordination, and recovery protocols across processes.
+
+        The remote store implementation is ideal for production workloads, fault-tolerant scheduling,
+        and distributed execution.
+        """
         # host
         if host is not None and not isinstance(host, str):
             msg = f"host must be `str | None`, got {type(host).__name__}"
