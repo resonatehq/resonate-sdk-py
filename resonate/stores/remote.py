@@ -69,6 +69,9 @@ class RemoteStore:
 
                 try:
                     res = s.send(req, timeout=self._timeout)
+                    if res.status_code == 204:
+                        return None
+
                     res.raise_for_status()
                     data = res.json()
                 except requests.exceptions.HTTPError as e:
@@ -405,12 +408,12 @@ class RemoteScheduleStore:
     def create(
         self,
         id: str,
+        cron: str,
         promise_id: str,
         promise_timeout: int,
         *,
         ikey: str | None = None,
         description: str | None = None,
-        cron: str = "0 * * * *",  # once an hour
         tags: dict[str, str] | None = None,
         promise_headers: dict[str, str] | None = None,
         promise_data: str | None = None,

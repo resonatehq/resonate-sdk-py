@@ -128,12 +128,12 @@ class ScheduleStore(Protocol):
     def create(
         self,
         id: str,
+        cron: str,
         promise_id: str,
         promise_timeout: int,
         *,
         ikey: str | None = None,
         description: str | None = None,
-        cron: str = "0 * * * *",  # once an hour
         tags: dict[str, str] | None = None,
         promise_headers: dict[str, str] | None = None,
         promise_data: str | None = None,
