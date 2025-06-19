@@ -28,6 +28,7 @@ class Poller:
         port: str | None = None,
         timeout: float | None = None,
         encoder: Encoder[Any, str] | None = None,
+        auth: tuple[str, str] | None = None,
     ) -> None:
         self._messages = queue.Queue[Mesg | None]()
         self._group = group
@@ -36,6 +37,9 @@ class Poller:
         self._port = port or os.getenv("RESONATE_PORT_MESSAGE_SOURCE", "8002")
         self._timeout = timeout
         self._encoder = encoder or JsonEncoder()
+        env_auth = os.getenv("RESONATE_AUTH")
+        env_pair = tuple(env_auth.split(":", 1)) if env_auth and ":" in env_auth else None
+        self._auth = auth or env_pair
         self._thread = Thread(name="message-source::poller", target=self.loop, daemon=True)
         self._stopped = False
 
@@ -78,7 +82,7 @@ class Poller:
     def loop(self) -> None:
         while not self._stopped:
             try:
-                with requests.get(self.url, stream=True, timeout=self._timeout) as res:
+                with requests.get(self.url, stream=True, timeout=self._timeout, auth=self._auth) as res:
                     res.raise_for_status()
 
                     for line in res.iter_lines(chunk_size=None, decode_unicode=True):

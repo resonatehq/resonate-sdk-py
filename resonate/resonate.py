@@ -144,6 +144,7 @@ class Resonate:
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
         log_level: int = logging.INFO,
+        auth: tuple[str, str] | None = None,
     ) -> Resonate:
         # host
         if host is not None and not isinstance(host, str):
@@ -189,6 +190,14 @@ class Resonate:
         if not isinstance(log_level, int):
             msg = f"log_level must be `int`, got {type(log_level).__name__}"
             raise TypeError(msg)
+        if auth is not None:
+            if (
+                not isinstance(auth, tuple)
+                or len(auth) != 2
+                or not all(isinstance(a, str) for a in auth)
+            ):
+                msg = "auth must be `tuple[str, str] | None`"
+                raise TypeError(msg)
 
         pid = pid or uuid.uuid4().hex
 
@@ -199,8 +208,8 @@ class Resonate:
             registry=registry,
             dependencies=dependencies,
             log_level=log_level,
-            store=RemoteStore(host=host, port=store_port),
-            message_source=Poller(group=group, id=pid, host=host, port=message_source_port),
+            store=RemoteStore(host=host, port=store_port, auth=auth),
+            message_source=Poller(group=group, id=pid, host=host, port=message_source_port, auth=auth),
         )
 
     @property
