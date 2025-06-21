@@ -21,7 +21,8 @@ class JsonEncoder:
 def _encode_exception(obj: Any) -> dict[str, Any]:
     if isinstance(obj, BaseException):
         return {"__error__": str(obj)}
-    return {}  # ignore unencodable objects
+    msg = f"Cannot encode object {obj!r} of type {type(obj).__name__!r} - only exceptions can be serialized here."
+    raise ValueError(msg)
 
 
 def _decode_exception(obj: dict[str, Any]) -> Any:
