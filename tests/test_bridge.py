@@ -195,8 +195,15 @@ class Class:
     a: int
 
 
-def receive_any_value(ctx: Context, obj: Any) -> Generator[Yieldable, Any, None]:
-    return (yield ctx.rfc(receive_any_value, Class(obj)))
+def receive_any_value(ctx: Context, obj: Any, invocation_type: Literal["lfc", "rfc"] | None) -> Generator[Yieldable, Any, None]:
+    if invocation_type is None:
+        return
+
+    match invocation_type:
+        case "lfc":
+            return (yield ctx.lfc(receive_any_value, Class(obj), None))
+        case "rfc":
+            return (yield ctx.rfc(receive_any_value, Class(obj), None))
 
 
 @pytest.fixture
@@ -513,11 +520,19 @@ def test_top_level_must_use_encodable_data(resonate: Resonate) -> None:
     id = f"top-level-must-use-encodable.{timestamp}"
 
     with pytest.raises(ValueError, match="Cannot encode object"):
-        resonate.run(id, receive_any_value, Class(1)).result()
-    # with pytest.raises(ValueError, match="Cannot encode object"):
-    #     resonate.run(id, receive_any_value, 1).result()
+        resonate.run(id, receive_any_value, Class(1), "rfc").result()
+    # with pytest.raises(ValueError, match="Cannot encode object"): # TODO
+    #     resonate.run(id, receive_any_value, 1, "rfc").result()
 
     with pytest.raises(ValueError, match="Cannot encode object"):
-        resonate.rpc(id, receive_any_value, Class(1)).result()
-    # with pytest.raises(ValueError, match="Cannot encode object"):
-    #     resonate.rpc(id, receive_any_value, 1).result()
+        resonate.run(id, receive_any_value, Class(1), "lfc").result()
+    resonate.run(id, receive_any_value, 1, "lfc").result()
+
+    with pytest.raises(ValueError, match="Cannot encode object"):
+        resonate.rpc(id, receive_any_value, Class(1), "rfc").result()
+    # with pytest.raises(ValueError, match="Cannot encode object"): # TODO
+    #     resonate.rpc(id, receive_any_value, 1, "rfc").result()
+
+    with pytest.raises(ValueError, match="Cannot encode object"):
+        resonate.rpc(id, receive_any_value, Class(1), "lfc").result()
+    resonate.rpc(id, receive_any_value, 1, "lfc").result()
