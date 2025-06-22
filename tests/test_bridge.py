@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from unittest.mock import patch
 
@@ -189,6 +190,15 @@ def failure_wkflw(ctx: Context) -> Generator[Yieldable, Any, None]:
     raise RuntimeError
 
 
+@dataclass
+class Class:
+    a: int
+
+
+def receive_any_value(ctx: Context, obj: Any) -> Generator[Yieldable, Any, None]:
+    return (yield ctx.rfc(receive_any_value, Class(obj)))
+
+
 @pytest.fixture
 def resonate(store: Store, message_source: MessageSource) -> Generator[Resonate, None, None]:
     resonate = Resonate(store=store, message_source=message_source)
@@ -215,6 +225,7 @@ def resonate(store: Store, message_source: MessageSource) -> Generator[Resonate,
     resonate.register(child_unbounded)
     resonate.register(wkflw)
     resonate.register(failure_wkflw)
+    resonate.register(receive_any_value)
 
     # start resonate (this startes the bridge)
     resonate.start()
@@ -495,3 +506,18 @@ def test_resonate_platform_errors() -> None:
         handle = resonate.run("f-err", f, flag=True)
         with pytest.raises(ResonateShutdownError):
             handle.result()
+
+
+def test_top_level_must_use_encodable_data(resonate: Resonate) -> None:
+    timestamp = int(time.time())
+    id = f"top-level-must-use-encodable.{timestamp}"
+
+    with pytest.raises(ValueError, match="Cannot encode object"):
+        resonate.run(id, receive_any_value, Class(1)).result()
+    # with pytest.raises(ValueError, match="Cannot encode object"):
+    #     resonate.run(id, receive_any_value, 1).result()
+
+    with pytest.raises(ValueError, match="Cannot encode object"):
+        resonate.rpc(id, receive_any_value, Class(1)).result()
+    # with pytest.raises(ValueError, match="Cannot encode object"):
+    #     resonate.rpc(id, receive_any_value, 1).result()
