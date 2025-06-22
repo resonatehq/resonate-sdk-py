@@ -404,6 +404,9 @@ class Resonate:
         the promise has been resolved.
 
         Resonate will prevent duplicate executions for the same `id`.
+
+        - Function must be registered.
+        - Function *args and **kwargs must be encodable.
         """
         # id
         if not isinstance(id, str):
@@ -461,6 +464,9 @@ class Resonate:
         the promise has been resolved.
 
         Resonate will prevent duplicate executions for the same `id`.
+
+        - Function must be registered.
+        - Function *args and **kwargs must be encodable.
         """
         # id
         if not isinstance(id, str):
@@ -642,7 +648,8 @@ class Context:
         on a different process, and the returned promise can be awaited for the final
         result.
 
-        Function must be registered.
+        - Function must be registered.
+        - Function *args and **kwargs must be encodable.
         """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
@@ -672,7 +679,8 @@ class Context:
         The function is scheduled by the global event loop and potentially executed
         on a different process.
 
-        Function must be registered.
+        - Function must be registered.
+        - Function *args and **kwargs must be encodable.
         """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFC(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
