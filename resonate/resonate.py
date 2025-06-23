@@ -10,8 +10,6 @@ import uuid
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, TypeVarTuple, overload
 
-from croniter import CroniterBadCronError, croniter
-
 from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
@@ -453,60 +451,6 @@ class Resonate:
 
         self._bridge.get(id, self._opts, future)
         return Handle(future)
-
-    @overload
-    def schedule[**P, R](
-        self,
-        id: str,
-        cron: str,
-        timeout: int,
-        func: str,
-        *args: Any,
-        **kwargs: Any,
-    ) -> None: ...
-    @overload
-    def schedule[**P, R](
-        self,
-        id: str,
-        cron: str,
-        timeout: int,
-        func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> None: ...
-    def schedule[**P, R](
-        self,
-        id: str,
-        cron: str,
-        timeout: int,
-        func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R] | str,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> None:
-        try:
-            croniter(cron)
-        except CroniterBadCronError:
-            msg = "cron is not valid"
-            raise ValueError(msg) from None
-
-        if isinstance(func, str):
-            name = func
-            version = self._registry.latest(func)
-        else:
-            name, _, version = self._registry.get(func, self._opts.version)
-
-        promise_headers, promise_data = self._opts.get_encoder().encode({"func": name, "args": args, "kwargs": kwargs, "version": version})
-
-        ikey: str | None
-        match self._opts.idempotency_key:
-            case None:
-                ikey = None
-            case str():
-                ikey = self._opts.idempotency_key
-            case _:
-                ikey = self._opts.idempotency_key(id)
-
-        self.schedules.create(id, cron, f"{id}.{{{{.timestamp}}}}", timeout, promise_data=promise_data, promise_headers=promise_headers, promise_tags={"resonate:invoke": self._opts.target}, ikey=ikey)
 
     def set_dependency(self, name: str, obj: Any) -> None:
         # name
