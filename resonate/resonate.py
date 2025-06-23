@@ -190,14 +190,13 @@ class Resonate:
         if not isinstance(log_level, int):
             msg = f"log_level must be `int`, got {type(log_level).__name__}"
             raise TypeError(msg)
-        if auth is not None:
-            if (
-                not isinstance(auth, tuple)
-                or len(auth) != 2
-                or not all(isinstance(a, str) for a in auth)
-            ):
-                msg = "auth must be `tuple[str, str] | None`"
-                raise TypeError(msg)
+        if auth is not None and (
+            not isinstance(auth, tuple)
+            or len(auth) != 2
+            or not all(isinstance(a, str) for a in auth)
+        ):
+            msg = "auth must be `tuple[str, str] | None`"
+            raise TypeError(msg)
 
         pid = pid or uuid.uuid4().hex
 
