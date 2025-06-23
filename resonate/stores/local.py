@@ -967,6 +967,39 @@ class CallbackRecord:
 
 @final
 @dataclass(frozen=True)
+class ScheduleRecord:
+    id: str
+    description: str | None
+    cron: str
+    tags: dict[str, str] | None
+    promise_id: str
+    promise_timeout: int
+    promise_param: DurablePromiseRecordValue
+    promise_tags: dict[str, str] | None
+    last_run_time: int
+    next_run_time: int
+    idempotency_key: str | None
+    created_on: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "description": self.description,
+            "cron": self.cron,
+            "tags": self.tags or {},
+            "promiseId": self.promise_id,
+            "promiseTimeout": self.promise_timeout,
+            "promiseParam": self.promise_param.to_dict(),
+            "promiseTags": self.promise_tags or {},
+            "idempotencyKey": self.idempotency_key,
+            "lastRunTime": self.last_run_time,
+            "nextRunTime": self.next_run_time,
+            "createdOn": self.created_on,
+        }
+
+
+@final
+@dataclass(frozen=True)
 class TaskRecord:
     id: str
     counter: int
