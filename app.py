@@ -4,10 +4,11 @@ from threading import Event
 from typing import TYPE_CHECKING, Any
 
 from resonate import Context, Resonate
-from resonate.coroutine import Yieldable
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from resonate.coroutine import Yieldable
 
 
 resonate = Resonate.remote()
@@ -15,7 +16,7 @@ resonate = Resonate.remote()
 
 @resonate.register
 def foo(ctx: Context, a: int, b: int) -> Generator[Yieldable, Any, None]:
-    print((yield ctx.lfc(bar, a)) + b)
+    print((yield ctx.lfc(bar, a)) + b)  # noqa: T201
 
 
 def bar(ctx: Context, a: int) -> int:
