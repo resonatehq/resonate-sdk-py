@@ -964,7 +964,7 @@ class LocalScheduleStore:
                     ),
                     promise_tags=promise_tags,
                     last_run_time=None,
-                    next_run_time=int(croniter(cron, time / 1000).next()),
+                    next_run_time=next_runtime(cron, time),
                     idempotency_key=ikey,
                     created_on=time,
                 )
@@ -1096,6 +1096,10 @@ class TaskRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "counter": self.counter}
+
+
+def next_runtime(cron: str, base: int) -> int:
+    return int(croniter(cron, base / 1000).next())
 
 
 def ikey_match(left: str | None, right: str | None) -> bool:
