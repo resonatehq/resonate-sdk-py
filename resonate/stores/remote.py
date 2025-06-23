@@ -36,8 +36,12 @@ class RemoteStore:
         self._timeout = timeout
         self._retry_policy = retry_policy or Constant(delay=1, max_retries=3)
         env_auth = os.getenv("RESONATE_AUTH")
-        env_pair = tuple(env_auth.split(":", 1)) if env_auth and ":" in env_auth else None
-        self._auth = auth or env_pair
+        env_pair: tuple[str, str] | None = None
+        if env_auth and ":" in env_auth:
+            user, pwd = env_auth.split(":", 1)
+            env_pair = (user, pwd)
+
+        self._auth = auth if auth is not None else env_pair
 
         self._promises = RemotePromiseStore(self)
         self._tasks = RemoteTaskStore(self)

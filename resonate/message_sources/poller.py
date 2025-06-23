@@ -38,8 +38,12 @@ class Poller:
         self._timeout = timeout
         self._encoder = encoder or JsonEncoder()
         env_auth = os.getenv("RESONATE_AUTH")
-        env_pair = tuple(env_auth.split(":", 1)) if env_auth and ":" in env_auth else None
-        self._auth = auth or env_pair
+        env_pair: tuple[str, str] | None = None
+        if env_auth and ":" in env_auth:
+            user, pwd = env_auth.split(":", 1)
+            env_pair = (user, pwd)
+
+        self._auth = auth if auth is not None else env_pair
         self._thread = Thread(name="message-source::poller", target=self.loop, daemon=True)
         self._stopped = False
 
