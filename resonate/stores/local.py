@@ -177,6 +177,10 @@ class LocalStore:
     def step(self) -> Generator[tuple[str, Mesg], bool | None, None]:
         time = int(self._clock.time() * 1000)
 
+        # create schedules promises
+        for schedule in self.schedules.scan():
+            raise NotImplementedError
+
         # transition promises to timedout
         for promise in self.promises.scan():
             if promise.state == "PENDING" and time >= promise.timeout:
@@ -983,6 +987,9 @@ class LocalScheduleStore:
                 raise ResonateStoreError(msg, code=40403)
             case _:
                 raise ResonateStoreError(mesg=f"Unexpected transition ({'created' if record else 'None'} -> {to})", code=40399)
+
+    def scan(self) -> Generator[ScheduleRecord]:
+        yield from self._schedules.values()
 
 
 @final
