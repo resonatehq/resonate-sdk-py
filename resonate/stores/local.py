@@ -181,12 +181,15 @@ class LocalStore:
         for schedule in self.schedules.scan():
             if time < schedule.next_run_time:
                 continue
-            promise_id = schedule.promise_id
-            if promise_id.endswith("{{.timestamp}}"):
-                promise_id = promise_id.replace("{{.timestamp}}", str(time))
 
             durable_promise = self.promises.create(
-                id=promise_id, timeout=time + schedule.promise_timeout, ikey=None, strict=False, headers=schedule.promise_param.headers, data=schedule.promise_param.data, tags=schedule.promise_tags
+                id=schedule.promise_id.replace("{{.timestamp}}", str(time)),
+                timeout=time + schedule.promise_timeout,
+                ikey=None,
+                strict=False,
+                headers=schedule.promise_param.headers,
+                data=schedule.promise_param.data,
+                tags=schedule.promise_tags,
             )
             assert durable_promise.pending
 
