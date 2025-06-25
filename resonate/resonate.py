@@ -380,7 +380,7 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
-        """Start execution of a task remotely, creating or reusing a durable promise.
+        """Run a function with Resonate remotely.
 
         If a durable promise with the same `id` already exists, the method
         will subscribe to its result or return the value immediately if
