@@ -597,7 +597,7 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFC:
-        """Schedule a function for remote execution and receive a  value `T`.
+        """Schedule a function for remote execution and await its result.
 
         The function is scheduled on the global event loop and potentially executed
         in a different process.
