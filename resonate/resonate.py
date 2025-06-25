@@ -151,36 +151,6 @@ class Resonate:
         API as the remote store, making it perfect for rapid development,
         local testing, and experimentation.
         """
-        # pid
-        if pid is not None and not isinstance(pid, str):
-            msg = f"pid must be `str | None`, got {type(pid).__name__}"
-            raise TypeError(msg)
-
-        # ttl
-        if not isinstance(ttl, int):
-            msg = f"ttl must be `int`, got {type(ttl).__name__}"
-            raise TypeError(msg)
-
-        # group
-        if not isinstance(group, str):
-            msg = f"group must be `str`, got {type(group).__name__}"
-            raise TypeError(msg)
-
-        # registry
-        if registry is not None and not isinstance(registry, Registry):
-            msg = f"registry must be `Registry | None`, got {type(registry).__name__}"
-            raise TypeError(msg)
-
-        # dependencies
-        if dependencies is not None and not isinstance(dependencies, Dependencies):
-            msg = f"dependencies must be `Dependencies | None`, got {type(dependencies).__name__}"
-            raise TypeError(msg)
-
-        # log_level
-        if not (isinstance(log_level, int) or log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")):
-            msg = f"log_level must be an int or one of ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), got {type(log_level).__name__}"
-            raise TypeError(msg)
-
         pid = pid or uuid.uuid4().hex
         store = LocalStore()
 
