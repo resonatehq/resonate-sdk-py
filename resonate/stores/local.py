@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import random
 import threading
 import time
@@ -161,6 +162,7 @@ class LocalStore:
                 # The next timeout time is the minimum of:
                 # all promise timeouts
                 # all task expirations
+                # all schedule next runtime
                 for promise in self.promises.scan():
                     if promise.state == "PENDING":
                         timeout = promise.timeout if timeout is None else min(promise.timeout, timeout)
@@ -168,6 +170,9 @@ class LocalStore:
                     if task.state == ("INIT", "ENQUEUED", "CLAIMED"):
                         assert task.expiry is not None
                         timeout = task.expiry if timeout is None else min(task.expiry, timeout)
+
+                for schedule in self.schedules.scan():
+                    timeout = schedule.next_run_time * 1000 if timeout is None else min(timeout, schedule.next_run_time * 1000)
 
                 # convert to relative time in seconds while respecting max
                 # timeout
@@ -179,19 +184,21 @@ class LocalStore:
 
         # create schedules promises
         for schedule in self.schedules.scan():
-            if time < schedule.next_run_time:
+            if time <= schedule.next_run_time * 1000:
                 continue
 
-            durable_promise = self.promises.create(
-                id=schedule.promise_id.replace("{{.timestamp}}", str(time)),
-                timeout=time + schedule.promise_timeout,
-                ikey=None,
-                strict=False,
-                headers=schedule.promise_param.headers,
-                data=schedule.promise_param.data,
-                tags=schedule.promise_tags,
-            )
-            assert durable_promise.pending
+            with contextlib.suppress(ResonateStoreError):
+                self.promises.create(
+                    id=schedule.promise_id.replace("{{.timestamp}}", str(time)),
+                    timeout=time + (schedule.promise_timeout * 1000),
+                    ikey=None,
+                    strict=False,
+                    headers=schedule.promise_param.headers,
+                    data=schedule.promise_param.data,
+                    tags=schedule.promise_tags,
+                )
+            # update schedule
+            self.schedules.update(schedule.id, next_runtime(schedule.cron, time))
 
         # transition promises to timedout
         for promise in self.promises.scan():
@@ -918,7 +925,7 @@ class LocalScheduleStore:
         promise_data: str | None = None,
         promise_tags: dict[str, str] | None = None,
     ) -> Schedule:
-        record, _ = self.transition(
+        record, applied = self.transition(
             id=id,
             to="CREATED",
             cron=cron,
@@ -931,6 +938,8 @@ class LocalScheduleStore:
             promise_data=promise_data,
             promise_tags=promise_tags,
         )
+        if applied:
+            self._store.notify()
         return Schedule.from_dict(self._store, record.to_dict())
 
     def read(self, id: str) -> Schedule:
@@ -942,6 +951,24 @@ class LocalScheduleStore:
     def delete(self, id: str) -> None:
         _, applied = self.transition(id=id, to="DELETED")
         assert applied
+
+    def update(self, id: str, next_run_time: int) -> None:
+        record = self._schedules[id]
+        record = ScheduleRecord(
+            id=id,
+            description=record.description,
+            cron=record.cron,
+            tags=record.tags,
+            promise_id=record.promise_id,
+            promise_timeout=record.promise_timeout,
+            promise_param=record.promise_param,
+            promise_tags=record.promise_tags,
+            last_run_time=record.next_run_time,
+            next_run_time=next_run_time,
+            idempotency_key=record.idempotency_key,
+            created_on=record.created_on,
+        )
+        self._schedules[id] = record
 
     def transition(
         self,
