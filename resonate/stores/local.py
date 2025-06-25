@@ -198,7 +198,8 @@ class LocalStore:
                     tags=schedule.promise_tags,
                 )
             # update schedule
-            self.schedules.update(schedule.id, next_runtime(schedule.cron, time))
+            _, applied = self.schedules.transition(id=schedule.id, to="CREATED", updating=True)
+            assert applied
 
         # transition promises to timedout
         for promise in self.promises.scan():
@@ -953,24 +954,6 @@ class LocalScheduleStore:
         _, applied = self.transition(id=id, to="DELETED")
         assert applied
 
-    def update(self, id: str, next_run_time: int) -> None:
-        record = self._schedules[id]
-        record = ScheduleRecord(
-            id=id,
-            description=record.description,
-            cron=record.cron,
-            tags=record.tags,
-            promise_id=record.promise_id,
-            promise_timeout=record.promise_timeout,
-            promise_param=record.promise_param,
-            promise_tags=record.promise_tags,
-            last_run_time=record.next_run_time,
-            next_run_time=next_run_time,
-            idempotency_key=record.idempotency_key,
-            created_on=record.created_on,
-        )
-        self._schedules[id] = record
-
     def transition(
         self,
         id: str,
@@ -985,6 +968,7 @@ class LocalScheduleStore:
         promise_headers: dict[str, str] | None = None,
         promise_data: str | None = None,
         promise_tags: dict[str, str] | None = None,
+        updating: bool = False,
     ) -> tuple[ScheduleRecord, bool]:
         time = int(self._store.clock.time() * 1000)
 
@@ -1017,6 +1001,23 @@ class LocalScheduleStore:
                 return record, True
             case ScheduleRecord(), "CREATED" if ikey_match(ikey, record.idempotency_key):
                 return record, False
+            case ScheduleRecord(), "CREATED" if updating:
+                record = ScheduleRecord(
+                    id=id,
+                    description=record.description,
+                    cron=record.cron,
+                    tags=record.tags,
+                    promise_id=record.promise_id,
+                    promise_timeout=record.promise_timeout,
+                    promise_param=record.promise_param,
+                    promise_tags=record.promise_tags,
+                    last_run_time=record.next_run_time,
+                    next_run_time=next_runtime(record.cron, time),
+                    idempotency_key=record.idempotency_key,
+                    created_on=record.created_on,
+                )
+                self._schedules[id] = record
+                return record, True
             case ScheduleRecord(), "CREATED":
                 raise ResonateStoreError(mesg="Schedule already exists", code=40400)
             case None, "DELETED":
