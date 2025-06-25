@@ -567,7 +567,7 @@ class Context:
     ) -> RFI:
         """Schedule a function for remote execution and return a `Promise[T]`.
 
-        The function is scheduled by the global event loop and potentially executed
+        The function is scheduled on the global event loop and potentially executed
         in a different process, the returned promise can be awaited for the final
         result.
 
