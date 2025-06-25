@@ -238,7 +238,7 @@ def test_run_on_schedule(resonate: Resonate) -> None:
         id,
         "* * * * *",
         f"{id}.{{{{.timestamp}}}}",
-        60 * 60,
+        (60 * 60) * 1000,  # input in milliseconds
         promise_data=json.dumps({"func": "on_schedule", "args": [], "kwargs": {}, "version": 1}),
         promise_tags={"resonate:invoke": "default"},
     )

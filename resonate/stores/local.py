@@ -184,13 +184,13 @@ class LocalStore:
 
         # create scheduled promises
         for schedule in self.schedules.scan():
-            if time <= schedule.next_run_time:
+            if time < schedule.next_run_time:
                 continue
 
             with contextlib.suppress(ResonateStoreError):
                 self.promises.create(
                     id=schedule.promise_id.replace("{{.timestamp}}", str(time)),
-                    timeout=time + (schedule.promise_timeout * 1000),
+                    timeout=time + schedule.promise_timeout,
                     ikey=None,
                     strict=False,
                     headers=schedule.promise_param.headers,
@@ -943,10 +943,11 @@ class LocalScheduleStore:
         return Schedule.from_dict(self._store, record.to_dict())
 
     def get(self, id: str) -> Schedule:
-        if record := self._schedules.get(id):
-            return Schedule.from_dict(self._store, record.to_dict())
-        msg = "The specified schedule was not found"
-        raise ResonateStoreError(msg, code=40403)
+        record = self._schedules.get(id)
+        if record is None:
+            msg = "The specified schedule was not found"
+            raise ResonateStoreError(msg, code=40403)
+        return Schedule.from_dict(self._store, record.to_dict())
 
     def delete(self, id: str) -> None:
         _, applied = self.transition(id=id, to="DELETED")
@@ -1018,12 +1019,12 @@ class LocalScheduleStore:
                 return record, False
             case ScheduleRecord(), "CREATED":
                 raise ResonateStoreError(mesg="Schedule already exists", code=40400)
-            case ScheduleRecord(), "DELETED":
-                self._schedules.pop(id)
-                return record, True
             case None, "DELETED":
                 msg = "The specified schedule was not found"
                 raise ResonateStoreError(msg, code=40403)
+            case ScheduleRecord(), "DELETED":
+                self._schedules.pop(id)
+                return record, True
             case _:
                 raise ResonateStoreError(mesg=f"Unexpected transition ({'created' if record else 'None'} -> {to})", code=40399)
 
@@ -1145,6 +1146,7 @@ class TaskRecord:
 
 
 def next_runtime(cron: str, base: int) -> int:
+    # base is milliconds. cronitier works with seconds
     return int(croniter(cron, base / 1000).next() * 1000)
 
 
