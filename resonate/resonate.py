@@ -261,7 +261,7 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
     ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
-        """Register a new function or a new version of an existing function.
+        """Register function with Resonate.
 
         This method makes the provided function available for top level
         execution under the specified name and version.
