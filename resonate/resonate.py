@@ -324,7 +324,7 @@ class Resonate:
 
         If a durable promise with the same `id` already exists, the method
         will subscribe to its result or return the value immediately if
-        the promise has been resolved.
+        the promise has been completed.
 
         Resonate will prevent duplicate executions for the same `id`.
 
