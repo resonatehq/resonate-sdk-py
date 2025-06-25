@@ -708,7 +708,7 @@ class Context:
         """Schedule a function for remote (detached) execution.
 
         The function is scheduled on the global event loop and potentially executed
-        on a different process, and the returned promise can be awaited for the final
+        in a different process, and the returned promise can be awaited for the final
         result.
 
         - Function must be registered.
