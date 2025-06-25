@@ -46,7 +46,7 @@ class Resonate:
         store: Store | None = None,
         message_source: MessageSource | None = None,
     ) -> None:
-        """Initialize a Resonate client with fully customizable options.
+        """Create a Resonate client.
 
         While you can fully customize Resonate, we also provide two convenience helpers:
 
