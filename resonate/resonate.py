@@ -146,7 +146,7 @@ class Resonate:
         dependencies: Dependencies | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
-        """Create a Resonate client configured for in-process, in-memory execution.
+        """Create a local Resonate client.
 
         This configuration keeps all task state in memory, with no external
         persistence or network I/O. The in-memory store implements the same
