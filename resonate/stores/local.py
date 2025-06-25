@@ -172,7 +172,7 @@ class LocalStore:
                         timeout = task.expiry if timeout is None else min(task.expiry, timeout)
 
                 for schedule in self.schedules.scan():
-                    timeout = schedule.next_run_time * 1000 if timeout is None else min(timeout, schedule.next_run_time * 1000)
+                    timeout = schedule.next_run_time if timeout is None else min(timeout, schedule.next_run_time)
 
                 # convert to relative time in seconds while respecting max
                 # timeout
@@ -184,7 +184,7 @@ class LocalStore:
 
         # create scheduled promises
         for schedule in self.schedules.scan():
-            if time <= schedule.next_run_time * 1000:
+            if time <= schedule.next_run_time:
                 continue
 
             with contextlib.suppress(ResonateStoreError):
@@ -1145,7 +1145,7 @@ class TaskRecord:
 
 
 def next_runtime(cron: str, base: int) -> int:
-    return int(croniter(cron, base / 1000).next())
+    return int(croniter(cron, base / 1000).next() * 1000)
 
 
 def ikey_match(left: str | None, right: str | None) -> bool:
