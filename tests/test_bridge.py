@@ -233,7 +233,7 @@ def test_run_on_schedule(resonate: Resonate) -> None:
     def on_schedule(ctx: Context) -> None:
         e.set()
 
-    id = "on-schedule"
+    id = f"on-schedule-{uuid.uuid4().hex}"
     resonate.schedules.create(
         id,
         "* * * * *",
