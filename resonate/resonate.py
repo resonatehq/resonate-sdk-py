@@ -425,7 +425,7 @@ class Resonate:
         """Subscribe to an execution.
 
         A durable promise with the same `id` must exist. Returns immediately
-        if the promise has been resolved.
+        if the promise has been completed.
         """
         # id
         if not isinstance(id, str):
