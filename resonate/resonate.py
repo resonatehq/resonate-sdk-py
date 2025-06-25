@@ -148,7 +148,7 @@ class Resonate:
     ) -> Resonate:
         """Create a local Resonate client.
 
-        This configuration keeps all task state in memory, with no external
+        This configuration stores all state in memory, with no external
         persistence or network I/O. The in-memory store implements the same
         API as the remote store, making it perfect for rapid development,
         local testing, and experimentation.
