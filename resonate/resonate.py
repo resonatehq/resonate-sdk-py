@@ -506,7 +506,7 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
-        """Schedule a function for local execution and return a `Promise[T]`.
+        """Schedule a function for local execution.
 
         The function is executed in the current process, and the returned promise
         can be awaited for the final result.
