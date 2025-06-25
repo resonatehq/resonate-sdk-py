@@ -8,7 +8,7 @@ import random
 import time
 import uuid
 from concurrent.futures import Future
-from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, TypeVarTuple, overload
+from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, TypeVarTuple, overload
 
 from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
@@ -44,9 +44,9 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int | str = logging.NOTSET,
         store: Store | None = None,
         message_source: MessageSource | None = None,
+        log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.NOTSET,
     ) -> None:
         # pid
         if pid is not None and not isinstance(pid, str):
@@ -141,38 +141,8 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int | str = logging.INFO,
+        log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
-        # pid
-        if pid is not None and not isinstance(pid, str):
-            msg = f"pid must be `str | None`, got {type(pid).__name__}"
-            raise TypeError(msg)
-
-        # ttl
-        if not isinstance(ttl, int):
-            msg = f"ttl must be `int`, got {type(ttl).__name__}"
-            raise TypeError(msg)
-
-        # group
-        if not isinstance(group, str):
-            msg = f"group must be `str`, got {type(group).__name__}"
-            raise TypeError(msg)
-
-        # registry
-        if registry is not None and not isinstance(registry, Registry):
-            msg = f"registry must be `Registry | None`, got {type(registry).__name__}"
-            raise TypeError(msg)
-
-        # dependencies
-        if dependencies is not None and not isinstance(dependencies, Dependencies):
-            msg = f"dependencies must be `Dependencies | None`, got {type(dependencies).__name__}"
-            raise TypeError(msg)
-
-        # log_level
-        if not (isinstance(log_level, int) or log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")):
-            msg = f"log_level must be an int or one of ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), got {type(log_level).__name__}"
-            raise TypeError(msg)
-
         pid = pid or uuid.uuid4().hex
         store = LocalStore()
 
@@ -198,53 +168,8 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int | str = logging.INFO,
+        log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
-        # host
-        if host is not None and not isinstance(host, str):
-            msg = f"host must be `str | None`, got {type(host).__name__}"
-            raise TypeError(msg)
-
-        # store_port
-        if store_port is not None and not isinstance(store_port, str):
-            msg = f"store_port must be `str | None`, got {type(store_port).__name__}"
-            raise TypeError(msg)
-
-        # message_source_port
-        if message_source_port is not None and not isinstance(message_source_port, str):
-            msg = f"message_source_port must be `str | None`, got {type(message_source_port).__name__}"
-            raise TypeError(msg)
-
-        # pid
-        if pid is not None and not isinstance(pid, str):
-            msg = f"pid must be `str | None`, got {type(pid).__name__}"
-            raise TypeError(msg)
-
-        # ttl
-        if not isinstance(ttl, int):
-            msg = f"ttl must be `int`, got {type(ttl).__name__}"
-            raise TypeError(msg)
-
-        # group
-        if not isinstance(group, str):
-            msg = f"group must be `str`, got {type(group).__name__}"
-            raise TypeError(msg)
-
-        # registry
-        if registry is not None and not isinstance(registry, Registry):
-            msg = f"registry must be `Registry | None`, got {type(registry).__name__}"
-            raise TypeError(msg)
-
-        # dependencies
-        if dependencies is not None and not isinstance(dependencies, Dependencies):
-            msg = f"dependencies must be `Dependencies | None`, got {type(dependencies).__name__}"
-            raise TypeError(msg)
-
-        # log_level
-        if not (isinstance(log_level, int) or log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")):
-            msg = f"log_level must be an int or one of ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), got {type(log_level).__name__}"
-            raise TypeError(msg)
-
         pid = pid or uuid.uuid4().hex
 
         return cls(
