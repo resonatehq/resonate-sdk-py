@@ -439,7 +439,7 @@ class Resonate:
         return Handle(future)
 
     def set_dependency(self, name: str, obj: Any) -> None:
-        """Store a named dependency for use within function `Context`.
+        """Store a named dependency for use with `Context`.
 
         The dependency is made available to all functions via
         their execution `Context`.
