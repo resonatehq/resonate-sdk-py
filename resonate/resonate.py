@@ -389,7 +389,7 @@ class Resonate:
         Resonate will prevent duplicate executions for the same `id`.
 
         - Function must be registered.
-        - Function *args and **kwargs must be encodable.
+        - Function *args and **kwargs must be serializable.
         """
         # id
         if not isinstance(id, str):
