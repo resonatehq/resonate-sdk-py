@@ -50,7 +50,7 @@ class Resonate:
 
         While you can fully customize Resonate, we also provide two convenience helpers:
 
-        - `Resonate.local()`: Configures an in-memory, non-durable store
+        - `Resonate.local()`: Configures an in memory, non durable store
         for rapid development and testing.
         - `Resonate.remote()`: Configures a remote, durable store with
         full coordination, recovery, and persistence for production use.
@@ -149,7 +149,7 @@ class Resonate:
         """Create a local Resonate client.
 
         This configuration stores all state in memory, with no external
-        persistence or network I/O. The in-memory store implements the same
+        persistence or network I/O. The in memory store implements the same
         API as the remote store, making it perfect for rapid development,
         local testing, and experimentation.
         """
@@ -588,7 +588,7 @@ class Context:
         The function is executed in the current process, and the returned promise
         can be awaited for the final result.
 
-        By default, execution is durable; non-durable behavior can be configured if needed.
+        By default, execution is durable; non durable behavior can be configured if needed.
         """
         if isinstance(func, Function):
             func = func.func
@@ -610,7 +610,7 @@ class Context:
 
         The function is executed in the current process.
 
-        By default, execution is durable; non-durable behavior can be configured if needed.
+        By default, execution is durable; non durable behavior can be configured if needed.
         """
         if isinstance(func, Function):
             func = func.func
