@@ -443,7 +443,7 @@ class RemoteScheduleStore:
         res = self._store.call(req.prepare())
         return Schedule.from_dict(self._store, res)
 
-    def read(self, id: str) -> Schedule:
+    def get(self, id: str) -> Schedule:
         req = Request(method="get", url=f"{self._store.url}/schedules/{id}")
         res = self._store.call(req.prepare())
         return Schedule.from_dict(self._store, res)
