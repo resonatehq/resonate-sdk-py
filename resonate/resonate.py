@@ -649,7 +649,7 @@ class Context:
         result.
 
         - Function must be registered.
-        - Function *args and **kwargs must be encodable.
+        - Function *args and **kwargs must be serializable.
         """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
