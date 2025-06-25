@@ -48,6 +48,7 @@ class Resonate:
         message_source: MessageSource | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.NOTSET,
     ) -> None:
+        """Create a Resonate client."""
         # pid
         if pid is not None and not isinstance(pid, str):
             msg = f"pid must be `str | None`, got {type(pid).__name__}"
@@ -143,6 +144,13 @@ class Resonate:
         dependencies: Dependencies | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
+        """Create a local Resonate client.
+
+        This configuration stores all state in memory, with no external
+        persistence or network I/O. The in memory store implements the same
+        API as the remote store, making it perfect for rapid development,
+        local testing, and experimentation.
+        """
         pid = pid or uuid.uuid4().hex
         store = LocalStore()
 
@@ -170,6 +178,14 @@ class Resonate:
         dependencies: Dependencies | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
+        """Create a remote Resonate client.
+
+        This configuration persists all state to a remote store, enabling
+        full durability, coordination, and recovery protocols across processes.
+
+        The remote store implementation is ideal for production workloads, fault-tolerant scheduling,
+        and distributed execution.
+        """
         pid = pid or uuid.uuid4().hex
 
         return cls(
@@ -245,6 +261,18 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
     ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
+        """Register function with Resonate.
+
+        This method makes the provided function available for top level
+        execution under the specified name and version.
+
+        It can be used directly by passing the target function, or as a decorator.
+
+        When used without arguments, the function itself is decorated and
+        registered with the default name (derived from the function) and version.
+        Providing a `name` or `version` allows explicit control over the
+        function identifier and its versioning for subsequent invocations.
+        """
         if name is not None and not isinstance(name, str):
             msg = f"name must be `str | None`, got {type(name).__name__}"
             raise TypeError(msg)
@@ -292,6 +320,17 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
+        """Run a function with Resonate.
+
+        If a durable promise with the same `id` already exists, the method
+        will subscribe to its result or return the value immediately if
+        the promise has been completed.
+
+        Resonate will prevent duplicate executions for the same `id`.
+
+        - Function must be registered.
+        - Function *args and **kwargs must be serializable.
+        """
         # id
         if not isinstance(id, str):
             msg = f"id must be `str`, got {type(id).__name__}"
@@ -341,6 +380,17 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
+        """Run a function with Resonate remotely.
+
+        If a durable promise with the same `id` already exists, the method
+        will subscribe to its result or return the value immediately if
+        the promise has been completed.
+
+        Resonate will prevent duplicate executions for the same `id`.
+
+        - Function must be registered.
+        - Function *args and **kwargs must be serializable.
+        """
         # id
         if not isinstance(id, str):
             msg = f"id must be `str`, got {type(id).__name__}"
@@ -372,6 +422,11 @@ class Resonate:
         return Handle(future)
 
     def get(self, id: str) -> Handle[Any]:
+        """Subscribe to an execution.
+
+        A durable promise with the same `id` must exist. Returns immediately
+        if the promise has been completed.
+        """
         # id
         if not isinstance(id, str):
             msg = f"id must be `str`, got {type(id).__name__}"
@@ -384,6 +439,11 @@ class Resonate:
         return Handle(future)
 
     def set_dependency(self, name: str, obj: Any) -> None:
+        """Store a named dependency for use with `Context`.
+
+        The dependency is made available to all functions via
+        their execution `Context`.
+        """
         # name
         if not isinstance(name, str):
             msg = f"name must be `str`, got {type(name).__name__}"
@@ -428,6 +488,12 @@ class Context:
         return self._time
 
     def get_dependency[T](self, key: str, default: T = None) -> Any | T:
+        """Retrieve a dependency by its name.
+
+        If the dependency identified by `key` exists, its value is returned;
+        otherwise, the specified `default` value is returned. A TypeError is
+        raised if `key` is not a string.
+        """
         if not isinstance(key, str):
             msg = f"key must be `str`, got {type(key).__name__}"
             raise TypeError(msg)
@@ -440,6 +506,13 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
+        """Schedule a function for local execution.
+
+        The function is executed in the current process, and the returned promise
+        can be awaited for the final result.
+
+        By default, execution is durable; non durable behavior can be configured if needed.
+        """
         if isinstance(func, Function):
             func = func.func
 
@@ -456,6 +529,12 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
+        """Schedule a function for local execution and await its result.
+
+        The function is executed in the current process.
+
+        By default, execution is durable; non durable behavior can be configured if needed.
+        """
         if isinstance(func, Function):
             func = func.func
 
@@ -486,6 +565,15 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
+        """Schedule a function for remote execution`.
+
+        The function is scheduled on the global event loop and potentially executed
+        in a different process, the returned promise can be awaited for the final
+        result.
+
+        - Function must be registered.
+        - Function *args and **kwargs must be serializable.
+        """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
 
@@ -509,6 +597,14 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFC:
+        """Schedule a function for remote execution and await its result.
+
+        The function is scheduled on the global event loop and potentially executed
+        in a different process.
+
+        - Function must be registered.
+        - Function *args and **kwargs must be serializable.
+        """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFC(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
 
@@ -532,6 +628,15 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
+        """Schedule a function for remote (detached) execution.
+
+        The function is scheduled on the global event loop and potentially executed
+        in a different process, and the returned promise can be awaited for the final
+        result.
+
+        - Function must be registered.
+        - Function *args and **kwargs must be serializable.
+        """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)), mode="detached")
 
