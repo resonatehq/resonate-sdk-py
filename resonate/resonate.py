@@ -488,7 +488,7 @@ class Context:
         return self._time
 
     def get_dependency[T](self, key: str, default: T = None) -> Any | T:
-        """Retrieve a previously stored dependency by its key.
+        """Retrieve a dependency by its name.
 
         If the dependency identified by `key` exists, its value is returned;
         otherwise, the specified `default` value is returned. A TypeError is
