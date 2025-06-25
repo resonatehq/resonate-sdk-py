@@ -46,15 +46,7 @@ class Resonate:
         store: Store | None = None,
         message_source: MessageSource | None = None,
     ) -> None:
-        """Create a Resonate client.
-
-        While you can fully customize Resonate, we also provide two convenience helpers:
-
-        - `Resonate.local()`: Configures an in memory, non durable store
-        for rapid development and testing.
-        - `Resonate.remote()`: Configures a remote, durable store with
-        full coordination, recovery, and persistence for production use.
-        """
+        """Create a Resonate client."""
         # pid
         if pid is not None and not isinstance(pid, str):
             msg = f"pid must be `str | None`, got {type(pid).__name__}"
