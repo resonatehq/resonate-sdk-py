@@ -529,7 +529,7 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
-        """Schedule a function for local execution and receive a value `T`.
+        """Schedule a function for local execution and await its result.
 
         The function is executed in the current process.
 
