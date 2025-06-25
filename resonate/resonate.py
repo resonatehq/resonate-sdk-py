@@ -210,7 +210,7 @@ class Resonate:
         dependencies: Dependencies | None = None,
         log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
     ) -> Resonate:
-        """Create a Resonate client configured for remote, durable execution.
+        """Create a remote Resonate client.
 
         This configuration persists all state to a remote store, enabling
         full durability, coordination, and recovery protocols across processes.
