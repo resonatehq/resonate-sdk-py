@@ -240,7 +240,7 @@ def test_run_on_schedule(resonate: Resonate) -> None:
         f"{id}.{{{{.timestamp}}}}",
         60 * 60,
         promise_data=json.dumps({"func": "on_schedule", "args": [], "kwargs": {}, "version": 1}),
-        promise_tags={"resonate:invoke": resonate._opts.target},
+        promise_tags={"resonate:invoke": "default"},
     )
     e.wait()
 
