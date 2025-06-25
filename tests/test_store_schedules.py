@@ -30,7 +30,7 @@ def sid(store: Store) -> Generator[str]:
 
 def test_create_read_delete(store: Store, sid: str) -> None:
     schedule = store.schedules.create(sid, "0 * * * *", "foo", sys.maxsize)
-    assert schedule == store.schedules.read(sid)
+    assert schedule == store.schedules.get(sid)
 
 
 def test_create_twice_without_ikey(store: Store, sid: str) -> None:
@@ -42,4 +42,4 @@ def test_create_twice_without_ikey(store: Store, sid: str) -> None:
 def test_create_twice_with_ikey(store: Store, sid: str) -> None:
     schedule = store.schedules.create(sid, "* * * * *", "foo", 10, ikey="foo")
     store.schedules.create(sid, "0 * 2 * *", "bar", 10, ikey="foo")
-    assert schedule == store.schedules.read(sid)
+    assert schedule == store.schedules.get(sid)

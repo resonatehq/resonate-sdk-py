@@ -8,7 +8,7 @@ import random
 import time
 import uuid
 from concurrent.futures import Future
-from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, TypeVarTuple, overload
+from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, TypeVarTuple, overload
 
 from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from resonate.models.retry_policy import RetryPolicy
     from resonate.models.store import PromiseStore, ScheduleStore
 
+ALLOWED_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
 
 class Resonate:
     def __init__(
@@ -42,7 +44,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.NOTSET,
+        log_level: int | str = logging.NOTSET,
         store: Store | None = None,
         message_source: MessageSource | None = None,
     ) -> None:
@@ -72,9 +74,13 @@ class Resonate:
             raise TypeError(msg)
 
         # log_level
-        if not (isinstance(log_level, int) or log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")):
-            msg = f"log_level must be an int or one of ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), got {type(log_level).__name__}"
+        if not isinstance(log_level, (int, str)):
+            msg = f"log_level must be an int or a str, got {type(log_level).__name__}"
             raise TypeError(msg)
+
+        if isinstance(log_level, str) and log_level not in ALLOWED_LOG_LEVELS:
+            msg = f"string log_level must be one of {ALLOWED_LOG_LEVELS}, got {log_level!r}"
+            raise ValueError(msg)
 
         # store
         if store is not None and not isinstance(store, Store):
@@ -89,7 +95,7 @@ class Resonate:
         # enforce mutual inclusion/exclusion of store and message source
         if (store is None) != (message_source is None):
             msg = "store and message source must both be set or both be unset"
-            raise TypeError(msg)
+            raise ValueError(msg)
 
         if isinstance(store, LocalStore) and not isinstance(message_source, LocalMessageSource):
             msg = "message source must be LocalMessageSource when store is LocalStore"
@@ -135,7 +141,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
+        log_level: int | str = logging.INFO,
     ) -> Resonate:
         # pid
         if pid is not None and not isinstance(pid, str):
@@ -192,7 +198,7 @@ class Resonate:
         group: str = "default",
         registry: Registry | None = None,
         dependencies: Dependencies | None = None,
-        log_level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = logging.INFO,
+        log_level: int | str = logging.INFO,
     ) -> Resonate:
         # host
         if host is not None and not isinstance(host, str):

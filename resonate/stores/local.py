@@ -182,7 +182,7 @@ class LocalStore:
     def step(self) -> Generator[tuple[str, Mesg], bool | None, None]:
         time = int(self._clock.time() * 1000)
 
-        # create schedules promises
+        # create scheduled promises
         for schedule in self.schedules.scan():
             if time <= schedule.next_run_time * 1000:
                 continue
@@ -942,7 +942,7 @@ class LocalScheduleStore:
             self._store.notify()
         return Schedule.from_dict(self._store, record.to_dict())
 
-    def read(self, id: str) -> Schedule:
+    def get(self, id: str) -> Schedule:
         if record := self._schedules.get(id):
             return Schedule.from_dict(self._store, record.to_dict())
         msg = "The specified schedule was not found"
@@ -1015,7 +1015,7 @@ class LocalScheduleStore:
                 self._schedules[record.id] = record
                 return record, True
             case ScheduleRecord(), "CREATED" if ikey_match(ikey, record.idempotency_key):
-                return (record, False)
+                return record, False
             case ScheduleRecord(), "CREATED":
                 raise ResonateStoreError(mesg="Schedule already exists", code=40400)
             case ScheduleRecord(), "DELETED":
