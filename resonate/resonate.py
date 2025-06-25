@@ -600,7 +600,7 @@ class Context:
         """Schedule a function for remote execution and receive a  value `T`.
 
         The function is scheduled by the global event loop and potentially executed
-        on a different process.
+        in a different process.
 
         - Function must be registered.
         - Function *args and **kwargs must be serializable.
