@@ -525,7 +525,7 @@ class LocalPromiseStore:
         if applied and promise.state in ("RESOLVED", "REJECTED", "REJECTED_CANCELED", "REJECTED_TIMEDOUT"):
             # complete all pending tasks for the same promise_id
             for task in self._store.tasks.scan():
-                if task.root_promise_id == id and task.state in ("INIT", "ENQUEUED") and task.type in ("invoke", "resume"):
+                if task.root_promise_id == id and task.state in ("INIT", "ENQUEUED", "CLAIMED") and task.type in ("invoke", "resume"):
                     _, applied = self._store.tasks.transition(task.id, "COMPLETED", force=True)
                     assert applied
 
