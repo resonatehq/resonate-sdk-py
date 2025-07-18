@@ -210,9 +210,11 @@ class Resonate:
         return self._store.schedules
 
     def start(self) -> None:
-        """Start resonate.
+        """Explicitly start Resonate threads.
 
-        This is automatically executed when calling `.run()` or `.rpc()`
+        This happens automatically when calling .run() or .rpc(),
+        but is generally recommended for all workers that have
+        functions registered with Resonate.
         """
         if not self._started:
             self._bridge.start()
