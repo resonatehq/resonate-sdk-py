@@ -10,14 +10,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from resonate import Context, Resonate
+from resonate import Context, Handle, Resonate
 from resonate.conventions import Remote
 from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
 from resonate.encoders import JsonEncoder, JsonPickleEncoder, NoopEncoder
 from resonate.loggers import ContextLogger
 from resonate.models.commands import Command, Invoke, Listen
-from resonate.models.handle import Handle
 from resonate.options import Options
 from resonate.registry import Registry
 from resonate.resonate import Function

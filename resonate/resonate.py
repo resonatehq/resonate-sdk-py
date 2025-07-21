@@ -531,7 +531,7 @@ class Context:
 
         return self._dependencies.get(key, default)
 
-    def begin_run[**P, R](
+    def run[**P, R](
         self,
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
         *args: P.args,
@@ -569,7 +569,7 @@ class Context:
         opts = Options(version=self._registry.latest(func))
         return LFI(Local(self._next(), self._cid, self._id, opts), func, args, kwargs, opts)
 
-    def run[**P, R](
+    def run_and_wait[**P, R](
         self,
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
         *args: P.args,
@@ -606,20 +606,20 @@ class Context:
         return LFC(Local(self._next(), self._cid, self._id, opts), func, args, kwargs, opts)
 
     @overload
-    def begin_rpc[**P, R](
+    def rpc[**P, R](
         self,
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFI[R]: ...
     @overload
-    def begin_rpc(
+    def rpc(
         self,
         func: str,
         *args: Any,
         **kwargs: Any,
     ) -> RFI: ...
-    def begin_rpc(
+    def rpc(
         self,
         func: Callable | str,
         *args: Any,
@@ -669,20 +669,20 @@ class Context:
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
 
     @overload
-    def rpc[**P, R](
+    def rpc_and_wait[**P, R](
         self,
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> RFC[R]: ...
     @overload
-    def rpc(
+    def rpc_and_wait(
         self,
         func: str,
         *args: Any,
         **kwargs: Any,
     ) -> RFC: ...
-    def rpc(
+    def rpc_and_wait(
         self,
         func: Callable | str,
         *args: Any,
