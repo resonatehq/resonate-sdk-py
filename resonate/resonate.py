@@ -537,7 +537,7 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
-        """Schedule a function for local execution. (Alias for ctx.lfi)
+        """Schedule a function for local execution. (Alias for ctx.lfi).
 
         The function is executed in the current process, and the returned promise
         can be awaited for the final result.
@@ -575,7 +575,7 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
-        """Schedule a function for local execution and await its result. (Alias for ctx.lfc)
+        """Schedule a function for local execution and await its result. (Alias for ctx.lfc).
 
         The function is executed in the current process.
 
@@ -625,7 +625,7 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
-        """Schedule a function for remote execution. (Alias for ctx.rfi)
+        """Schedule a function for remote execution. (Alias for ctx.rfi).
 
         The function is scheduled on the global event loop and potentially executed
         in a different process, the returned promise can be awaited for the final
@@ -688,7 +688,7 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFC:
-        """Schedule a function for remote execution and await its result. (Alias for ctx.rfc)
+        """Schedule a function for remote execution and await its result. (Alias for ctx.rfc).
 
         The function is scheduled on the global event loop and potentially executed
         in a different process.
