@@ -537,7 +537,13 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
-        """Alias for `ctx.lfi`."""
+        """Schedule a function for local execution. (Alias for ctx.lfi)
+
+        The function is executed in the current process, and the returned promise
+        can be awaited for the final result.
+
+        By default, execution is durable; non durable behavior can be configured if needed.
+        """
         return self.lfi(func, *args, **kwargs)
 
     def lfi[**P, R](
@@ -569,7 +575,12 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
-        """Alias for `ctx.lfc`."""
+        """Schedule a function for local execution and await its result. (Alias for ctx.lfc)
+
+        The function is executed in the current process.
+
+        By default, execution is durable; non durable behavior can be configured if needed.
+        """
         return self.lfc(func, *args, **kwargs)
 
     def lfc[**P, R](
@@ -614,7 +625,15 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
-        """Alias for `ctx.rfi`."""
+        """Schedule a function for remote execution. (Alias for ctx.rfi)
+
+        The function is scheduled on the global event loop and potentially executed
+        in a different process, the returned promise can be awaited for the final
+        result.
+
+        - Function must be registered
+        - Function args and kwargs must be serializable
+        """
         return self.rfi(func, *args, **kwargs)
 
     @overload
@@ -669,7 +688,14 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFC:
-        """Alias for `ctx.rfc`."""
+        """Schedule a function for remote execution and await its result. (Alias for ctx.rfc)
+
+        The function is scheduled on the global event loop and potentially executed
+        in a different process.
+
+        - Function must be registered
+        - Function args and kwargs must be serializable
+        """
         return self.rfc(func, *args, **kwargs)
 
     @overload
