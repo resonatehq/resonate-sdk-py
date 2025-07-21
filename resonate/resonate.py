@@ -158,7 +158,15 @@ class Resonate:
         store = LocalStore()
 
         return cls(
-            pid=pid, ttl=ttl, group=group, registry=registry, dependencies=dependencies, log_level=log_level, store=store, message_source=store.message_source(group=group, id=pid), workers=workers
+            pid=pid,
+            ttl=ttl,
+            group=group,
+            registry=registry,
+            dependencies=dependencies,
+            log_level=log_level,
+            store=store,
+            message_source=store.message_source(group=group, id=pid),
+            workers=workers,
         )
 
     @classmethod
