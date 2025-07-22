@@ -357,6 +357,7 @@ class Resonate:
 
         - Function must be registered
         - Function args and kwargs must be serializable
+        - This is a blocking operation
         """
         return self.begin_run(id, func, *args, **kwargs).result()
 
@@ -453,6 +454,7 @@ class Resonate:
 
         - Function must be registered
         - Function args and kwargs must be serializable
+        - This is a blocking operation
         """
         return self.begin_rpc(id, func, *args, **kwargs).result()
 
@@ -1033,6 +1035,7 @@ class Function[**P, R]:
 
         - Function must be registered
         - Function args and kwargs must be serializable
+        - This is a blocking operation
         """
         return self.begin_run(id, *args, **kwargs).result()
 
@@ -1070,6 +1073,7 @@ class Function[**P, R]:
 
         - Function must be registered
         - Function args and kwargs must be serializable
+        - This is a blocking operation
         """
         return self.begin_rpc(id, *args, **kwargs).result()
 
