@@ -605,6 +605,20 @@ class Context:
 
         return self._dependencies.get(key, default)
 
+    def run[**P, R](
+        self,
+        func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFC[R]:
+        """Schedule a function for local execution and await its result. (Alias for ctx.lfc).
+
+        The function is executed in the current process.
+
+        By default, execution is durable; non durable behavior can be configured if needed.
+        """
+        return self.lfc(func, *args, **kwargs)
+
     def begin_run[**P, R](
         self,
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
@@ -620,64 +634,35 @@ class Context:
         """
         return self.lfi(func, *args, **kwargs)
 
-    def lfi[**P, R](
+    @overload
+    def rpc[**P, R](
         self,
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> LFI[R]:
-        """Schedule a function for local execution.
-
-        The function is executed in the current process, and the returned promise
-        can be awaited for the final result.
-
-        By default, execution is durable; non durable behavior can be configured if needed.
-        """
-        if isinstance(func, Function):
-            func = func.func
-
-        if not inspect.isfunction(func):
-            msg = "provided callable must be a function"
-            raise ValueError(msg)
-
-        opts = Options(version=self._registry.latest(func))
-        return LFI(Local(self._next(), self._cid, self._id, opts), func, args, kwargs, opts)
-
-    def run[**P, R](
+    ) -> RFC[R]: ...
+    @overload
+    def rpc(
         self,
-        func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> LFC[R]:
-        """Schedule a function for local execution and await its result. (Alias for ctx.lfc).
-
-        The function is executed in the current process.
-
-        By default, execution is durable; non durable behavior can be configured if needed.
-        """
-        return self.lfc(func, *args, **kwargs)
-
-    def lfc[**P, R](
+        func: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> RFC: ...
+    def rpc(
         self,
-        func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> LFC[R]:
-        """Schedule a function for local execution and await its result.
+        func: Callable | str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> RFC:
+        """Schedule a function for remote execution and await its result. (Alias for ctx.rfc).
 
-        The function is executed in the current process.
+        The function is scheduled on the global event loop and potentially executed
+        in a different process.
 
-        By default, execution is durable; non durable behavior can be configured if needed.
+        - Function must be registered
+        - Function args and kwargs must be serializable
         """
-        if isinstance(func, Function):
-            func = func.func
-
-        if not inspect.isfunction(func):
-            msg = "provided callable must be a function"
-            raise ValueError(msg)
-
-        opts = Options(version=self._registry.latest(func))
-        return LFC(Local(self._next(), self._cid, self._id, opts), func, args, kwargs, opts)
+        return self.rfc(func, *args, **kwargs)
 
     @overload
     def begin_rpc[**P, R](
@@ -710,6 +695,51 @@ class Context:
         """
         return self.rfi(func, *args, **kwargs)
 
+    def lfi[**P, R](
+        self,
+        func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFI[R]:
+        """Schedule a function for local execution.
+
+        The function is executed in the current process, and the returned promise
+        can be awaited for the final result.
+
+        By default, execution is durable; non durable behavior can be configured if needed.
+        """
+        if isinstance(func, Function):
+            func = func.func
+
+        if not inspect.isfunction(func):
+            msg = "provided callable must be a function"
+            raise ValueError(msg)
+
+        opts = Options(version=self._registry.latest(func))
+        return LFI(Local(self._next(), self._cid, self._id, opts), func, args, kwargs, opts)
+
+    def lfc[**P, R](
+        self,
+        func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> LFC[R]:
+        """Schedule a function for local execution and await its result.
+
+        The function is executed in the current process.
+
+        By default, execution is durable; non durable behavior can be configured if needed.
+        """
+        if isinstance(func, Function):
+            func = func.func
+
+        if not inspect.isfunction(func):
+            msg = "provided callable must be a function"
+            raise ValueError(msg)
+
+        opts = Options(version=self._registry.latest(func))
+        return LFC(Local(self._next(), self._cid, self._id, opts), func, args, kwargs, opts)
+
     @overload
     def rfi[**P, R](
         self,
@@ -741,36 +771,6 @@ class Context:
         """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
-
-    @overload
-    def rpc[**P, R](
-        self,
-        func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> RFC[R]: ...
-    @overload
-    def rpc(
-        self,
-        func: str,
-        *args: Any,
-        **kwargs: Any,
-    ) -> RFC: ...
-    def rpc(
-        self,
-        func: Callable | str,
-        *args: Any,
-        **kwargs: Any,
-    ) -> RFC:
-        """Schedule a function for remote execution and await its result. (Alias for ctx.rfc).
-
-        The function is scheduled on the global event loop and potentially executed
-        in a different process.
-
-        - Function must be registered
-        - Function args and kwargs must be serializable
-        """
-        return self.rfc(func, *args, **kwargs)
 
     @overload
     def rfc[**P, R](
