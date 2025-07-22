@@ -16,7 +16,6 @@ from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
 from resonate.dependencies import Dependencies
 from resonate.loggers import ContextLogger
 from resonate.message_sources import LocalMessageSource, Poller
-from resonate.models.handle import Handle
 from resonate.models.message_source import MessageSource
 from resonate.models.store import Store
 from resonate.options import Options
@@ -331,7 +330,7 @@ class Resonate:
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Handle[R]: ...
+    ) -> Future[R]: ...
     @overload
     def run(
         self,
@@ -339,14 +338,14 @@ class Resonate:
         func: str,
         *args: Any,
         **kwargs: Any,
-    ) -> Handle[Any]: ...
+    ) -> Future[Any]: ...
     def run[**P, R](
         self,
         id: str,
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R] | str,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Handle[R]:
+    ) -> Future[R]:
         """Run a function with Resonate.
 
         If a durable promise with the same id already exists, the method
@@ -382,7 +381,7 @@ class Resonate:
         opts = self._opts.merge(version=version)
 
         self._bridge.run(Remote(id, id, id, name, args, kwargs, opts), func, args, kwargs, opts, future)
-        return Handle(future)
+        return future
 
     @overload
     def rpc[**P, R](
@@ -391,7 +390,7 @@ class Resonate:
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Handle[R]: ...
+    ) -> Future[R]: ...
     @overload
     def rpc(
         self,
@@ -399,14 +398,14 @@ class Resonate:
         func: str,
         *args: Any,
         **kwargs: Any,
-    ) -> Handle[Any]: ...
+    ) -> Future[Any]: ...
     def rpc[**P, R](
         self,
         id: str,
         func: Callable[Concatenate[Context, P], Generator[Any, Any, R] | R] | str,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> Handle[R]:
+    ) -> Future[R]:
         """Run a function with Resonate remotely.
 
         If a durable promise with the same id already exists, the method
@@ -446,9 +445,9 @@ class Resonate:
 
         opts = self._opts.merge(version=version)
         self._bridge.rpc(Remote(id, id, id, name, args, kwargs, opts), opts, future)
-        return Handle(future)
+        return future
 
-    def get(self, id: str) -> Handle[Any]:
+    def get(self, id: str) -> Future[Any]:
         """Subscribe to an execution.
 
         A durable promise with the same id must exist. Returns immediately
@@ -463,7 +462,7 @@ class Resonate:
         future = Future()
 
         self._bridge.get(id, self._opts, future)
-        return Handle(future)
+        return future
 
     def set_dependency(self, name: str, obj: Any) -> None:
         """Store a named dependency for use with `Context`.
@@ -860,7 +859,7 @@ class Function[**P, R]:
         )
         return self
 
-    def run[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[T]:
+    def run[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
         """Run a function with Resonate.
 
         If a durable promise with the same id already exists, the method
@@ -883,7 +882,7 @@ class Function[**P, R]:
         )
         return resonate.run(id, self._func, *args, **kwargs)
 
-    def rpc[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[T]:
+    def rpc[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
         """Run a function with Resonate remotely.
 
         If a durable promise with the same id already exists, the method
