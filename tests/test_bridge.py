@@ -291,77 +291,66 @@ def test_timeout_unbound_by_parent_detached(resonate: Resonate, parent_timeout: 
 
 def test_random_generation(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.run(f"random-gen-{timestamp}", random_generation)
-    v = handle
-    assert v == resonate.run(f"random-gen-{timestamp}", random_generation)
+    assert resonate.run(f"random-gen-{timestamp}", random_generation) == resonate.run(f"random-gen-{timestamp}", random_generation)
 
 
 @pytest.mark.parametrize("id", ["foo", None])
 def test_hitl(resonate: Resonate, id: str | None) -> None:
     uid = uuid.uuid4()
-    handle = resonate.run(f"hitl-{uid}", hitl, id)
+    handle = resonate.begin_run(f"hitl-{uid}", hitl, id)
     time.sleep(1)
     resonate.promises.resolve(id=id or f"hitl-{uid}.1", data="1")
-    assert handle == 1
+    assert handle.result() == 1
 
 
 def test_get_dependency(resonate: Resonate) -> None:
     timestamp = int(time.time())
     resonate.set_dependency("foo", 1)
-    handle = resonate.run(f"get-dependency-{timestamp}", get_dependency)
-    assert handle == 2
+    assert resonate.run(f"get-dependency-{timestamp}", get_dependency) == 2
 
 
 def test_basic_lfi(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.run(f"foo-lfi-{timestamp}", foo_lfi)
-    assert handle == "baz"
+    assert resonate.run(f"foo-lfi-{timestamp}", foo_lfi) == "baz"
 
 
 def test_basic_rfi(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.run(f"foo-rfi-{timestamp}", foo_rfi)
-    assert handle == "baz"
+    assert resonate.run(f"foo-rfi-{timestamp}", foo_rfi) == "baz"
 
 
 def test_rfi_by_name(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.rpc(f"add_one_by_name_rfi-{timestamp}", "rfi_add_one_by_name", 42)
-    assert handle == 43
+    assert resonate.rpc(f"add_one_by_name_rfi-{timestamp}", "rfi_add_one_by_name", 42) == 43
 
 
 def test_fib_lfi(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.run(f"fib_lfi-{timestamp}", fib_lfi, 10)
     fib_10 = 55
-    assert handle == fib_10
+    assert resonate.run(f"fib_lfi-{timestamp}", fib_lfi, 10) == fib_10
 
 
 def test_fib_rfi(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.run(f"fib_rfi-{timestamp}", fib_rfi, 10)
     fib_10 = 55
-    assert handle == fib_10
+    assert resonate.run(f"fib_rfi-{timestamp}", fib_rfi, 10) == fib_10
 
 
 def test_fib_lfc(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.run(f"fib_lfc-{timestamp}", fib_lfc, 10)
     fib_10 = 55
-    assert handle == fib_10
+    assert resonate.run(f"fib_lfc-{timestamp}", fib_lfc, 10) == fib_10
 
 
 def test_fib_rfc(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.run(f"fib_rfc-{timestamp}", fib_rfc, 10)
     fib_10 = 55
-    assert handle == fib_10
+    assert resonate.run(f"fib_rfc-{timestamp}", fib_rfc, 10) == fib_10
 
 
 def test_sleep(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.run(f"sleep-{timestamp}", sleep, 0)
-    assert handle == 1
+    assert resonate.run(f"sleep-{timestamp}", sleep, 0) == 1
 
 
 def test_handle_timeout(resonate: Resonate) -> None:
@@ -398,8 +387,7 @@ def test_basic_retries() -> None:
 
 def test_listen(resonate: Resonate) -> None:
     timestamp = int(time.time())
-    handle = resonate.rpc(f"add_one_{timestamp}", "add_one", 42)
-    assert handle.result() == 43
+    assert resonate.rpc(f"add_one_{timestamp}", "add_one", 42) == 43
 
 
 def test_implicit_resonate_start() -> None:
@@ -415,8 +403,7 @@ def test_implicit_resonate_start() -> None:
     r = resonate.register(f)
 
     timestamp = int(time.time())
-    result = r.run(f"r-implicit-start-{timestamp}", 1)
-    assert result == 2
+    assert r.run(f"r-implicit-start-{timestamp}", 1) == 2
 
 
 @pytest.mark.parametrize("idempotency_key", ["foo", None])
@@ -441,7 +428,7 @@ def test_info(
         version=version,
     )
 
-    handle = resonate.run(
+    handle = resonate.begin_run(
         id,
         "info",
         idempotency_key or id,
