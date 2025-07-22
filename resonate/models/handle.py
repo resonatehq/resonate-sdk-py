@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from types import GenericAlias
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from concurrent.futures import Future
