@@ -12,6 +12,10 @@ class Handle[T]:
     def __init__(self, f: Future[T]) -> None:
         self._f = f
 
+    @property
+    def future(self) -> Future[T]:
+        return self._f
+
     def done(self) -> bool:
         return self._f.done()
 
