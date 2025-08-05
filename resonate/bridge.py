@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING
 from resonate.conventions import Base
 from resonate.delay_q import DelayQ
 from resonate.errors import ResonateShutdownError
+from resonate.errors.errors import ResonateStoreError
 from resonate.models.commands import (
     CancelPromiseReq,
     CancelPromiseRes,
@@ -49,6 +51,9 @@ if TYPE_CHECKING:
     from resonate.models.store import Store
     from resonate.registry import Registry
     from resonate.resonate import Context
+
+
+logger = logging.getLogger(__name__)
 
 
 class Bridge:
@@ -300,25 +305,36 @@ class Bridge:
         while msg := self._message_source.next():
             match msg:
                 case {"type": "invoke", "task": {"id": id, "counter": counter}}:
-                    task = Task(id, counter, self._store)
-                    root, _ = self._store.tasks.claim(id=task.id, counter=task.counter, pid=self._pid, ttl=self._ttl * 1000)
+                    try:
+                        root, _ = self._store.tasks.claim(id=id, counter=counter, pid=self._pid, ttl=self._ttl * 1000)
+                    except ResonateStoreError as e:
+                        if e.code in (100.40305, 100.40306, 100.40307, 100.40308):
+                            logger.warning("Could not claim task %s with counter %s. Skipping.", id, counter)
+                            continue
+                        raise
                     self.start_heartbeat()
-                    self._promise_id_to_task[root.id] = task
+                    self._promise_id_to_task[root.id] = Task(id, counter, self._store)
                     self._cq.put_nowait(_invoke(root))
 
                 case {"type": "resume", "task": {"id": id, "counter": counter}}:
-                    task = Task(id, counter, self._store)
-                    root, leaf = self._store.tasks.claim(id=task.id, counter=task.counter, pid=self._pid, ttl=self._ttl * 1000)
+                    try:
+                        root, leaf = self._store.tasks.claim(id=id, counter=counter, pid=self._pid, ttl=self._ttl * 1000)
+                    except ResonateStoreError as e:
+                        if e.code in (100.40305, 100.40306, 100.40307, 100.40308):
+                            logger.warning("Could not claim task %s with counter %s. Skipping.", id, counter)
+                            continue
+                        raise
                     self.start_heartbeat()
                     assert leaf is not None, "leaf must not be None"
-                    cmd = Resume(
-                        id=leaf.id,
-                        cid=root.id,
-                        promise=leaf,
-                        invoke=_invoke(root),
+                    self._promise_id_to_task[root.id] = Task(id, counter, self._store)
+                    self._cq.put_nowait(
+                        Resume(
+                            id=leaf.id,
+                            cid=root.id,
+                            promise=leaf,
+                            invoke=_invoke(root),
+                        )
                     )
-                    self._promise_id_to_task[root.id] = task
-                    self._cq.put_nowait(cmd)
 
                 case {"type": "notify", "promise": promise}:
                     durable_promise = DurablePromise.from_dict(self._store, promise)
