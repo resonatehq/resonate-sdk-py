@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import asyncio
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from concurrent.futures import Future
 
 
@@ -10,8 +12,15 @@ class Handle[T]:
     def __init__(self, f: Future[T]) -> None:
         self._f = f
 
+    @property
+    def future(self) -> Future[T]:
+        return self._f
+
     def done(self) -> bool:
         return self._f.done()
 
     def result(self, timeout: float | None = None) -> T:
         return self._f.result(timeout)
+
+    def __await__(self) -> Generator[Any, None, T]:
+        return asyncio.wrap_future(self._f).__await__()
