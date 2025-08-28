@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -19,6 +20,8 @@ from resonate.retry_policies import Constant
 if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
     from resonate.models.retry_policy import RetryPolicy
+
+logger = logging.getLogger(__name__)
 
 
 class RemoteStore:
@@ -93,12 +96,18 @@ class RemoteStore:
                 except requests.exceptions.Timeout as e:
                     if delay is None:
                         raise ResonateStoreError(mesg="Request timed out", code=0) from e
+
+                    logger.warning("Networking. Cannot connect to %s. Retrying in %s sec", self.url, delay)
                 except requests.exceptions.ConnectionError as e:
                     if delay is None:
                         raise ResonateStoreError(mesg="Failed to connect", code=0) from e
+
+                    logger.warning("Networking. Cannot connect to %s. Retrying in %s sec", self.url, delay)
                 except Exception as e:
                     if delay is None:
                         raise ResonateStoreError(mesg="Unknown exception", code=0) from e
+
+                    logger.warning("Networking. Cannot connect to %s. Retrying in %s sec", self.url, delay)
                 else:
                     return data
 

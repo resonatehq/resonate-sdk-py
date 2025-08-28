@@ -89,16 +89,16 @@ class Poller:
                             self._messages.put(msg)
 
             except requests.exceptions.Timeout:
-                logger.warning("Polling request timed out for group %s. Retrying after delay...", self._group)
-                time.sleep(0.5)
+                logger.warning("Networking. Cannot connect to %s:%s. Retrying in 1 sec.", self._host, self._port)
+                time.sleep(1)
                 continue
-            except requests.exceptions.RequestException as e:
-                logger.warning("Polling network error for group %s: %s. Retrying after delay...", self._group, str(e))
-                time.sleep(0.5)
+            except requests.exceptions.RequestException:
+                logger.warning("Networking. Cannot connect to %s:%s. Retrying in 1 sec.", self._host, self._port)
+                time.sleep(1)
                 continue
-            except Exception as e:
-                logger.warning("Unexpected error in poller loop for group %s: %s. Retrying after delay...", self._group, e)
-                time.sleep(0.5)
+            except Exception:
+                logger.warning("Networking. Cannot connect to %s:%s. Retrying in 1 sec.", self._host, self._port)
+                time.sleep(1)
                 continue
 
     def _process_line(self, line: str) -> Mesg | None:
