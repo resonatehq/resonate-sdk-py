@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -35,7 +36,7 @@ class RemoteStore:
         self._auth = auth or ((os.getenv("RESONATE_USERNAME", ""), os.getenv("RESONATE_PASSWORD", "")) if "RESONATE_USERNAME" in os.environ else None)
         self._encoder = encoder or Base64Encoder()
         self._timeout = timeout
-        self._retry_policy = retry_policy or Constant(delay=1, max_retries=3)
+        self._retry_policy = retry_policy or Constant(delay=1, max_retries=sys.maxsize)
 
         self._promises = RemotePromiseStore(self)
         self._tasks = RemoteTaskStore(self)
