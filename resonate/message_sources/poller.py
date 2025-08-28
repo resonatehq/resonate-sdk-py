@@ -78,6 +78,7 @@ class Poller:
 
     @exit_on_exception
     def loop(self) -> None:
+        delay = 1
         while not self._stopped:
             try:
                 with requests.get(self.url, auth=self._auth, stream=True, timeout=self._timeout) as res:
@@ -89,16 +90,16 @@ class Poller:
                             self._messages.put(msg)
 
             except requests.exceptions.Timeout:
-                logger.warning("Networking. Cannot connect to %s:%s. Retrying in 1 sec.", self._host, self._port)
-                time.sleep(1)
+                logger.warning("Networking. Cannot connect to %s:%s. Retrying in %s sec.", self._host, self._port, delay)
+                time.sleep(delay)
                 continue
             except requests.exceptions.RequestException:
-                logger.warning("Networking. Cannot connect to %s:%s. Retrying in 1 sec.", self._host, self._port)
-                time.sleep(1)
+                logger.warning("Networking. Cannot connect to %s:%s. Retrying in %s sec.", self._host, self._port, delay)
+                time.sleep(delay)
                 continue
             except Exception:
-                logger.warning("Networking. Cannot connect to %s:%s. Retrying in 1 sec.", self._host, self._port)
-                time.sleep(1)
+                logger.warning("Networking. Cannot connect to %s:%s. Retrying in %s sec.", self._host, self._port, delay)
+                time.sleep(delay)
                 continue
 
     def _process_line(self, line: str) -> Mesg | None:
