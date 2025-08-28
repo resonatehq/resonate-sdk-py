@@ -39,7 +39,7 @@ class RemoteStore:
         self._auth = auth or ((os.getenv("RESONATE_USERNAME", ""), os.getenv("RESONATE_PASSWORD", "")) if "RESONATE_USERNAME" in os.environ else None)
         self._encoder = encoder or Base64Encoder()
         self._timeout = timeout
-        self._retry_policy = retry_policy or Constant(delay=1, max_retries=sys.maxsize)
+        self._retry_policy = retry_policy or Constant(delay=1, max_retries=sys.maxsize)  # We will retry forever until we implement the drop task strategy
 
         self._promises = RemotePromiseStore(self)
         self._tasks = RemoteTaskStore(self)

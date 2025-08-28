@@ -78,7 +78,7 @@ class Poller:
 
     @exit_on_exception
     def loop(self) -> None:
-        delay = 1
+        delay = 5
         while not self._stopped:
             try:
                 with requests.get(self.url, auth=self._auth, stream=True, timeout=self._timeout) as res:
