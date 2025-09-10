@@ -303,7 +303,7 @@ class RemotePromiseStore:
     ) -> tuple[DurablePromise, Callback | None]:
         req = Request(
             method="post",
-            url=f"{self._store.url}/callback/{promise_id}",
+            url=f"{self._store.url}/promises/callback/{promise_id}",
             json={
                 "rootPromiseId": root_promise_id,
                 "timeout": timeout,
