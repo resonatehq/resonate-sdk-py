@@ -235,6 +235,8 @@ def fib(ctx: Context, n: int) -> Generator[Any, Any, int]:
 
 
 def test_dst(seed: str, steps: int, log_level: int) -> None:
+    raise Exception("nah")
+
     logger.setLevel(log_level or logging.INFO)  # if log level is not set use INFO for dst
     logger.info("DST(seed=%s, steps=%s, log_level=%s)", seed, steps, log_level)
 
