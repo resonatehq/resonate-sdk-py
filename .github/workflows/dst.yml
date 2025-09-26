@@ -85,7 +85,7 @@ jobs:
               ~~~
 
               [more details](${ process.env.GITHUB_SERVER_URL }/${ process.env.GITHUB_REPOSITORY }/actions/runs/${ process.env.GITHUB_RUN_ID })`,
-            })s
+            })
 
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
