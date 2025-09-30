@@ -16,7 +16,7 @@ from resonate.coroutine import LFC, LFI, RFC, RFI
 from resonate.dependencies import Dependencies
 from resonate.encoders import JsonEncoder, JsonPickleEncoder, NoopEncoder
 from resonate.loggers import ContextLogger
-from resonate.models.commands import Command, Invoke, Listen
+from resonate.models.commands import Command, Invoke
 from resonate.options import Options
 from resonate.registry import Registry
 from resonate.resonate import Function
@@ -493,9 +493,9 @@ def test_resonate_type_annotations() -> None:
     # mock bridge so run and rpc become noops
     resonate._started = True  # noqa: SLF001
     resonate._bridge.run = Mock()  # noqa: SLF001
-    resonate._bridge.run.return_value = (None, True)
+    resonate._bridge.run.return_value = (None, True)  # noqa: SLF001
     resonate._bridge.rpc = Mock()  # noqa: SLF001
-    resonate._bridge.rpc.return_value = (None, True)
+    resonate._bridge.rpc.return_value = (None, True)  # noqa: SLF001
 
     @resonate.register
     def foo(ctx: Context, a: int, b: int, /) -> int: ...
