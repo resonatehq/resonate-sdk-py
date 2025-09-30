@@ -18,6 +18,7 @@ from resonate.loggers import ContextLogger
 from resonate.message_sources import LocalMessageSource, Poller
 from resonate.models.handle import Handle
 from resonate.models.message_source import MessageSource
+from resonate.models.result import Ko, Ok
 from resonate.models.store import Store
 from resonate.options import Options
 from resonate.registry import Registry
@@ -418,8 +419,16 @@ class Resonate:
         name, func, version = self._registry.get(func, self._opts.version)
         opts = self._opts.merge(version=version)
 
-        self._bridge.run(Remote(id, id, id, name, args, kwargs, opts), func, args, kwargs, opts, future)
-        return Handle(id, future)
+        promise, subscribe = self._bridge.run(Remote(id, id, id, name, args, kwargs, opts), func, args, kwargs, opts)
+
+        if promise.completed:
+            match promise.result(opts.get_encoder()):
+                case Ok(v):
+                    future.set_result(v)
+                case Ko(e):
+                    future.set_exception(e)
+
+        return Handle(id, future, subscribe)
 
     @overload
     def rpc[**P, R](
@@ -519,8 +528,16 @@ class Resonate:
             name, _, version = self._registry.get(func, self._opts.version)
 
         opts = self._opts.merge(version=version)
-        self._bridge.rpc(Remote(id, id, id, name, args, kwargs, opts), opts, future)
-        return Handle(id, future)
+        promise, subscribe = self._bridge.rpc(Remote(id, id, id, name, args, kwargs, opts), opts)
+
+        if promise.completed:
+            match promise.result(opts.get_encoder()):
+                case Ok(v):
+                    future.set_result(v)
+                case Ko(e):
+                    future.set_exception(e)
+
+        return Handle(id, future, subscribe)
 
     def get(self, id: str) -> Handle[Any]:
         """Subscribe to an execution.

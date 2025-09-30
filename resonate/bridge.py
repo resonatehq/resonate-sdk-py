@@ -99,7 +99,7 @@ class Bridge:
 
         self._shutdown = threading.Event()
 
-    def run(self, conv: Convention, func: Callable, args: tuple, kwargs: dict, opts: Options, future: Future) -> DurablePromise:
+    def run(self, conv: Convention, func: Callable, args: tuple, kwargs: dict, opts: Options):
         encoder = opts.get_encoder()
 
         headers, data = encoder.encode(conv.data)
@@ -116,21 +116,21 @@ class Bridge:
 
         if promise.completed:
             assert not task
-            match promise.result(encoder):
-                case Ok(v):
-                    future.set_result(v)
-                case Ko(e):
-                    future.set_exception(e)
+            # match promise.result(encoder):
+            #     case Ok(v):
+            #         future.set_result(v)
+            #     case Ko(e):
+            #         future.set_exception(e)
         elif task is not None:
             self._promise_id_to_task[promise.id] = task
             self.start_heartbeat()
-            self._cq.put_nowait((Invoke(conv.id, conv, promise.abs_timeout, func, args, kwargs, opts, promise), future))
-        else:
-            self._cq.put_nowait((Listen(promise.id), future))
+            self._cq.put_nowait(Invoke(conv.id, conv, promise.abs_timeout, func, args, kwargs, opts, promise))
+        # else:
+        #     self._cq.put_nowait((Listen(promise.id), future))
 
-        return promise
+        return promise, lambda f: self._cq.put_nowait((Listen(promise.id), f))
 
-    def rpc(self, conv: Convention, opts: Options, future: Future) -> DurablePromise:
+    def rpc(self, conv: Convention, opts: Options):
         encoder = opts.get_encoder()
 
         headers, data = encoder.encode(conv.data)
@@ -143,16 +143,16 @@ class Bridge:
             tags=conv.tags,
         )
 
-        if promise.completed:
-            match promise.result(encoder):
-                case Ok(v):
-                    future.set_result(v)
-                case Ko(e):
-                    future.set_exception(e)
-        else:
-            self._cq.put_nowait((Listen(promise.id), future))
+        # if promise.completed:
+        #     match promise.result(encoder):
+        #         case Ok(v):
+        #             future.set_result(v)
+        #         case Ko(e):
+        #             future.set_exception(e)
+        # else:
+        #     self._cq.put_nowait((Listen(promise.id), future))
 
-        return promise
+        return promise, lambda f: self._cq.put_nowait((Listen(promise.id), f))
 
     def get(self, id: str, opts: Options, future: Future) -> DurablePromise:
         promise = self._store.promises.get(id=id)
