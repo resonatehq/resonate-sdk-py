@@ -99,7 +99,7 @@ class Bridge:
 
         self._shutdown = threading.Event()
 
-    def run(self, conv: Convention, func: Callable, args: tuple, kwargs: dict, opts: Options, future: Future) -> DurablePromise:
+    def run(self, conv: Convention, func: Callable, args: tuple, kwargs: dict, opts: Options, future: Future) -> tuple[DurablePromise, bool]:
         encoder = opts.get_encoder()
 
         headers, data = encoder.encode(conv.data)
@@ -113,6 +113,7 @@ class Bridge:
             pid=self._pid,
             ttl=self._ttl * 1000,
         )
+        should_subscribe = False
 
         if promise.completed:
             assert not task
@@ -126,11 +127,11 @@ class Bridge:
             self.start_heartbeat()
             self._cq.put_nowait((Invoke(conv.id, conv, promise.abs_timeout, func, args, kwargs, opts, promise), future))
         else:
-            self._cq.put_nowait((Listen(promise.id), future))
+            should_subscribe = True
 
-        return promise
+        return promise, should_subscribe
 
-    def rpc(self, conv: Convention, opts: Options, future: Future) -> DurablePromise:
+    def rpc(self, conv: Convention, opts: Options, future: Future) -> tuple[DurablePromise, bool]:
         encoder = opts.get_encoder()
 
         headers, data = encoder.encode(conv.data)
@@ -143,6 +144,7 @@ class Bridge:
             tags=conv.tags,
         )
 
+        should_subscribe = False
         if promise.completed:
             match promise.result(encoder):
                 case Ok(v):
@@ -150,13 +152,14 @@ class Bridge:
                 case Ko(e):
                     future.set_exception(e)
         else:
-            self._cq.put_nowait((Listen(promise.id), future))
+            should_subscribe = True
 
-        return promise
+        return promise, should_subscribe
 
-    def get(self, id: str, opts: Options, future: Future) -> DurablePromise:
+    def get(self, id: str, opts: Options, future: Future) -> tuple[DurablePromise, bool]:
         promise = self._store.promises.get(id=id)
 
+        should_subscribe = False
         if promise.completed:
             match promise.result(opts.get_encoder()):
                 case Ok(v):
@@ -164,9 +167,9 @@ class Bridge:
                 case Ko(e):
                     future.set_exception(e)
         else:
-            self._cq.put_nowait((Listen(id), future))
+            should_subscribe = True
 
-        return promise
+        return promise, should_subscribe
 
     def start(self) -> None:
         self._processor.start()
@@ -438,3 +441,6 @@ class Bridge:
 
             case _:
                 raise NotImplementedError
+
+    def subscribe(self, id: str, future: Future) -> None:
+        self._cq.put_nowait((Listen(id), future))

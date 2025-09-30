@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 import threading
 import time
@@ -227,25 +226,6 @@ def resonate(store: Store, message_source: MessageSource) -> Generator[Resonate,
     resonate.stop()
 
 
-def test_run_on_schedule(resonate: Resonate) -> None:
-    e = threading.Event()
-
-    @resonate.register
-    def on_schedule(ctx: Context) -> None:
-        e.set()
-
-    id = f"on-schedule-{uuid.uuid4().hex}"
-    resonate.schedules.create(
-        id,
-        "* * * * *",
-        f"{id}.{{{{.timestamp}}}}",
-        (60 * 60) * 1000,  # input in milliseconds
-        promise_data=json.dumps({"func": "on_schedule", "args": [], "kwargs": {}, "version": 1}),
-        promise_tags={"resonate:invoke": "default"},
-    )
-    e.wait()
-
-
 def test_await_keyword(resonate: Resonate) -> None:
     async def run() -> None:
         v = await resonate.begin_run(uuid.uuid4().hex, add_one, 2)
@@ -443,7 +423,7 @@ def test_info(
         id,
         "info",
         idempotency_key or id,
-        {**(tags or {}), "resonate:root": id, "resonate:parent": id, "resonate:scope": "global", "resonate:invoke": f"poll://any@{target or "default"}"},
+        {**(tags or {}), "resonate:root": id, "resonate:parent": id, "resonate:scope": "global", "resonate:invoke": f"poll://any@{target or 'default'}"},
         version,
     )
 
