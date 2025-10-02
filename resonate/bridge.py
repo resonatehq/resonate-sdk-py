@@ -426,7 +426,6 @@ class Bridge:
                 )
 
                 if promise.completed:
-                    print("callback", callback)
                     return Resume(cmd_id, cid, promise)
 
                 return Receive(cmd_id, cid, CreateCallbackRes(promise, callback))

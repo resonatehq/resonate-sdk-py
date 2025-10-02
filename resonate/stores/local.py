@@ -376,7 +376,6 @@ class LocalPromiseStore:
 
         promise.callbacks[id] = callback
         callback_res = Callback.from_dict(callback.to_dict())
-        print("callback", callback_res)
         return durable_promise, callback_res
 
     def subscribe(
