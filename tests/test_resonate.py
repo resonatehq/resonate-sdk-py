@@ -493,9 +493,7 @@ def test_resonate_type_annotations() -> None:
     # mock bridge so run and rpc become noops
     resonate._started = True  # noqa: SLF001
     resonate._bridge.run = Mock()  # noqa: SLF001
-    resonate._bridge.run.return_value = (None, True)  # noqa: SLF001
     resonate._bridge.rpc = Mock()  # noqa: SLF001
-    resonate._bridge.rpc.return_value = (None, True)  # noqa: SLF001
 
     @resonate.register
     def foo(ctx: Context, a: int, b: int, /) -> int: ...

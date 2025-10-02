@@ -119,10 +119,10 @@ def rfi_add_one_by_name(ctx: Context, n: int) -> Generator[Any, Any, int]:
 
 
 def hitl(ctx: Context, id: str | None) -> Generator[Yieldable, Any, int]:
-    if id:
-        p = yield ctx.promise().options(id=id)
-    else:
+    if id is None:
         p = yield ctx.promise()
+    else:
+        p = yield ctx.promise().options(id=id)
     v = yield p
     return v
 
@@ -291,6 +291,7 @@ def test_hitl(resonate: Resonate, id: str | None) -> None:
     handle = resonate.begin_run(f"hitl-{uid}", hitl, id)
     time.sleep(1)
     resonate.promises.resolve(id=id or f"hitl-{uid}.1", data="1")
+    # time.sleep(0.2)
     assert handle.result() == 1
 
 

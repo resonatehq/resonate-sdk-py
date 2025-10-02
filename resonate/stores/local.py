@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import json
 import contextlib
 import threading
 import time
@@ -358,7 +358,7 @@ class LocalPromiseStore:
 
         durable_promise = DurablePromise.from_dict(
             self._store,
-            promise.to_dict(),
+            json.loads(json.dumps(promise.to_dict())),
         )
 
         if promise.state != "PENDING" or id in promise.callbacks:
@@ -375,7 +375,9 @@ class LocalPromiseStore:
         )
 
         promise.callbacks[id] = callback
-        return durable_promise, Callback.from_dict(callback.to_dict())
+        callback_res = Callback.from_dict(callback.to_dict())
+        print("callback", callback_res)
+        return durable_promise, callback_res
 
     def subscribe(
         self,
@@ -539,8 +541,13 @@ class LocalPromiseStore:
         tags: dict[str, str] | None = None,
     ) -> tuple[DurablePromiseRecord, bool]:
         time = int(self._store.clock.time() * 1000)
-
-        match record := self._promises.get(id), to, strict:
+        record = self._promises.get(id)
+        # if record:
+        #     logger.info(f"transition promise {record.id} to {to}")
+        # else:
+        #     logger.info(f"transition promise {id} to {to}")
+        #
+        match record, to, strict:
             case None, "PENDING", _:
                 assert timeout is not None
 
@@ -707,7 +714,12 @@ class LocalTaskStore:
     ) -> tuple[TaskRecord, bool]:
         time = int(self._store.clock.time() * 1000)
 
-        match record := self._tasks.get(id), to:
+        record = self._tasks.get(id)
+        # if record:
+        #     logger.info(f"transition task {record.id} to {to}")
+        # else:
+        #     logger.info(f"transition task {id} to {to}")
+        match record, to:
             case None, "INIT":
                 assert type is not None
                 assert recv is not None
@@ -893,7 +905,7 @@ class LocalTaskStore:
                 raise ResonateStoreError(mesg="The specified task was not found", code=40403)
 
             case _:
-                raise ResonateStoreError(mesg="The task is already claimed, completed, or an invalid counter was provided", code=40305)
+                raise ResonateStoreError(mesg=f"The task {record} is already claimed, completed, or an invalid counter was provided {to}", code=40305)
 
 
 class LocalScheduleStore:

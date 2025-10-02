@@ -99,7 +99,7 @@ class Bridge:
 
         self._shutdown = threading.Event()
 
-    def run(self, conv: Convention, func: Callable, args: tuple, kwargs: dict, opts: Options, future: Future) -> tuple[DurablePromise, bool]:
+    def run(self, conv: Convention, func: Callable, args: tuple, kwargs: dict, opts: Options, future: Future) -> DurablePromise:
         encoder = opts.get_encoder()
 
         headers, data = encoder.encode(conv.data)
@@ -113,8 +113,6 @@ class Bridge:
             pid=self._pid,
             ttl=self._ttl * 1000,
         )
-        should_subscribe = False
-
         if promise.completed:
             assert not task
             match promise.result(encoder):
@@ -125,13 +123,11 @@ class Bridge:
         elif task is not None:
             self._promise_id_to_task[promise.id] = task
             self.start_heartbeat()
-            self._cq.put_nowait((Invoke(conv.id, conv, promise.abs_timeout, func, args, kwargs, opts, promise), future))
-        else:
-            should_subscribe = True
+            self._cq.put_nowait(Invoke(conv.id, conv, promise.abs_timeout, func, args, kwargs, opts, promise))
 
-        return promise, should_subscribe
+        return promise
 
-    def rpc(self, conv: Convention, opts: Options, future: Future) -> tuple[DurablePromise, bool]:
+    def rpc(self, conv: Convention, opts: Options, future: Future) -> DurablePromise:
         encoder = opts.get_encoder()
 
         headers, data = encoder.encode(conv.data)
@@ -144,32 +140,26 @@ class Bridge:
             tags=conv.tags,
         )
 
-        should_subscribe = False
         if promise.completed:
             match promise.result(encoder):
                 case Ok(v):
                     future.set_result(v)
                 case Ko(e):
                     future.set_exception(e)
-        else:
-            should_subscribe = True
 
-        return promise, should_subscribe
+        return promise
 
-    def get(self, id: str, opts: Options, future: Future) -> tuple[DurablePromise, bool]:
+    def get(self, id: str, opts: Options, future: Future) -> DurablePromise:
         promise = self._store.promises.get(id=id)
 
-        should_subscribe = False
         if promise.completed:
             match promise.result(opts.get_encoder()):
                 case Ok(v):
                     future.set_result(v)
                 case Ko(e):
                     future.set_exception(e)
-        else:
-            should_subscribe = True
 
-        return promise, should_subscribe
+        return promise
 
     def start(self) -> None:
         self._processor.start()
@@ -209,7 +199,8 @@ class Bridge:
     def _process_cq(self) -> None:
         while item := self._cq.get():
             cmd, future = item if isinstance(item, tuple) else (item, None)
-            match self._scheduler.step(cmd, future):
+            v = self._scheduler.step(cmd, future)
+            match v:
                 case More(reqs):
                     for req in reqs:
                         match req:
@@ -435,6 +426,7 @@ class Bridge:
                 )
 
                 if promise.completed:
+                    print("callback", callback)
                     return Resume(cmd_id, cid, promise)
 
                 return Receive(cmd_id, cid, CreateCallbackRes(promise, callback))

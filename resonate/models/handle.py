@@ -9,10 +9,10 @@ if TYPE_CHECKING:
 
 
 class Handle[T]:
-    def __init__(self, id: str, f: Future[T], should_subscribe: bool, cb: Callable[[str, Future[T]], None]) -> None:
+    def __init__(self, id: str, f: Future[T], cb: Callable[[str, Future[T]], None]) -> None:
         self._id = id
         self._f = f
-        self._should_subscribe = should_subscribe
+        self._should_subscribe = not self._f.done()
         self._cb = cb
 
     @property
