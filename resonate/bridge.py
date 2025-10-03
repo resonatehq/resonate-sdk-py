@@ -200,12 +200,9 @@ class Bridge:
         shutdown_error: ResonateShutdownError | None = None
         while item := self._cq.get():
             cmd, future = item if isinstance(item, tuple) else (item, None)
-            match cmd, future:
-                case Listen(), Future() if shutdown_error is not None:
-                    # Since we subscribe lazily we need to keep this around to inform about
-                    # a shutdown error that has happened
-                    future.set_exception(shutdown_error)
-                    continue
+            if shutdown_error is not None and future is not None:
+                future.set_exception(shutdown_error)
+                continue
 
             match self._scheduler.step(cmd, future):
                 case More(reqs):
@@ -216,12 +213,11 @@ class Bridge:
                                     cmd = self._handle_network_request(id, cid, n_req)
                                     self._cq.put_nowait(cmd)
                                 except Exception as e:
-                                    err = ResonateShutdownError(mesg="An unexpected store error has occurred, shutting down")
-                                    err.__cause__ = e  # bind original error
+                                    shutdown_error = ResonateShutdownError(mesg="An unexpected store error has occurred, shutting down")
+                                    shutdown_error.__cause__ = e  # bind original error
 
                                     # bypass the cq and shutdown right away
-                                    shutdown_error = err
-                                    self._scheduler.shutdown(err)
+                                    self._scheduler.shutdown(shutdown_error)
                                     self._stop_no_join()
 
                             case Function(id, cid, func):
