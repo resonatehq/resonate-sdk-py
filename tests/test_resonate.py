@@ -71,9 +71,11 @@ def registry() -> Registry:
 
 def cmd(resonate: Resonate) -> Command:
     item = resonate._bridge._cq.get_nowait()  # noqa: SLF001
-    assert isinstance(item, tuple)
-
-    cmd, _ = item
+    assert item is not None
+    if isinstance(item, tuple):
+        cmd, _ = item
+    else:
+        cmd = item
     return cmd
 
 

@@ -199,8 +199,7 @@ class Bridge:
     def _process_cq(self) -> None:
         while item := self._cq.get():
             cmd, future = item if isinstance(item, tuple) else (item, None)
-            v = self._scheduler.step(cmd, future)
-            match v:
+            match self._scheduler.step(cmd, future):
                 case More(reqs):
                     for req in reqs:
                         match req:

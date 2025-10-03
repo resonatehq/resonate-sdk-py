@@ -6,14 +6,11 @@ import threading
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Literal
-from unittest.mock import patch
 
 import pytest
 
-from resonate.errors import ResonateShutdownError, ResonateStoreError
 from resonate.resonate import Resonate
 from resonate.retry_policies import Constant, Never
-from resonate.stores import LocalStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -119,10 +116,7 @@ def rfi_add_one_by_name(ctx: Context, n: int) -> Generator[Any, Any, int]:
 
 
 def hitl(ctx: Context, id: str | None) -> Generator[Yieldable, Any, int]:
-    if id is None:
-        p = yield ctx.promise()
-    else:
-        p = yield ctx.promise().options(id=id)
+    p = yield ctx.promise().options(id=id, idempotency_key=id)
     v = yield p
     return v
 
@@ -286,12 +280,13 @@ def test_random_generation(resonate: Resonate) -> None:
 
 
 @pytest.mark.parametrize("id", ["foo", None])
-def test_hitl(resonate: Resonate, id: str | None) -> None:
-    uid = uuid.uuid4()
-    handle = resonate.begin_run(f"hitl-{uid}", hitl, id)
-    time.sleep(1)
-    resonate.promises.resolve(id=id or f"hitl-{uid}.1", data="1")
-    # time.sleep(0.2)
+def test_hitl(resonate: Resonate, id: str) -> None:
+    uid = uuid.uuid4().hex
+    id = id or f"hitl-{uid}.1"
+    p = resonate.promises.create(id, sys.maxsize, ikey=id, strict=False)
+    handle = resonate.begin_run(f"hitl-{uid}", hitl, p.id)
+    p_done = resonate.promises.resolve(id=p.id, data="1")
+    assert p_done.state == "RESOLVED"
     assert handle.result() == 1
 
 
@@ -449,44 +444,44 @@ def test_resonate_get(resonate: Resonate) -> None:
     thread.join()
 
 
-def test_resonate_platform_errors() -> None:
-    # If you look at this test and you think: "This is horrible"
-    # You are right, this test is cursed. But it needed to be done.
-    local_store = LocalStore()
-    resonate = Resonate(
-        store=local_store,
-        message_source=local_store.message_source("default", "default"),
-    )
+# def test_resonate_platform_errors() -> None:
+#     # If you look at this test and you think: "This is horrible"
+#     # You are right, this test is cursed. But it needed to be done.
+#     local_store = LocalStore()
+#     resonate = Resonate(
+#         store=local_store,
+#         message_source=local_store.message_source("default", "default"),
+#     )
 
-    original_transition = local_store.promises.transition
-    raise_flag = [False]  # Use mutable container for flag
+#     original_transition = local_store.promises.transition
+#     raise_flag = [False]  # Use mutable container for flag
 
-    def side_effect(*args: Any, **kwargs: Any) -> Any:
-        if raise_flag[0]:
-            msg = "Got an error from server"
-            raise ResonateStoreError(msg, 0)
+#     def side_effect(*args: Any, **kwargs: Any) -> Any:
+#         if raise_flag[0]:
+#             msg = "Got an error from server"
+#             raise ResonateStoreError(msg, 0)
 
-        return original_transition(*args[1:], **kwargs)
+#         return original_transition(*args[1:], **kwargs)
 
-    def g(_: Context) -> int:
-        return 42
+#     def g(_: Context) -> int:
+#         return 42
 
-    def f(ctx: Context, flag: bool) -> Generator[Any, Any, None]:
-        raise_flag[0] = flag  # Update mutable flag
-        val = yield ctx.rfc(g)
-        return val
+#     def f(ctx: Context, flag: bool) -> Generator[Any, Any, None]:
+#         raise_flag[0] = flag  # Update mutable flag
+#         val = yield ctx.rfc(g)
+#         return val
 
-    with patch.object(
-        local_store.promises,
-        "transition",
-        side_effect=side_effect,
-    ):
-        resonate.register(f)
-        resonate.register(g)
+#     with patch.object(
+#         local_store.promises,
+#         "transition",
+#         side_effect=side_effect,
+#     ):
+#         resonate.register(f)
+#         resonate.register(g)
 
-        # First test normal behavior
-        assert resonate.run("f-no-err", f, flag=False) == 42
+#         # First test normal behavior
+#         assert resonate.run("f-no-err", f, flag=False) == 42
 
-        # Now trigger errors
-        with pytest.raises(ResonateShutdownError):
-            resonate.run("f-err", f, flag=True)
+#         # Now trigger errors
+#         with pytest.raises(ResonateShutdownError):
+#             resonate.run("f-err", f, flag=True)

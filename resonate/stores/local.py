@@ -1,6 +1,7 @@
 from __future__ import annotations
-import json
+
 import contextlib
+import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -540,13 +541,8 @@ class LocalPromiseStore:
         tags: dict[str, str] | None = None,
     ) -> tuple[DurablePromiseRecord, bool]:
         time = int(self._store.clock.time() * 1000)
-        record = self._promises.get(id)
-        # if record:
-        #     logger.info(f"transition promise {record.id} to {to}")
-        # else:
-        #     logger.info(f"transition promise {id} to {to}")
-        #
-        match record, to, strict:
+
+        match record := self._promises.get(id), to, strict:
             case None, "PENDING", _:
                 assert timeout is not None
 
@@ -713,12 +709,8 @@ class LocalTaskStore:
     ) -> tuple[TaskRecord, bool]:
         time = int(self._store.clock.time() * 1000)
 
-        record = self._tasks.get(id)
-        # if record:
-        #     logger.info(f"transition task {record.id} to {to}")
-        # else:
-        #     logger.info(f"transition task {id} to {to}")
-        match record, to:
+
+        match record := self._tasks.get(id), to:
             case None, "INIT":
                 assert type is not None
                 assert recv is not None
@@ -904,7 +896,7 @@ class LocalTaskStore:
                 raise ResonateStoreError(mesg="The specified task was not found", code=40403)
 
             case _:
-                raise ResonateStoreError(mesg=f"The task {record} is already claimed, completed, or an invalid counter was provided {to}", code=40305)
+                raise ResonateStoreError(mesg="The task is already claimed, completed, or an invalid counter was provided", code=40305)
 
 
 class LocalScheduleStore:
