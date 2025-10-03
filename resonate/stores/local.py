@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -359,7 +358,7 @@ class LocalPromiseStore:
 
         durable_promise = DurablePromise.from_dict(
             self._store,
-            json.loads(json.dumps(promise.to_dict())),
+            promise.to_dict(),
         )
 
         if promise.state != "PENDING" or id in promise.callbacks:
@@ -376,8 +375,7 @@ class LocalPromiseStore:
         )
 
         promise.callbacks[id] = callback
-        callback_res = Callback.from_dict(callback.to_dict())
-        return durable_promise, callback_res
+        return durable_promise, Callback.from_dict(callback.to_dict())
 
     def subscribe(
         self,
@@ -708,7 +706,6 @@ class LocalTaskStore:
         force: bool = False,
     ) -> tuple[TaskRecord, bool]:
         time = int(self._store.clock.time() * 1000)
-
 
         match record := self._tasks.get(id), to:
             case None, "INIT":

@@ -197,8 +197,16 @@ class Bridge:
 
     @exit_on_exception
     def _process_cq(self) -> None:
+        shutdown_error: ResonateShutdownError | None = None
         while item := self._cq.get():
             cmd, future = item if isinstance(item, tuple) else (item, None)
+            match cmd, future:
+                case Listen(), Future() if shutdown_error is not None:
+                    # Since we subscribe lazily we need to keep this around to inform about
+                    # a shutdown error that has happened
+                    future.set_exception(shutdown_error)
+                    continue
+
             match self._scheduler.step(cmd, future):
                 case More(reqs):
                     for req in reqs:
@@ -212,9 +220,9 @@ class Bridge:
                                     err.__cause__ = e  # bind original error
 
                                     # bypass the cq and shutdown right away
+                                    shutdown_error = err
                                     self._scheduler.shutdown(err)
                                     self._stop_no_join()
-                                    return
 
                             case Function(id, cid, func):
                                 self._processor.enqueue(func, lambda r, id=id, cid=cid: self._cq.put_nowait(Return(id, cid, r)))

@@ -6,11 +6,15 @@ import threading
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Literal
+from unittest.mock import patch
 
 import pytest
 
+from resonate.errors import ResonateShutdownError
+from resonate.errors.errors import ResonateStoreError
 from resonate.resonate import Resonate
 from resonate.retry_policies import Constant, Never
+from resonate.stores import LocalStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -444,44 +448,44 @@ def test_resonate_get(resonate: Resonate) -> None:
     thread.join()
 
 
-# def test_resonate_platform_errors() -> None:
-#     # If you look at this test and you think: "This is horrible"
-#     # You are right, this test is cursed. But it needed to be done.
-#     local_store = LocalStore()
-#     resonate = Resonate(
-#         store=local_store,
-#         message_source=local_store.message_source("default", "default"),
-#     )
+def test_resonate_platform_errors() -> None:
+    # If you look at this test and you think: "This is horrible"
+    # You are right, this test is cursed. But it needed to be done.
+    local_store = LocalStore()
+    resonate = Resonate(
+        store=local_store,
+        message_source=local_store.message_source("default", "default"),
+    )
 
-#     original_transition = local_store.promises.transition
-#     raise_flag = [False]  # Use mutable container for flag
+    original_transition = local_store.promises.transition
+    raise_flag = [False]  # Use mutable container for flag
 
-#     def side_effect(*args: Any, **kwargs: Any) -> Any:
-#         if raise_flag[0]:
-#             msg = "Got an error from server"
-#             raise ResonateStoreError(msg, 0)
+    def side_effect(*args: Any, **kwargs: Any) -> Any:
+        if raise_flag[0]:
+            msg = "Got an error from server"
+            raise ResonateStoreError(msg, 0)
 
-#         return original_transition(*args[1:], **kwargs)
+        return original_transition(*args[1:], **kwargs)
 
-#     def g(_: Context) -> int:
-#         return 42
+    def g(_: Context) -> int:
+        return 42
 
-#     def f(ctx: Context, flag: bool) -> Generator[Any, Any, None]:
-#         raise_flag[0] = flag  # Update mutable flag
-#         val = yield ctx.rfc(g)
-#         return val
+    def f(ctx: Context, flag: bool) -> Generator[Any, Any, None]:
+        raise_flag[0] = flag  # Update mutable flag
+        val = yield ctx.rfc(g)
+        return val
 
-#     with patch.object(
-#         local_store.promises,
-#         "transition",
-#         side_effect=side_effect,
-#     ):
-#         resonate.register(f)
-#         resonate.register(g)
+    with patch.object(
+        local_store.promises,
+        "transition",
+        side_effect=side_effect,
+    ):
+        resonate.register(f)
+        resonate.register(g)
 
-#         # First test normal behavior
-#         assert resonate.run("f-no-err", f, flag=False) == 42
+        # First test normal behavior
+        assert resonate.run("f-no-err", f, flag=False) == 42
 
-#         # Now trigger errors
-#         with pytest.raises(ResonateShutdownError):
-#             resonate.run("f-err", f, flag=True)
+        # Now trigger errors
+        with pytest.raises(ResonateShutdownError):
+            resonate.run("f-err", f, flag=True)
