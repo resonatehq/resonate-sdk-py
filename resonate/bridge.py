@@ -200,13 +200,12 @@ class Bridge:
         shutdown_error: ResonateShutdownError | None = None
         while item := self._cq.get():
             cmd, future = item if isinstance(item, tuple) else (item, None)
-            if shutdown_error is not None:
-                assert isinstance(cmd, Listen)
-                assert future is not None
-                # Since we subscribe lazily we need to keep this around to inform about
-                # a shutdown error that has happened
-                future.set_exception(shutdown_error)
-                continue
+            match cmd, future:
+                case Listen(), Future() if shutdown_error is not None:
+                    # Since we subscribe lazily we need to keep this around to inform about
+                    # a shutdown error that has happened
+                    future.set_exception(shutdown_error)
+                    continue
 
             match self._scheduler.step(cmd, future):
                 case More(reqs):
