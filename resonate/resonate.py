@@ -147,12 +147,32 @@ class Resonate:
         ttl: int = 10,
         workers: int | None = None,
     ) -> Resonate:
-        """Create a Resonate client with local configuration.
+        """Create a local Resonate client instance.
 
-        This configuration stores all state in memory, with no external
-        persistence or network I/O. The in memory store implements the same
-        API as the remote store, making it perfect for rapid development,
+        This method configures a Resonate client that stores all state in memory,
+        without external persistence or network I/O. The in-memory store implements
+        the same API as the remote store, making it ideal for rapid development,
         local testing, and experimentation.
+
+        Args:
+            dependencies (Dependencies | None): Optional dependency injection container.
+            group (str): Worker group name. Defaults to `"default"`.
+            log_level (int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]):
+                Logging verbosity level. Defaults to `logging.INFO`.
+            pid (str | None): Optional process identifier for the worker.
+            registry (Registry | None): Optional registry to manage in-memory objects.
+            ttl (int): Time-to-live (in seconds) for claimed tasks. Defaults to `10`.
+            workers (int | None): Optional number of worker threads or processes for task execution.
+
+        Returns:
+            Resonate: A configured local Resonate client instance.
+
+        Example:
+            ```python
+            client = Resonate.local(ttl=30, log_level="DEBUG")
+            client.run()
+            ```
+
         """
         pid = pid or uuid.uuid4().hex
         store = LocalStore()
@@ -186,11 +206,40 @@ class Resonate:
     ) -> Resonate:
         """Create a Resonate client with remote configuration.
 
-        This configuration persists all state to a remote store, enabling
-        full durability, coordination, and recovery protocols across processes.
+        This method configures a Resonate client that persists state to a remote
+        store, enabling durability, coordination, and recovery across distributed
+        processes. The remote store implementation provides fault-tolerant scheduling,
+        consistent state management, and reliable operation for production workloads.
 
-        The remote store implementation is ideal for production workloads, fault-tolerant scheduling,
-        and distributed execution.
+        Args:
+            auth (tuple[str, str] | None): Optional authentication credentials for
+                connecting to the remote store. Expected format is `(username, password)`.
+            dependencies (Dependencies | None): Optional dependency injection container.
+            group (str): Client group name. Defaults to `"default"`.
+            host (str | None): Host address of the remote store service.
+            log_level (int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]):
+                Logging verbosity level. Defaults to `logging.INFO`.
+            message_source_port (str | None): Port used for message source communication.
+            pid (str | None): Optional process identifier for the client.
+            registry (Registry | None): Optional registry to manage remote object mappings.
+            store_port (str | None): Port used for the remote store service.
+            ttl (int): Time-to-live (in seconds) for claimed tasks. Defaults to `10`.
+            workers (int | None): Optional number of worker threads or processes for task execution.
+
+        Returns:
+            Resonate: A configured Resonate client instance connected to a remote store.
+
+        Example:
+            ```python
+            client = Resonate.remote(
+                host="store.resonate.io",
+                auth=("user", "password"),
+                ttl=60,
+                log_level="INFO",
+            )
+            client.run()
+            ```
+
         """
         pid = pid or uuid.uuid4().hex
 
@@ -288,17 +337,46 @@ class Resonate:
         name: str | None = None,
         version: int = 1,
     ) -> Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
-        """Register function with Resonate.
+        """Register a function with Resonate for execution and version control.
 
-        This method makes the provided function available for top level
-        execution under the specified name and version.
+        This method makes a function available for top-level execution under a
+        specific name and version. It can be used either directly by passing the
+        target function, or as a decorator for more concise registration.
 
-        It can be used directly by passing the target function, or as a decorator.
+        When used as a decorator without arguments, the function is registered
+        automatically using its own name and the default version. Providing explicit
+        `name` or `version` values allows precise control over function identification
+        and versioning for repeatable, distributed invocation.
 
-        When used without arguments, the function itself is decorated and
-        registered with the default name (derived from the function) and version.
-        Providing a name or version allows explicit control over the
-        function identifier and its versioning for subsequent invocations.
+        Args:
+            *args (Callable[Concatenate[Context, P], R] | None): The function to register,
+                        or `None` when used as a decorator.
+            name (str | None): Optional explicit name for the registered function.
+                Defaults to the function's own name.
+            version (int): Version number for the registered function. Defaults to `1`.
+
+        Returns:
+            Function[P, R] | Callable[[Callable[Concatenate[Context, P], R]], Function[P, R]]:
+                If called directly, returns a `Function` wrapper for the registered
+                function. If used as a decorator, returns a decorator that registers
+                the target function upon definition.
+
+        Example:
+            Registering a function directly:
+            ```python
+            def greet(ctx: Context, name: str) -> str:
+                return f"Hello, {name}!"
+
+            client.register(greet, name="greet_user", version=2)
+            ```
+
+            Using as a decorator:
+            ```python
+            @resonate.register(name="process_data")
+            def process(ctx: Context, data: dict) -> dict:
+                ...
+            ```
+
         """
         if name is not None and not isinstance(name, str):
             msg = f"name must be `str | None`, got {type(name).__name__}"
@@ -347,17 +425,43 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> R:
-        """Run a function with Resonate and wait for the result.
+        """Run a registered function through Resonate and waits for its result.
 
-        If a durable promise with the same id already exists, the method
-        will subscribe to its result or return the value immediately if
-        the promise has been completed.
+        This method executes a registered function by its identifier or reference
+        and returns the computed result. If a durable promise with the same `id`
+        already exists, Resonate will reuse the existing result or subscribe to its
+        completion rather than executing the function again. This ensures
+        idempotent and deterministic behavior across distributed executions.
 
-        Resonate will prevent duplicate executions for the same id.
+        Resonate guarantees that duplicate executions for the same `id` are prevented.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
-        - This is a blocking operation
+        Notes:
+            - The target function must be registered with Resonate.
+            - All function arguments and keyword arguments must be serializable.
+            - This is a **blocking** operation that waits for completion.
+
+        Args:
+            id (str): Unique identifier for this function invocation. Used to
+                deduplicate and resume durable results.
+            func (Callable[Concatenate[Context, P], Generator[Any, Any, R] | R] | str):
+                The function to execute, either as a callable or the registered name of the function.
+            *args (P.args): Positional arguments to pass to the function.
+            **kwargs (P.kwargs): Keyword arguments to pass to the function.
+
+        Returns:
+            R: The result of the executed function.
+
+        Example:
+            Running a function directly:
+            ```python
+            result = client.run("task-42", my_function, 10, flag=True)
+            ```
+
+            Running by registered name:
+            ```python
+            result = client.run("task-42", "process_data", records)
+            ```
+
         """
         return self.begin_run(id, func, *args, **kwargs).result()
 
@@ -384,16 +488,47 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
-        """Run a function with Resonate.
+        """Begin execution of a registered function through Resonate.
 
-        If a durable promise with the same id already exists, the method
-        will subscribe to its result or return the value immediately if
-        the promise has been completed.
+        This method starts the execution of a registered function and returns a
+        `Handle` that can be used to track progress, await completion, or retrieve
+        results later. If a durable promise with the same `id` already exists,
+        Resonate will reuse the existing execution state or subscribe to its result
+        rather than starting a new run. This ensures idempotent and fault-tolerant
+        execution across distributed systems.
 
-        Resonate will prevent duplicate executions for the same id.
+        Resonate guarantees that duplicate executions for the same `id` are prevented.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
+        Notes:
+            - The target function must be registered with Resonate.
+            - All function arguments and keyword arguments must be serializable.
+            - This operation is **non-blocking**; it returns immediately with a handle.
+
+        Args:
+            id (str): Unique identifier for this function invocation. Used to
+                deduplicate and resume durable results.
+            func (Callable[Concatenate[Context, P], Generator[Any, Any, R] | R] | str):
+                The function to execute, either as a callable or the registered name of the function.
+            *args (P.args): Positional arguments to pass to the function.
+            **kwargs (P.kwargs): Keyword arguments to pass to the function.
+
+        Returns:
+            Handle[R]: A handle object that can be used to monitor, await, or
+            retrieve the function's result.
+
+        Example:
+            Starting a function run asynchronously:
+            ```python
+            handle = resonate.begin_run("job-123", process_data, records)
+            # Do other work...
+            result = handle.result()
+            ```
+
+            Using a registered function name:
+            ```python
+            handle = resonate.begin_run("job-123", "aggregate_metrics", dataset)
+            ```
+
         """
         # id
         if not isinstance(id, str):
@@ -444,17 +579,44 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> R:
-        """Run a function with Resonate remotely and wait for the result.
+        """Execute a registered function remotely through Resonate and waits for its result.
 
-        If a durable promise with the same id already exists, the method
-        will subscribe to its result or return the value immediately if
-        the promise has been completed.
+        This method invokes a registered function on a remote Resonate worker and
+        blocks until the result is available. If a durable promise with the same `id`
+        already exists, Resonate will reuse the existing execution or subscribe to its
+        completion instead of executing it again, ensuring idempotent and consistent
+        remote execution.
 
-        Resonate will prevent duplicate executions for the same id.
+        Resonate guarantees that duplicate remote executions for the same `id` are prevented.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
-        - This is a blocking operation
+        Notes:
+            - The target function must be registered with Resonate.
+            - All function arguments and keyword arguments must be serializable.
+            - This is a **blocking** remote operation that waits for completion.
+
+        Args:
+            id (str): Unique identifier for this function invocation. Used to
+                deduplicate and resume durable remote results.
+            func (Callable[Concatenate[Context, P], Generator[Any, Any, R] | R] | str):
+                The function to execute remotely, either as a callable or the
+                registered name of the function.
+            *args (P.args): Positional arguments to pass to the function.
+            **kwargs (P.kwargs): Keyword arguments to pass to the function.
+
+        Returns:
+            R: The result of the remote function execution.
+
+        Example:
+            Running a function remotely by reference:
+            ```python
+            result = resonate.rpc("remote-task-7", my_function, data)
+            ```
+
+            Running a registered function by name:
+            ```python
+            result = resonate.rpc("remote-task-7", "process_order", order_id)
+            ```
+
         """
         return self.begin_rpc(id, func, *args, **kwargs).result()
 
@@ -481,16 +643,48 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Handle[R]:
-        """Run a function with Resonate remotely.
+        """Begin remote execution of a registered function through Resonate.
 
-        If a durable promise with the same id already exists, the method
-        will subscribe to its result or return the value immediately if
-        the promise has been completed.
+        This method initiates a remote execution on a Resonate worker and returns a
+        `Handle` that can be used to track progress, await completion, or retrieve
+        the result later. If a durable promise with the same `id` already exists,
+        Resonate will reuse the existing execution state or subscribe to its result
+        instead of starting a new one. This ensures consistent, idempotent, and
+        fault-tolerant behavior in distributed environments.
 
-        Resonate will prevent duplicate executions for the same id.
+        Resonate guarantees that duplicate remote executions for the same `id` are prevented.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
+        Notes:
+            - The target function must be registered with Resonate.
+            - All function arguments and keyword arguments must be serializable.
+            - This operation is **non-blocking** and returns immediately with a handle.
+
+        Args:
+            id (str): Unique identifier for this remote invocation. Used to
+                deduplicate and resume durable results.
+            func (Callable[Concatenate[Context, P], Generator[Any, Any, R] | R] | str):
+                The function to execute remotely, either as a callable or the
+                registered name of the function.
+            *args (P.args): Positional arguments to pass to the function.
+            **kwargs (P.kwargs): Keyword arguments to pass to the function.
+
+        Returns:
+            Handle[R]: A handle object representing the remote execution,
+            which can be used to monitor, await, or retrieve results.
+
+        Example:
+            Starting a remote run asynchronously:
+            ```python
+            handle = resonate.begin_rpc("job-987", process_data, records)
+            # Do other work...
+            result = handle.result()
+            ```
+
+            Using a registered function name:
+            ```python
+            handle = resonate.begin_rpc("job-987", "aggregate_metrics", dataset)
+            ```
+
         """
         # id
         if not isinstance(id, str):
@@ -523,10 +717,30 @@ class Resonate:
         return Handle(id, future, self._bridge.subscribe)
 
     def get(self, id: str) -> Handle[Any]:
-        """Subscribe to an execution.
+        """Retrieve or subscribe to an existing execution by ID.
 
-        A durable promise with the same id must exist. Returns immediately
-        if the promise has been completed.
+        This method attaches to an existing durable promise identified by `id`.
+        If the associated execution is still in progress, it returns a `Handle`
+        that can be used to await or observe its completion. If the execution has
+        already completed, the handle is resolved immediately with the stored result.
+
+        Notes:
+            - A durable promise with the given `id` must already exist.
+            - This operation is **non-blocking**; awaiting the handle will block only if the execution is still running.
+
+        Args:
+            id (str): Unique identifier of the target execution or durable promise.
+
+        Returns:
+            Handle[Any]: A handle representing the existing execution, which can
+            be used to await or retrieve the result.
+
+        Example:
+            ```python
+            handle = resonate.get("job-42")
+            result = handle.result()
+            ```
+
         """
         # id
         if not isinstance(id, str):
@@ -540,10 +754,31 @@ class Resonate:
         return Handle(id, future, self._bridge.subscribe)
 
     def set_dependency(self, name: str, obj: Any) -> None:
-        """Store a named dependency for use with `Context`.
+        """Register a named dependency for use within function execution contexts.
 
-        The dependency is made available to all functions via
-        their execution `Context`.
+        This method stores a dependency object that will be made available to all
+        registered functions through their `Context`. Dependencies are typically
+        shared resources such as database clients, configuration objects, or
+        service interfaces that functions can access during execution.
+
+        Args:
+            name (str): The name under which the dependency is registered. This
+                name is used to retrieve the dependency within a function's `Context`.
+            obj (Any): The dependency instance to register.
+
+        Returns:
+            None
+
+        Example:
+            ```python
+            client.set_dependency("db", DatabaseClient())
+
+            @client.register()
+            def fetch_user(ctx: Context, user_id: str):
+                db = ctx.dependencies["db"]
+                return db.get_user(user_id)
+            ```
+
         """
         # name
         if not isinstance(name, str):
@@ -593,11 +828,30 @@ class Context:
         return self._time
 
     def get_dependency[T](self, key: str, default: T = None) -> Any | T:
-        """Retrieve a dependency by its name.
+        """Retrieve a registered dependency by name.
 
-        If the dependency identified by key exists, its value is returned;
-        otherwise, the specified default value is returned. A TypeError is
-        raised if key is not a string.
+        This method returns the dependency object registered under the given key.
+        If no dependency exists for that key, the provided `default` value is returned.
+        A `TypeError` is raised if `key` is not a string.
+
+        Args:
+            key (str): The name of the dependency to retrieve.
+            default (T, optional): The value to return if no dependency is found.
+                Defaults to `None`.
+
+        Returns:
+            Any | T: The registered dependency if it exists, otherwise the
+            specified `default` value.
+
+        Raises:
+            TypeError: If `key` is not a string.
+
+        Example:
+            ```python
+            db = client.get_dependency("db")
+            cache = client.get_dependency("cache", default=NullCache())
+            ```
+
         """
         if not isinstance(key, str):
             msg = f"key must be `str`, got {type(key).__name__}"
@@ -611,11 +865,32 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
-        """Schedule a function for local execution and await its result. (Alias for ctx.lfc).
+        """Schedules a function for local execution and awaits its result.
 
-        The function is executed in the current process.
+        This method executes the given function within the current process context.
+        It serves as an alias for `ctx.lfc`, providing a simplified interface for
+        scheduling local, durable function calls. By default, execution is durable,
+        but non-durable behavior can be configured if desired.
 
-        By default, execution is durable; non durable behavior can be configured if needed.
+        Args:
+            func (Callable[Concatenate[Context, P], Generator[Any, Any, R] | R]):
+                The function to execute locally.
+            *args (P.args): Positional arguments to pass to the function.
+            **kwargs (P.kwargs): Keyword arguments to pass to the function.
+
+        Returns:
+            LFC[R]: A local function call handle representing the scheduled execution
+            and its eventual result.
+
+        Example:
+            ```python
+            def compute(ctx: Context, x: int, y: int) -> int:
+                return x + y
+
+            result = client.run(compute, 5, 10)
+            print(result.await_result())  # 15
+            ```
+
         """
         return self.lfc(func, *args, **kwargs)
 
