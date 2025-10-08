@@ -162,15 +162,16 @@ class Resonate:
             pid (str | None): Optional process identifier for the worker.
             registry (Registry | None): Optional registry to manage in-memory objects.
             ttl (int): Time-to-live (in seconds) for claimed tasks. Defaults to `10`.
-            workers (int | None): Optional number of worker threads or processes for task execution.
+            workers (int | None): Optional number of worker threads or processes for function execution.
 
         Returns:
             Resonate: A configured local Resonate client instance.
 
         Example:
             ```python
-            client = Resonate.local(ttl=30, log_level="DEBUG")
-            client.run()
+            resonate = Resonate.local(ttl=30, log_level="DEBUG")
+            resonate.register(foo)
+            resonate.run("foo.1", foo, ...)
             ```
 
         """
@@ -224,20 +225,16 @@ class Resonate:
             registry (Registry | None): Optional registry to manage remote object mappings.
             store_port (str | None): Port used for the remote store service.
             ttl (int): Time-to-live (in seconds) for claimed tasks. Defaults to `10`.
-            workers (int | None): Optional number of worker threads or processes for task execution.
+            workers (int | None): Optional number of worker threads or processes for function execution.
 
         Returns:
             Resonate: A configured Resonate client instance connected to a remote store.
 
         Example:
             ```python
-            client = Resonate.remote(
-                host="store.resonate.io",
-                auth=("user", "password"),
-                ttl=60,
-                log_level="INFO",
-            )
-            client.run()
+            resonate = Resonate.remote()
+            resonate.register(foo)
+            resonate.run("foo.1", foo, ...)
             ```
 
         """
@@ -367,12 +364,12 @@ class Resonate:
             def greet(ctx: Context, name: str) -> str:
                 return f"Hello, {name}!"
 
-            client.register(greet, name="greet_user", version=2)
+            resonate.register(greet, name="greet_user", version=2)
             ```
 
             Using as a decorator:
             ```python
-            @resonate.register(name="process_data")
+            @resonate.register(name="process_data", version=2)
             def process(ctx: Context, data: dict) -> dict:
                 ...
             ```
@@ -454,12 +451,12 @@ class Resonate:
         Example:
             Running a function directly:
             ```python
-            result = client.run("task-42", my_function, 10, flag=True)
+            result = resonate.run("task-42", my_function, 10, flag=True)
             ```
 
             Running by registered name:
             ```python
-            result = client.run("task-42", "process_data", records)
+            result = resonate.run("task-42", "process_data", records)
             ```
 
         """
@@ -527,6 +524,11 @@ class Resonate:
             Using a registered function name:
             ```python
             handle = resonate.begin_run("job-123", "aggregate_metrics", dataset)
+            ```
+
+            Non-blocking awaiting
+            ```python
+            result = await resonate.begin_run("job-123", "aggregate_metrics", dataset)
             ```
 
         """
@@ -685,6 +687,11 @@ class Resonate:
             handle = resonate.begin_rpc("job-987", "aggregate_metrics", dataset)
             ```
 
+            Non-blocking awaiting
+            ```python
+            result = await resonate.begin_rpc("job-987", "aggregate_metrics", dataset)
+            ```
+
         """
         # id
         if not isinstance(id, str):
@@ -739,6 +746,12 @@ class Resonate:
             ```python
             handle = resonate.get("job-42")
             result = handle.result()
+            ```
+
+            Non-blocking awaiting
+            ```python
+            handle = resonate.get("job-42")
+            result = await handle
             ```
 
         """
@@ -848,8 +861,8 @@ class Context:
 
         Example:
             ```python
-            db = client.get_dependency("db")
-            cache = client.get_dependency("cache", default=NullCache())
+            db = ctx.get_dependency("db")
+            cache = ctx.get_dependency("cache", default=NullCache())
             ```
 
         """
@@ -879,17 +892,8 @@ class Context:
             **kwargs (P.kwargs): Keyword arguments to pass to the function.
 
         Returns:
-            LFC[R]: A local function call handle representing the scheduled execution
+            LFC[R]: An object representing the scheduled execution
             and its eventual result.
-
-        Example:
-            ```python
-            def compute(ctx: Context, x: int, y: int) -> int:
-                return x + y
-
-            result = client.run(compute, 5, 10)
-            print(result.await_result())  # 15
-            ```
 
         """
         return self.lfc(func, *args, **kwargs)
@@ -900,12 +904,26 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
-        """Schedule a function for local execution. (Alias for ctx.lfi).
+        """Schedules a function for local execution and returns a promise.
 
-        The function is executed in the current process, and the returned promise
-        can be awaited for the final result.
+        This method executes the given function within the current process context.
+        It serves as an alias for `ctx.lfi`, providing a simplified interface for
+        non-blocking local execution. The returned promise (`LFI`) can be awaited
+        to retrieve the final result once execution completes.
 
-        By default, execution is durable; non durable behavior can be configured if needed.
+        By default, execution is durable, but non-durable behavior can be configured
+        if desired.
+
+        Args:
+            func (Callable[Concatenate[Context, P], Generator[Any, Any, R] | R]):
+                The function to execute locally.
+            *args (P.args): Positional arguments to pass to the function.
+            **kwargs (P.kwargs): Keyword arguments to pass to the function.
+
+        Returns:
+            LFI[R]: An object representing the scheduled local execution, which can
+            be awaited for the final result.
+
         """
         return self.lfi(func, *args, **kwargs)
 
@@ -929,13 +947,25 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFC:
-        """Schedule a function for remote execution and await its result. (Alias for ctx.rfc).
+        """Schedules a function for remote execution and awaits its result.
 
-        The function is scheduled on the global event loop and potentially executed
-        in a different process.
+        This method executes the given function remotely through the global event loop.
+        The function may run in a different process or worker, depending on the
+        configured Resonate environment. It serves as an alias for `ctx.rfc`, providing
+        a simplified interface for blocking remote calls.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
+        The function must be registered with Resonate before invocation, and all
+        arguments must be serializable.
+
+        Args:
+            func (Callable | str): The function to execute remotely, or the registered
+                name of the function.
+            *args (Any): Positional arguments to pass to the function.
+            **kwargs (Any): Keyword arguments to pass to the function.
+
+        Returns:
+            RFC: An object representing the execution and its result.
+
         """
         return self.rfc(func, *args, **kwargs)
 
@@ -959,14 +989,29 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
-        """Schedule a function for remote execution. (Alias for ctx.rfi).
+        """Schedules a function for remote execution and returns a promise.
 
-        The function is scheduled on the global event loop and potentially executed
-        in a different process, the returned promise can be awaited for the final
-        result.
+        This method schedules the given function for remote execution through the
+        global event loop. The function may run in a different process or worker,
+        depending on the configured Resonate environment. It serves as an alias for
+        `ctx.rfi`, providing a simplified interface for non-blocking remote calls.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
+        The returned promise can be awaited to obtain the final result once
+        the remote execution completes.
+
+        The function must be registered with Resonate before invocation, and all
+        arguments must be serializable.
+
+        Args:
+            func (Callable | str): The function to execute remotely, or the registered
+                name of the function.
+            *args (Any): Positional arguments to pass to the function.
+            **kwargs (Any): Keyword arguments to pass to the function.
+
+        Returns:
+            RFI: An object representing the scheduled
+            execution, which can be awaited for the final result.
+
         """
         return self.rfi(func, *args, **kwargs)
 
@@ -976,13 +1021,6 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
-        """Schedule a function for local execution.
-
-        The function is executed in the current process, and the returned promise
-        can be awaited for the final result.
-
-        By default, execution is durable; non durable behavior can be configured if needed.
-        """
         if isinstance(func, Function):
             func = func.func
 
@@ -999,12 +1037,6 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
-        """Schedule a function for local execution and await its result.
-
-        The function is executed in the current process.
-
-        By default, execution is durable; non durable behavior can be configured if needed.
-        """
         if isinstance(func, Function):
             func = func.func
 
@@ -1035,15 +1067,6 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
-        """Schedule a function for remote execution.
-
-        The function is scheduled on the global event loop and potentially executed
-        in a different process, the returned promise can be awaited for the final
-        result.
-
-        - Function must be registered
-        - Function args and kwargs must be serializable
-        """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
 
@@ -1067,14 +1090,6 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFC:
-        """Schedule a function for remote execution and await its result.
-
-        The function is scheduled on the global event loop and potentially executed
-        in a different process.
-
-        - Function must be registered
-        - Function args and kwargs must be serializable
-        """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFC(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)))
 
@@ -1098,14 +1113,29 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
-        """Schedule a function for remote (detached) execution.
+        """Schedules a function for detached remote execution.
 
-        The function is scheduled on the global event loop and potentially executed
-        in a different process, and the returned promise can be awaited for the final
-        result.
+        This method schedules the given function for remote execution through the
+        global event loop. The function may run in a separate process or worker
+        without being tied to the caller's lifecycle. It is typically used for
+        background or fire-and-forget workloads.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
+        The returned promise can still be awaited if the caller wishes to
+        retrieve the final result upon completion.
+
+        The function must be registered with Resonate before invocation, and all
+        arguments must be serializable.
+
+        Args:
+            func (Callable | str): The function to execute remotely, or the registered
+                name of the function.
+            *args (Any): Positional arguments to pass to the function.
+            **kwargs (Any): Keyword arguments to pass to the function.
+
+        Returns:
+            RFI: A remote function invocation handle representing the detached
+            execution, which can optionally be awaited for the final result.
+
         """
         name, _, version = (func, None, self._registry.latest(func)) if isinstance(func, str) else self._registry.get(func)
         return RFI(Remote(self._next(), self._cid, self._id, name, args, kwargs, Options(version=version)), mode="detached")
@@ -1119,10 +1149,22 @@ class Context:
         return (yield cmd)
 
     def sleep(self, secs: float) -> RFC[None]:
-        """Sleep inside a function.
+        """Suspends execution within a Resonate function for a specified duration.
 
-        There is no limit to how long you can sleep.
-        The sleep method accepts a float value in seconds.
+        This method pauses the current function for the given number of seconds. It can
+        be safely used within both local and remote Resonate-managed functions to
+        simulate delays, throttle execution, or coordinate timing between tasks.
+
+        There is no maximum sleep duration. Fractional (floating-point) values are
+        supported for sub-second precision.
+
+        Args:
+            secs (float): The number of seconds to sleep. Can be a fractional value.
+
+        Returns:
+            RFC[None]: A handle representing the sleep operation, which resolves when
+            the specified duration has elapsed.
+
         """
         if not isinstance(secs, int | float):
             msg = f"secs must be `float`, got {type(secs).__name__}"
@@ -1139,15 +1181,32 @@ class Context:
         data: Any = None,
         tags: dict[str, str] | None = None,
     ) -> RFI:
-        """Get or create a promise that can be awaited on.
+        """Get or creates a durable promise that can be awaited.
 
-        If no ID is provided, one is generated and a new promise is created. If an ID
-        is provided and a promise already exists with that ID, then the existing promise
-        is returned (if the idempotency keys match).
+        If no `id` is provided, a new promise is created with a generated identifier.
+        If an `id` is provided and a promise with that ID already exists, the existing
+        promise is returned (provided the `idempotency_key` matches). This ensures safe,
+        idempotent reuse of promises across invocations or retries.
 
-        This is very useful for HITL (Human-In-The-Loop) use cases where you want to block
-        progress until a human has taken an action or provided data. It works well in
-        conjunction with Resonate's .promise.resolve() method.
+        Promises are especially useful for **Human-In-The-Loop (HITL)** workflows, where
+        execution needs to pause until a human provides input or takes an action. The
+        created promise can later be fulfilled using `Resonate.promise.resolve()`.
+
+        Args:
+            id (str, optional): The unique identifier of the promise. If omitted, a new ID
+                is generated automatically.
+            timeout (float, optional): The duration in seconds before the promise expires.
+                If `None`, the promise does not expire.
+            idempotency_key (str, optional): A key used to ensure idempotent creation.
+                When specified, an existing promise with the same key will be reused.
+            data (Any, optional): Optional initial data to associate with the promise.
+            tags (dict[str, str], optional): Metadata tags for categorizing or tracking
+                the promise.
+
+        Returns:
+            RFI: An object representing the created or retrieved promise. The handle can be
+            awaited to block until the promise is resolved.
+
         """
         if id is not None and not isinstance(id, str):
             msg = f"id must be `str | None`, got {type(id).__name__}"
@@ -1277,16 +1336,37 @@ class Function[**P, R]:
         timeout: float | None = None,
         version: int | None = None,
     ) -> Function[P, R]:
-        """Configure options for the function.
+        """Configure invocation options for a registered function.
 
-        - encoder: Configure your own data encoder.
-        - idempotency_key: Define the idempotency key invocation or a function that
-            receives the promise id and creates an idempotency key.
-        - retry_policy: Define the retry policy exponential | constant | linear | never
-        - tags: Add custom tags to the durable promise representing the invocation.
-        - target: Target to distribute the invocation.
-        - timeout: Number of seconds before the invocation timesout.
-        - version: Version of the function to invoke.
+        This method allows fine-grained control over how a function is invoked,
+        including encoding, idempotency behavior, retry strategy, timeout policy,
+        and targeting.
+
+        These options modify the metadata and runtime behavior of the function
+        without altering its implementation. They can be applied directly or
+        through decorators to customize invocation semantics for specific workloads.
+
+        Args:
+            encoder (Encoder[Any, str | None], optional): Custom data encoder used for
+                serializing inputs or outputs.
+            idempotency_key (str | Callable[[str], str], optional): Explicit key or a
+                callable that derives an idempotency key from the promise ID.
+                Ensures repeated invocations with the same key reuse prior results.
+            retry_policy (RetryPolicy | Callable[[Callable], RetryPolicy], optional):
+                Retry strategy defining how failed invocations are retried. Common
+                options include exponential, constant, linear, or never.
+            tags (dict[str, str], optional): Metadata tags applied to the durable
+                promise representing the invocation. Useful for tracing and filtering.
+            target (str, optional): The target node, worker group, or endpoint to route
+                the invocation to.
+            timeout (float, optional): Maximum number of seconds before the invocation
+                times out. If `None`, no timeout is enforced.
+            version (int, optional): Specific version of the function to invoke. Useful
+                for staged rollouts or backward compatibility.
+
+        Returns:
+            Function[P, R]: The function configured with the specified invocation options.
+
         """
         self._opts = self._opts.merge(
             encoder=encoder,
@@ -1300,31 +1380,53 @@ class Function[**P, R]:
         return self
 
     def run[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> T:
-        """Run a function with Resonate and wait for the result.
+        """Run a registered function with Resonate and waits for the result.
 
-        If a durable promise with the same id already exists, the method
-        will subscribe to its result or return the value immediately if
-        the promise has been completed.
+        This method executes the specified function under a durable promise identified
+        by the given `id`. If a promise with the same `id` already exists, Resonate
+        subscribes to its result or returns it immediately if it has completed.
 
-        Resonate will prevent duplicate executions for the same id.
+        Duplicate executions for the same `id` are automatically prevented, ensuring
+        idempotent and consistent behavior across distributed runs.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
-        - This is a blocking operation
+        This is a **blocking operation**—execution will not continue until the function
+        result is available.
+
+        Args:
+            id (str): The unique identifier of the durable promise. Reusing an ID
+                ensures idempotent execution.
+            *args (P.args): Positional arguments passed to the function.
+            **kwargs (P.kwargs): Keyword arguments passed to the function.
+
+        Returns:
+            T: The final result of the executed function.
+
         """
         return self.begin_run(id, *args, **kwargs).result()
 
     def begin_run[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[T]:
-        """Run a function with Resonate.
+        """Run a registered function asynchronously with Resonate.
 
-        If a durable promise with the same id already exists, the method
-        will subscribe to its result or return the value immediately if
-        the promise has been completed.
+        This method schedules the function for execution under a durable promise
+        identified by the given `id`. If a promise with the same `id` already exists,
+        Resonate subscribes to its result or returns it immediately if it has completed.
 
-        Resonate will prevent duplicate executions for the same id.
+        Unlike `Function.run`, this method is **non-blocking** and returns a handle
+        (`Handle[T]`) that can be awaited or queried later for the final result.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
+        Duplicate executions for the same `id` are automatically prevented, ensuring
+        idempotent and consistent behavior across distributed runs.
+
+        Args:
+            id (str): The unique identifier of the durable promise. Reusing an ID
+                ensures idempotent execution.
+            *args (P.args): Positional arguments passed to the function.
+            **kwargs (P.kwargs): Keyword arguments passed to the function.
+
+        Returns:
+            Handle[T]: A handle representing the asynchronous execution. The handle
+            can be awaited or inspected for status and results.
+
         """
         resonate = self._resonate.options(
             encoder=self._opts.encoder,
@@ -1338,31 +1440,57 @@ class Function[**P, R]:
         return resonate.begin_run(id, self._func, *args, **kwargs)
 
     def rpc[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> T:
-        """Run a function with Resonate remotely and wait for the result.
+        """Run a registered function remotely with Resonate and waits for the result.
 
-        If a durable promise with the same id already exists, the method
-        will subscribe to its result or return the value immediately if
-        the promise has been completed.
+        This method executes the specified function on a remote worker or process under
+        a durable promise identified by the given `id`. If a promise with the same `id`
+        already exists, Resonate subscribes to its result or returns it immediately if
+        it has already completed.
 
-        Resonate will prevent duplicate executions for the same id.
+        This is a **blocking operation**, and execution will not continue until the
+        remote function completes and returns its result.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
-        - This is a blocking operation
+        Duplicate executions for the same `id` are automatically prevented, ensuring
+        idempotent and consistent behavior across distributed runs.
+
+        Args:
+            id (str): The unique identifier of the durable promise. Reusing an ID
+                ensures idempotent remote execution.
+            *args (P.args): Positional arguments passed to the function.
+            **kwargs (P.kwargs): Keyword arguments passed to the function.
+
+        Returns:
+            T: The final result returned from the remote function execution.
+
         """
         return self.begin_rpc(id, *args, **kwargs).result()
 
     def begin_rpc[T](self: Function[P, Generator[Any, Any, T] | T], id: str, *args: P.args, **kwargs: P.kwargs) -> Handle[T]:
-        """Run a function with Resonate remotely.
+        """Run a registered function remotely with Resonate and returns a handle.
 
-        If a durable promise with the same id already exists, the method
-        will subscribe to its result or return the value immediately if
-        the promise has been completed.
+        This method schedules the specified function for remote execution under a
+        durable promise identified by the given `id`. The function runs on a remote
+        worker or process as part of the distributed execution environment.
 
-        Resonate will prevent duplicate executions for the same id.
+        Unlike `Function.rpc`, this method is **non-blocking** and immediately returns
+        a `Handle[T]` object that can be awaited or queried later to retrieve the final
+        result once remote execution completes.
 
-        - Function must be registered
-        - Function args and kwargs must be serializable
+        If a durable promise with the same `id` already exists, Resonate subscribes to
+        its result or returns it immediately if it has already completed. Duplicate
+        executions for the same `id` are automatically prevented, ensuring idempotent
+        and consistent behavior.
+
+        Args:
+            id (str): The unique identifier of the durable promise. Reusing an ID
+                ensures idempotent remote execution.
+            *args (P.args): Positional arguments passed to the function.
+            **kwargs (P.kwargs): Keyword arguments passed to the function.
+
+        Returns:
+            Handle[T]: A handle representing the asynchronous remote execution. The
+            handle can be awaited or inspected for completion and results.
+
         """
         resonate = self._resonate.options(
             encoder=self._opts.encoder,
