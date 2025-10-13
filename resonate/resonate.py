@@ -149,10 +149,9 @@ class Resonate:
     ) -> Resonate:
         """Initialize a Resonate client instance for local development.
 
-        This method configures a Resonate client that stores all state in memory,
-        without external persistence or network I/O. The in-memory store implements
-        the same API as the remote store, making it ideal for rapid development,
-        local testing, and experimentation.
+        This method initializes and returns a Resonate Client with zero-dependencies.
+        There is no external persistence — all state is stored in local memory, and thus no need to connect to a network.
+        This client enables you to develop rapidly with the APIs to test and experiment before connecting to a Resonate Server.
 
         Args:
             dependencies (Dependencies | None): Optional dependency injection container.
