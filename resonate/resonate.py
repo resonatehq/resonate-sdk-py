@@ -878,7 +878,7 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFC[R]:
-        """Schedules a function for local execution and awaits its result.
+        """Schedules a function for an immediate effectively-once local execution and awaits its result.
 
         This method executes the given function within the current process context.
         It serves as an alias for `ctx.lfc`, providing a simplified interface for
