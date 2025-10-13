@@ -879,10 +879,9 @@ class Context:
     ) -> LFC[R]:
         """Schedules a function for an immediate effectively-once local execution and awaits its result.
 
-        This method executes the given function within the current process context.
-        It serves as an alias for `ctx.lfc`, providing a simplified interface for
-        scheduling local, durable function calls. By default, execution is durable,
-        but non-durable behavior can be configured if desired.
+        This method initiates the immediate effectively-once execution of the given function within the current process.
+        By default, this method checkpoints at the invocation and the result of the called function.
+        This method is an alias of `ctx.lfc()`.
 
         Args:
             func (Callable[Concatenate[Context, P], Generator[Any, Any, R] | R]):
