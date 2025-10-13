@@ -147,7 +147,7 @@ class Resonate:
         ttl: int = 10,
         workers: int | None = None,
     ) -> Resonate:
-        """Create a local Resonate client instance.
+        """Initialize a Resonate client instance for local development.
 
         This method configures a Resonate client that stores all state in memory,
         without external persistence or network I/O. The in-memory store implements
