@@ -165,7 +165,7 @@ class Resonate:
             workers (int | None): Optional number of worker threads or processes for function execution.
 
         Returns:
-            Resonate: A configured local Resonate client instance.
+            Resonate: A Resonate Client instance.
 
         Example:
             ```python
