@@ -206,10 +206,10 @@ class Resonate:
     ) -> Resonate:
         """Create a Resonate client with remote configuration.
 
-        This method configures a Resonate client that persists state to a remote
-        store, enabling durability, coordination, and recovery across distributed
-        processes. The remote store implementation provides fault-tolerant scheduling,
-        consistent state management, and reliable operation for production workloads.
+        This method initializes and returns a Resonate Client that has
+        dependencies on a Resonate Server and/or additional message sources.
+        These dependencies enable distributed durable workers to work together via durable RPCs.
+        The default remote configuration expects to connect to a Resonate Server on your localhost network as both a promise store and message source.
 
         Args:
             auth (tuple[str, str] | None): Optional authentication credentials for
