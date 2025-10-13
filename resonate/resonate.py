@@ -149,29 +149,31 @@ class Resonate:
     ) -> Resonate:
         """Initialize a Resonate client instance for local development.
 
-        This method initializes and returns a Resonate Client with zero-dependencies.
-        There is no external persistence — all state is stored in local memory, and thus no need to connect to a network.
-        This client enables you to develop rapidly with the APIs to test and experiment before connecting to a Resonate Server.
+        Initializes and returns a Resonate Client with zero dependencies.
+        There is no external persistence — all state is stored in local memory,
+        so there is no need to connect to a network. This client enables rapid
+        API testing and experimentation before connecting to a Resonate Server.
 
         Args:
             dependencies (Dependencies | None): Optional dependency injection container.
-            group (str): Worker group name. Defaults to `"default"`.
+            group (str): Worker group name. Defaults to ``default``.
             log_level (int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]):
-                Logging verbosity level. Defaults to `logging.INFO`.
+                Logging verbosity level. Defaults to ``logging.INFO``.
             pid (str | None): Optional process identifier for the worker.
             registry (Registry | None): Optional registry to manage in-memory objects.
-            ttl (int): Time-to-live (in seconds) for claimed tasks. Defaults to `10`.
-            workers (int | None): Optional number of worker threads or processes for function execution.
+            ttl (int): Time-to-live (in seconds) for claimed tasks. Defaults to ``10``.
+            workers (int | None): Optional number of worker threads or processes
+                for function execution.
 
         Returns:
             Resonate: A Resonate Client instance.
 
         Example:
-            ```python
-            resonate = Resonate.local(ttl=30, log_level="DEBUG")
-            resonate.register(foo)
-            resonate.run("foo.1", foo, ...)
-            ```
+            Creating a local client and running a registered function::
+
+                resonate = Resonate.local(ttl=30, log_level="DEBUG")
+                resonate.register(foo)
+                resonate.run("foo.1", foo, ...)
 
         """
         pid = pid or uuid.uuid4().hex
@@ -204,7 +206,7 @@ class Resonate:
         ttl: int = 10,
         workers: int | None = None,
     ) -> Resonate:
-        """Create a Resonate client with remote configuration.
+        """Initialize a Resonate client with remote configuration.
 
         This method initializes and returns a Resonate Client that has
         dependencies on a Resonate Server and/or additional message sources.
@@ -230,11 +232,11 @@ class Resonate:
             Resonate: A Resonate Client instance
 
         Example:
-            ```python
-            resonate = Resonate.remote()
-            resonate.register(foo)
-            resonate.run("foo.1", foo, ...)
-            ```
+            Creating a remote client and running a registered function::
+
+                resonate = Resonate.local(ttl=30, log_level="DEBUG")
+                resonate.register(foo)
+                resonate.run("foo.1", foo, ...)
 
         """
         pid = pid or uuid.uuid4().hex
@@ -358,20 +360,18 @@ class Resonate:
                 the target function upon definition.
 
         Example:
-            Registering a function directly:
-            ```python
-            def greet(ctx: Context, name: str) -> str:
-                return f"Hello, {name}!"
+            Registering a function directly::
 
-            resonate.register(greet, name="greet_user", version=2)
-            ```
+                def greet(ctx: Context, name: str) -> str:
+                    return f"Hello, {name}!"
 
-            Using as a decorator:
-            ```python
-            @resonate.register(name="process_data", version=2)
-            def process(ctx: Context, data: dict) -> dict:
-                ...
-            ```
+                resonate.register(greet, name="greet_user", version=2)
+
+            Using as a decorator::
+
+                @resonate.register(name="process_data", version=2)
+                def process(ctx: Context, data: dict) -> dict:
+                    ...
 
         """
         if name is not None and not isinstance(name, str):
@@ -448,15 +448,13 @@ class Resonate:
             R: The result of the executed function.
 
         Example:
-            Running a function directly:
-            ```python
-            result = resonate.run("task-42", my_function, 10, flag=True)
-            ```
+            Running a function directly::
 
-            Running by registered name:
-            ```python
-            result = resonate.run("task-42", "process_data", records)
-            ```
+                result = resonate.run("task-42", my_function, 10, flag=True)
+
+            Running by registered name::
+
+                result = resonate.run("task-42", "process_data", records)
 
         """
         return self.begin_run(id, func, *args, **kwargs).result()
@@ -513,22 +511,19 @@ class Resonate:
             retrieve the function's result.
 
         Example:
-            Starting a function run asynchronously:
-            ```python
-            handle = resonate.begin_run("job-123", process_data, records)
-            # Do other work...
-            result = handle.result()
-            ```
+            Starting a function run asynchronously::
 
-            Using a registered function name:
-            ```python
-            handle = resonate.begin_run("job-123", "aggregate_metrics", dataset)
-            ```
+                handle = resonate.begin_run("job-123", process_data, records)
+                # Do other work...
+                result = handle.result()
 
-            Non-blocking awaiting
-            ```python
-            result = await resonate.begin_run("job-123", "aggregate_metrics", dataset)
-            ```
+            Using a registered function name::
+
+                handle = resonate.begin_run("job-123", "aggregate_metrics", dataset)
+
+            Non-blocking awaiting::
+
+                result = await resonate.begin_run("job-123", "aggregate_metrics", dataset)
 
         """
         # id
@@ -608,15 +603,13 @@ class Resonate:
             R: The result of the remote function execution.
 
         Example:
-            Running a function remotely by reference:
-            ```python
-            result = resonate.rpc("remote-task-7", my_function, data)
-            ```
+            Running a function remotely by reference::
 
-            Running a registered function by name:
-            ```python
-            result = resonate.rpc("remote-task-7", "process_order", order_id)
-            ```
+                result = resonate.rpc("remote-task-7", my_function, data)
+
+            Running a registered function by name::
+
+                result = resonate.rpc("remote-task-7", "process_order", order_id)
 
         """
         return self.begin_rpc(id, func, *args, **kwargs).result()
@@ -674,22 +667,19 @@ class Resonate:
             which can be used to monitor, await, or retrieve results.
 
         Example:
-            Starting a remote run asynchronously:
-            ```python
-            handle = resonate.begin_rpc("job-987", process_data, records)
-            # Do other work...
-            result = handle.result()
-            ```
+            Starting a remote run asynchronously::
 
-            Using a registered function name:
-            ```python
-            handle = resonate.begin_rpc("job-987", "aggregate_metrics", dataset)
-            ```
+                handle = resonate.begin_rpc("job-987", process_data, records)
+                # Do other work...
+                result = handle.result()
 
-            Non-blocking awaiting
-            ```python
-            result = await resonate.begin_rpc("job-987", "aggregate_metrics", dataset)
-            ```
+            Using a registered function name::
+
+                handle = resonate.begin_rpc("job-987", "aggregate_metrics", dataset)
+
+            Non-blocking awaiting::
+
+                result = await resonate.begin_rpc("job-987", "aggregate_metrics", dataset)
 
         """
         # id
@@ -742,16 +732,15 @@ class Resonate:
             be used to await or retrieve the result.
 
         Example:
-            ```python
-            handle = resonate.get("job-42")
-            result = handle.result()
-            ```
+            Attaching to an existing execution::
 
-            Non-blocking awaiting
-            ```python
-            handle = resonate.get("job-42")
-            result = await handle
-            ```
+                handle = resonate.get("job-42")
+                result = handle.result()
+
+            Non-blocking awaiting::
+
+                handle = resonate.get("job-42")
+                result = await handle
 
         """
         # id
@@ -768,28 +757,28 @@ class Resonate:
     def set_dependency(self, name: str, obj: Any) -> None:
         """Register a named dependency for use within function execution contexts.
 
-        This method stores a dependency object that will be made available to all
-        registered functions through their `Context`. Dependencies are typically
-        shared resources such as database clients, configuration objects, or
-        service interfaces that functions can access during execution.
+        Registers a dependency object that will be made available to all registered
+        functions through their ``Context``. Dependencies are typically shared resources
+        such as database clients, configuration objects, or service interfaces that
+        functions can access during execution.
 
         Args:
             name (str): The name under which the dependency is registered. This
-                name is used to retrieve the dependency within a function's `Context`.
+                name is used to retrieve the dependency within a function's ``Context``.
             obj (Any): The dependency instance to register.
 
         Returns:
             None
 
         Example:
-            ```python
-            client.set_dependency("db", DatabaseClient())
+            Registering and using a dependency::
 
-            @client.register()
-            def fetch_user(ctx: Context, user_id: str):
-                db = ctx.dependencies["db"]
-                return db.get_user(user_id)
-            ```
+                client.set_dependency("db", DatabaseClient())
+
+                @client.register()
+                def fetch_user(ctx: Context, user_id: str):
+                    db = ctx.dependencies["db"]
+                    return db.get_user(user_id)
 
         """
         # name
@@ -859,10 +848,10 @@ class Context:
             TypeError: If `key` is not a string.
 
         Example:
-            ```python
-            db = ctx.get_dependency("db")
-            cache = ctx.get_dependency("cache", default=NullCache())
-            ```
+            Retrieving dependencies from a context::
+
+                db = ctx.get_dependency("db")
+                cache = ctx.get_dependency("cache", default=NullCache())
 
         """
         if not isinstance(key, str):
@@ -903,12 +892,10 @@ class Context:
         **kwargs: P.kwargs,
     ) -> LFI[R]:
         """Schedules a function for an immediate effectively-once local execution and returns a promise.
-     
 
-        This method executes the given function within the current process context.
-        It serves as an alias for `ctx.lfi`, providing a simplified interface for
-        non-blocking local execution. The returned promise (`LFI`) can be awaited
-        to retrieve the final result once execution completes.
+        This method initiates the immediate asynchronous execution of the given function within the current
+        process, returning a promise — yield the promise to get a result. This method checkpoints at the invocation
+        and result of the function execution. This method is an alias of ctx.lfi().
 
         By default, execution is durable, but non-durable behavior can be configured
         if desired.
@@ -1116,7 +1103,7 @@ class Context:
 
         This method schedules the given function for remote execution through the
         global event loop. The function may run in a separate process or worker
-        without being tied to the caller's lifecycle. It is typically used for
+        without being tied to the callers lifecycle. It is typically used for
         background or fire-and-forget workloads.
 
         The returned promise can still be awaited if the caller wishes to
