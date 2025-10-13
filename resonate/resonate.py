@@ -904,7 +904,8 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> LFI[R]:
-        """Schedules a function for local execution and returns a promise.
+        """Schedules a function for an immediate effectively-once local execution and returns a promise.
+     
 
         This method executes the given function within the current process context.
         It serves as an alias for `ctx.lfi`, providing a simplified interface for
