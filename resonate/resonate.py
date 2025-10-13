@@ -1113,7 +1113,7 @@ class Context:
         *args: Any,
         **kwargs: Any,
     ) -> RFI:
-        """Schedules a function for detached remote execution.
+        """Schedules a function for immediate effectively-once execution that is completely detached from the current Call Graph, starting a new Call Graph.
 
         This method schedules the given function for remote execution through the
         global event loop. The function may run in a separate process or worker
