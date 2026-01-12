@@ -1,4 +1,4 @@
-![resonate component banner](/assets/resonate-component.png)
+![resonate banner](./assets/resonate-banner.png)
 
 # Resonate Python SDK
 
@@ -22,6 +22,8 @@ The Resonate Python SDK enables developers to build reliable and scalable cloud 
 - [Subscribe on YouTube](https://www.youtube.com/@resonatehqio)
 
 ## Quickstart
+
+![quickstart banner](./assets/quickstart-banner.png)
 
 1. Install the Resonate Server & CLI
 
