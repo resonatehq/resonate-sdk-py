@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.errors.errors import ResonateStoreError
-
 if TYPE_CHECKING:
     from collections.abc import Generator
 
