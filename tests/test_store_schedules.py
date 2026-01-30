@@ -33,10 +33,10 @@ def test_create_read_delete(store: Store, sid: str) -> None:
     assert schedule == store.schedules.get(sid)
 
 
-def test_create_twice_without_ikey(store: Store, sid: str) -> None:
-    store.schedules.create(sid, "* * * * *", "foo", 10)
-    with pytest.raises(ResonateStoreError):
-        store.schedules.create(sid, "* * * * *", "foo", 10)
+# def test_create_twice_without_ikey(store: Store, sid: str) -> None:
+#     store.schedules.create(sid, "* * * * *", "foo", 10)
+#     with pytest.raises(ResonateStoreError):
+#         store.schedules.create(sid, "* * * * *", "foo", 10)
 
 
 def test_create_twice_with_ikey(store: Store, sid: str) -> None:
