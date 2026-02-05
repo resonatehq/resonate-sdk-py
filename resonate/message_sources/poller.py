@@ -27,6 +27,7 @@ class Poller:
         host: str | None = None,
         port: str | None = None,
         auth: tuple[str, str] | None = None,
+        token: str | None = None,
         timeout: float | None = None,
         encoder: Encoder[Any, str] | None = None,
     ) -> None:
@@ -35,7 +36,14 @@ class Poller:
         self._id = id
         self._host = host or os.getenv("RESONATE_HOST_MESSAGE_SOURCE", os.getenv("RESONATE_HOST", "http://localhost"))
         self._port = port or os.getenv("RESONATE_PORT_MESSAGE_SOURCE", "8002")
+
+        # Determine the token based on priority: token arg > RESONATE_TOKEN
+        self._token = token or os.getenv("RESONATE_TOKEN")
+
+        # Determine the auth based on priority: auth arg > RESONATE_USERNAME+RESONATE_PASSWORD
+        # Token takes priority over basic auth when both are provided
         self._auth = auth or ((os.getenv("RESONATE_USERNAME", ""), os.getenv("RESONATE_PASSWORD", "")) if "RESONATE_USERNAME" in os.environ else None)
+
         self._timeout = timeout
         self._encoder = encoder or JsonEncoder()
         self._thread = Thread(name="message-source::poller", target=self.loop, daemon=True)
@@ -81,7 +89,14 @@ class Poller:
         delay = 5
         while not self._stopped:
             try:
-                with requests.get(self.url, auth=self._auth, stream=True, timeout=self._timeout) as res:
+                # Token takes priority over basic auth
+                kwargs: dict[str, Any] = {"stream": True, "timeout": self._timeout}
+                if self._token:
+                    kwargs["headers"] = {"Authorization": f"Bearer {self._token}"}
+                else:
+                    kwargs["auth"] = self._auth
+
+                with requests.get(self.url, **kwargs) as res:
                     res.raise_for_status()
 
                     for line in res.iter_lines(chunk_size=None, decode_unicode=True):

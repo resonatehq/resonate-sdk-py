@@ -203,6 +203,7 @@ class Resonate:
         pid: str | None = None,
         registry: Registry | None = None,
         store_port: str | None = None,
+        token: str | None = None,
         ttl: int = 10,
         workers: int | None = None,
     ) -> Resonate:
@@ -225,6 +226,8 @@ class Resonate:
             pid (str | None): Optional process identifier for the client.
             registry (Registry | None): Optional registry to manage remote object mappings.
             store_port (str | None): Port used for the remote store service.
+            token (str | None): Optional bearer token for authentication. Takes priority
+                over basic auth. Falls back to the ``RESONATE_TOKEN`` environment variable.
             ttl (int): Time-to-live (in seconds) for claimed tasks. Defaults to `10`.
             workers (int | None): Optional number of worker threads or processes for function execution.
 
@@ -234,7 +237,7 @@ class Resonate:
         Example:
             Creating a remote client and running a registered function::
 
-                resonate = Resonate.local(ttl=30, log_level="DEBUG")
+                resonate = Resonate.remote(ttl=30, log_level="DEBUG")
                 resonate.register(foo)
                 resonate.run("foo.1", foo, ...)
 
@@ -248,8 +251,8 @@ class Resonate:
             registry=registry,
             dependencies=dependencies,
             log_level=log_level,
-            store=RemoteStore(host=host, port=store_port, auth=auth),
-            message_source=Poller(group=group, id=pid, host=host, port=message_source_port, auth=auth),
+            store=RemoteStore(host=host, port=store_port, auth=auth, token=token),
+            message_source=Poller(group=group, id=pid, host=host, port=message_source_port, auth=auth, token=token),
             workers=workers,
         )
 
