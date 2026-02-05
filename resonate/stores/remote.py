@@ -30,13 +30,21 @@ class RemoteStore:
         host: str | None = None,
         port: str | None = None,
         auth: tuple[str, str] | None = None,
+        token: str | None = None,
         encoder: Encoder[str | None, str | None] | None = None,
         timeout: float | tuple[float, float] = 5,
         retry_policy: RetryPolicy | None = None,
     ) -> None:
         self._host = host or os.getenv("RESONATE_HOST_STORE", os.getenv("RESONATE_HOST", "http://localhost"))
         self._port = port or os.getenv("RESONATE_PORT_STORE", "8001")
+
+        # Determine the token based on priority: token arg > RESONATE_TOKEN
+        self._token = token or os.getenv("RESONATE_TOKEN")
+
+        # Determine the auth based on priority: auth arg > RESONATE_USERNAME+RESONATE_PASSWORD
+        # Token takes priority over basic auth when both are provided
         self._auth = auth or ((os.getenv("RESONATE_USERNAME", ""), os.getenv("RESONATE_PASSWORD", "")) if "RESONATE_USERNAME" in os.environ else None)
+
         self._encoder = encoder or Base64Encoder()
         self._timeout = timeout
         self._retry_policy = retry_policy or Constant(delay=1, max_retries=sys.maxsize)  # We will retry forever until we implement the drop task strategy
@@ -67,7 +75,12 @@ class RemoteStore:
 
     def call(self, req: PreparedRequest) -> Any:
         attempt = 0
-        req.prepare_auth(self._auth)
+
+        # Token takes priority over basic auth
+        if self._token:
+            req.headers["Authorization"] = f"Bearer {self._token}"
+        else:
+            req.prepare_auth(self._auth)
 
         with Session() as s:
             while True:
