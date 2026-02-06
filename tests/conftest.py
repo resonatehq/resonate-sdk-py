@@ -93,7 +93,7 @@ def message_source(store: Store) -> Generator[MessageSource]:
             ms = store.message_source(group="default", id="test")
         case _:
             assert isinstance(store, RemoteStore)
-            ms = Poller(group="default", id="test")
+            ms = Poller(group="default", id="test", url=store.url)
 
     # start the message source
     ms.start()
