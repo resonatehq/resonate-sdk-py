@@ -42,7 +42,7 @@ class Poller:
 
     @property
     def url(self) -> str:
-        return f"{self._url}/{self._group}/{self._id}"
+        return f"{self._url}/poll/{self._group}/{self._id}"
 
     @property
     def unicast(self) -> str:

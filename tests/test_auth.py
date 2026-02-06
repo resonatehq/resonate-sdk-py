@@ -102,11 +102,11 @@ class TestPollerTokenAuth:
 
     def test_url_format(self) -> None:
         poller = Poller(group="mygroup", id="myid", url="http://localhost:8001")
-        assert poller.url == "http://localhost:8001/mygroup/myid"
+        assert poller.url == "http://localhost:8001/poll/mygroup/myid"
 
     def test_url_default(self) -> None:
         poller = Poller(group="default", id="test")
-        assert poller.url == "http://localhost:8001/default/test"
+        assert poller.url == "http://localhost:8001/poll/default/test"
 
 
 # ─── RemoteStore URL ───
