@@ -170,62 +170,78 @@ class TestResonateAutoDetection:
         """Explicit url param takes priority over env vars."""
         with patch.dict(os.environ, {"RESONATE_URL": "http://env-server:8001"}, clear=False):
             r = Resonate(url="http://explicit:9000")
+            assert isinstance(r._store, RemoteStore)  # noqa: SLF001
             assert r._store.url == "http://explicit:9000"  # noqa: SLF001
 
 
 # ─── Resonate auth resolution ───
 
 
+def _remote(r: Resonate) -> tuple[RemoteStore, Poller]:
+    """Narrow store/message_source types for remote-mode assertions."""
+    assert isinstance(r._store, RemoteStore)  # noqa: SLF001
+    assert isinstance(r._message_source, Poller)  # noqa: SLF001
+    return r._store, r._message_source  # noqa: SLF001
+
+
 class TestResonateAuthResolution:
     def test_explicit_token(self) -> None:
         """Explicit token is passed to store and poller."""
         r = Resonate(url="http://localhost:8001", token="my-token")  # noqa: S106
-        assert r._store._token == "my-token"  # noqa: SLF001, S105
-        assert r._message_source._token == "my-token"  # noqa: SLF001, S105
+        store, ms = _remote(r)
+        assert store._token == "my-token"  # noqa: SLF001, S105
+        assert ms._token == "my-token"  # noqa: SLF001, S105
 
     @patch.dict(os.environ, {"RESONATE_TOKEN": "env-token"}, clear=False)
     def test_env_token(self) -> None:
         """RESONATE_TOKEN env var is used as fallback."""
         r = Resonate(url="http://localhost:8001")
-        assert r._store._token == "env-token"  # noqa: SLF001, S105
-        assert r._message_source._token == "env-token"  # noqa: SLF001, S105
+        store, ms = _remote(r)
+        assert store._token == "env-token"  # noqa: SLF001, S105
+        assert ms._token == "env-token"  # noqa: SLF001, S105
 
     def test_explicit_token_overrides_env(self) -> None:
         """Explicit token takes priority over env var."""
         with patch.dict(os.environ, {"RESONATE_TOKEN": "env-token"}, clear=False):
             r = Resonate(url="http://localhost:8001", token="explicit-token")  # noqa: S106
-            assert r._store._token == "explicit-token"  # noqa: SLF001, S105
+            store, _ = _remote(r)
+            assert store._token == "explicit-token"  # noqa: SLF001, S105
 
     def test_explicit_auth(self) -> None:
         """Explicit auth is passed to store and poller."""
         r = Resonate(url="http://localhost:8001", auth=("user", "pass"))
-        assert r._store._auth == ("user", "pass")  # noqa: SLF001
-        assert r._message_source._auth == ("user", "pass")  # noqa: SLF001
+        store, ms = _remote(r)
+        assert store._auth == ("user", "pass")  # noqa: SLF001
+        assert ms._auth == ("user", "pass")  # noqa: SLF001
 
     @patch.dict(os.environ, {"RESONATE_USERNAME": "env-user", "RESONATE_PASSWORD": "env-pass"}, clear=False)
     def test_env_auth(self) -> None:
         """RESONATE_USERNAME/PASSWORD env vars are used as fallback."""
         r = Resonate(url="http://localhost:8001")
-        assert r._store._auth == ("env-user", "env-pass")  # noqa: SLF001
-        assert r._message_source._auth == ("env-user", "env-pass")  # noqa: SLF001
+        store, ms = _remote(r)
+        assert store._auth == ("env-user", "env-pass")  # noqa: SLF001
+        assert ms._auth == ("env-user", "env-pass")  # noqa: SLF001
 
     @patch.dict(os.environ, {"RESONATE_USERNAME": "env-user"}, clear=False)
     def test_env_username_default_password(self) -> None:
         """RESONATE_USERNAME without PASSWORD defaults to empty password."""
         r = Resonate(url="http://localhost:8001")
-        assert r._store._auth == ("env-user", "")  # noqa: SLF001
+        store, _ = _remote(r)
+        assert store._auth == ("env-user", "")  # noqa: SLF001
 
     def test_no_auth(self) -> None:
         """No auth configured results in None for both token and auth."""
         r = Resonate(url="http://localhost:8001")
-        assert r._store._token is None  # noqa: SLF001
-        assert r._store._auth is None  # noqa: SLF001
+        store, _ = _remote(r)
+        assert store._token is None  # noqa: SLF001
+        assert store._auth is None  # noqa: SLF001
 
     def test_token_and_auth_both_passed(self) -> None:
         """Both token and auth can be passed; token takes priority in requests."""
         r = Resonate(url="http://localhost:8001", token="my-token", auth=("user", "pass"))  # noqa: S106
-        assert r._store._token == "my-token"  # noqa: SLF001, S105
-        assert r._store._auth == ("user", "pass")  # noqa: SLF001
+        store, _ = _remote(r)
+        assert store._token == "my-token"  # noqa: SLF001, S105
+        assert store._auth == ("user", "pass")  # noqa: SLF001
 
 
 # ─── Resonate.local/remote removed ───
