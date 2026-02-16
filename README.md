@@ -111,3 +111,81 @@ resonate tree countdown.1
 ```
 
 Now try killing the worker mid-countdown and restarting. **The countdown picks up right where it left off without missing a beat.**
+
+## Scheduling Functions
+
+Resonate makes it simple to schedule functions to run automatically using cron expressions. The SDK provides a high-level `schedule()` API that handles all the complexity for you.
+
+### Basic Scheduling
+
+Schedule a function to run periodically:
+
+```python
+from resonate import Resonate, Context
+
+resonate = Resonate.remote()
+
+@resonate.register
+def generate_report(ctx: Context, user_id: int) -> str:
+    return f"Generated report for user {user_id}"
+
+# Schedule to run every day at 9am
+schedule = resonate.schedule(
+    "daily_report",
+    generate_report,
+    "0 9 * * *",
+    user_id=123
+)
+```
+
+### Scheduling with Options
+
+Customize timeout, tags, and other options:
+
+```python
+# Schedule with custom timeout and tags
+schedule = resonate.options(
+    timeout=3600,
+    tags={"env": "production", "priority": "high"}
+).schedule(
+    "priority_sync",
+    sync_data,
+    "*/30 * * * *",  # Every 30 minutes
+    source="api"
+)
+```
+
+### Function-Level Scheduling
+
+Schedule registered functions directly:
+
+```python
+@resonate.register
+def cleanup_old_data(ctx: Context, days: int) -> int:
+    # Cleanup logic here
+    return deleted_count
+
+# Schedule using the function instance
+schedule = cleanup_old_data.schedule(
+    "nightly_cleanup",
+    "0 2 * * *",  # Every day at 2am
+    days=30
+)
+```
+
+### Managing Schedules
+
+```python
+# Get a schedule by ID
+schedule = resonate.schedules.get("daily_report")
+
+# Delete a schedule
+schedule.delete()
+```
+
+**Common Cron Patterns:**
+- `"*/5 * * * *"` - Every 5 minutes
+- `"0 * * * *"` - Every hour
+- `"0 9 * * *"` - Every day at 9am
+- `"0 9 * * 1"` - Every Monday at 9am
+- `"0 0 * * *"` - Every day at midnight
