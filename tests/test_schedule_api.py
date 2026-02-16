@@ -19,7 +19,7 @@ def remote_resonate() -> Resonate:
 
 
 def sample_function(ctx: Context, value: int) -> int:
-    """A simple test function."""
+    """Return the value multiplied by 2."""
     return value * 2
 
 
@@ -172,24 +172,27 @@ def test_schedule_with_decorator(resonate: Resonate) -> None:
 
 
 def test_schedule_invalid_inputs(resonate: Resonate) -> None:
-    """Test that invalid inputs raise appropriate errors."""
+    """Verify that invalid inputs raise appropriate errors."""
     resonate.register(sample_function)
 
     # Invalid schedule ID (not a string)
     with pytest.raises(TypeError):
-        resonate.schedule(123, sample_function, "* * * * *", 42)  # type: ignore
+        resonate.schedule(123, sample_function, "* * * * *", 42)  # type: ignore[arg-type]
 
     # Invalid function (not callable or string)
     with pytest.raises(TypeError):
-        resonate.schedule("test", 12345, "* * * * *", 42)  # type: ignore
+        resonate.schedule("test", 12345, "* * * * *", 42)  # type: ignore[arg-type]
 
     # Invalid cron (not a string)
     with pytest.raises(TypeError):
-        resonate.schedule("test", sample_function, 12345, 42)  # type: ignore
+        resonate.schedule("test", sample_function, 12345, 42)  # type: ignore[arg-type]
+
+
+SKIP_INTEGRATION = True  # Skip by default since it requires a running Resonate server
 
 
 @pytest.mark.skipif(
-    True,  # Skip by default since it requires a running Resonate server
+    SKIP_INTEGRATION,
     reason="Requires a running Resonate server",
 )
 def test_schedule_integration(remote_resonate: Resonate) -> None:

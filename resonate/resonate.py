@@ -19,7 +19,6 @@ from resonate.loggers import ContextLogger
 from resonate.message_sources import Poller
 from resonate.models.handle import Handle
 from resonate.models.message_source import MessageSource
-from resonate.models.schedules import Schedule
 from resonate.models.store import Store
 from resonate.options import Options
 from resonate.registry import Registry
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
     from resonate.models.encoder import Encoder
     from resonate.models.logger import Logger
     from resonate.models.retry_policy import RetryPolicy
+    from resonate.models.schedules import Schedule
     from resonate.models.store import PromiseStore, ScheduleStore
 
 ALLOWED_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")

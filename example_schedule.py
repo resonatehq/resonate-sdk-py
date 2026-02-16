@@ -1,5 +1,7 @@
 """Example demonstrating the high-level schedule API."""
 
+from __future__ import annotations
+
 from resonate import Context, Resonate
 
 # Create a Resonate instance (local mode - no URL)
@@ -14,7 +16,7 @@ def generate_report(ctx: Context, user_id: int, report_type: str) -> str:
 
 
 # Example 1: Schedule using the Resonate class
-print("Example 1: Schedule using resonate.schedule()")
+print("Example 1: Schedule using resonate.schedule()")  # noqa: T201
 schedule1 = resonate.schedule(
     "daily_report_schedule",
     generate_report,
@@ -22,25 +24,25 @@ schedule1 = resonate.schedule(
     user_id=123,
     report_type="daily",
 )
-print(f"Created schedule: {schedule1.id}")
-print(f"Cron expression: {schedule1.cron}")
-print(f"Promise ID pattern: {schedule1.promise_id}")
-print()
+print(f"Created schedule: {schedule1.id}")  # noqa: T201
+print(f"Cron expression: {schedule1.cron}")  # noqa: T201
+print(f"Promise ID pattern: {schedule1.promise_id}")  # noqa: T201
+print()  # noqa: T201
 
 # Example 2: Schedule using the Function class
-print("Example 2: Schedule using function.schedule()")
+print("Example 2: Schedule using function.schedule()")  # noqa: T201
 schedule2 = generate_report.schedule(
     "weekly_report_schedule",
     "0 9 * * 1",  # Every Monday at 9am
     user_id=456,
     report_type="weekly",
 )
-print(f"Created schedule: {schedule2.id}")
-print(f"Cron expression: {schedule2.cron}")
-print()
+print(f"Created schedule: {schedule2.id}")  # noqa: T201
+print(f"Cron expression: {schedule2.cron}")  # noqa: T201
+print()  # noqa: T201
 
 # Example 3: Schedule with options (timeout and tags)
-print("Example 3: Schedule with custom options")
+print("Example 3: Schedule with custom options")  # noqa: T201
 schedule3 = resonate.options(
     timeout=3600,
     tags={"env": "production", "priority": "high"},
@@ -51,12 +53,12 @@ schedule3 = resonate.options(
     user_id=789,
     report_type="realtime",
 )
-print(f"Created schedule: {schedule3.id}")
-print(f"Promise tags: {schedule3.promise_tags}")
-print()
+print(f"Created schedule: {schedule3.id}")  # noqa: T201
+print(f"Promise tags: {schedule3.promise_tags}")  # noqa: T201
+print()  # noqa: T201
 
 # Example 4: Schedule with function options
-print("Example 4: Schedule with function-level options")
+print("Example 4: Schedule with function-level options")  # noqa: T201
 schedule4 = generate_report.options(
     timeout=7200,
     tags={"team": "analytics"},
@@ -66,13 +68,13 @@ schedule4 = generate_report.options(
     user_id=999,
     report_type="analytics",
 )
-print(f"Created schedule: {schedule4.id}")
-print()
+print(f"Created schedule: {schedule4.id}")  # noqa: T201
+print()  # noqa: T201
 
 # Cleanup
-print("Cleaning up schedules...")
+print("Cleaning up schedules...")  # noqa: T201
 schedule1.delete()
 schedule2.delete()
 schedule3.delete()
 schedule4.delete()
-print("Done!")
+print("Done!")  # noqa: T201
