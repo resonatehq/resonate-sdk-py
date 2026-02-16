@@ -2,8 +2,8 @@
 
 from resonate import Context, Resonate
 
-# Create a local Resonate instance
-resonate = Resonate.local()
+# Create a Resonate instance (local mode - no URL)
+resonate = Resonate()
 
 
 # Define a function to schedule

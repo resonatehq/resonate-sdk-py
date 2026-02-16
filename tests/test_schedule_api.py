@@ -9,13 +9,13 @@ from resonate.models.schedules import Schedule
 @pytest.fixture
 def resonate() -> Resonate:
     """Create a local Resonate instance for testing."""
-    return Resonate.local()
+    return Resonate()
 
 
 @pytest.fixture
 def remote_resonate() -> Resonate:
     """Create a remote Resonate instance for testing (requires resonate server)."""
-    return Resonate.remote()
+    return Resonate(url="http://localhost:8001")
 
 
 def sample_function(ctx: Context, value: int) -> int:
