@@ -63,3 +63,21 @@ class ResonateShutdownError(ResonateError):
 
     def __reduce__(self) -> str | tuple[Any, ...]:
         return (self.__class__, (self.mesg,))
+
+
+# Error codes 1000-1099 (Python SDK errors)
+
+
+class ResonateRegistryError(ResonateError, ValueError):
+    HREF = "https://docs.resonatehq.io/debug/errors"
+
+    def __init__(self, mesg: str, code: int, name: str) -> None:
+        super().__init__(mesg, code)
+        self.name = name
+        self.href = f"{self.HREF}#{code}"
+
+    def __str__(self) -> str:
+        return f"[{int(self.code)}] {self.name}. {self.mesg} (See {self.href} for more information)"
+
+    def __reduce__(self) -> str | tuple[Any, ...]:
+        return (self.__class__, (self.mesg, int(self.code), self.name))

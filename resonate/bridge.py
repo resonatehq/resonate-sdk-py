@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
 from concurrent.futures import Future
 from typing import TYPE_CHECKING
 
+logger = logging.getLogger(__name__)
+
 from resonate.conventions import Base
 from resonate.delay_q import DelayQ
-from resonate.errors import ResonateShutdownError
+from resonate.errors import ResonateRegistryError, ResonateShutdownError
 from resonate.models.commands import (
     CancelPromiseReq,
     CancelPromiseRes,
@@ -300,19 +303,31 @@ class Bridge:
                     task = Task(id, counter, self._store)
                     root, _ = self._store.tasks.claim(id=task.id, counter=task.counter, pid=self._pid, ttl=self._ttl * 1000)
                     self.start_heartbeat()
+                    try:
+                        invoke = _invoke(root)
+                    except ResonateRegistryError as e:
+                        logger.error("%s", e)
+                        self._store.tasks.complete(id=task.id, counter=task.counter)
+                        continue
                     self._promise_id_to_task[root.id] = task
-                    self._cq.put_nowait(_invoke(root))
+                    self._cq.put_nowait(invoke)
 
                 case {"type": "resume", "task": {"id": id, "counter": counter}}:
                     task = Task(id, counter, self._store)
                     root, leaf = self._store.tasks.claim(id=task.id, counter=task.counter, pid=self._pid, ttl=self._ttl * 1000)
                     self.start_heartbeat()
                     assert leaf is not None, "leaf must not be None"
+                    try:
+                        invoke = _invoke(root)
+                    except ResonateRegistryError as e:
+                        logger.error("%s", e)
+                        self._store.tasks.complete(id=task.id, counter=task.counter)
+                        continue
                     cmd = Resume(
                         id=leaf.id,
                         cid=root.id,
                         promise=leaf,
-                        invoke=_invoke(root),
+                        invoke=invoke,
                     )
                     self._promise_id_to_task[root.id] = task
                     self._cq.put_nowait(cmd)
