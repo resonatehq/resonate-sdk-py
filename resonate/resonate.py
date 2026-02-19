@@ -11,6 +11,7 @@ import uuid
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, TypeVarTuple, overload
 
+from resonate import utils
 from resonate.bridge import Bridge
 from resonate.conventions import Base, Local, Remote, Sleep
 from resonate.coroutine import LFC, LFI, RFC, RFI, Promise
@@ -19,7 +20,6 @@ from resonate.loggers import ContextLogger
 from resonate.message_sources import Poller
 from resonate.models.handle import Handle
 from resonate.models.message_source import MessageSource
-from resonate import utils
 from resonate.models.store import Store
 from resonate.options import Options
 from resonate.registry import Registry
