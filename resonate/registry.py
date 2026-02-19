@@ -4,6 +4,8 @@ import inspect
 from collections.abc import Callable
 from typing import overload
 
+from resonate.errors import ResonateRegistryError
+
 
 class Registry:
     def __init__(self) -> None:
@@ -16,17 +18,14 @@ class Registry:
             raise ValueError(msg)
 
         if not name and func.__name__ == "<lambda>":
-            msg = "name required when registering a lambda function"
-            raise ValueError(msg)
+            raise ResonateRegistryError("Function name is required when registering a lambda function", 1001, "REGISTRY_NAME_REQUIRED")
 
         if not version > 0:
-            msg = "provided version must be greater than zero"
-            raise ValueError(msg)
+            raise ResonateRegistryError(f"Function version must be greater than zero ({version} provided)", 1000, "REGISTRY_VERSION_INVALID")
 
         name = name or func.__name__
         if version in self._forward_registry.get(name, {}) or func in self._reverse_registry:
-            msg = f"function {name} already registered"
-            raise ValueError(msg)
+            raise ResonateRegistryError(f"Function '{name}' (version {version}) is already registered", 1002, "REGISTRY_FUNCTION_ALREADY_REGISTERED")
 
         item = (name, func, version)
         self._forward_registry.setdefault(name, {})[version] = item
@@ -37,13 +36,12 @@ class Registry:
     @overload
     def get(self, func: Callable, version: int = 0) -> tuple[str, Callable, int]: ...
     def get(self, func: str | Callable, version: int = 0) -> tuple[str, Callable, int]:
+        func_name = func if isinstance(func, str) else getattr(func, '__name__', 'unknown')
         if func not in (self._forward_registry if isinstance(func, str) else self._reverse_registry):
-            msg = f"function {func if isinstance(func, str) else getattr(func, '__name__', 'unknown')} not found in registry"
-            raise ValueError(msg)
+            raise ResonateRegistryError(f"Function '{func_name}' is not registered. Will drop.", 1003, "REGISTRY_FUNCTION_NOT_REGISTERED")
 
         if version != 0 and version not in (self._forward_registry[func] if isinstance(func, str) else (self._reverse_registry[func][2],)):
-            msg = f"function {func if isinstance(func, str) else getattr(func, '__name__', 'unknown')} version {version} not found in registry"
-            raise ValueError(msg)
+            raise ResonateRegistryError(f"Function '{func_name}' (version {version}) is not registered. Will drop.", 1003, "REGISTRY_FUNCTION_NOT_REGISTERED")
 
         match func:
             case str():
