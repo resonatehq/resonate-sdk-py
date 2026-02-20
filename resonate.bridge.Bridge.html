@@ -1,0 +1,1666 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+          "DTD/xhtml1-strict.dtd">
+<html>
+  
+
+  <head>
+    
+    <title>resonate.bridge.Bridge</title>
+    <meta name="generator" content="pydoctor 25.10.1"> 
+        
+    </meta>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1 maximum-scale=1" />
+    <link rel="stylesheet" type="text/css" href="bootstrap.min.css" />
+    <link rel="stylesheet" type="text/css" href="apidocs.css" />
+    <link rel="stylesheet" type="text/css" href="extra.css" />
+    
+</head>
+
+  <body>
+
+    
+
+    <nav class="navbar navbar-default mainnavbar">
+      
+  
+  <div class="container-fluid">
+
+
+    <div class="navbar-header">
+      
+      <div class="navlinks">
+        <span class="navbar-brand">
+          <a href="https://github.com/resonatehq/resonate-sdk-py" class="projecthome">Resonate Python SDK</a> <a href="index.html">API Documentation</a>
+        </span>
+
+        <a href="moduleIndex.html">
+          Modules
+        </a>
+
+        <a href="classIndex.html">
+          Classes
+        </a>
+
+        <a href="nameIndex.html">
+          Names
+        </a>
+
+        <div id="search-box-container">
+          <div class="input-group">
+            <input id="search-box" type="search" name="search-query" placeholder="Search..." aria-label="Search" minlength="2" class="form-control" autocomplete="off" />
+            
+            <span class="input-group-btn">
+              <a style="display: none;" class="btn btn-default" id="search-clear-button" title="Clear" onclick="clearSearch()"><img src="fonts/x-circle.svg" alt="Clear" /></a>
+              <a class="btn btn-default" id="apidocs-help-button" title="Help" href="apidocs-help.html"><img src="fonts/info.svg" alt="Help" /></a>
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+      <div id="search-results-container" style="display: none;">
+        
+        <div id="search-buttons">
+          <span class="label label-default" id="search-docstrings-button">
+          <label class="checkbox-inline">
+            <input type="checkbox" id="toggle-search-in-docstrings-checkbox" value="false" onclick="toggleSearchInDocstrings()">
+              search in docstrings
+            </input>
+          </label>
+          </span>
+          
+        </div>
+        
+        <noscript>
+            <h1>Cannot search: JavaScript is not supported/enabled in your browser.</h1>
+        </noscript>
+
+        <div id="search-status"> </div>
+
+        <div class="warning" id="search-warn-box" style="display: none;">
+          <p class="rst-last"><span id="search-warn"></span></p>
+        </div>
+
+        <table id="search-results">
+          <!-- Filled dynamically by JS -->
+        </table>
+        
+        <div style="margin-top: 10px;">
+          <p>For more information on the search, visit the <a href="apidocs-help.html#rst-search">help page</a>.</p>
+        </div>
+      </div>
+
+    </div>
+
+
+  </div>
+</nav>
+    
+    <div class="container-fluid">
+
+      <!-- Side navigation -->
+      <div class="sidebarcontainer" style="display: none;">
+        
+        <div class="sidebar"><nav class="sidebar">
+  
+
+  <div>
+
+      <div class="thingTitle">
+        <span>Class</span>
+        <code class="thisobject"><a href="resonate.bridge.Bridge.html" class="internal-link" title="This class"><wbr></wbr>Bridge</a></code> 
+      </div>
+      
+      <div>
+        
+
+        
+         
+
+        
+        
+
+        <div class="childrenKindTitle">Methods</div>
+        <ul>
+    
+    <li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#__init__" class="internal-link" title="resonate.bridge.Bridge.__init__">__init__</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#get" class="internal-link" title="resonate.bridge.Bridge.get">get</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#rpc" class="internal-link" title="resonate.bridge.Bridge.rpc">rpc</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#run" class="internal-link" title="resonate.bridge.Bridge.run">run</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#start" class="internal-link" title="resonate.bridge.Bridge.start">start</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#start_heartbeat" class="internal-link" title="resonate.bridge.Bridge.start_heartbeat">start<wbr></wbr>_heartbeat</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#stop" class="internal-link" title="resonate.bridge.Bridge.stop">stop</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#subscribe" class="internal-link" title="resonate.bridge.Bridge.subscribe">subscribe</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_handle_delay" class="internal-link" title="resonate.bridge.Bridge._handle_delay">_handle<wbr></wbr>_delay</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_handle_network_request" class="internal-link" title="resonate.bridge.Bridge._handle_network_request">_handle<wbr></wbr>_network<wbr></wbr>_request</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_heartbeat" class="internal-link" title="resonate.bridge.Bridge._heartbeat">_heartbeat</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_process_cq" class="internal-link" title="resonate.bridge.Bridge._process_cq">_process<wbr></wbr>_cq</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_process_delayed_events" class="internal-link" title="resonate.bridge.Bridge._process_delayed_events">_process<wbr></wbr>_delayed<wbr></wbr>_events</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_process_msgs" class="internal-link" title="resonate.bridge.Bridge._process_msgs">_process<wbr></wbr>_msgs</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_stop_no_join" class="internal-link" title="resonate.bridge.Bridge._stop_no_join">_stop<wbr></wbr>_no<wbr></wbr>_join</a></code>
+            </div>
+        
+
+    </li>
+</ul> 
+
+        
+         
+
+        <div class="childrenKindTitle">Attributes</div>
+        <ul>
+    
+    <li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_anycast" class="internal-link" title="resonate.bridge.Bridge._anycast">_anycast</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_bridge_thread" class="internal-link" title="resonate.bridge.Bridge._bridge_thread">_bridge<wbr></wbr>_thread</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_cq" class="internal-link" title="resonate.bridge.Bridge._cq">_cq</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_ctx" class="internal-link" title="resonate.bridge.Bridge._ctx">_ctx</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_delay_q" class="internal-link" title="resonate.bridge.Bridge._delay_q">_delay<wbr></wbr>_q</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_delay_q_condition" class="internal-link" title="resonate.bridge.Bridge._delay_q_condition">_delay<wbr></wbr>_q<wbr></wbr>_condition</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_delay_q_thread" class="internal-link" title="resonate.bridge.Bridge._delay_q_thread">_delay<wbr></wbr>_q<wbr></wbr>_thread</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_heartbeat_active" class="internal-link" title="resonate.bridge.Bridge._heartbeat_active">_heartbeat<wbr></wbr>_active</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_heartbeat_thread" class="internal-link" title="resonate.bridge.Bridge._heartbeat_thread">_heartbeat<wbr></wbr>_thread</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_message_source" class="internal-link" title="resonate.bridge.Bridge._message_source">_message<wbr></wbr>_source</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_message_source_thread" class="internal-link" title="resonate.bridge.Bridge._message_source_thread">_message<wbr></wbr>_source<wbr></wbr>_thread</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_opts" class="internal-link" title="resonate.bridge.Bridge._opts">_opts</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_pid" class="internal-link" title="resonate.bridge.Bridge._pid">_pid</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_processor" class="internal-link" title="resonate.bridge.Bridge._processor">_processor</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_promise_id_to_task" class="internal-link" title="resonate.bridge.Bridge._promise_id_to_task">_promise<wbr></wbr>_id<wbr></wbr>_to<wbr></wbr>_task</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_registry" class="internal-link" title="resonate.bridge.Bridge._registry">_registry</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_scheduler" class="internal-link" title="resonate.bridge.Bridge._scheduler">_scheduler</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_shutdown" class="internal-link" title="resonate.bridge.Bridge._shutdown">_shutdown</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_store" class="internal-link" title="resonate.bridge.Bridge._store">_store</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_ttl" class="internal-link" title="resonate.bridge.Bridge._ttl">_ttl</a></code>
+            </div>
+        
+
+    </li><li class="private">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#_unicast" class="internal-link" title="resonate.bridge.Bridge._unicast">_unicast</a></code>
+            </div>
+        
+
+    </li>
+</ul> 
+
+        
+         
+        
+      </div>
+  </div><div>
+
+      <div class="thingTitle">
+        <span>Module</span>
+        <code><a href="resonate.bridge.html" class="internal-link" title="The parent of this class">bridge</a></code> 
+      </div>
+      
+      <div>
+        
+
+        
+         
+
+        <div class="childrenKindTitle">Classes</div>
+        <ul>
+    
+    <li class=" thisobject">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.bridge.Bridge.html" class="internal-link" title="resonate.bridge.Bridge"><wbr></wbr>Bridge</a></code>
+            </div>
+        
+
+    </li>
+</ul>
+
+        
+         
+
+        
+         
+
+        
+         
+
+        
+         
+        
+      </div>
+  </div>
+
+</nav>
+        </div>
+        <div id="collapse-sidebar">
+          <a class="btn btn-link" onclick="toggleSideBarCollapse()" title="Toggle Sidebar Collapse">
+          </a>
+        </div> 
+        <script src="sidebartoggle.js" type="text/javascript"></script>
+       
+      </div>
+
+      <main class="">
+        
+
+        
+
+        <div class="page-header">
+          <h1 class="class"><code><code><a href="index.html" class="internal-link">resonate</a></code><wbr></wbr>.<code><a href="resonate.bridge.html" class="internal-link" title="resonate.bridge">bridge</a></code><wbr></wbr>.<code><a href="resonate.bridge.Bridge.html" class="internal-link" title="resonate.bridge.Bridge">Bridge</a></code></code></h1>
+          <div id="show-private">
+            <button class="btn btn-link" onclick="togglePrivate()">Toggle Private API</button>
+          </div>
+        </div>
+
+        <div class="categoryHeader">
+          class documentation
+        </div>
+
+        <div class="extrasDocstring">
+          <p class="class-signature"><code><span class="py-keyword">class</span> <span class="py-defname">Bridge</span>:</code></p><p>Constructor: <code><a href="#__init__" class="internal-link" title="resonate.bridge.Bridge.__init__">Bridge(ctx, pid, ttl, opts, ...)</a></code></p><p><a href="classIndex.html#resonate.bridge.Bridge">View In Hierarchy</a></p>
+        </div>
+
+        <div class="moduleDocstring">
+          <div><p class="undocumented">Undocumented</p></div>
+        </div>
+
+        <div id="split-tables">
+          <table class="children sortable" id="id4">
+  
+  
+  <tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#__init__" class="internal-link" title="resonate.bridge.Bridge.__init__">__init__</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#get" class="internal-link" title="resonate.bridge.Bridge.get">get</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#rpc" class="internal-link" title="resonate.bridge.Bridge.rpc">rpc</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#run" class="internal-link" title="resonate.bridge.Bridge.run">run</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#start" class="internal-link" title="resonate.bridge.Bridge.start">start</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#start_heartbeat" class="internal-link" title="resonate.bridge.Bridge.start_heartbeat">start<wbr></wbr>_heartbeat</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#stop" class="internal-link" title="resonate.bridge.Bridge.stop">stop</a></code></td>
+    <td>Stop internal components and threads. Intended for use only within the resonate class.</td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#subscribe" class="internal-link" title="resonate.bridge.Bridge.subscribe">subscribe</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method private">
+    
+    <td>Method</td>
+    <td><code><a href="#_handle_delay" class="internal-link" title="resonate.bridge.Bridge._handle_delay">_handle<wbr></wbr>_delay</a></code></td>
+    <td>Add a command to the delay queue.</td>
+  </tr><tr class="method private">
+    
+    <td>Method</td>
+    <td><code><a href="#_handle_network_request" class="internal-link" title="resonate.bridge.Bridge._handle_network_request">_handle<wbr></wbr>_network<wbr></wbr>_request</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method private">
+    
+    <td>Method</td>
+    <td><code><a href="#_heartbeat" class="internal-link" title="resonate.bridge.Bridge._heartbeat">_heartbeat</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method private">
+    
+    <td>Method</td>
+    <td><code><a href="#_process_cq" class="internal-link" title="resonate.bridge.Bridge._process_cq">_process<wbr></wbr>_cq</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method private">
+    
+    <td>Method</td>
+    <td><code><a href="#_process_delayed_events" class="internal-link" title="resonate.bridge.Bridge._process_delayed_events">_process<wbr></wbr>_delayed<wbr></wbr>_events</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method private">
+    
+    <td>Method</td>
+    <td><code><a href="#_process_msgs" class="internal-link" title="resonate.bridge.Bridge._process_msgs">_process<wbr></wbr>_msgs</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method private">
+    
+    <td>Method</td>
+    <td><code><a href="#_stop_no_join" class="internal-link" title="resonate.bridge.Bridge._stop_no_join">_stop<wbr></wbr>_no<wbr></wbr>_join</a></code></td>
+    <td>Stop internal components and threads. Does not join the threads, to be able to call it from the bridge itself.</td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_anycast" class="internal-link" title="resonate.bridge.Bridge._anycast">_anycast</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_bridge_thread" class="internal-link" title="resonate.bridge.Bridge._bridge_thread">_bridge<wbr></wbr>_thread</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_cq" class="internal-link" title="resonate.bridge.Bridge._cq">_cq</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_ctx" class="internal-link" title="resonate.bridge.Bridge._ctx">_ctx</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_delay_q" class="internal-link" title="resonate.bridge.Bridge._delay_q">_delay<wbr></wbr>_q</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_delay_q_condition" class="internal-link" title="resonate.bridge.Bridge._delay_q_condition">_delay<wbr></wbr>_q<wbr></wbr>_condition</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_delay_q_thread" class="internal-link" title="resonate.bridge.Bridge._delay_q_thread">_delay<wbr></wbr>_q<wbr></wbr>_thread</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_heartbeat_active" class="internal-link" title="resonate.bridge.Bridge._heartbeat_active">_heartbeat<wbr></wbr>_active</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_heartbeat_thread" class="internal-link" title="resonate.bridge.Bridge._heartbeat_thread">_heartbeat<wbr></wbr>_thread</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_message_source" class="internal-link" title="resonate.bridge.Bridge._message_source">_message<wbr></wbr>_source</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_message_source_thread" class="internal-link" title="resonate.bridge.Bridge._message_source_thread">_message<wbr></wbr>_source<wbr></wbr>_thread</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_opts" class="internal-link" title="resonate.bridge.Bridge._opts">_opts</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_pid" class="internal-link" title="resonate.bridge.Bridge._pid">_pid</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_processor" class="internal-link" title="resonate.bridge.Bridge._processor">_processor</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_promise_id_to_task" class="internal-link" title="resonate.bridge.Bridge._promise_id_to_task">_promise<wbr></wbr>_id<wbr></wbr>_to<wbr></wbr>_task</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_registry" class="internal-link" title="resonate.bridge.Bridge._registry">_registry</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_scheduler" class="internal-link" title="resonate.bridge.Bridge._scheduler">_scheduler</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_shutdown" class="internal-link" title="resonate.bridge.Bridge._shutdown">_shutdown</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_store" class="internal-link" title="resonate.bridge.Bridge._store">_store</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_ttl" class="internal-link" title="resonate.bridge.Bridge._ttl">_ttl</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable private">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#_unicast" class="internal-link" title="resonate.bridge.Bridge._unicast">_unicast</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr>
+</table>
+          
+
+            
+        </div>
+
+        <div id="child-list">
+          <div class="basemethod">
+  
+  
+  <a name="resonate.bridge.Bridge.__init__">
+    
+  </a>
+  <a name="__init__">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">__init__</span><span class="function-signature long-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span>, </span><span class="rst-sig-param">ctx: <code>Callable[<wbr></wbr>[<wbr></wbr>str, <wbr></wbr>str, <wbr></wbr><a href="resonate.scheduler.Info.html" class="internal-link" title="resonate.scheduler.Info">Info</a>], <wbr></wbr>Context]</code>, </span><span class="rst-sig-param">pid: <code>str</code>, </span><span class="rst-sig-param">ttl: <code>int</code>, </span><span class="rst-sig-param">opts: <code><a href="resonate.options.Options.html" class="internal-link" title="resonate.options.Options">Options</a></code>, </span><span class="rst-sig-param">workers: <code>int | None</code>, </span><span class="rst-sig-param">unicast: <code>str</code>, </span><span class="rst-sig-param">anycast: <code>str</code>, </span><span class="rst-sig-param">registry: <code><a href="resonate.registry.Registry.html" class="internal-link" title="resonate.registry.Registry">Registry</a></code>, </span><span class="rst-sig-param">store: <code><a href="resonate.models.store.Store.html" class="internal-link" title="resonate.models.store.Store">Store</a></code>, </span><span class="rst-sig-param">message_source: <code><a href="resonate.models.message_source.MessageSource.html" class="internal-link" title="resonate.models.message_source.MessageSource">MessageSource</a></code></span>):</span>
+    
+    <a class="headerLink" href="#__init__" title="resonate.bridge.Bridge.__init__">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.bridge.Bridge.get">
+    
+  </a>
+  <a name="get">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">get</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span>, </span><span class="rst-sig-param">id: <code>str</code>, </span><span class="rst-sig-param">opts: <code><a href="resonate.options.Options.html" class="internal-link" title="resonate.options.Options">Options</a></code>, </span><span class="rst-sig-param">future: <code>Future</code></span>) -&gt; <code><a href="resonate.models.durable_promise.DurablePromise.html" class="internal-link" title="resonate.models.durable_promise.DurablePromise">DurablePromise</a></code>:</span>
+    
+    <a class="headerLink" href="#get" title="resonate.bridge.Bridge.get">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.bridge.Bridge.rpc">
+    
+  </a>
+  <a name="rpc">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">rpc</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span>, </span><span class="rst-sig-param">conv: <code><a href="resonate.models.convention.Convention.html" class="internal-link" title="resonate.models.convention.Convention">Convention</a></code>, </span><span class="rst-sig-param">opts: <code><a href="resonate.options.Options.html" class="internal-link" title="resonate.options.Options">Options</a></code>, </span><span class="rst-sig-param">future: <code>Future</code></span>) -&gt; <code><a href="resonate.models.durable_promise.DurablePromise.html" class="internal-link" title="resonate.models.durable_promise.DurablePromise">DurablePromise</a></code>:</span>
+    
+    <a class="headerLink" href="#rpc" title="resonate.bridge.Bridge.rpc">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.bridge.Bridge.run">
+    
+  </a>
+  <a name="run">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">run</span><span class="function-signature long-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span>, </span><span class="rst-sig-param">conv: <code><a href="resonate.models.convention.Convention.html" class="internal-link" title="resonate.models.convention.Convention">Convention</a></code>, </span><span class="rst-sig-param">func: <code>Callable</code>, </span><span class="rst-sig-param">args: <code>tuple</code>, </span><span class="rst-sig-param">kwargs: <code>dict</code>, </span><span class="rst-sig-param">opts: <code><a href="resonate.options.Options.html" class="internal-link" title="resonate.options.Options">Options</a></code>, </span><span class="rst-sig-param">future: <code>Future</code></span>) -&gt; <code><a href="resonate.models.durable_promise.DurablePromise.html" class="internal-link" title="resonate.models.durable_promise.DurablePromise">DurablePromise</a></code>:</span>
+    
+    <a class="headerLink" href="#run" title="resonate.bridge.Bridge.run">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.bridge.Bridge.start">
+    
+  </a>
+  <a name="start">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">start</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#start" title="resonate.bridge.Bridge.start">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.bridge.Bridge.start_heartbeat">
+    
+  </a>
+  <a name="start_heartbeat">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">start_heartbeat</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#start_heartbeat" title="resonate.bridge.Bridge.start_heartbeat">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.bridge.Bridge.stop">
+    
+  </a>
+  <a name="stop">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">stop</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#stop" title="resonate.bridge.Bridge.stop">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p>Stop internal components and threads. Intended for use only within the resonate class.</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.bridge.Bridge.subscribe">
+    
+  </a>
+  <a name="subscribe">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">subscribe</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span>, </span><span class="rst-sig-param">id: <code>str</code>, </span><span class="rst-sig-param">future: <code>Future</code></span>):</span>
+    
+    <a class="headerLink" href="#subscribe" title="resonate.bridge.Bridge.subscribe">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod private">
+  
+  
+  <a name="resonate.bridge.Bridge._handle_delay">
+    
+  </a>
+  <a name="_handle_delay">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">_handle_delay</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span>, </span><span class="rst-sig-param">delay: <code><a href="resonate.models.commands.Delayed.html" class="internal-link" title="resonate.models.commands.Delayed">Delayed</a></code></span>):</span>
+    
+    <a class="headerLink" href="#_handle_delay" title="resonate.bridge.Bridge._handle_delay">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p>Add a command to the delay queue.</p>
+<p>Uses a threading.condition to synchronize access to the underlaying delay_q.</p>
+</div>
+  </div>
+</div><div class="basemethod private">
+  
+  
+  <a name="resonate.bridge.Bridge._handle_network_request">
+    
+  </a>
+  <a name="_handle_network_request">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">_handle_network_request</span><span class="function-signature long-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span>, </span><span class="rst-sig-param">cmd_id: <code>str</code>, </span><span class="rst-sig-param">cid: <code>str</code>, </span><span class="rst-sig-param">req: <code><a href="resonate.models.commands.CreatePromiseReq.html" class="internal-link" title="resonate.models.commands.CreatePromiseReq">CreatePromiseReq</a> | <a href="resonate.models.commands.ResolvePromiseReq.html" class="internal-link" title="resonate.models.commands.ResolvePromiseReq">ResolvePromiseReq</a> | <a href="resonate.models.commands.RejectPromiseReq.html" class="internal-link" title="resonate.models.commands.RejectPromiseReq">RejectPromiseReq</a> | <a href="resonate.models.commands.CancelPromiseReq.html" class="internal-link" title="resonate.models.commands.CancelPromiseReq">CancelPromiseReq</a> | <a href="resonate.models.commands.CreateCallbackReq.html" class="internal-link" title="resonate.models.commands.CreateCallbackReq">CreateCallbackReq</a></code></span>) -&gt; <code>Command</code>:</span>
+    
+    <a class="headerLink" href="#_handle_network_request" title="resonate.bridge.Bridge._handle_network_request">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod private">
+  
+  
+  <a name="resonate.bridge.Bridge._heartbeat">
+    
+  </a>
+  <a name="_heartbeat">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <div><span class="decorator">@<a href="resonate.utils.html#exit_on_exception" class="internal-link" title="resonate.utils.exit_on_exception">exit_on_exception</a><br /></span></div>
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">_heartbeat</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#_heartbeat" title="resonate.bridge.Bridge._heartbeat">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod private">
+  
+  
+  <a name="resonate.bridge.Bridge._process_cq">
+    
+  </a>
+  <a name="_process_cq">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <div><span class="decorator">@<a href="resonate.utils.html#exit_on_exception" class="internal-link" title="resonate.utils.exit_on_exception">exit_on_exception</a><br /></span></div>
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">_process_cq</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#_process_cq" title="resonate.bridge.Bridge._process_cq">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod private">
+  
+  
+  <a name="resonate.bridge.Bridge._process_delayed_events">
+    
+  </a>
+  <a name="_process_delayed_events">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <div><span class="decorator">@<a href="resonate.utils.html#exit_on_exception" class="internal-link" title="resonate.utils.exit_on_exception">exit_on_exception</a><br /></span></div>
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">_process_delayed_events</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#_process_delayed_events" title="resonate.bridge.Bridge._process_delayed_events">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod private">
+  
+  
+  <a name="resonate.bridge.Bridge._process_msgs">
+    
+  </a>
+  <a name="_process_msgs">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <div><span class="decorator">@<a href="resonate.utils.html#exit_on_exception" class="internal-link" title="resonate.utils.exit_on_exception">exit_on_exception</a><br /></span></div>
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">_process_msgs</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#_process_msgs" title="resonate.bridge.Bridge._process_msgs">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod private">
+  
+  
+  <a name="resonate.bridge.Bridge._stop_no_join">
+    
+  </a>
+  <a name="_stop_no_join">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">_stop_no_join</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#_stop_no_join" title="resonate.bridge.Bridge._stop_no_join">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p>Stop internal components and threads. Does not join the threads, to be able to call it from the bridge itself.</p></div>
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._anycast">
+    
+  </a>
+  <a name="_anycast">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_anycast</span> =
+    
+    <a class="headerLink" href="#_anycast" title="resonate.bridge.Bridge._anycast">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._bridge_thread">
+    
+  </a>
+  <a name="_bridge_thread">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_bridge_thread</span> =
+    
+    <a class="headerLink" href="#_bridge_thread" title="resonate.bridge.Bridge._bridge_thread">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._cq">
+    
+  </a>
+  <a name="_cq">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_cq</span> =
+    
+    <a class="headerLink" href="#_cq" title="resonate.bridge.Bridge._cq">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._ctx">
+    
+  </a>
+  <a name="_ctx">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_ctx</span> =
+    
+    <a class="headerLink" href="#_ctx" title="resonate.bridge.Bridge._ctx">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._delay_q">
+    
+  </a>
+  <a name="_delay_q">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_delay_q</span> =
+    
+    <a class="headerLink" href="#_delay_q" title="resonate.bridge.Bridge._delay_q">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._delay_q_condition">
+    
+  </a>
+  <a name="_delay_q_condition">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_delay_q_condition</span> =
+    
+    <a class="headerLink" href="#_delay_q_condition" title="resonate.bridge.Bridge._delay_q_condition">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._delay_q_thread">
+    
+  </a>
+  <a name="_delay_q_thread">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_delay_q_thread</span> =
+    
+    <a class="headerLink" href="#_delay_q_thread" title="resonate.bridge.Bridge._delay_q_thread">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._heartbeat_active">
+    
+  </a>
+  <a name="_heartbeat_active">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_heartbeat_active</span> =
+    
+    <a class="headerLink" href="#_heartbeat_active" title="resonate.bridge.Bridge._heartbeat_active">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._heartbeat_thread">
+    
+  </a>
+  <a name="_heartbeat_thread">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_heartbeat_thread</span> =
+    
+    <a class="headerLink" href="#_heartbeat_thread" title="resonate.bridge.Bridge._heartbeat_thread">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._message_source">
+    
+  </a>
+  <a name="_message_source">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_message_source</span> =
+    
+    <a class="headerLink" href="#_message_source" title="resonate.bridge.Bridge._message_source">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._message_source_thread">
+    
+  </a>
+  <a name="_message_source_thread">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_message_source_thread</span> =
+    
+    <a class="headerLink" href="#_message_source_thread" title="resonate.bridge.Bridge._message_source_thread">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._opts">
+    
+  </a>
+  <a name="_opts">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_opts</span> =
+    
+    <a class="headerLink" href="#_opts" title="resonate.bridge.Bridge._opts">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._pid">
+    
+  </a>
+  <a name="_pid">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_pid</span> =
+    
+    <a class="headerLink" href="#_pid" title="resonate.bridge.Bridge._pid">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._processor">
+    
+  </a>
+  <a name="_processor">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_processor</span> =
+    
+    <a class="headerLink" href="#_processor" title="resonate.bridge.Bridge._processor">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._promise_id_to_task">
+    
+  </a>
+  <a name="_promise_id_to_task">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_promise_id_to_task</span>: <code>dict[<wbr></wbr>str, <wbr></wbr><a href="resonate.models.task.Task.html" class="internal-link" title="resonate.models.task.Task">Task</a>]</code> =
+    
+    <a class="headerLink" href="#_promise_id_to_task" title="resonate.bridge.Bridge._promise_id_to_task">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._registry">
+    
+  </a>
+  <a name="_registry">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_registry</span> =
+    
+    <a class="headerLink" href="#_registry" title="resonate.bridge.Bridge._registry">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._scheduler">
+    
+  </a>
+  <a name="_scheduler">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_scheduler</span> =
+    
+    <a class="headerLink" href="#_scheduler" title="resonate.bridge.Bridge._scheduler">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._shutdown">
+    
+  </a>
+  <a name="_shutdown">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_shutdown</span> =
+    
+    <a class="headerLink" href="#_shutdown" title="resonate.bridge.Bridge._shutdown">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._store">
+    
+  </a>
+  <a name="_store">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_store</span> =
+    
+    <a class="headerLink" href="#_store" title="resonate.bridge.Bridge._store">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._ttl">
+    
+  </a>
+  <a name="_ttl">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_ttl</span> =
+    
+    <a class="headerLink" href="#_ttl" title="resonate.bridge.Bridge._ttl">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable private">
+  
+  
+  <a name="resonate.bridge.Bridge._unicast">
+    
+  </a>
+  <a name="_unicast">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">_unicast</span> =
+    
+    <a class="headerLink" href="#_unicast" title="resonate.bridge.Bridge._unicast">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div>
+        </div>
+      
+      </main>
+    </div>
+
+    <footer class="navbar navbar-default">
+
+  
+  <div class="container-fluid">
+    <a href="index.html">API Documentation</a> for <a href="https://github.com/resonatehq/resonate-sdk-py" class="projecthome">Resonate Python SDK</a>,
+  generated by <a href="https://github.com/twisted/pydoctor/">pydoctor</a>
+    25.10.1 at 2026-02-20 21:43:41.
+  </div>
+
+  <!-- Search related scripts needs to be loaded at the end of HTML 
+    parsing not to introduce overhead and display HTML data asap -->
+  <script src="ajax.js" type="text/javascript"></script>
+  <script src="searchlib.js" type="text/javascript"></script>
+  <script src="search.js" type="text/javascript"></script>
+
+</footer>
+  
+    <script src="pydoctor.js" type="text/javascript"></script>
+
+  </body>
+</html>

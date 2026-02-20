@@ -1,0 +1,907 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+          "DTD/xhtml1-strict.dtd">
+<html>
+  
+
+  <head>
+    
+    <title>resonate.scheduler.Rfnc</title>
+    <meta name="generator" content="pydoctor 25.10.1"> 
+        
+    </meta>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1 maximum-scale=1" />
+    <link rel="stylesheet" type="text/css" href="bootstrap.min.css" />
+    <link rel="stylesheet" type="text/css" href="apidocs.css" />
+    <link rel="stylesheet" type="text/css" href="extra.css" />
+    
+</head>
+
+  <body>
+
+    
+
+    <nav class="navbar navbar-default mainnavbar">
+      
+  
+  <div class="container-fluid">
+
+
+    <div class="navbar-header">
+      
+      <div class="navlinks">
+        <span class="navbar-brand">
+          <a href="https://github.com/resonatehq/resonate-sdk-py" class="projecthome">Resonate Python SDK</a> <a href="index.html">API Documentation</a>
+        </span>
+
+        <a href="moduleIndex.html">
+          Modules
+        </a>
+
+        <a href="classIndex.html">
+          Classes
+        </a>
+
+        <a href="nameIndex.html">
+          Names
+        </a>
+
+        <div id="search-box-container">
+          <div class="input-group">
+            <input id="search-box" type="search" name="search-query" placeholder="Search..." aria-label="Search" minlength="2" class="form-control" autocomplete="off" />
+            
+            <span class="input-group-btn">
+              <a style="display: none;" class="btn btn-default" id="search-clear-button" title="Clear" onclick="clearSearch()"><img src="fonts/x-circle.svg" alt="Clear" /></a>
+              <a class="btn btn-default" id="apidocs-help-button" title="Help" href="apidocs-help.html"><img src="fonts/info.svg" alt="Help" /></a>
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+      <div id="search-results-container" style="display: none;">
+        
+        <div id="search-buttons">
+          <span class="label label-default" id="search-docstrings-button">
+          <label class="checkbox-inline">
+            <input type="checkbox" id="toggle-search-in-docstrings-checkbox" value="false" onclick="toggleSearchInDocstrings()">
+              search in docstrings
+            </input>
+          </label>
+          </span>
+          
+        </div>
+        
+        <noscript>
+            <h1>Cannot search: JavaScript is not supported/enabled in your browser.</h1>
+        </noscript>
+
+        <div id="search-status"> </div>
+
+        <div class="warning" id="search-warn-box" style="display: none;">
+          <p class="rst-last"><span id="search-warn"></span></p>
+        </div>
+
+        <table id="search-results">
+          <!-- Filled dynamically by JS -->
+        </table>
+        
+        <div style="margin-top: 10px;">
+          <p>For more information on the search, visit the <a href="apidocs-help.html#rst-search">help page</a>.</p>
+        </div>
+      </div>
+
+    </div>
+
+
+  </div>
+</nav>
+    
+    <div class="container-fluid">
+
+      <!-- Side navigation -->
+      <div class="sidebarcontainer" style="display: none;">
+        
+        <div class="sidebar"><nav class="sidebar">
+  
+
+  <div>
+
+      <div class="thingTitle">
+        <span>Class</span>
+        <code class="thisobject"><a href="resonate.scheduler.Rfnc.html" class="internal-link" title="This class"><wbr></wbr>Rfnc</a></code> 
+      </div>
+      
+      <div>
+        
+
+        
+         
+
+        
+        
+
+        <div class="childrenKindTitle">Methods</div>
+        <ul>
+    
+    <li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#__post_init__" class="internal-link" title="resonate.scheduler.Rfnc.__post_init__">__post<wbr></wbr>_init__</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#__repr__" class="internal-link" title="resonate.scheduler.Rfnc.__repr__">__repr__</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#map" class="internal-link" title="resonate.scheduler.Rfnc.map">map</a></code>
+            </div>
+        
+
+    </li>
+</ul> 
+
+        
+         
+
+        <div class="childrenKindTitle">Attributes</div>
+        <ul>
+    
+    <li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#attempt" class="internal-link" title="resonate.scheduler.Rfnc.attempt">attempt</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#cid" class="internal-link" title="resonate.scheduler.Rfnc.cid">cid</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#conv" class="internal-link" title="resonate.scheduler.Rfnc.conv">conv</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#id" class="internal-link" title="resonate.scheduler.Rfnc.id">id</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#opts" class="internal-link" title="resonate.scheduler.Rfnc.opts">opts</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#suspends" class="internal-link" title="resonate.scheduler.Rfnc.suspends">suspends</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#encoder" class="internal-link" title="resonate.scheduler.Rfnc.encoder">encoder</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#promise" class="internal-link" title="resonate.scheduler.Rfnc.promise">promise</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#result" class="internal-link" title="resonate.scheduler.Rfnc.result">result</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="#timeout" class="internal-link" title="resonate.scheduler.Rfnc.timeout">timeout</a></code>
+            </div>
+        
+
+    </li>
+</ul> 
+
+        
+         
+        
+      </div>
+  </div><div>
+
+      <div class="thingTitle">
+        <span>Module</span>
+        <code><a href="resonate.scheduler.html" class="internal-link" title="The parent of this class">scheduler</a></code> 
+      </div>
+      
+      <div>
+        
+
+        
+         
+
+        <div class="childrenKindTitle">Classes</div>
+        <ul>
+    
+    <li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Blocked.html" class="internal-link" title="resonate.scheduler.Blocked"><wbr></wbr>Blocked</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Completed.html" class="internal-link" title="resonate.scheduler.Completed"><wbr></wbr>Completed</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Computation.html" class="internal-link" title="resonate.scheduler.Computation"><wbr></wbr>Computation</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Coro.html" class="internal-link" title="resonate.scheduler.Coro"><wbr></wbr>Coro</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Done.html" class="internal-link" title="resonate.scheduler.Done"><wbr></wbr>Done</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Enabled.html" class="internal-link" title="resonate.scheduler.Enabled"><wbr></wbr>Enabled</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Info.html" class="internal-link" title="resonate.scheduler.Info"><wbr></wbr>Info</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Init.html" class="internal-link" title="resonate.scheduler.Init"><wbr></wbr>Init</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Lfnc.html" class="internal-link" title="resonate.scheduler.Lfnc"><wbr></wbr>Lfnc</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.More.html" class="internal-link" title="resonate.scheduler.More"><wbr></wbr>More</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.PoppableList.html" class="internal-link" title="resonate.scheduler.PoppableList"><wbr></wbr>Poppable<wbr></wbr>List</a></code>
+            </div>
+        
+
+    </li><li class=" thisobject">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Rfnc.html" class="internal-link" title="resonate.scheduler.Rfnc"><wbr></wbr>Rfnc</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Running.html" class="internal-link" title="resonate.scheduler.Running"><wbr></wbr>Running</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Scheduler.html" class="internal-link" title="resonate.scheduler.Scheduler"><wbr></wbr>Scheduler</a></code>
+            </div>
+        
+
+    </li><li class="">
+        
+        
+        
+
+        
+            <div class="itemName"><code><a href="resonate.scheduler.Suspended.html" class="internal-link" title="resonate.scheduler.Suspended"><wbr></wbr>Suspended</a></code>
+            </div>
+        
+
+    </li>
+</ul>
+
+        
+         
+
+        
+         
+
+        
+         
+
+        
+         
+        
+      </div>
+  </div>
+
+</nav>
+        </div>
+        <div id="collapse-sidebar">
+          <a class="btn btn-link" onclick="toggleSideBarCollapse()" title="Toggle Sidebar Collapse">
+          </a>
+        </div> 
+        <script src="sidebartoggle.js" type="text/javascript"></script>
+       
+      </div>
+
+      <main class="">
+        
+
+        
+
+        <div class="page-header">
+          <h1 class="class"><code><code><a href="index.html" class="internal-link">resonate</a></code><wbr></wbr>.<code><a href="resonate.scheduler.html" class="internal-link" title="resonate.scheduler">scheduler</a></code><wbr></wbr>.<code><a href="resonate.scheduler.Rfnc.html" class="internal-link" title="resonate.scheduler.Rfnc">Rfnc</a></code></code></h1>
+          <div id="show-private">
+            <button class="btn btn-link" onclick="togglePrivate()">Toggle Private API</button>
+          </div>
+        </div>
+
+        <div class="categoryHeader">
+          class documentation
+        </div>
+
+        <div class="extrasDocstring">
+          <p class="class-signature"><code><span class="py-keyword">class</span> <span class="py-defname">Rfnc</span>:</code></p><p><a href="classIndex.html#resonate.scheduler.Rfnc">View In Hierarchy</a></p>
+        </div>
+
+        <div class="moduleDocstring">
+          <div><p class="undocumented">Undocumented</p></div>
+        </div>
+
+        <div id="split-tables">
+          <table class="children sortable" id="id165">
+  
+  
+  <tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#__post_init__" class="internal-link" title="resonate.scheduler.Rfnc.__post_init__">__post<wbr></wbr>_init__</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#__repr__" class="internal-link" title="resonate.scheduler.Rfnc.__repr__">__repr__</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="method">
+    
+    <td>Method</td>
+    <td><code><a href="#map" class="internal-link" title="resonate.scheduler.Rfnc.map">map</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="classvariable">
+    
+    <td>Class Variable</td>
+    <td><code><a href="#attempt" class="internal-link" title="resonate.scheduler.Rfnc.attempt">attempt</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="classvariable">
+    
+    <td>Class Variable</td>
+    <td><code><a href="#cid" class="internal-link" title="resonate.scheduler.Rfnc.cid">cid</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="classvariable">
+    
+    <td>Class Variable</td>
+    <td><code><a href="#conv" class="internal-link" title="resonate.scheduler.Rfnc.conv">conv</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="classvariable">
+    
+    <td>Class Variable</td>
+    <td><code><a href="#id" class="internal-link" title="resonate.scheduler.Rfnc.id">id</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="classvariable">
+    
+    <td>Class Variable</td>
+    <td><code><a href="#opts" class="internal-link" title="resonate.scheduler.Rfnc.opts">opts</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="classvariable">
+    
+    <td>Class Variable</td>
+    <td><code><a href="#suspends" class="internal-link" title="resonate.scheduler.Rfnc.suspends">suspends</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#encoder" class="internal-link" title="resonate.scheduler.Rfnc.encoder">encoder</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#promise" class="internal-link" title="resonate.scheduler.Rfnc.promise">promise</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#result" class="internal-link" title="resonate.scheduler.Rfnc.result">result</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr><tr class="instancevariable">
+    
+    <td>Instance Variable</td>
+    <td><code><a href="#timeout" class="internal-link" title="resonate.scheduler.Rfnc.timeout">timeout</a></code></td>
+    <td><span class="rst-undocumented">Undocumented</span></td>
+  </tr>
+</table>
+          
+
+            
+        </div>
+
+        <div id="child-list">
+          <div class="basemethod">
+  
+  
+  <a name="resonate.scheduler.Rfnc.__post_init__">
+    
+  </a>
+  <a name="__post_init__">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">__post_init__</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>):</span>
+    
+    <a class="headerLink" href="#__post_init__" title="resonate.scheduler.Rfnc.__post_init__">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.scheduler.Rfnc.__repr__">
+    
+  </a>
+  <a name="__repr__">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">__repr__</span><span class="function-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span></span>) -&gt; <code>str</code>:</span>
+    
+    <a class="headerLink" href="#__repr__" title="resonate.scheduler.Rfnc.__repr__">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="basemethod">
+  
+  
+  <a name="resonate.scheduler.Rfnc.map">
+    
+  </a>
+  <a name="map">
+    
+  </a>
+  <div class="functionHeader">
+    
+    
+    <span class="py-keyword">def</span>&#160;<span class="py-defname">map</span><span class="function-signature long-signature">(<span class="rst-sig-param"><span class="rst-undocumented">self</span>, </span><span class="rst-sig-symbol">*, </span><span class="rst-sig-param">promise: <code><a href="resonate.models.durable_promise.DurablePromise.html" class="internal-link" title="resonate.models.durable_promise.DurablePromise">DurablePromise</a> | None</code> = None, </span><span class="rst-sig-param">result: <code>Result[<wbr></wbr>Any] | None</code> = None, </span><span class="rst-sig-param">suspends: <code><a href="resonate.graph.Node.html" class="internal-link" title="resonate.graph.Node">Node</a>[<wbr></wbr>State] | None</code> = None</span>) -&gt; <code><a href="resonate.scheduler.Rfnc.html" class="internal-link" title="resonate.scheduler.Rfnc">Rfnc</a></code>:</span>
+    
+    <a class="headerLink" href="#map" title="resonate.scheduler.Rfnc.map">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="docstring functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+  </div>
+</div><div class="baseclassvariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.attempt">
+    
+  </a>
+  <a name="attempt">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">attempt</span>: <code>int</code> =
+    
+    <a class="headerLink" href="#attempt" title="resonate.scheduler.Rfnc.attempt">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseclassvariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.cid">
+    
+  </a>
+  <a name="cid">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">cid</span>: <code>str</code> =
+    
+    <a class="headerLink" href="#cid" title="resonate.scheduler.Rfnc.cid">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseclassvariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.conv">
+    
+  </a>
+  <a name="conv">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">conv</span>: <code><a href="resonate.models.convention.Convention.html" class="internal-link" title="resonate.models.convention.Convention">Convention</a></code> =
+    
+    <a class="headerLink" href="#conv" title="resonate.scheduler.Rfnc.conv">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseclassvariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.id">
+    
+  </a>
+  <a name="id">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">id</span>: <code>str</code> =
+    
+    <a class="headerLink" href="#id" title="resonate.scheduler.Rfnc.id">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseclassvariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.opts">
+    
+  </a>
+  <a name="opts">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">opts</span>: <code><a href="resonate.options.Options.html" class="internal-link" title="resonate.options.Options">Options</a></code> =
+    
+    <a class="headerLink" href="#opts" title="resonate.scheduler.Rfnc.opts">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseclassvariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.suspends">
+    
+  </a>
+  <a name="suspends">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">suspends</span>: <code>list[<wbr></wbr><a href="resonate.graph.Node.html" class="internal-link" title="resonate.graph.Node">Node</a>[<wbr></wbr>State]]</code> =
+    
+    <a class="headerLink" href="#suspends" title="resonate.scheduler.Rfnc.suspends">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.encoder">
+    
+  </a>
+  <a name="encoder">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">encoder</span>: <code><a href="resonate.models.encoder.Encoder.html" class="internal-link" title="resonate.models.encoder.Encoder">Encoder</a>[<wbr></wbr>Any, <wbr></wbr>tuple[<wbr></wbr>dict[<wbr></wbr>str, <wbr></wbr>str] | None, <wbr></wbr>str | None]]</code> =
+    
+    <a class="headerLink" href="#encoder" title="resonate.scheduler.Rfnc.encoder">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.promise">
+    
+  </a>
+  <a name="promise">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">promise</span>: <code><a href="resonate.models.durable_promise.DurablePromise.html" class="internal-link" title="resonate.models.durable_promise.DurablePromise">DurablePromise</a> | None</code> =
+    
+    <a class="headerLink" href="#promise" title="resonate.scheduler.Rfnc.promise">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.result">
+    
+  </a>
+  <a name="result">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">result</span>: <code>Result[<wbr></wbr>Any] | None</code> =
+    
+    <a class="headerLink" href="#result" title="resonate.scheduler.Rfnc.result">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div><div class="baseinstancevariable">
+  
+  
+  <a name="resonate.scheduler.Rfnc.timeout">
+    
+  </a>
+  <a name="timeout">
+    
+  </a>
+  <div class="functionHeader">
+    
+    <span class="py-defname">timeout</span>: <code>float</code> =
+    
+    <a class="headerLink" href="#timeout" title="resonate.scheduler.Rfnc.timeout">
+      
+      
+      ¶
+    </a>
+  </div>
+  <div class="functionBody">
+    
+    <div><p class="undocumented">Undocumented</p></div>
+    
+  </div>
+</div>
+        </div>
+      
+      </main>
+    </div>
+
+    <footer class="navbar navbar-default">
+
+  
+  <div class="container-fluid">
+    <a href="index.html">API Documentation</a> for <a href="https://github.com/resonatehq/resonate-sdk-py" class="projecthome">Resonate Python SDK</a>,
+  generated by <a href="https://github.com/twisted/pydoctor/">pydoctor</a>
+    25.10.1 at 2026-02-20 21:43:41.
+  </div>
+
+  <!-- Search related scripts needs to be loaded at the end of HTML 
+    parsing not to introduce overhead and display HTML data asap -->
+  <script src="ajax.js" type="text/javascript"></script>
+  <script src="searchlib.js" type="text/javascript"></script>
+  <script src="search.js" type="text/javascript"></script>
+
+</footer>
+  
+    <script src="pydoctor.js" type="text/javascript"></script>
+
+  </body>
+</html>
