@@ -21,6 +21,11 @@ The Resonate Python SDK enables developers to build reliable and scalable cloud 
 - [Follow on LinkedIn](https://www.linkedin.com/company/resonatehqio)
 - [Subscribe on YouTube](https://www.youtube.com/@resonatehqio)
 
+## Requirements
+
+- **Python ≥3.12**
+- **Resonate Server**: The Python SDK v0.6.7 currently works with the **legacy Resonate server** only. Support for the new server (v0.9.x) is coming in a future release.
+
 ## Quickstart
 
 ![quickstart banner](./assets/quickstart-banner.png)
@@ -104,10 +109,10 @@ Done!
 
 **What to try**
 
-After starting the function, inspect the current state of the execution using the `resonate tree` command. The tree command visualizes the call graph of the function execution as a graph of durable promises.
+After starting the function, inspect the current state of the execution. The `resonate tree` command (coming in a future server release) will visualize the call graph of the function execution as a graph of durable promises. In the meantime, use `resonate promises` to inspect execution state.
 
 ```shell
-resonate tree countdown.1
+resonate promises
 ```
 
 Now try killing the worker mid-countdown and restarting. **The countdown picks up right where it left off without missing a beat.**
