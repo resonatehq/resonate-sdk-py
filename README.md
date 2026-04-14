@@ -109,10 +109,10 @@ Done!
 
 **What to try**
 
-After starting the function, inspect the current state of the execution. The `resonate tree` command (coming in a future server release) will visualize the call graph of the function execution as a graph of durable promises. In the meantime, use `resonate promises` to inspect execution state.
+After starting the function, inspect the current state of the execution using the `resonate tree` command. The tree command visualizes the call graph of the function execution as a graph of durable promises.
 
 ```shell
-resonate promises
+resonate tree countdown.1
 ```
 
 Now try killing the worker mid-countdown and restarting. **The countdown picks up right where it left off without missing a beat.**
