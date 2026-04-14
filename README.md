@@ -24,7 +24,7 @@ The Resonate Python SDK enables developers to build reliable and scalable cloud 
 ## Requirements
 
 - **Python ≥3.12**
-- **Resonate Server**: The Python SDK v0.6.7 currently works with the **legacy Resonate server** only. Support for the new server (v0.9.x) is coming in a future release.
+- **Resonate Server**: The Python SDK v0.6.7 currently works with the **[legacy Resonate server](https://github.com/resonatehq/resonate-legacy-server)** only. Support for the new server (v0.9.x) is coming in a future release.
 
 ## Quickstart
 
