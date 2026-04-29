@@ -9,7 +9,7 @@ The Python SDK for [Resonate](https://resonatehq.io). Published as [`resonate-sd
 - **Latest published:** `resonate-sdk` 0.6.7 on PyPI (2025-10-14)
 - **Server compatibility:** **legacy server only** — the Python SDK targets the [legacy Resonate server](https://github.com/resonatehq/resonate-legacy-server). Compatibility with the v0.9.x Rust server is on the roadmap and not yet shipped.
 - **Cadence:** stalled. Releases lag behind sibling SDKs; the API surface has not yet absorbed the protocol changes that landed in the v0.10.x TypeScript line and the Rust SDK.
-- **Owner:** Cully Wakelin lands incidental PRs; no full-time owner today.
+- **Ownership:** PRs land incidentally; no full-time owner today.
 
 ## Stack
 
@@ -38,7 +38,7 @@ uv build                         # build sdist + wheel
 
 If `uv` isn't available, the equivalents are `python -m venv .venv && pip install -e ".[dev]"`, `pytest`, `ruff check`, etc. — but `uv.lock` is the canonical lockfile; mixing pip resolution will drift the dep tree.
 
-Cully prefers to run long-lived processes himself. Run one-shot commands (test, lint, format, type-check) freely; don't auto-start a server.
+Run one-shot commands (test, lint, format, type-check) freely; don't auto-start a server — the operator runs long-lived processes themselves.
 
 ## Architecture notes
 
