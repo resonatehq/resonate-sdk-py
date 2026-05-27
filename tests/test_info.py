@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
+import msgspec
 import pytest
 
 from resonate import DependencyMap
 from resonate.info import Info
 
 
-@dataclass
-class Config:
+class Config(msgspec.Struct, frozen=True, kw_only=True):
     value: str
 
 
-@dataclass
-class Counter:
+class Counter(msgspec.Struct, frozen=True, kw_only=True):
     count: int
 
 

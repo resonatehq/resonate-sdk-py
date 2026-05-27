@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import msgspec
@@ -60,8 +59,7 @@ type TaskState = Literal["pending", "acquired", "suspended", "halted", "fulfille
 # =============================================================================
 
 
-@dataclass
-class DurablePromise:
+class DurablePromise(msgspec.Struct, kw_only=True):
     id: str
     state: PromiseState
     param: Any
@@ -88,8 +86,7 @@ class DurablePromise:
         return obj
 
 
-@dataclass
-class Task:
+class Task(msgspec.Struct, kw_only=True):
     id: str
     state: TaskState
     version: int
@@ -111,27 +108,23 @@ class Task:
         return obj
 
 
-@dataclass
-class PTimeout:
+class PTimeout(msgspec.Struct, kw_only=True):
     id: str
     timeout: int
 
 
-@dataclass
-class TTimeout:
+class TTimeout(msgspec.Struct, kw_only=True):
     id: str
     typ: int
     timeout: int
 
 
-@dataclass
-class OutgoingMessage:
+class OutgoingMessage(msgspec.Struct, kw_only=True):
     address: str
     message: Any
 
 
-@dataclass
-class ScheduleStub:
+class ScheduleStub(msgspec.Struct, kw_only=True):
     id: str
     cron: str
     promise_id: str
