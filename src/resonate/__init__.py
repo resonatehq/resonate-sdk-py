@@ -3,10 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 
-def hello() -> str:
-    return "Hello from resonate!"
-
-
 class DependencyMap:
     """Type-keyed container for application dependencies (DB pools, clients, config).
 
