@@ -57,11 +57,11 @@ def test_encode_both_fields_in_field_order() -> None:
 
 
 def test_data_or_null_defaults_to_null() -> None:
-    assert Value().data_or_null() is None
+    assert Value().data is None
 
 
 def test_data_or_null_returns_data() -> None:
-    assert Value(data=42).data_or_null() == 42
+    assert Value(data=42).data == 42
 
 
 # --- headers_or_empty ---
@@ -115,7 +115,7 @@ def test_from_wire_null_is_empty_value() -> None:
 def test_from_wire_object_splits_headers_and_data() -> None:
     v = from_wire_json('{"headers":{"a":"b"},"data":[1,2,3]}')
     assert v.headers_or_empty() == {"a": "b"}
-    assert v.data_or_null() == [1, 2, 3]
+    assert v.data == [1, 2, 3]
 
 
 def test_from_wire_invalid_headers_are_dropped() -> None:
@@ -125,19 +125,19 @@ def test_from_wire_invalid_headers_are_dropped() -> None:
 
 
 def test_from_wire_bare_value_is_treated_as_data() -> None:
-    assert from_wire_json("42").data_or_null() == 42
-    assert from_wire_json('"hello"').data_or_null() == "hello"
-    assert from_wire_json("[1,2,3]").data_or_null() == [1, 2, 3]
+    assert from_wire_json("42").data == 42
+    assert from_wire_json('"hello"').data == "hello"
+    assert from_wire_json("[1,2,3]").data == [1, 2, 3]
 
 
 def test_from_wire_object_without_data_field() -> None:
     v = from_wire_json("{}")
     assert v.headers is None
-    assert v.data_or_null() is None
+    assert v.data is None
 
     v2 = from_wire_json('{"headers":{"a":"b"}}')
     assert v2.headers_or_empty() == {"a": "b"}
-    assert v2.data_or_null() is None
+    assert v2.data is None
 
 
 # --- PromiseRecord: camelCase wire format + `#[serde(default)]` parity ---
@@ -155,9 +155,9 @@ def test_promise_record_decode_full() -> None:
     r = msgspec.json.decode(PROMISE_FULL, type=PromiseRecord)
     assert r.id == "p1"
     assert r.state == "resolved"
-    assert r.param.data_or_null() == 1
+    assert r.param.data == 1
     assert r.value.headers_or_empty() == {"a": "b"}
-    assert r.value.data_or_null() == [1, 2]
+    assert r.value.data == [1, 2]
     assert r.tags == {"k": "v"}
     assert r.timeout_at == 10
     assert r.created_at == 5
@@ -169,9 +169,9 @@ def test_promise_record_decode_minimal_applies_defaults() -> None:
     r = msgspec.json.decode(
         b'{"id":"p1","state":"pending","timeoutAt":10}', type=PromiseRecord
     )
-    assert r.param.data_or_null() is None
+    assert r.param.data is None
     assert r.param.headers is None
-    assert r.value.data_or_null() is None
+    assert r.value.data is None
     assert r.tags == {}
     assert r.created_at == 0
     assert r.settled_at is None
@@ -257,7 +257,7 @@ def test_schedule_record_decode_full() -> None:
     assert r.cron == "* * * * *"
     assert r.promise_id == "p1"
     assert r.promise_timeout == 100
-    assert r.promise_param.data_or_null() == 1
+    assert r.promise_param.data == 1
     assert r.promise_tags == {"k": "v"}
     assert r.created_at == 1
     assert r.next_run_at == 2
@@ -269,7 +269,7 @@ def test_schedule_record_decode_minimal_applies_defaults() -> None:
         b'{"id":"s1","cron":"c","promiseId":"p1","promiseTimeout":100}',
         type=ScheduleRecord,
     )
-    assert r.promise_param.data_or_null() is None
+    assert r.promise_param.data is None
     assert r.promise_tags == {}
     assert r.created_at == 0
     assert r.next_run_at == 0
@@ -308,7 +308,7 @@ def test_promise_create_req_decode_camel() -> None:
     )
     assert r.id == "p1"
     assert r.timeout_at == 10
-    assert r.param.data_or_null() == 1
+    assert r.param.data == 1
     assert r.tags == {"k": "v"}
 
 
@@ -337,7 +337,7 @@ def test_promise_settle_req_decode() -> None:
     )
     assert r.id == "p1"
     assert r.state == "rejected_canceled"
-    assert r.value.data_or_null() is None
+    assert r.value.data is None
 
 
 # --- PromiseRegisterCallbackData ---
@@ -382,7 +382,7 @@ def test_task_data_into_value_wraps_func_and_args() -> None:
     assert v.headers is None
     # Compare structurally: serde_json (BTreeMap) and Python dict differ in key
     # order on the wire, but the decoded content is identical.
-    assert v.data_or_null() == {"func": "f", "args": [1, 2]}
+    assert v.data == {"func": "f", "args": [1, 2]}
 
 
 def test_task_data_into_value_unserializable_raises() -> None:

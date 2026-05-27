@@ -5,10 +5,10 @@ from typing import Any, Literal
 
 import msgspec
 
-from resonate.error import Result, SerializationError
+from resonate.error import ResonateError, SerializationError
 
 
-class Value(msgspec.Struct, omit_defaults=True, kw_only=True):
+class Value(msgspec.Struct, omit_defaults=True, kw_only=True, frozen=True):
     """The wire format for data crossing the durability boundary.
 
     On the wire, ``data`` is a base64-encoded JSON string (or omitted).
@@ -29,15 +29,6 @@ class Value(msgspec.Struct, omit_defaults=True, kw_only=True):
     def headers_or_empty(self) -> dict[str, str]:
         """Return the headers, defaulting to an empty map if absent."""
         return {} if self.headers is None else self.headers
-
-    def data_or_null(self) -> Any | None:
-        """Return the data field, defaulting to ``None`` (JSON null) if absent.
-
-        Collapses the Rust ``data_as_ref`` / ``data_or_null`` /
-        ``into_data_or_null`` accessors, which differ only by Rust's ownership
-        semantics.
-        """
-        return self.data
 
     @classmethod
     def from_serializable(cls, val: Any) -> Value:
@@ -95,7 +86,7 @@ class Value(msgspec.Struct, omit_defaults=True, kw_only=True):
                 return cls(headers=None, data=raw)
 
 
-class PromiseRecord(msgspec.Struct, rename="camel", kw_only=True):
+class PromiseRecord(msgspec.Struct, rename="camel", kw_only=True, frozen=True):
     """A durable promise record as stored by the server.
 
     ``kw_only=True`` lets the defaulted fields keep their Rust declaration
@@ -120,7 +111,7 @@ class PromiseRecord(msgspec.Struct, rename="camel", kw_only=True):
     settled_at: int | None = msgspec.field(default=None)
 
 
-class TaskRecord(msgspec.Struct, rename="camel", kw_only=True):
+class TaskRecord(msgspec.Struct, rename="camel", kw_only=True, frozen=True):
     """A task record as returned by the server.
 
     ``resumes`` mirrors Rust's ``#[serde(default)] serde_json::Value`` (defaults
@@ -136,7 +127,7 @@ class TaskRecord(msgspec.Struct, rename="camel", kw_only=True):
     pid: str | None = msgspec.field(default=None)
 
 
-class ScheduleRecord(msgspec.Struct, rename="camel", kw_only=True):
+class ScheduleRecord(msgspec.Struct, rename="camel", kw_only=True, frozen=True):
     """A schedule record as returned by the server."""
 
     id: str
@@ -150,20 +141,22 @@ class ScheduleRecord(msgspec.Struct, rename="camel", kw_only=True):
     last_run_at: int | None = msgspec.field(default=None)
 
 
-class PromiseCreateReq(msgspec.Struct, rename="camel", kw_only=True):
+class PromiseCreateReq(msgspec.Struct, rename="camel", kw_only=True, frozen=True):
     id: str
     timeout_at: int = msgspec.field(default=0)
     param: Value = msgspec.field(default_factory=Value)
     tags: dict[str, str] = msgspec.field(default_factory=dict)
 
 
-class PromiseSettleReq(msgspec.Struct, rename="camel", kw_only=True):
+class PromiseSettleReq(msgspec.Struct, rename="camel", kw_only=True, frozen=True):
     id: str
     state: Literal["resolved", "rejected", "rejected_canceled"]
     value: Value
 
 
-class PromiseRegisterCallbackData(msgspec.Struct, rename="camel", kw_only=True):
+class PromiseRegisterCallbackData(
+    msgspec.Struct, rename="camel", kw_only=True, frozen=True
+):
     awaited: str
     awaiter: str
 
@@ -182,7 +175,7 @@ class Done[T]:
     arms of ``Result[T] = T | ResonateError``.
     """
 
-    result: Result[T]
+    result: T | ResonateError
 
 
 @dataclass(frozen=True)
@@ -207,7 +200,7 @@ type Outcome[T] = Done[T] | Suspended
 type DurableKind = Literal["function", "workflow"]
 
 
-class TaskData(msgspec.Struct, kw_only=True):
+class TaskData(msgspec.Struct, kw_only=True, frozen=True):
     """Parsed task data from the root promise param.
 
     Rust declares no ``rename_all``, so the field names stay ``func`` / ``args``

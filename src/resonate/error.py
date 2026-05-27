@@ -91,6 +91,3 @@ class ApplicationError(ResonateError):
 class TimeoutError(ResonateError):
     def __init__(self) -> None:
         super().__init__("timeout")
-
-
-type Result[T] = T | ResonateError
