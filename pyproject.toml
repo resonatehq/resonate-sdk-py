@@ -5,7 +5,9 @@ description = "Distributed Async Await by Resonate HQ, Inc"
 readme = "README.md"
 authors = [{ name = "Resonate HQ, Inc", email = "contact@resonatehq.io" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "msgspec>=0.21.1",
+]
 
 [project.urls]
 Documentation = "https://github.com/resonatehq/resonate-sdk-py#readme"
@@ -21,17 +23,10 @@ module-name = "resonate"
 
 [dependency-groups]
 dev = [
-    "poethepoet>=0.46.0",
     "pytest>=9.0.3",
     "ruff>=0.15.14",
     "ty>=0.0.39",
 ]
 
-
-[tool.poe]
-default_array_item_task_type = "cmd"
-
-[tool.poe.tasks]
-test = "pytest"
-fmt = "ruff format"
-check = ["ruff check", "ty check"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]

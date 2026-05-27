@@ -1,6 +1,8 @@
-line-length = 200
+src = ["src", "tests"]
+target-version = "py312"
 
 [lint]
+select = ["ALL"]
 ignore = [
     "A001",
     "A002",
@@ -37,7 +39,6 @@ ignore = [
     "S311",
     "TD003",
 ]
-select = ["ALL"]
 
 [lint.isort]
 combine-as-imports = true
