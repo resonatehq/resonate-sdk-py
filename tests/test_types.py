@@ -405,28 +405,19 @@ def test_status_permitted_values() -> None:
 
 
 def test_outcome_done_holds_ok_result() -> None:
-    o: Outcome[int] = Done(42)
-    match o:
-        case Done(result):
-            assert result == 42
-        case _:
-            pytest.fail("expected Done")
+    o: Outcome[int] = Done(result=42)
+    assert isinstance(o, Done)
+    assert o.result == 42
 
 
 def test_outcome_done_holds_err_result() -> None:
     err = ApplicationError("boom")
-    o: Outcome[int] = Done(err)
-    match o:
-        case Done(result):
-            assert result is err
-        case _:
-            pytest.fail("expected Done")
+    o: Outcome[int] = Done(result=err)
+    assert isinstance(o, Done)
+    assert o.result is err
 
 
 def test_outcome_suspended_holds_remote_todos() -> None:
     o: Outcome[None] = Suspended(remote_todos=["a", "b"])
-    match o:
-        case Suspended(remote_todos):
-            assert remote_todos == ["a", "b"]
-        case _:
-            pytest.fail("expected Suspended")
+    assert isinstance(o, Suspended)
+    assert o.remote_todos == ["a", "b"]

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Literal
 
 import msgspec
@@ -166,8 +165,7 @@ class PromiseRegisterCallbackData(
 # =============================================================================
 
 
-@dataclass(frozen=True)
-class Done[T]:
+class Done[T](msgspec.Struct, frozen=True, kw_only=True):
     """``Outcome`` variant: the function completed, successfully or with an error.
 
     Mirrors Rust's ``Outcome::Done(Result<T>)``. ``result`` holds either the
@@ -178,8 +176,7 @@ class Done[T]:
     result: T | ResonateError
 
 
-@dataclass(frozen=True)
-class Suspended:
+class Suspended(msgspec.Struct, frozen=True, kw_only=True):
     """``Outcome`` variant: the function cannot proceed.
 
     Mirrors Rust's ``Outcome::Suspended { remote_todos }`` -- the function has

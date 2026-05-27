@@ -1,34 +1,29 @@
 from __future__ import annotations
 
+import time
 from typing import Any
+
+#: Protocol version string sent in all requests. Mirrors Rust's ``PROTOCOL_VERSION``.
+PROTOCOL_VERSION = "2026-04-01"
+
+
+def now_ms() -> int:
+    """Return the current time in milliseconds since the UNIX epoch."""
+    return time.time_ns() // 1_000_000
 
 
 class DependencyMap:
-    """Type-keyed container for application dependencies (DB pools, clients, config).
-
-    Stored on ``Resonate`` and shared with every ``Context`` and ``Info``. All
-    dependencies should be added **before** the system starts processing tasks.
-    Mirrors Rust's ``DependencyMap`` (``lib.rs``): a map keyed by concrete type.
-    """
+    """Type-keyed container for application dependencies (DB pools, clients, config)."""
 
     def __init__(self) -> None:
         self._map: dict[type, Any] = {}
 
     def insert[T](self, value: T) -> None:
-        """Store a dependency, keyed by its concrete type.
-
-        Mirrors Rust's ``DependencyMap::insert``: where Rust keys by
-        ``TypeId::of::<T>()``, Python keys by ``type(value)``.
-        """
+        """Store a dependency, keyed by its concrete type."""
         self._map[type(value)] = value
 
     def get[T](self, type: type[T]) -> T:
-        """Retrieve a dependency by type. Raises ``KeyError`` if not found.
-
-        Mirrors Rust's ``DependencyMap::get``, which panics on a missing
-        dependency. Where Rust resolves the lookup key from the ``T`` generic,
-        Python takes the type explicitly as ``type``.
-        """
+        """Retrieve a dependency by type. Raises ``KeyError`` if not found."""
         try:
             return self._map[type]
         except KeyError:

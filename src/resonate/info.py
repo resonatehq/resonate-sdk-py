@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+import msgspec
 
 if TYPE_CHECKING:
     from resonate import DependencyMap
 
 
-@dataclass(frozen=True, slots=True)
-class Info:
+class Info(msgspec.Struct, frozen=True, kw_only=True):
     """Read-only execution metadata for leaf functions.
 
     Cannot spawn durable sub-tasks -- no run/rpc methods. Mirrors Rust's
