@@ -361,6 +361,7 @@ class Context:
 
             await self.effects.settle_promise(req.id, value)
             if outcome == "errored":
+                assert isinstance(value, ResonateError)
                 raise value
             assert not isinstance(value, ResonateError)
             return value
@@ -385,10 +386,11 @@ class Context:
 
         # Build id/req synchronously so child-id ordering matches call order
         # without relying on asyncio's task-start scheduling being FIFO.
+
         req = self.remote_create_req(
             self.next_id(),
             fn,
-            {"args": list(args), "kwargs": kwargs} if args or kwargs else None,
+            None if not args and not kwargs else {"args": list(args), "kwargs": kwargs},
             self.opts.timeout,
             self.opts.target,
         )
