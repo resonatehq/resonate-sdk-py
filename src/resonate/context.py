@@ -114,6 +114,15 @@ class Context:
         # tasks issue create_promise in ctx.run call order under concurrency.
         self._tail: asyncio.Event | None = None
 
+        # Background tasks spawned by rpc/sleep/promise (see
+        # ``_spawn_remote_await``). Tracked so ``flush_local_work`` can join
+        # them, which both retrieves their (almost always ``SuspendedError``)
+        # result -- avoiding asyncio's "exception never retrieved" warning for
+        # a future the workflow never awaited -- and makes ``spawned_remote``
+        # population deterministic rather than dependent on incidental
+        # event-loop scheduling.
+        self.spawned_remote_tasks: list[asyncio.Task[Any]] = []
+
     @classmethod
     def root(
         cls,
@@ -177,14 +186,25 @@ class Context:
         return f"{self.id}.{self.seq}"
 
     async def flush_local_work(self) -> None:
-        """Wait for every eagerly spawned local task on this context to finish.
+        """Wait for every eagerly spawned task on this context to finish.
 
-        Each spawned task merges its own remote todos into ``spawned_remote``
-        before it exits, so callers wait here and then drain ``spawned_remote``
-        via :meth:`take_remote_todos`. Mirrors Go's ``flushLocalWork`` (an
-        unbounded ``wg.Wait()``): the structured-concurrency invariant requires
-        every child's remote todos be merged before the parent decides to
-        suspend, otherwise the suspend would register a partial awaited list.
+        Joins two task groups before the caller drains ``spawned_remote`` via
+        :meth:`take_remote_todos`:
+
+        * ``spawned_locals`` -- the ``ctx.run`` children. Each merges its own
+          remote todos into ``spawned_remote`` before it exits.
+        * ``spawned_remote_tasks`` -- the ``rpc``/``sleep``/``promise``
+          background bodies (see :meth:`_spawn_remote_await`). Each appends its
+          child id to ``spawned_remote`` and unwinds via ``SuspendedError`` when
+          its record is pending. Joining them here makes that append
+          deterministic for futures the workflow created but never awaited
+          (e.g. it suspended on a sibling first), instead of relying on the
+          event loop happening to run the task before ``take_remote_todos``.
+
+        Mirrors Go's ``flushLocalWork`` (an unbounded ``wg.Wait()``): the
+        structured-concurrency invariant requires every child's remote todos be
+        merged before the parent decides to suspend, otherwise the suspend would
+        register a partial awaited list.
 
         Per-task ``SuspendedError`` / ``ResonateError`` are swallowed: by the
         time a task ends, it has either merged its todos into our
@@ -193,11 +213,16 @@ class Context:
         matches Go's ``wg.Wait`` + channel-based result delivery and Rust's
         ``Outcome::{Done, Suspended}`` handling in ``flush_local_work``.
         """
-        tasks = self.spawned_locals
+        locals_ = self.spawned_locals
+        remotes = self.spawned_remote_tasks
         self.spawned_locals = []
-        for task in tasks:
+        self.spawned_remote_tasks = []
+        for task in locals_:
             with contextlib.suppress(SuspendedError, ResonateError):
                 await task.handle
+        for remote in remotes:
+            with contextlib.suppress(SuspendedError, ResonateError):
+                await remote
 
     def take_remote_todos(self) -> list[str]:
         """Drain and return all remote todos accumulated on this context.
@@ -402,11 +427,14 @@ class Context:
         self.opts = Opts()
 
         # rpc tracks its child id in ``spawned_remote`` (the remote-deps list),
-        # not in ``spawned_locals``. The bg task is just the mechanism that
-        # defers create_promise through the chain; it is expected to be
-        # awaited via the returned future (use ``Detached`` for fire-and-forget
-        # remote dispatch). Matches Go's RPC and Rust's RpcTask, neither of
-        # which track for structured-concurrency joining.
+        # not in ``spawned_locals``. The bg task is the mechanism that defers
+        # create_promise through the chain; it is normally awaited via the
+        # returned future (use ``Detached`` for fire-and-forget remote
+        # dispatch). ``_spawn_remote_await`` also registers it in
+        # ``spawned_remote_tasks`` so ``flush_local_work`` joins it -- a
+        # Python-specific step (Go's RPC and Rust's RpcTask await synchronously
+        # and need no background task) that keeps ``spawned_remote`` population
+        # deterministic for a future the workflow never awaited.
         return ResonateFuture(
             _id=req.id,
             _task=self._spawn_remote_await(req, prev_created, created),
@@ -500,17 +528,17 @@ class Context:
     ) -> asyncio.Task[Any]:
         """Spawn the :meth:`_await_remote` task for rpc/sleep/promise.
 
-        Attaches :func:`_retrieve_remote_await_result` so a never-awaited
-        suspended task does not trip asyncio's "exception never retrieved"
-        warning; awaiting the future still raises as before.
+        Registers the task in ``spawned_remote_tasks`` so
+        :meth:`flush_local_work` joins it. The join retrieves the task's result
+        -- a never-awaited suspended task would otherwise trip asyncio's
+        "exception never retrieved" warning -- and guarantees its
+        ``spawned_remote`` append has happened before the caller drains todos.
+        Awaiting the returned future still raises ``SuspendedError`` as before;
+        an asyncio task delivers its result to every awaiter, so the flush join
+        and the future await do not conflict.
         """
         task = asyncio.create_task(self._await_remote(req, prev_created, created))
-
-        def _(task: asyncio.Task[Any]) -> None:
-            assert not task.cancelled(), "task is not cancelled"
-            task.exception()
-
-        task.add_done_callback(_)
+        self.spawned_remote_tasks.append(task)
         return task
 
     async def _await_remote(
@@ -538,11 +566,11 @@ class Context:
             if prev_created is not None:
                 await prev_created.wait()
             record = await self.effects.create_promise(req)
-
-            if record.state != "pending":
-                return _decode_settled(record)
-
-            self.spawned_remote.append(req.id)
-            raise SuspendedError
         finally:
             created.set()
+
+        if record.state != "pending":
+            return _decode_settled(record)
+
+        self.spawned_remote.append(req.id)
+        raise SuspendedError
