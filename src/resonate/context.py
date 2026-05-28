@@ -360,6 +360,7 @@ class Context:
                 raise SuspendedError
 
             await self.effects.settle_promise(req.id, value)
+
             if outcome == "errored":
                 assert isinstance(value, ResonateError)
                 raise value
@@ -386,7 +387,6 @@ class Context:
 
         # Build id/req synchronously so child-id ordering matches call order
         # without relying on asyncio's task-start scheduling being FIFO.
-
         req = self.remote_create_req(
             self.next_id(),
             fn,
@@ -402,20 +402,21 @@ class Context:
                     await prev_created.wait()
                 record = await self.effects.create_promise(req)
 
-                # Idempotent recovery: an already-settled promise short-circuits.
-                if record.state != "pending":
-                    return _decode_settled(record)
-
-                # Pending remote dependency: register the child id so the parent's
-                # suspend list is complete, then unwind via SuspendedError. Mirrors
-                # Go's Future.Await on a futureRemote pending record (appendRemoteTodo
-                # + panic(suspendSignal{})).
-                self.spawned_remote.append(req.id)
-                raise SuspendedError
             finally:
                 # Release the next link no matter what -- a failing bg must
                 # not deadlock its successors in the chain.
                 created.set()
+
+            # Idempotent recovery: an already-settled promise short-circuits.
+            if record.state != "pending":
+                return _decode_settled(record)
+
+            # Pending remote dependency: register the child id so the parent's
+            # suspend list is complete, then unwind via SuspendedError. Mirrors
+            # Go's Future.Await on a futureRemote pending record (appendRemoteTodo
+            # + panic(suspendSignal{})).
+            self.spawned_remote.append(req.id)
+            raise SuspendedError
 
         # rpc tracks its child id in ``spawned_remote`` (the remote-deps list),
         # not in ``spawned_locals``. The bg task is just the mechanism that

@@ -461,6 +461,60 @@ async def test_run_fire_and_forget_child_suspension_propagates() -> None:
 
 
 # =============================================================================
+# run: structured concurrency -- unawaited child still blocks parent settlement
+#
+# ``ctx.run`` appends the child to ``spawned_locals``, and the parent's
+# ``flush_local_work`` joins it before deciding to settle. The invariant is
+# that a fire-and-forget child must not be orphaned: the parent's
+# ``settle_promise`` cannot run until every child registered on the parent's
+# context has reached a terminal state (settled or merged remote todos up).
+# Mirrors Go's ``wg.Wait()`` over ``spawnedLocals`` in ``executeLocal``.
+# =============================================================================
+
+
+async def quiet_child(ctx: Context) -> int:
+    # Yield a few times so a broken impl (one that doesn't join spawned_locals)
+    # would let the parent settle ahead of the child.
+    for _ in range(5):
+        await asyncio.sleep(0)
+    return 42
+
+
+async def parent_does_not_await_child(ctx: Context) -> int:
+    _ = ctx.run(quiet_child)
+    return 1
+
+
+@pytest.mark.asyncio
+async def test_run_unawaited_child_settles_before_parent() -> None:
+    # Parent spawns the child via ``ctx.run`` but never awaits the returned
+    # future. ``flush_local_work`` must still join the child's bg task before
+    # the parent calls ``settle_promise``, so the child's settlement is
+    # observed strictly before the parent's.
+    ctx = _root()
+    settle_order: list[str] = []
+    original = ctx.effects.settle_promise
+
+    async def recorder(id: str, value: Any) -> Any:
+        settle_order.append(id)
+        return await original(id, value)
+
+    with patch.object(
+        ctx.effects, "settle_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        assert await ctx.run(parent_does_not_await_child) == 1
+
+    # Child settled first; parent second. If ``flush_local_work`` were a no-op
+    # the parent's bg would settle ahead of the still-pending child task and
+    # this order would flip.
+    assert settle_order == ["root.1.1", "root.1"]
+    assert ctx.effects.cache["root.1.1"].state == "resolved"
+    assert ctx.effects.cache["root.1.1"].value.data == 42
+    assert ctx.effects.cache["root.1"].state == "resolved"
+    assert ctx.effects.cache["root.1"].value.data == 1
+
+
+# =============================================================================
 # run: blocks until the durable promise has been created
 #
 # ``Context.run`` returns a Task immediately, but the underlying
