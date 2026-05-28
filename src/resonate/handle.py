@@ -1,4 +1,5 @@
 from __future__ import annotations
+from resonate.types import PromiseState
 
 import asyncio
 from typing import TYPE_CHECKING, Any, Literal
@@ -23,13 +24,7 @@ class PromiseResult(msgspec.Struct, frozen=True, kw_only=True):
     and the raw, still-encoded ``value``.
     """
 
-    state: Literal[
-        "pending",
-        "resolved",
-        "rejected",
-        "rejected_canceled",
-        "rejected_timedout",
-    ]
+    state: PromiseState
     value: Any
 
 

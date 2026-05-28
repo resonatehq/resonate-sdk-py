@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import msgspec
 
@@ -9,6 +9,7 @@ from resonate.types import PromiseCreateReq, PromiseSettleReq
 
 if TYPE_CHECKING:
     from resonate.codec import Codec
+    from resonate.core import SettleState
     from resonate.send import ScheduleSearchResult, Sender
     from resonate.types import PromiseRecord, ScheduleRecord, Value
 
@@ -72,7 +73,7 @@ class Promises:
     async def _settle(
         self,
         id: str,
-        state: Literal["resolved", "rejected", "rejected_canceled"],
+        state: SettleState,
         value: Value,
     ) -> PromiseRecord:
         encoded_value = encode_value(self.codec, value)

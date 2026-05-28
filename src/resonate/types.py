@@ -6,6 +6,14 @@ import msgspec
 
 from resonate.error import ResonateError, SerializationError
 
+PromiseState = Literal[
+    "pending",
+    "resolved",
+    "rejected",
+    "rejected_canceled",
+    "rejected_timedout",
+]
+
 
 class Value(msgspec.Struct, omit_defaults=True, kw_only=True, frozen=True):
     """The wire format for data crossing the durability boundary.

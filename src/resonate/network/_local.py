@@ -13,6 +13,8 @@ from resonate.error import DecodingError, ServerError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from resonate.types import PromiseState
+
 # =============================================================================
 # CONSTANTS
 # =============================================================================
@@ -23,9 +25,6 @@ I64_MIN = -(2**63)
 
 # Rust serde enums (``PromiseState`` / ``TaskState``) fold into ``Literal``s here,
 # following the type-mapping convention used across the mirror.
-type PromiseState = Literal[
-    "pending", "resolved", "rejected", "rejected_canceled", "rejected_timedout"
-]
 type TaskState = Literal["pending", "acquired", "suspended", "halted", "fulfilled"]
 
 
