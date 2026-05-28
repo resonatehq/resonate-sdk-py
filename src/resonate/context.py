@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import timedelta
+from functools import wraps
 from typing import TYPE_CHECKING, Any, Concatenate, Final, Self, overload
 
 import msgspec
@@ -14,8 +16,6 @@ from resonate.info import Info
 from resonate.types import PromiseCreateReq, TaskData, Value
 
 if TYPE_CHECKING:
-    import asyncio
-
     from resonate import DependencyMap
     from resonate.effects import Effects
     from resonate.types import PromiseRecord
@@ -24,6 +24,26 @@ if TYPE_CHECKING:
 DEFAULT_TIMEOUT: Final[timedelta] = timedelta(days=1)
 
 TargetResolver = Callable[[str | None], str]
+
+
+def wait_for_signal[**P, T](
+    event: asyncio.Event,
+) -> Callable[
+    [Callable[P, Coroutine[Any, Any, T]]],
+    Callable[P, Coroutine[Any, Any, T]],
+]:
+    def decorator[**P, T](
+        fn: Callable[P, Coroutine[Any, Any, T]],
+    ) -> Callable[P, Coroutine[Any, Any, T]]:
+        @wraps(fn)
+        async def inner(*args: P.args, **kwargs: P.kwargs) -> T:
+            task = asyncio.create_task(fn(*args, **kwargs))
+            await event.wait()
+            return await task
+
+        return inner
+
+    return decorator
 
 
 class SpawnedLocal(msgspec.Struct, frozen=True, kw_only=True):
@@ -254,58 +274,68 @@ class Context(msgspec.Struct, kw_only=True):
         )
 
     @overload
-    async def run[**P, T](
+    def run[**P, T](
         self,
         fn: Callable[Concatenate[Context, P], Awaitable[T]],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> T: ...
+    ) -> asyncio.Task[T]: ...
     @overload
-    async def run[**P, T](
+    def run[**P, T](
         self,
         fn: Callable[Concatenate[Context, P], T],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> T: ...
+    ) -> asyncio.Task[T]: ...
     @overload
-    async def run[**P, T](
+    def run[**P, T](
         self,
         fn: Callable[Concatenate[Info, P], Awaitable[T]],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> T: ...
+    ) -> asyncio.Task[T]: ...
     @overload
-    async def run[**P, T](
+    def run[**P, T](
         self,
         fn: Callable[Concatenate[Info, P], T],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> T: ...
+    ) -> asyncio.Task[T]: ...
     @overload
-    async def run[**P, T](
+    def run[**P, T](
         self,
         fn: Callable[P, Awaitable[T]],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> T: ...
+    ) -> asyncio.Task[T]: ...
     @overload
-    async def run[**P, T](
+    def run[**P, T](
         self,
         fn: Callable[P, T],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> T: ...
-    async def run[T](self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
-        try:
-            df = durable_function_for(fn)
-            child_id = self.next_id()
-            # Pack once: the same envelope backs the durable promise's param and
-            # the (re-)invocation, so a recovered call rebuilds the same call.
-            payload = df.pack_args(*args, **kwargs)
+    ) -> asyncio.Task[T]: ...
+    def run[T](
+        self, fn: Callable[..., T], *args: Any, **kwargs: Any
+    ) -> asyncio.Task[T]:
+        durable_promise_created = asyncio.Event()
 
-            req = self.local_create_req(child_id, payload, self.opts.timeout)
-            record = await self.effects.create_promise(req)
+        @wait_for_signal(durable_promise_created)
+        async def _(opts: Opts, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+            try:
+                df = durable_function_for(fn)
+                child_id = self.next_id()
+                # Pack once: the same envelope backs the durable promise's param and
+                # the (re-)invocation, so a recovered call rebuilds the same call.
+                payload = df.pack_args(*args, **kwargs)
 
+                req = self.local_create_req(child_id, payload, opts.timeout)
+                record = await self.effects.create_promise(req)
+            except Exception:
+                durable_promise_created.set()
+                raise
+
+            durable_promise_created.set()
             # Idempotent recovery: an already-settled promise short-circuits
             # execution (Go's ``rec.State != PromiseStatePending`` branch).
             if record.state != "pending":
@@ -355,5 +385,7 @@ class Context(msgspec.Struct, kw_only=True):
             if app_error is not None:
                 raise app_error
             return value
-        finally:
-            self.opts = Opts()
+
+        opts = self.opts
+        self.opts = Opts()
+        return asyncio.create_task(_(opts, fn, *args, **kwargs))

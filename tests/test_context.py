@@ -15,21 +15,27 @@ The harness builds a root :class:`~resonate.context.Context` over a real
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import contextmanager
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock, patch
 
 import msgspec
 import pytest
 
 from resonate import DependencyMap, now_ms
 from resonate.codec import Codec, NoopEncryptor, encode_error
-from resonate.context import Context, Opts
+from resonate.context import Context, Opts, wait_for_signal
 from resonate.effects import Effects
 from resonate.error import ApplicationError, SuspendedError
 from resonate.network import LocalNetwork
 from resonate.send import Sender
 from resonate.transport import Transport
 from resonate.types import PromiseRecord, Value
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 I64_MAX = 2**63 - 1
 
@@ -329,6 +335,145 @@ async def test_run_suspends_when_child_completes_with_pending_remote() -> None:
 
 
 # =============================================================================
+# run: blocks until the durable promise has been created
+#
+# ``Context.run`` returns a Task immediately, but the underlying
+# ``wait_for_signal(durable_promise_created)`` guard means that Task must not
+# be observable as done -- and the function body must not run -- until
+# ``effects.create_promise`` has either returned a record or raised. These
+# tests pin execution at that exact boundary by gating ``create_promise`` on
+# an asyncio.Event.
+# =============================================================================
+
+
+@contextmanager
+def _gated_create_promise(ctx: Context, gate: asyncio.Event) -> Iterator[asyncio.Event]:
+    entered = asyncio.Event()
+    original = ctx.effects.create_promise
+
+    async def gated(req: Any) -> Any:
+        entered.set()
+        await gate.wait()
+        return await original(req)
+
+    mock = AsyncMock(side_effect=gated)
+    with patch.object(ctx.effects, "create_promise", new=mock):
+        yield entered
+
+
+@pytest.mark.asyncio
+async def test_run_task_pending_while_create_promise_blocked() -> None:
+    # The Task returned by ``ctx.run`` must not be ``done()`` while
+    # ``create_promise`` has not yet resolved -- the ``wait_for_signal`` guard
+    # parks the outer task at ``event.wait()`` until then.
+    ctx = _root()
+    gate = asyncio.Event()
+
+    with _gated_create_promise(ctx, gate) as entered:
+        task = ctx.run(double, 21)
+
+        # Wait until we *know* the inner coroutine is parked inside create_promise.
+        await entered.wait()
+        assert not task.done()
+        # And the durable record is not in the cache yet.
+        assert "root.1" not in ctx.effects.cache
+
+        # Releasing the gate lets create_promise return, the event fire, and
+        # the body run through to settlement.
+        gate.set()
+        assert await task == 42
+        assert ctx.effects.cache["root.1"].state == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_run_body_does_not_execute_before_promise_created() -> None:
+    # The user-supplied function body must not be invoked until
+    # ``create_promise`` has returned. If it ran earlier, a still-pending
+    # promise creation could be raced by side effects in the body.
+    body_ran = asyncio.Event()
+
+    async def observed(x: int) -> int:
+        body_ran.set()
+        return x
+
+    ctx = _root()
+    gate = asyncio.Event()
+
+    with _gated_create_promise(ctx, gate) as entered:
+        task = ctx.run(observed, 7)
+
+        await entered.wait()
+        # We're now parked inside create_promise -- the body must not have run.
+        assert not body_ran.is_set()
+        assert not task.done()
+
+        gate.set()
+        assert await task == 7
+        assert body_ran.is_set()
+
+
+@pytest.mark.asyncio
+async def test_run_durable_promise_visible_in_cache_before_task_resolves() -> None:
+    # Once ``await ctx.run(...)`` yields a value to its caller, the durable
+    # promise record is necessarily in ``effects.cache``. This is the
+    # "happens-before" guarantee the rest of the SDK leans on (e.g. replay
+    # picking up the cached record).
+    ctx = _root()
+    result = await ctx.run(double, 5)
+    assert result == 10
+    assert "root.1" in ctx.effects.cache
+    # And it was created *before* it was settled -- the cached record reflects
+    # the post-settle state by the time we observe the result.
+    assert ctx.effects.cache["root.1"].state == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_run_releases_event_when_create_promise_raises() -> None:
+    # If ``create_promise`` raises, the body re-raises through the
+    # ``except Exception:`` branch and the event is still set -- otherwise the
+    # outer ``wait_for_signal`` would hang forever waiting on a signal that
+    # never comes. The Task must surface the original error promptly.
+    ctx = _root()
+
+    failing = AsyncMock(side_effect=RuntimeError("network down"))
+    with patch.object(ctx.effects, "create_promise", new=failing):
+        task = ctx.run(double, 1)
+
+        with pytest.raises(RuntimeError, match="network down"):
+            await task
+
+    failing.assert_awaited_once()
+    # Nothing was cached, because creation never succeeded.
+    assert "root.1" not in ctx.effects.cache
+
+
+@pytest.mark.asyncio
+async def test_run_does_not_settle_before_create_returns() -> None:
+    # ``settle_promise`` must come strictly *after* ``create_promise``. The
+    # only way to reach the settle path is through the post-event branch in
+    # ``_``, so while creation is gated, no settle call can sneak through.
+    ctx = _root()
+    gate = asyncio.Event()
+
+    # ``wraps=`` lets the mock both record calls *and* delegate to the real
+    # ``settle_promise`` so settlement still hits the cache as usual.
+    settle_mock = AsyncMock(wraps=ctx.effects.settle_promise)
+    with (
+        patch.object(ctx.effects, "settle_promise", new=settle_mock),
+        _gated_create_promise(ctx, gate) as entered,
+    ):
+        task = ctx.run(double, 3)
+
+        await entered.wait()
+        settle_mock.assert_not_awaited()
+        assert not task.done()
+
+        gate.set()
+        assert await task == 6
+        settle_mock.assert_awaited_once_with("root.1", 6)
+
+
+# =============================================================================
 # run: with_options(timeout=...) and per-call opts reset
 # =============================================================================
 
@@ -370,3 +515,101 @@ async def test_run_resets_options_even_on_error() -> None:
     with pytest.raises(ApplicationError):
         await ctx.run(failing, 0)
     assert ctx.opts == Opts()
+
+
+@pytest.mark.asyncio
+async def test_waits_for_event_before_returning() -> None:
+    event = asyncio.Event()
+    started = asyncio.Event()
+
+    @wait_for_signal(event)
+    async def fn() -> int:
+        started.set()
+        event.set()
+        return 42
+
+    task = asyncio.create_task(fn())
+
+    await started.wait()
+
+    assert not task.done()
+
+    result = await task
+
+    assert result == 42
+    assert event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_propagates_return_value() -> None:
+    event = asyncio.Event()
+
+    @wait_for_signal(event)
+    async def add(a: int, b: int) -> int:
+        event.set()
+        return a + b
+
+    result = await add(2, 3)
+
+    assert result == 5
+
+
+@pytest.mark.asyncio
+async def test_propagates_exception() -> None:
+    event = asyncio.Event()
+
+    @wait_for_signal(event)
+    async def fn() -> None:
+        event.set()
+        msg = "boom"
+        raise RuntimeError(msg)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await fn()
+
+
+def foo(a: int, b: int) -> asyncio.Task[int]:
+    validated = asyncio.Event()
+
+    @wait_for_signal(validated)
+    async def _(a: int, b: int) -> int:
+        if a < 0 or b < 0:
+            validated.set()
+            raise RuntimeError
+
+        validated.set()
+
+        return a + b
+
+    return asyncio.create_task(_(a, b))
+
+
+@pytest.mark.asyncio
+async def test_foo_returns_sum() -> None:
+    task = foo(2, 3)
+
+    result = await task
+
+    assert result == 5
+
+
+@pytest.mark.asyncio
+async def test_foo_raises_for_negative_values() -> None:
+    task = foo(-1, 3)
+
+    with pytest.raises(RuntimeError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_decorator_preserves_function_metadata() -> None:
+    event = asyncio.Event()
+
+    @wait_for_signal(event)
+    async def sample() -> int:
+        """Show docstring."""
+        event.set()
+        return 1
+
+    assert sample.__name__ == "sample"
+    assert sample.__doc__ == "Show docstring."
