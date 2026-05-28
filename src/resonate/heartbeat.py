@@ -78,7 +78,7 @@ class AsyncHeartbeat:
 
     def tracked_tasks(self) -> dict[str, int]:
         """Return a snapshot of the currently tracked tasks (id -> version)."""
-        return self.active_tasks.copy()
+        return dict(self.active_tasks)
 
     def _ensure_loop_running(self) -> None:
         """Spawn the heartbeat loop if not already running."""

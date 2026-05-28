@@ -24,8 +24,6 @@ if TYPE_CHECKING:
 
 
 class TaskAcquireResult(msgspec.Struct, frozen=True, kw_only=True):
-    """Result of acquiring a task."""
-
     task: TaskRecord
     promise: PromiseRecord
     preload: list[PromiseRecord]
@@ -36,41 +34,28 @@ type TaskCreateResult = TaskAcquireResult
 
 
 class Redirect(msgspec.Struct, frozen=True, kw_only=True):
-    """The ``Redirect`` arm of :data:`SuspendResult` -- carries preloaded promises."""
-
     preload: list[PromiseRecord]
 
 
-#: Result of suspending a task -- either actually suspended or redirected.
-#: Mirrors Rust's ``SuspendResult`` enum (``Suspended`` folds into the literal
-#: ``"suspended"``; ``Redirect { preload }`` into :class:`Redirect`).
 type SuspendResult = Literal["suspended"] | Redirect
 
 
 class TaskFenceResult(msgspec.Struct, frozen=True, kw_only=True):
-    """Result of a fenced operation."""
-
     promise: PromiseRecord
     preload: list[PromiseRecord]
 
 
 class TaskRef(msgspec.Struct, frozen=True, kw_only=True):
-    """Reference to a task for heartbeat."""
-
     id: str
     version: int
 
 
 class TaskSearchResult(msgspec.Struct, frozen=True, kw_only=True):
-    """Result of a task search."""
-
     tasks: list[TaskRecord]
     cursor: str | None
 
 
 class PromiseSearchResult(msgspec.Struct, frozen=True, kw_only=True):
-    """Result of a promise search."""
-
     promises: list[PromiseRecord]
     cursor: str | None
 
@@ -85,15 +70,11 @@ type TaskCreateOutcome = TaskCreateResult | Literal["conflict"]
 
 
 class ScheduleSearchResult(msgspec.Struct, frozen=True, kw_only=True):
-    """Result of a schedule search."""
-
     schedules: list[ScheduleRecord]
     cursor: str | None
 
 
 class ScheduleCreateReq(msgspec.Struct, frozen=True, kw_only=True, rename="camel"):
-    """Request to create a schedule."""
-
     id: str
     cron: str
     promise_id: str
@@ -108,13 +89,6 @@ class ScheduleCreateReq(msgspec.Struct, frozen=True, kw_only=True, rename="camel
 
 
 class Sender:
-    """A typed interface over :class:`~resonate.transport.Transport`.
-
-    The Sender provides typed methods for each server operation. It handles JSON
-    serialization, response parsing, and error conversion so callers never deal
-    with raw JSON. Mirrors Rust's ``Sender``.
-    """
-
     def __init__(self, transport: Transport, auth: str | None) -> None:
         self.transport = transport
         self.auth = auth
@@ -124,7 +98,6 @@ class Sender:
     async def task_acquire(
         self, id: str, version: int, pid: str, ttl: int
     ) -> TaskAcquireResult:
-        """Acquire a task, returning the task, root promise, and preloaded promises."""
         data = {"id": id, "version": version, "pid": pid, "ttl": ttl}
         _, resp = await self._send_envelope("task.acquire", data, allow_409=False)
         return parse_task_acquire(resp)
@@ -132,7 +105,6 @@ class Sender:
     async def task_fulfill(
         self, id: str, version: int, action: PromiseSettleReq
     ) -> PromiseRecord:
-        """Fulfill a task by settling its root promise, returning the settled promise."""
         data = {
             "id": id,
             "version": version,

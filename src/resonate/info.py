@@ -11,10 +11,7 @@ if TYPE_CHECKING:
 class Info(msgspec.Struct, frozen=True, kw_only=True):
     """Read-only execution metadata for leaf functions.
 
-    Cannot spawn durable sub-tasks -- no run/rpc methods. Mirrors Rust's
-    ``Info``: the fields are read-only (Rust exposes them via accessors; the
-    frozen dataclass exposes them as attributes), and ``deps`` is shared from
-    the owning ``Resonate`` instance.
+    Cannot spawn durable sub-tasks.
     """
 
     id: str
@@ -27,10 +24,5 @@ class Info(msgspec.Struct, frozen=True, kw_only=True):
     deps: DependencyMap
 
     def get_dependency[T](self, type: type[T]) -> T:
-        """Retrieve a dependency by type. Raises ``KeyError`` if not found.
-
-        Mirrors Rust's ``Info::get_dependency``. Where Rust resolves the
-        dependency from the ``T`` generic, Python takes the type explicitly as
-        ``type`` (the same convention as :meth:`~resonate.codec.Codec.decode`).
-        """
+        """Retrieve a dependency by type. Raises ``KeyError`` if not found."""
         return self.deps.get(type)

@@ -46,13 +46,7 @@ class Codec:
         self.encryptor = encryptor
 
     def encode(self, value: Any) -> Value:
-        """Encode a serializable value into the wire format.
-
-        Mirrors Rust's ``Codec::encode``: a ``null`` value collapses to empty
-        ``data`` (the empty string); anything else is JSON-serialized,
-        encrypted, and base64-encoded. Raises :class:`SerializationError` if
-        ``value`` cannot be serialized, matching ``serde_json::to_value(value)?``.
-        """
+        """Encode a serializable value into the wire format."""
         try:
             json_val = msgspec.to_builtins(value)
         except (TypeError, ValueError, msgspec.MsgspecError) as exc:
@@ -67,9 +61,7 @@ class Codec:
     def decode[T](self, value: Value, type: type[T]) -> T | None:
         """Decode a wire-format value back into ``type``.
 
-        Returns ``None`` for empty or ``null`` ``data``; anything that is not a
-        string or ``null`` raises :class:`DecodingError`, mirroring Rust's
-        ``Codec::decode``.
+        Returns ``None`` for empty or ``null`` ``data``.
         """
         match value.data:
             case str() as s if s == "":
@@ -83,13 +75,7 @@ class Codec:
                 raise DecodingError(msg)
 
     def decode_base64_str[T](self, s: str, type: type[T]) -> T | None:
-        """Decode a base64-encoded, encrypted JSON string directly into ``type``.
-
-        Mirrors Rust's ``Codec::decode_base64_str``: an empty string yields
-        ``None``; otherwise the string is base64-decoded, decrypted, decoded as
-        UTF-8, and parsed as JSON. Each step's failure maps to its mirror error
-        (:class:`Base64DecodeError`, :class:`Utf8Error`, :class:`SerializationError`).
-        """
+        """Decode a base64-encoded, encrypted JSON string directly into ``type``."""
         if s == "":
             return None
         try:
@@ -107,11 +93,7 @@ class Codec:
             raise SerializationError(exc) from exc
 
     def decode_promise(self, promise: PromiseRecord) -> PromiseRecord:
-        """Decode a promise's ``param`` and ``value`` fields.
-
-        Mirrors Rust's ``Codec::decode_promise``: the decoded JSON (or ``null``)
-        replaces the base64 ``data`` while the headers are preserved.
-        """
+        """Decode a promise's ``param`` and ``value`` fields."""
         decoded_param_data = self.decode(promise.param, Any)
         decoded_value_data = self.decode(promise.value, Any)
         return PromiseRecord(
@@ -126,12 +108,7 @@ class Codec:
         )
 
     def decode_promise_from_json(self, json: Any) -> PromiseRecord:
-        """Decode a promise from a raw (parsed) JSON value.
-
-        Parses ``json`` into a :class:`PromiseRecord`, then decodes its
-        ``param``/``value`` fields. A parse failure raises :class:`DecodingError`,
-        mirroring Rust's ``Codec::decode_promise_from_json``.
-        """
+        """Decode a promise from a raw (parsed) JSON value."""
         try:
             record = msgspec.convert(json, PromiseRecord)
         except (TypeError, ValueError, msgspec.MsgspecError) as exc:
