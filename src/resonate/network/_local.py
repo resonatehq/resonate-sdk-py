@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal
 
 import msgspec
 
@@ -12,31 +12,6 @@ from resonate.error import DecodingError, ServerError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-
-@runtime_checkable
-class Network(Protocol):
-    """The transport abstraction for all server communication.
-
-    All communication between Resonate and the server (local or remote) flows
-    through it as JSON strings.
-
-    Mirrors Rust's ``Network`` trait. Methods that return ``Result<()>`` /
-    ``Result<String>`` in Rust raise on error and return ``None`` / ``str``
-    here. :class:`LocalNetwork` (below) is the in-process implementation backed
-    by the :class:`ServerState` simulation; the HTTP network lives elsewhere.
-    """
-
-    def pid(self) -> str: ...
-    def group(self) -> str: ...
-    def unicast(self) -> str: ...
-    def anycast(self) -> str: ...
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-    async def send(self, req: str) -> str: ...
-    def recv(self, callback: Callable[[str], None]) -> None: ...
-    def target_resolver(self, target: str) -> str: ...
-
 
 # =============================================================================
 # CONSTANTS
@@ -1100,7 +1075,7 @@ class LocalNetwork:
     def __init__(self, pid: str | None = None, group: str | None = None) -> None:
         self.state = ServerState()
 
-        self._pid = pid if pid is not None else uuid_no_dashes()
+        self._pid = pid if pid is not None else uuid.uuid4().hex
         self._group = group if group is not None else "default"
         self._unicast = f"local://uni@{self._group}/{self._pid}"
         self._anycast = f"local://any@{self._group}/{self._pid}"
@@ -1198,15 +1173,6 @@ class LocalNetwork:
 # =============================================================================
 # UTILITIES
 # =============================================================================
-
-
-def uuid_no_dashes() -> str:
-    """Return a random 32-character hex identifier with no dashes.
-
-    Mirrors Rust's ``uuid_no_dashes``; the Python port uses :func:`uuid.uuid4`
-    instead of the Rust time-based hash, but both yield a 32-char hex string.
-    """
-    return uuid.uuid4().hex
 
 
 def _parse_int(value: str | None) -> int | None:

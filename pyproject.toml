@@ -6,6 +6,7 @@ readme = "README.md"
 authors = [{ name = "Resonate HQ, Inc", email = "contact@resonatehq.io" }]
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp>=3.13.5",
     "msgspec>=0.21.1",
 ]
 

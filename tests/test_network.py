@@ -5,7 +5,7 @@ from typing import Any
 
 import msgspec
 
-from resonate.network import LocalNetwork
+from resonate.network import HttpNetwork, LocalNetwork
 
 I64_MAX = 2**63 - 1
 
@@ -380,3 +380,31 @@ def test_task_suspend_redirect_when_dependency_already_settled() -> None:
         assert status(resp) == 300
 
     asyncio.run(run())
+
+
+def test_http_network_identity() -> None:
+    net = HttpNetwork(
+        "http://localhost:8001",
+        pid="mypid",
+        group="mygroup",
+    )
+    assert net.pid() == "mypid"
+    assert net.group() == "mygroup"
+    assert net.unicast() == "poll://uni@mygroup/mypid"
+    assert net.anycast() == "poll://any@mygroup/mypid"
+
+
+def test_http_network_match_returns_poll_anycast() -> None:
+    net = HttpNetwork("http://localhost:8001")
+    assert net.target_resolver("my-target") == "poll://any@my-target"
+
+
+def test_http_network_strips_trailing_slash() -> None:
+    net = HttpNetwork("http://localhost:8001/", pid="pid")
+    assert net._url == "http://localhost:8001"
+
+
+def test_http_network_default_group() -> None:
+    net = HttpNetwork("http://localhost:8001", pid="pid1")
+    assert net.group() == "default"
+    assert net.unicast() == "poll://uni@default/pid1"
