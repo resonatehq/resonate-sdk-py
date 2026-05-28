@@ -396,28 +396,6 @@ class Context:
         )
         self.opts = Opts()
 
-        async def bg() -> Any:
-            try:
-                if prev_created is not None:
-                    await prev_created.wait()
-                record = await self.effects.create_promise(req)
-
-            finally:
-                # Release the next link no matter what -- a failing bg must
-                # not deadlock its successors in the chain.
-                created.set()
-
-            # Idempotent recovery: an already-settled promise short-circuits.
-            if record.state != "pending":
-                return _decode_settled(record)
-
-            # Pending remote dependency: register the child id so the parent's
-            # suspend list is complete, then unwind via SuspendedError. Mirrors
-            # Go's Future.Await on a futureRemote pending record (appendRemoteTodo
-            # + panic(suspendSignal{})).
-            self.spawned_remote.append(req.id)
-            raise SuspendedError
-
         # rpc tracks its child id in ``spawned_remote`` (the remote-deps list),
         # not in ``spawned_locals``. The bg task is just the mechanism that
         # defers create_promise through the chain; it is expected to be
@@ -426,7 +404,31 @@ class Context:
         # which track for structured-concurrency joining.
         return ResonateFuture(
             _id=req.id,
-            _task=asyncio.create_task(bg()),
+            _task=asyncio.create_task(self._await_remote(req, prev_created, created)),
+            _created=created,
+        )
+
+    def sleep(self, duration: timedelta) -> ResonateFuture[None]:
+        prev_created, created = self._advance_promise_chain()
+
+        req = self.sleep_create_req(self.next_id(), duration)
+        self.opts = Opts()
+
+        return ResonateFuture(
+            _id=req.id,
+            _task=asyncio.create_task(self._await_remote(req, prev_created, created)),
+            _created=created,
+        )
+
+    def promise(self, timeout: timedelta | None) -> ResonateFuture[Any]:
+        prev_created, created = self._advance_promise_chain()
+
+        req = self.promise_create_req(self.next_id(), timeout)
+        self.opts = Opts()
+
+        return ResonateFuture(
+            _id=req.id,
+            _task=asyncio.create_task(self._await_remote(req, prev_created, created)),
             _created=created,
         )
 
@@ -436,3 +438,37 @@ class Context:
         new_tail = asyncio.Event()
         self._tail = new_tail
         return prev_tail, new_tail
+
+    async def _await_remote(
+        self,
+        req: PromiseCreateReq,
+        prev_created: asyncio.Event | None,
+        created: asyncio.Event,
+    ) -> Any:
+        """Background body shared by :meth:`rpc`, :meth:`sleep`, and :meth:`promise`.
+
+        Defers ``create_promise`` through the creation chain, short-circuits an
+        already-settled record (idempotent recovery), otherwise registers the
+        child id as a remote todo and unwinds via ``SuspendedError``. Mirrors
+        Go's remote ``Future.Await`` on a pending record (``appendRemoteTodo`` +
+        ``panic(suspendSignal{})``).
+
+        Concurrency: ``spawned_remote.append`` needs no lock. Unlike Go's
+        goroutines -- which run in parallel and so guard the slice with
+        ``c.mu`` -- these are asyncio tasks on a single event loop, and the
+        append has no ``await`` between read and write, so it cannot interleave
+        with a peer task. ``created.set()`` lives in ``finally`` so a failing
+        create never deadlocks the successors waiting on this chain link.
+        """
+        try:
+            if prev_created is not None:
+                await prev_created.wait()
+            record = await self.effects.create_promise(req)
+
+            if record.state != "pending":
+                return _decode_settled(record)
+        finally:
+            created.set()
+
+        self.spawned_remote.append(req.id)
+        raise SuspendedError

@@ -992,6 +992,380 @@ async def test_rpc_releases_event_when_create_promise_raises() -> None:
 
 
 # =============================================================================
+# sleep: pending -> register a remote todo and suspend
+#
+# ``sleep`` is structurally identical to ``rpc`` (both go through the shared
+# ``_await_remote`` body): a fresh timer promise is created pending, awaiting
+# the future appends its id to ``spawned_remote`` and raises ``SuspendedError``.
+# The differences are in the request shape (a ``resonate:timer`` tag, no param,
+# no func envelope) and that ``sleep`` takes its deadline from the duration
+# argument rather than from ``opts``.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_sleep_pending_registers_todo_and_suspends() -> None:
+    ctx = _root()
+    fut = ctx.sleep(timedelta(seconds=30))
+    with pytest.raises(SuspendedError):
+        await fut
+    assert ctx.spawned_remote == ["root.1"]
+    assert ctx.effects.cache["root.1"].state == "pending"
+
+
+# =============================================================================
+# sleep: idempotent recovery (a pre-settled timer short-circuits)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_sleep_presettled_resolved_returns_none() -> None:
+    # An elapsed timer is recovered as a resolved record carrying no payload;
+    # ``_decode_settled`` yields its (empty) value and no todo is registered.
+    ctx = _root([_resolved("root.1", None)])
+    assert await ctx.sleep(timedelta(seconds=1)) is None
+    assert ctx.spawned_remote == []
+
+
+# =============================================================================
+# sleep: request shape (timer tag, empty param, no func envelope)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_sleep_request_tags_and_timer_flag() -> None:
+    ctx = _root()
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.sleep(timedelta(seconds=30))
+
+    [req] = captured
+    assert req.id == "root.1"
+    assert req.tags == {
+        "resonate:scope": "global",
+        "resonate:branch": "root.1",
+        "resonate:parent": "root",
+        "resonate:origin": "root",
+        "resonate:timer": "true",
+    }
+    # A timer promise carries no param payload (unlike rpc's func envelope).
+    assert req.param.data is None
+
+
+@pytest.mark.asyncio
+async def test_sleep_timeout_at_is_now_plus_duration() -> None:
+    # The wake time is ``now + duration``, taken straight from the argument.
+    ctx = _root()
+    before = now_ms()
+    with pytest.raises(SuspendedError):
+        await ctx.sleep(timedelta(seconds=30))
+    after = now_ms()
+    record = ctx.effects.cache["root.1"]
+    assert before + 30_000 <= record.timeout_at <= after + 30_000
+
+
+@pytest.mark.asyncio
+async def test_sleep_duration_capped_to_parent_timeout() -> None:
+    # A wake time beyond the parent's deadline is capped, like every other
+    # child promise (``child_timeout``).
+    cap = now_ms() + 5_000
+    ctx = _root(timeout_at=cap)
+    with pytest.raises(SuspendedError):
+        await ctx.sleep(timedelta(days=365))
+    assert ctx.effects.cache["root.1"].timeout_at == cap
+
+
+# =============================================================================
+# sleep: duration comes from the argument, NOT from opts
+#
+# Unlike run/rpc, ``sleep`` does not read ``opts.timeout`` for its deadline
+# (mirrors Go's ``Sleep(d)``). It still consumes any opts set via with_opts()
+# so they cannot leak into the next entrypoint call.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_sleep_ignores_opts_timeout_for_duration() -> None:
+    # The 30s argument wins over the 5s opt -- the opt does not touch the
+    # timer's deadline at all.
+    ctx = _root()
+    before = now_ms()
+    with pytest.raises(SuspendedError):
+        await ctx.with_opts(timeout=timedelta(seconds=5)).sleep(timedelta(seconds=30))
+    after = now_ms()
+    record = ctx.effects.cache["root.1"]
+    assert before + 30_000 <= record.timeout_at <= after + 30_000
+
+
+@pytest.mark.asyncio
+async def test_sleep_consumes_options_so_they_do_not_leak() -> None:
+    # sleep ignores opts for its own duration but still clears them, so a
+    # stray with_opts() before a sleep cannot bleed into the next entrypoint.
+    ctx = _root()
+    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
+    with pytest.raises(SuspendedError):
+        await ctx.sleep(timedelta(seconds=1))
+    assert ctx.opts == Opts()
+
+
+# =============================================================================
+# sleep: child id allocation matches call order
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_sleep_sequential_child_ids() -> None:
+    ctx = _root([_resolved("root.1", None), _resolved("root.2", None)])
+    assert await ctx.sleep(timedelta(seconds=1)) is None  # root.1
+    assert await ctx.sleep(timedelta(seconds=1)) is None  # root.2
+
+
+@pytest.mark.asyncio
+async def test_sleep_promise_creation_order_under_concurrency() -> None:
+    # ``sleep`` joins the same ``_advance_promise_chain`` as run/rpc, so two
+    # timers spawned concurrently still issue ``create_promise`` in call order.
+    ctx = _root([_resolved("root.1", None), _resolved("root.2", None)])
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        # Yield so a non-chained implementation would let root.2 race ahead.
+        await asyncio.sleep(0)
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.sleep(timedelta(seconds=1))
+        f2 = ctx.sleep(timedelta(seconds=1))
+        # Await in reverse so completion order can't accidentally line up.
+        assert await f2 is None
+        assert await f1 is None
+
+    assert seen == ["root.1", "root.2"]
+
+
+# =============================================================================
+# sleep: blocks until the durable promise has been created
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_sleep_releases_event_when_create_promise_raises() -> None:
+    # If ``create_promise`` raises, the shared ``_await_remote`` body still sets
+    # the chain event in its ``finally`` and the Task surfaces the original
+    # error -- otherwise a chained successor would hang forever.
+    ctx = _root()
+
+    failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
+    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+        task = ctx.sleep(timedelta(seconds=1))
+        with pytest.raises(RuntimeError, match="network down"):
+            await task
+
+    failing_mock.assert_awaited_once()
+    assert "root.1" not in ctx.effects.cache
+    assert ctx.spawned_remote == []
+
+
+# =============================================================================
+# promise: pending -> register a remote todo and suspend
+#
+# ``promise`` creates a *deferred* (DI) durable promise -- one with no func
+# envelope and no timer flag, meant to be resolved/rejected by some external
+# party. It shares the same ``_await_remote`` body as ``rpc``/``sleep``: a fresh
+# pending record appends its id to ``spawned_remote`` and raises
+# ``SuspendedError``; a pre-settled record short-circuits with its value. The
+# distinguishing trait is the request shape (empty param, no ``resonate:timer``,
+# no ``resonate:target``) and that the deadline comes from the explicit
+# ``timeout`` argument rather than from ``opts``.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_promise_pending_registers_todo_and_suspends() -> None:
+    ctx = _root()
+    fut = ctx.promise(timedelta(seconds=30))
+    with pytest.raises(SuspendedError):
+        await fut
+    assert ctx.spawned_remote == ["root.1"]
+    assert ctx.effects.cache["root.1"].state == "pending"
+
+
+# =============================================================================
+# promise: idempotent recovery (a pre-settled DI promise short-circuits)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_promise_presettled_resolved_returns_value() -> None:
+    # A DI promise resolved by an external party is recovered as a resolved
+    # record; ``_decode_settled`` yields its payload and no todo is registered.
+    ctx = _root([_resolved("root.1", "external-result")])
+    assert await ctx.promise(timedelta(seconds=1)) == "external-result"
+    assert ctx.spawned_remote == []
+
+
+@pytest.mark.asyncio
+async def test_promise_presettled_rejected_raises() -> None:
+    ctx = _root([_rejected("root.1", "external failure")])
+    with pytest.raises(ApplicationError, match="external failure"):
+        await ctx.promise(timedelta(seconds=1))
+    assert ctx.spawned_remote == []
+
+
+# =============================================================================
+# promise: request shape (empty param, no timer flag, no func envelope)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_promise_request_tags_and_empty_param() -> None:
+    ctx = _root()
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.promise(timedelta(seconds=30))
+
+    [req] = captured
+    assert req.id == "root.1"
+    # A DI promise carries the standard scope/lineage tags only -- no timer
+    # flag (unlike sleep) and no target (unlike rpc).
+    assert req.tags == {
+        "resonate:scope": "global",
+        "resonate:branch": "root.1",
+        "resonate:parent": "root",
+        "resonate:origin": "root",
+    }
+    assert "resonate:timer" not in req.tags
+    assert "resonate:target" not in req.tags
+    # No param payload and no func envelope: the promise is filled in later.
+    assert req.param.data is None
+
+
+@pytest.mark.asyncio
+async def test_promise_timeout_at_is_now_plus_timeout() -> None:
+    ctx = _root()
+    before = now_ms()
+    with pytest.raises(SuspendedError):
+        await ctx.promise(timedelta(seconds=30))
+    after = now_ms()
+    record = ctx.effects.cache["root.1"]
+    assert before + 30_000 <= record.timeout_at <= after + 30_000
+
+
+@pytest.mark.asyncio
+async def test_promise_none_timeout_uses_default() -> None:
+    # ``timeout=None`` falls back to ``DEFAULT_TIMEOUT`` (24h) via
+    # ``child_timeout``, well past any explicit short timeout.
+    ctx = _root()
+    before = now_ms()
+    with pytest.raises(SuspendedError):
+        await ctx.promise(None)
+    after = now_ms()
+    record = ctx.effects.cache["root.1"]
+    day_ms = 24 * 60 * 60 * 1000
+    assert before + day_ms <= record.timeout_at <= after + day_ms
+
+
+@pytest.mark.asyncio
+async def test_promise_timeout_capped_to_parent() -> None:
+    cap = now_ms() + 5_000
+    ctx = _root(timeout_at=cap)
+    with pytest.raises(SuspendedError):
+        await ctx.promise(timedelta(days=365))
+    assert ctx.effects.cache["root.1"].timeout_at == cap
+
+
+# =============================================================================
+# promise: deadline comes from the argument, NOT from opts
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_promise_ignores_opts_timeout_for_deadline() -> None:
+    # Like ``sleep``, ``promise`` takes its deadline from its argument; a stray
+    # ``with_opts(timeout=...)`` must not touch the DI promise's deadline.
+    ctx = _root()
+    before = now_ms()
+    with pytest.raises(SuspendedError):
+        await ctx.with_opts(timeout=timedelta(seconds=5)).promise(timedelta(seconds=30))
+    after = now_ms()
+    record = ctx.effects.cache["root.1"]
+    assert before + 30_000 <= record.timeout_at <= after + 30_000
+
+
+@pytest.mark.asyncio
+async def test_promise_consumes_options_so_they_do_not_leak() -> None:
+    # ``promise`` ignores opts for its own deadline but still clears them, so a
+    # stray ``with_opts()`` cannot bleed into the next entrypoint call.
+    ctx = _root()
+    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
+    with pytest.raises(SuspendedError):
+        await ctx.promise(timedelta(seconds=1))
+    assert ctx.opts == Opts()
+
+
+# =============================================================================
+# promise: child id allocation matches call order
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_promise_sequential_child_ids() -> None:
+    ctx = _root([_resolved("root.1", "a"), _resolved("root.2", "b")])
+    assert await ctx.promise(timedelta(seconds=1)) == "a"  # root.1
+    assert await ctx.promise(timedelta(seconds=1)) == "b"  # root.2
+
+
+@pytest.mark.asyncio
+async def test_promise_creation_order_under_concurrency() -> None:
+    # ``promise`` joins the same ``_advance_promise_chain`` as run/rpc/sleep, so
+    # two DI promises spawned concurrently still create in call order.
+    ctx = _root([_resolved("root.1", "a"), _resolved("root.2", "b")])
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        # Yield so a non-chained implementation would let root.2 race ahead.
+        await asyncio.sleep(0)
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.promise(timedelta(seconds=1))
+        f2 = ctx.promise(timedelta(seconds=1))
+        # Await in reverse so completion order can't accidentally line up.
+        assert await f2 == "b"
+        assert await f1 == "a"
+
+    assert seen == ["root.1", "root.2"]
+
+
+# =============================================================================
+# promise: blocks until the durable promise has been created
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_promise_releases_event_when_create_promise_raises() -> None:
+    # If ``create_promise`` raises, the shared ``_await_remote`` body still sets
+    # the chain event in its ``finally`` and the Task surfaces the original
+    # error -- otherwise a chained successor would hang forever.
+    ctx = _root()
+
+    failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
+    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+        task = ctx.promise(timedelta(seconds=1))
+        with pytest.raises(RuntimeError, match="network down"):
+            await task
+
+    failing_mock.assert_awaited_once()
+    assert "root.1" not in ctx.effects.cache
+    assert ctx.spawned_remote == []
+
+
+# =============================================================================
 # run + rpc: shared promise-creation chain orders both code paths
 # =============================================================================
 
@@ -1026,6 +1400,74 @@ async def test_mixed_run_and_rpc_create_in_call_order() -> None:
         # Await in reverse so completion order is decoupled from call order.
         assert await f4 == "remote-2"
         assert await f3 == 6
+        assert await f2 == "remote-1"
+        assert await f1 == 2
+
+    assert seen == ["root.1", "root.2", "root.3", "root.4"]
+
+
+@pytest.mark.asyncio
+async def test_mixed_run_rpc_sleep_create_in_call_order() -> None:
+    # ``sleep`` shares the same ``_tail`` chain as ``run`` and ``rpc``; a mixed
+    # sequence across all three must still call ``create_promise`` in call order.
+    ctx = _root(
+        [
+            _resolved("root.2", "remote-1"),
+            _resolved("root.3", None),
+        ]
+    )
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        await asyncio.sleep(0)
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.run(double, 1)  # root.1 (executes locally)
+        f2 = ctx.rpc("remote_fn")  # root.2 (preloaded resolved)
+        f3 = ctx.sleep(timedelta(seconds=1))  # root.3 (preloaded resolved timer)
+        # Await in reverse so completion order is decoupled from call order.
+        assert await f3 is None
+        assert await f2 == "remote-1"
+        assert await f1 == 2
+
+    assert seen == ["root.1", "root.2", "root.3"]
+
+
+@pytest.mark.asyncio
+async def test_mixed_run_rpc_sleep_promise_create_in_call_order() -> None:
+    # All four entrypoints (``run``/``rpc``/``sleep``/``promise``) share the
+    # same ``_tail`` chain; a mixed sequence across every code path must still
+    # call ``create_promise`` in call order.
+    ctx = _root(
+        [
+            _resolved("root.2", "remote-1"),
+            _resolved("root.3", None),
+            _resolved("root.4", "di-1"),
+        ]
+    )
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        await asyncio.sleep(0)
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.run(double, 1)  # root.1 (executes locally)
+        f2 = ctx.rpc("remote_fn")  # root.2 (preloaded resolved)
+        f3 = ctx.sleep(timedelta(seconds=1))  # root.3 (preloaded resolved timer)
+        f4 = ctx.promise(timedelta(seconds=1))  # root.4 (preloaded resolved DI)
+        # Await in reverse so completion order is decoupled from call order.
+        assert await f4 == "di-1"
+        assert await f3 is None
         assert await f2 == "remote-1"
         assert await f1 == 2
 
