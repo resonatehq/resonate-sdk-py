@@ -5,7 +5,7 @@ import contextlib
 from collections.abc import Awaitable, Callable, Generator
 from datetime import timedelta
 from hashlib import blake2b
-from typing import TYPE_CHECKING, Any, Concatenate, Final, Literal, Self, overload
+from typing import TYPE_CHECKING, Any, Concatenate, Final, Self, overload
 
 import msgspec
 
@@ -14,7 +14,7 @@ from resonate.codec import deserialize_error
 from resonate.durable import DurableFunction
 from resonate.error import ApplicationError, ResonateError, SuspendedError
 from resonate.info import Info
-from resonate.types import PromiseCreateReq, TaskData, Value
+from resonate.types import PromiseCreateReq, Status, TaskData, Value
 
 if TYPE_CHECKING:
     from resonate import DependencyMap
@@ -115,7 +115,7 @@ class Context:
         self._tail: asyncio.Event | None = None
 
     @classmethod
-    def _root(
+    def root(
         cls,
         id: str,
         timeout_at: int,
@@ -340,7 +340,7 @@ class Context:
             # what every durable function receives as its first argument.
             child = self._child(req.id, df.name, record.timeout_at)
 
-            outcome: Literal["done", "errored", "suspended"]
+            outcome: Status
             value: Any = None
             try:
                 value = await df.invoke(child, payload)
@@ -349,7 +349,7 @@ class Context:
                 outcome = "suspended"
             except ResonateError as exc:
                 value = exc
-                outcome = "errored"
+                outcome = "error"
 
             # Always drain the child's sub-work before deciding: a suspended
             # child has already pushed its own todos, and a "done" child may
@@ -366,7 +366,7 @@ class Context:
 
             await self.effects.settle_promise(req.id, value)
 
-            if outcome == "errored":
+            if outcome == "error":
                 assert isinstance(value, ResonateError)
                 raise value
             assert not isinstance(value, ResonateError)
@@ -409,7 +409,7 @@ class Context:
         # which track for structured-concurrency joining.
         return ResonateFuture(
             _id=req.id,
-            _task=asyncio.create_task(self._await_remote(req, prev_created, created)),
+            _task=self._spawn_remote_await(req, prev_created, created),
             _created=created,
         )
 
@@ -421,7 +421,7 @@ class Context:
 
         return ResonateFuture(
             _id=req.id,
-            _task=asyncio.create_task(self._await_remote(req, prev_created, created)),
+            _task=self._spawn_remote_await(req, prev_created, created),
             _created=created,
         )
 
@@ -433,7 +433,7 @@ class Context:
 
         return ResonateFuture(
             _id=req.id,
-            _task=asyncio.create_task(self._await_remote(req, prev_created, created)),
+            _task=self._spawn_remote_await(req, prev_created, created),
             _created=created,
         )
 
@@ -492,6 +492,27 @@ class Context:
         self._tail = new_tail
         return prev_tail, new_tail
 
+    def _spawn_remote_await(
+        self,
+        req: PromiseCreateReq,
+        prev_created: asyncio.Event | None,
+        created: asyncio.Event,
+    ) -> asyncio.Task[Any]:
+        """Spawn the :meth:`_await_remote` task for rpc/sleep/promise.
+
+        Attaches :func:`_retrieve_remote_await_result` so a never-awaited
+        suspended task does not trip asyncio's "exception never retrieved"
+        warning; awaiting the future still raises as before.
+        """
+        task = asyncio.create_task(self._await_remote(req, prev_created, created))
+
+        def _(task: asyncio.Task[Any]) -> None:
+            assert not task.cancelled(), "task is not cancelled"
+            task.exception()
+
+        task.add_done_callback(_)
+        return task
+
     async def _await_remote(
         self,
         req: PromiseCreateReq,
@@ -520,8 +541,8 @@ class Context:
 
             if record.state != "pending":
                 return _decode_settled(record)
+
+            self.spawned_remote.append(req.id)
+            raise SuspendedError
         finally:
             created.set()
-
-        self.spawned_remote.append(req.id)
-        raise SuspendedError

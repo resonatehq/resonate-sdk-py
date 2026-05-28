@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import get_args
-
 import msgspec
 import pytest
 
@@ -14,7 +12,6 @@ from resonate.types import (
     PromiseRegisterCallbackData,
     PromiseSettleReq,
     ScheduleRecord,
-    Status,
     Suspended,
     TaskData,
     TaskRecord,
@@ -387,13 +384,6 @@ def test_task_data_into_value_wraps_func_and_args() -> None:
 def test_task_data_into_value_unserializable_raises() -> None:
     with pytest.raises(SerializationError):
         TaskData.into_value("f", object())
-
-
-# --- Status: internal string literals ---
-
-
-def test_status_permitted_values() -> None:
-    assert get_args(Status.__value__) == ("done", "suspended")
 
 
 # --- Outcome: sum type mirroring `Outcome<T> { Done(Result<T>), Suspended }` ---

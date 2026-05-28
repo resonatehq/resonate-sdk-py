@@ -32,6 +32,3 @@ class DependencyMap:
                 "Did you forget to call `.with_dependency()`?"
             )
             raise KeyError(msg) from None
-
-    def __repr__(self) -> str:
-        return f"DependencyMap(len={len(self._map)})"

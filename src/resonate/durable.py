@@ -151,18 +151,47 @@ class DurableFunction:
 
 
 def _signature(fn: Callable[..., Any]) -> inspect.Signature:
-    """Resolve ``fn``'s signature, evaluating string annotations when possible.
+    """Resolve ``fn``'s signature, evaluating string annotations per parameter.
 
-    ``eval_str=True`` turns the string annotations produced by ``from __future__
-    import annotations`` back into real classes, so :meth:`DurableFunction._coerce`
-    can pass them straight to :func:`msgspec.convert`. If a name cannot be
-    resolved we fall back to the raw (string) annotations -- coercion then
-    silently skips them, which matches the "unannotated -> pass through" rule.
+    ``from __future__ import annotations`` turns every annotation into a string;
+    :meth:`DurableFunction._coerce` needs the real class to hand to
+    :func:`msgspec.convert`. ``inspect.signature(fn, eval_str=True)`` would do
+    that, but it resolves *all* annotations or *none*: a single name unavailable
+    at runtime aborts the whole resolution. That is a footgun for the standard
+    convention of importing :class:`~resonate.context.Context` only under
+    ``TYPE_CHECKING`` -- a user who writes ``def fn(ctx: Context, x: int)`` would
+    find ``Context`` unresolvable at runtime and silently lose coercion of ``x``
+    as collateral.
+
+    So resolve each annotation independently: an unresolvable one is left as its
+    raw string (which :meth:`DurableFunction._coerce` treats as pass-through),
+    while its resolvable siblings still drive coercion. The leading ``ctx``
+    parameter is stripped before coercion anyway, so its annotation never has to
+    resolve.
     """
+    sig = inspect.signature(fn)
+    globalns = getattr(fn, "__globals__", {})
+    params = [
+        p.replace(annotation=_resolve_annotation(p.annotation, globalns))
+        for p in sig.parameters.values()
+    ]
+    return sig.replace(parameters=params)
+
+
+def _resolve_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
+    """Evaluate one string annotation, leaving it as-is if it cannot resolve.
+
+    Mirrors what ``eval_str=True`` does internally (``eval`` against the
+    function's globals) but tolerant per annotation: a name missing at runtime
+    yields the raw string -- :meth:`DurableFunction._coerce` then skips it, the
+    same as a genuinely unannotated parameter.
+    """
+    if not isinstance(annotation, str):
+        return annotation
     try:
-        return inspect.signature(fn, eval_str=True)
-    except (NameError, TypeError):
-        return inspect.signature(fn)
+        return eval(annotation, globalns)  # noqa: S307
+    except (NameError, AttributeError, SyntaxError, TypeError):
+        return annotation
 
 
 def _unpack(payload: Any) -> tuple[list[Any], dict[str, Any]]:

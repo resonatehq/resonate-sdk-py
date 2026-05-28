@@ -37,7 +37,7 @@ class Redirect(msgspec.Struct, frozen=True, kw_only=True):
     preload: list[PromiseRecord]
 
 
-type SuspendResult = Literal["suspended"] | Redirect
+SuspendResult = Literal["suspended"] | Redirect
 
 
 class TaskFenceResult(msgspec.Struct, frozen=True, kw_only=True):

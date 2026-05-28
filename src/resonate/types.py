@@ -214,4 +214,4 @@ class TaskData(msgspec.Struct, kw_only=True, frozen=True):
 
 
 # Execution status returned from Core methods. Mirrors Rust's ``Status`` enum.
-type Status = Literal["done", "suspended"]
+Status = Literal["done", "suspended", "error"]

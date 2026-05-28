@@ -45,17 +45,10 @@ def test_get_missing_raises() -> None:
         deps.get(Config)
 
 
-def test_repr_reports_len() -> None:
-    deps = DependencyMap()
-    assert repr(deps) == "DependencyMap(len=0)"
-    deps.insert(Config(value="x"))
-    assert repr(deps) == "DependencyMap(len=1)"
-
-
 # -- Info ---------------------------------------------------------------------
 
 
-def info(deps: DependencyMap | None = None) -> Info:
+def info() -> Info:
     return Info(
         id="id",
         parent_id="parent",

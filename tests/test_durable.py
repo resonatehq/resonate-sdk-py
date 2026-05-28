@@ -39,7 +39,7 @@ I64_MAX = 2**63 - 1
 def _context() -> Context:
     sender = Sender(Transport(LocalNetwork()), None)
     effects = Effects(sender, Codec(NoopEncryptor()), [])
-    return Context._root(
+    return Context.root(
         id="root",
         timeout_at=I64_MAX,
         func_name="root",
@@ -484,6 +484,22 @@ async def test_any_annotation_passes_through() -> None:
 
     df = DurableFunction(any_leaf)
     assert await df.invoke(_context(), {"args": [{"a": 1}], "kwargs": {}}) == {"a": 1}
+
+
+@pytest.mark.asyncio
+async def test_unresolvable_ctx_annotation_does_not_block_sibling_coercion() -> None:
+    # The standard convention imports Context only under TYPE_CHECKING, so
+    # `ctx: Context` is unresolvable at runtime. That must NOT disable coercion
+    # of a sibling argument: annotations resolve per parameter, not all-or-none.
+    async def fn(ctx: Context, p: Point) -> int:
+        return p.x + p.y
+
+    # Mimic a TYPE_CHECKING-only import: ctx's annotation references a name that
+    # does not exist at runtime.
+    fn.__annotations__["ctx"] = "TypeCheckingOnlyContext"
+    df = DurableFunction(fn)
+    # p is still coerced from the JSON-builtins dict into a Point.
+    assert await df.invoke(_context(), {"args": [{"x": 1, "y": 2}], "kwargs": {}}) == 3
 
 
 @pytest.mark.asyncio

@@ -55,7 +55,7 @@ def _root(
     """Build a root ``Context`` over a fresh ``LocalNetwork``."""
     sender = Sender(Transport(LocalNetwork()), None)
     effects = Effects(sender, _codec(), preload or [])
-    return Context._root(
+    return Context.root(
         id="root",
         timeout_at=timeout_at,
         func_name="root",
