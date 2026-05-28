@@ -26,7 +26,7 @@ import pytest
 
 from resonate import DependencyMap, now_ms
 from resonate.codec import Codec, NoopEncryptor, encode_error
-from resonate.context import Context, Opts
+from resonate.context import Context, Opts, _hash_id
 from resonate.effects import Effects
 from resonate.error import ApplicationError, SuspendedError
 from resonate.network import LocalNetwork
@@ -55,7 +55,7 @@ def _root(
     """Build a root ``Context`` over a fresh ``LocalNetwork``."""
     sender = Sender(Transport(LocalNetwork()), None)
     effects = Effects(sender, _codec(), preload or [])
-    return Context.root(
+    return Context._root(
         id="root",
         timeout_at=timeout_at,
         func_name="root",
@@ -157,16 +157,16 @@ async def fire_and_forget(ctx: Context) -> int:
 
 def test_next_id_sequential() -> None:
     ctx = _root()
-    assert ctx.next_id() == "root.1"
-    assert ctx.next_id() == "root.2"
-    assert ctx.next_id() == "root.3"
+    assert ctx._next_id() == "root.1"
+    assert ctx._next_id() == "root.2"
+    assert ctx._next_id() == "root.3"
 
 
 def test_child_parent_is_current_id() -> None:
     # Regression: child.parent_id must be the *current* id (Go ``c.id`` / Rust
     # ``self.id``), not the parent's own parent_id.
     ctx = _root()
-    child = ctx.child("root.1", "fn", I64_MAX)
+    child = ctx._child("root.1", "fn", I64_MAX)
     assert child.parent_id == "root"
     assert child.origin_id == "root"
     assert child.branch_id == "root.1"
@@ -176,9 +176,9 @@ def test_child_timeout_caps_to_parent() -> None:
     cap = now_ms() + 1_000
     ctx = _root(timeout_at=cap)
     # A requested deadline beyond the parent's is capped to the parent.
-    assert ctx.child_timeout(timedelta(days=1)) == cap
+    assert ctx._child_timeout(timedelta(days=1)) == cap
     # A nearer deadline is honoured.
-    assert ctx.child_timeout(timedelta(milliseconds=500)) <= cap
+    assert ctx._child_timeout(timedelta(milliseconds=500)) <= cap
 
 
 # =============================================================================
@@ -1363,6 +1363,213 @@ async def test_promise_releases_event_when_create_promise_raises() -> None:
     failing_mock.assert_awaited_once()
     assert "root.1" not in ctx.effects.cache
     assert ctx.spawned_remote == []
+
+
+# =============================================================================
+# detached: fire-and-forget remote dispatch
+#
+# ``detached`` creates a *remote* promise like ``rpc`` (func envelope + target),
+# but is fire-and-forget: it is NOT registered in ``spawned_remote``, the
+# workflow never suspends on it, and the returned future resolves to the child
+# *id* rather than a remote result. The id lives outside the structured
+# ``{id}.{seq}`` namespace -- it is ``{origin}.{FNV-1a 64 hex of the raw seq}``
+# -- so it is deterministic across replay yet distinct from awaited children.
+# Mirrors Go's ``Context.Detached``.
+# =============================================================================
+
+
+def _detached_id(origin: str, raw: str) -> str:
+    """Return the id ``detached`` derives for raw seq id ``raw`` under ``origin``."""
+    return f"{origin}.{_hash_id(raw)}"
+
+
+@pytest.mark.asyncio
+async def test_detached_returns_id_without_suspending() -> None:
+    # The defining property: a fresh (pending) detached promise does NOT raise
+    # SuspendedError and does NOT register a remote todo -- the future just
+    # yields the child id.
+    ctx = _root()
+    child_id = _detached_id("root", "root.1")
+    assert await ctx.detached("remote_fn", 1, 2) == child_id
+    assert ctx.spawned_remote == []
+    # The durable promise was created (and left pending -- nobody settles it
+    # on our behalf within this workflow).
+    assert ctx.effects.cache[child_id].state == "pending"
+
+
+@pytest.mark.asyncio
+async def test_detached_id_is_origin_rooted_hash() -> None:
+    # The id is ``{origin}.{16-hex}`` -- origin-rooted, not parent-rooted, and
+    # outside the ``root.1`` structured namespace.
+    ctx = _root()
+    child_id = await ctx.detached("remote_fn")
+    assert child_id == _detached_id("root", "root.1")
+    assert child_id != "root.1"
+    # 16 lowercase hex chars after the origin segment.
+    _, _, suffix = child_id.partition(".")
+    assert len(suffix) == 16
+    assert all(c in "0123456789abcdef" for c in suffix)
+
+
+@pytest.mark.asyncio
+async def test_detached_consumes_seq_and_yields_distinct_ids() -> None:
+    # Each call consumes a seq slot (root.1, root.2, ...) so ids stay stable
+    # across replay; the resulting hashed ids are distinct.
+    ctx = _root()
+    id1 = await ctx.detached("fn")
+    id2 = await ctx.detached("fn")
+    assert id1 == _detached_id("root", "root.1")
+    assert id2 == _detached_id("root", "root.2")
+    assert id1 != id2
+
+
+@pytest.mark.asyncio
+async def test_detached_request_tags_and_param() -> None:
+    ctx = _root()
+    child_id = _detached_id("root", "root.1")
+    with _spy_create_promise(ctx) as captured:
+        await ctx.detached("remote_fn", 1, 2, k="v")
+
+    [req] = captured
+    assert req.id == child_id
+    # A detached promise carries the remote (rpc-style) tag set: global scope,
+    # a resolved target, and -- like every child -- branch == its own id.
+    assert req.tags == {
+        "resonate:scope": "global",
+        "resonate:target": "",
+        "resonate:branch": child_id,
+        "resonate:parent": "root",
+        "resonate:origin": "root",
+    }
+    assert req.param.data == {
+        "func": "remote_fn",
+        "args": {"args": [1, 2], "kwargs": {"k": "v"}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_detached_no_args_param_is_null() -> None:
+    ctx = _root()
+    with _spy_create_promise(ctx) as captured:
+        await ctx.detached("remote_fn")
+    assert captured[0].param.data == {"func": "remote_fn", "args": None}
+
+
+@pytest.mark.asyncio
+async def test_detached_idempotent_on_preloaded_record() -> None:
+    # On replay the durable promise already exists; create_promise is
+    # idempotent and detached still returns the id and never suspends,
+    # regardless of the record's state.
+    ctx = _root()
+    child_id = _detached_id("root", "root.1")
+    ctx.effects.cache[child_id] = _resolved(child_id, "external-result")
+    assert await ctx.detached("fn") == child_id
+    assert ctx.spawned_remote == []
+
+
+@pytest.mark.asyncio
+async def test_detached_with_options_target_and_timeout() -> None:
+    ctx = _root()
+    child_id = _detached_id("root", "root.1")
+    before = now_ms()
+    with _spy_create_promise(ctx) as captured:
+        await ctx.with_opts(target="worker-1", timeout=timedelta(seconds=30)).detached(
+            "fn"
+        )
+    after = now_ms()
+    [req] = captured
+    assert req.tags["resonate:target"] == "worker-1"
+    assert before + 30_000 <= req.timeout_at <= after + 30_000
+    assert ctx.effects.cache[child_id].timeout_at == req.timeout_at
+
+
+@pytest.mark.asyncio
+async def test_detached_consumes_options_after_one_call() -> None:
+    ctx = _root()
+    await ctx.with_opts(target="x", timeout=timedelta(seconds=30)).detached("fn")
+    assert ctx.opts == Opts()
+
+
+@pytest.mark.asyncio
+async def test_detached_timeout_capped_to_parent() -> None:
+    cap = now_ms() + 5_000
+    ctx = _root(timeout_at=cap)
+    child_id = _detached_id("root", "root.1")
+    await ctx.with_opts(timeout=timedelta(days=365)).detached("fn")
+    assert ctx.effects.cache[child_id].timeout_at == cap
+
+
+@pytest.mark.asyncio
+async def test_detached_creation_order_under_concurrency() -> None:
+    # ``detached`` joins the same ``_advance_promise_chain`` as the other
+    # entrypoints, so two detached dispatches spawned concurrently still issue
+    # ``create_promise`` in call order (under their hashed ids).
+    ctx = _root()
+    id1 = _detached_id("root", "root.1")
+    id2 = _detached_id("root", "root.2")
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        await asyncio.sleep(0)
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.detached("fn")
+        f2 = ctx.detached("fn")
+        # Await in reverse so completion order can't accidentally line up.
+        assert await f2 == id2
+        assert await f1 == id1
+
+    assert seen == [id1, id2]
+
+
+@pytest.mark.asyncio
+async def test_detached_releases_event_when_create_promise_raises() -> None:
+    # If ``create_promise`` raises, the chain event still fires (the ``finally``
+    # in ``_create_detached``) and the Task surfaces the original error --
+    # otherwise a chained successor would hang forever.
+    ctx = _root()
+    failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
+    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+        task = ctx.detached("fn")
+        with pytest.raises(RuntimeError, match="network down"):
+            await task
+    failing_mock.assert_awaited_once()
+    assert ctx.spawned_remote == []
+
+
+# =============================================================================
+# detached: structured-concurrency exemption
+#
+# A detached child must NOT force its parent workflow to suspend: it is not in
+# ``spawned_remote`` and not joined via ``spawned_locals``. A workflow that only
+# dispatches a detached child therefore completes and settles normally, with
+# the detached promise left pending (settled by someone outside our contract).
+# =============================================================================
+
+
+async def dispatches_detached(ctx: Context) -> str:
+    await ctx.detached("remote_fn", 1)
+    return "done"
+
+
+@pytest.mark.asyncio
+async def test_detached_does_not_force_parent_to_suspend() -> None:
+    ctx = _root()
+    # The workflow returns its value -- it is NOT dropped in favour of
+    # suspension the way a pending rpc/promise dependency would force.
+    assert await ctx.run(dispatches_detached) == "done"
+    assert ctx.spawned_remote == []
+    assert ctx.effects.cache["root.1"].state == "resolved"
+    assert ctx.effects.cache["root.1"].value.data == "done"
+    # The detached promise was created under the child's own origin-rooted id
+    # and left pending.
+    detached_id = _detached_id("root", "root.1.1")
+    assert ctx.effects.cache[detached_id].state == "pending"
 
 
 # =============================================================================

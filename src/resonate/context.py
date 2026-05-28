@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Generator
 from datetime import timedelta
+from hashlib import blake2b
 from typing import TYPE_CHECKING, Any, Concatenate, Final, Literal, Self, overload
 
 import msgspec
@@ -48,6 +49,10 @@ class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
     async def id(self) -> str:
         await self._created.wait()
         return self._id
+
+
+def _hash_id(s: str) -> str:
+    return blake2b(s.encode(), digest_size=8).hexdigest()
 
 
 def _decode_settled(record: PromiseRecord) -> Any:
@@ -110,7 +115,7 @@ class Context:
         self._tail: asyncio.Event | None = None
 
     @classmethod
-    def root(
+    def _root(
         cls,
         id: str,
         timeout_at: int,
@@ -135,7 +140,7 @@ class Context:
             opts=Opts(),
         )
 
-    def child(self, id: str, func_name: str, timeout_at: int) -> Context:
+    def _child(self, id: str, func_name: str, timeout_at: int) -> Context:
         assert self.timeout_at >= timeout_at, (
             "child timeout_at must be bounded by parents timeout_at"
         )
@@ -167,7 +172,7 @@ class Context:
     def get_dependency[T](self, type: type[T]) -> T:
         return self.deps.get(type)
 
-    def next_id(self) -> str:
+    def _next_id(self) -> str:
         self.seq += 1
         return f"{self.id}.{self.seq}"
 
@@ -203,7 +208,7 @@ class Context:
         self.spawned_remote = []
         return todos
 
-    def child_timeout(self, requested: timedelta | None) -> int:
+    def _child_timeout(self, requested: timedelta | None) -> int:
         now = now_ms()
         timeout = requested if requested is not None else DEFAULT_TIMEOUT
         return min(now + int(timeout.total_seconds() * 1000), self.timeout_at)
@@ -219,12 +224,12 @@ class Context:
             tags={},
         )
 
-    def local_create_req(
+    def _local_create_req(
         self, id: str, args: Any, timeout: timedelta | None
     ) -> PromiseCreateReq:
         return PromiseCreateReq(
             id=id,
-            timeout_at=self.child_timeout(timeout),
+            timeout_at=self._child_timeout(timeout),
             param=Value.from_serializable(args),
             tags={
                 "resonate:scope": "local",
@@ -234,7 +239,7 @@ class Context:
             },
         )
 
-    def remote_create_req(
+    def _remote_create_req(
         self,
         id: str,
         func_name: str,
@@ -244,7 +249,7 @@ class Context:
     ) -> PromiseCreateReq:
         return PromiseCreateReq(
             id=id,
-            timeout_at=self.child_timeout(timeout),
+            timeout_at=self._child_timeout(timeout),
             param=TaskData.into_value(func=func_name, args=args),
             tags={
                 "resonate:scope": "global",
@@ -255,12 +260,12 @@ class Context:
             },
         )
 
-    def promise_create_req(
+    def _promise_create_req(
         self, id: str, timeout: timedelta | None
     ) -> PromiseCreateReq:
         return PromiseCreateReq(
             id=id,
-            timeout_at=self.child_timeout(timeout),
+            timeout_at=self._child_timeout(timeout),
             param=Value(),
             tags={
                 "resonate:scope": "global",
@@ -270,10 +275,10 @@ class Context:
             },
         )
 
-    def sleep_create_req(self, id: str, duration: timedelta) -> PromiseCreateReq:
+    def _sleep_create_req(self, id: str, duration: timedelta) -> PromiseCreateReq:
         return PromiseCreateReq(
             id=id,
-            timeout_at=self.child_timeout(duration),
+            timeout_at=self._child_timeout(duration),
             param=Value(),
             tags={
                 "resonate:scope": "global",
@@ -309,8 +314,8 @@ class Context:
         # without relying on asyncio's task-start scheduling being FIFO.
         df = DurableFunction(fn)
         payload = df.pack_args(*args, **kwargs)
-        req = self.local_create_req(
-            self.next_id(),
+        req = self._local_create_req(
+            self._next_id(),
             payload,
             self.opts.timeout,
         )
@@ -333,7 +338,7 @@ class Context:
 
             # Pending: execute the child locally on its own Context, which is
             # what every durable function receives as its first argument.
-            child = self.child(req.id, df.name, record.timeout_at)
+            child = self._child(req.id, df.name, record.timeout_at)
 
             outcome: Literal["done", "errored", "suspended"]
             value: Any = None
@@ -387,8 +392,8 @@ class Context:
 
         # Build id/req synchronously so child-id ordering matches call order
         # without relying on asyncio's task-start scheduling being FIFO.
-        req = self.remote_create_req(
-            self.next_id(),
+        req = self._remote_create_req(
+            self._next_id(),
             fn,
             None if not args and not kwargs else {"args": list(args), "kwargs": kwargs},
             self.opts.timeout,
@@ -411,7 +416,7 @@ class Context:
     def sleep(self, duration: timedelta) -> ResonateFuture[None]:
         prev_created, created = self._advance_promise_chain()
 
-        req = self.sleep_create_req(self.next_id(), duration)
+        req = self._sleep_create_req(self._next_id(), duration)
         self.opts = Opts()
 
         return ResonateFuture(
@@ -423,12 +428,60 @@ class Context:
     def promise(self, timeout: timedelta | None) -> ResonateFuture[Any]:
         prev_created, created = self._advance_promise_chain()
 
-        req = self.promise_create_req(self.next_id(), timeout)
+        req = self._promise_create_req(self._next_id(), timeout)
         self.opts = Opts()
 
         return ResonateFuture(
             _id=req.id,
             _task=asyncio.create_task(self._await_remote(req, prev_created, created)),
+            _created=created,
+        )
+
+    def detached(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture[str]:
+        # Fire-and-forget remote dispatch. Mirrors Go's ``Detached``: unlike
+        # ``rpc``, the detached child is NOT tracked in ``spawned_remote`` -- the
+        # workflow never suspends on it and its lifecycle is independent of the
+        # parent. The future resolves to the child id (Go returns the id), not a
+        # remote result; there is nothing to await for a value.
+        prev_created, created = self._advance_promise_chain()
+
+        # The detached id lives outside the structured ``{id}.{seq}`` namespace:
+        # it is ``{origin}.{FNV-1a 64 hex of the raw seq id}``. ``next_id`` still
+        # consumes a seq slot so sibling ids stay stable across replay, but the
+        # promise itself is created under the hashed id.
+        raw = self._next_id()
+        child_id = f"{self.origin_id}.{_hash_id(raw)}"
+        req = self._remote_create_req(
+            child_id,
+            fn,
+            None if not args and not kwargs else {"args": list(args), "kwargs": kwargs},
+            self.opts.timeout,
+            self.opts.target,
+        )
+        self.opts = Opts()
+
+        async def bg() -> str:
+            """Background body for :meth:`detached`.
+
+            Defers ``create_promise`` through the creation chain like the other
+            entrypoints, but -- unlike :meth:`_await_remote` -- never registers a
+            remote todo and never suspends: the detached child is fire-and-forget,
+            so once the durable promise has been created (idempotent on replay) its
+            id is simply returned. Mirrors Go's ``Detached``, which ignores the
+            record returned by ``CreatePromise``. ``created.set()`` lives in
+            ``finally`` so a failing create never deadlocks the chain's successors.
+            """
+            try:
+                if prev_created is not None:
+                    await prev_created.wait()
+                await self.effects.create_promise(req)
+            finally:
+                created.set()
+            return req.id
+
+        return ResonateFuture(
+            _id=child_id,
+            _task=asyncio.create_task(bg()),
             _created=created,
         )
 

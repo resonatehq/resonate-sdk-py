@@ -43,3 +43,6 @@ ignore = [
 [lint.isort]
 combine-as-imports = true
 required-imports = ["from __future__ import annotations"]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["SLF001"]

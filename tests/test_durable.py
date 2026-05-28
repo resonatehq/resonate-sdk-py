@@ -39,7 +39,7 @@ I64_MAX = 2**63 - 1
 def _context() -> Context:
     sender = Sender(Transport(LocalNetwork()), None)
     effects = Effects(sender, Codec(NoopEncryptor()), [])
-    return Context.root(
+    return Context._root(
         id="root",
         timeout_at=I64_MAX,
         func_name="root",
