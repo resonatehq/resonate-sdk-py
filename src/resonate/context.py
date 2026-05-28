@@ -217,7 +217,6 @@ class Context:
             timeout_at=self.timeout_at,
             func_name=self.func_name,
             tags={},
-            deps=self.deps,
         )
 
     def local_create_req(

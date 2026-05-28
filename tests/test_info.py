@@ -64,7 +64,6 @@ def info(deps: DependencyMap | None = None) -> Info:
         timeout_at=123,
         func_name="func",
         tags={"k": "v"},
-        deps=deps if deps is not None else DependencyMap(),
     )
 
 
@@ -77,14 +76,3 @@ def test_info_fields() -> None:
     assert i.timeout_at == 123
     assert i.func_name == "func"
     assert i.tags == {"k": "v"}
-
-
-def test_info_get_dependency() -> None:
-    deps = DependencyMap()
-    deps.insert(Config(value="leaf-di"))
-    assert info(deps).get_dependency(Config).value == "leaf-di"
-
-
-def test_info_get_dependency_missing_raises() -> None:
-    with pytest.raises(KeyError, match="with_dependency"):
-        info().get_dependency(Config)
