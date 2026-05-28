@@ -335,6 +335,132 @@ async def test_run_suspends_when_child_completes_with_pending_remote() -> None:
 
 
 # =============================================================================
+# run: structured-concurrency propagation under suspension
+#
+# When a deeply nested child blocks on a remote dependency, its todo must
+# travel through every intermediate ``ctx.run`` up to the root, and every
+# promise on the suspension path must be left pending (not settled). This
+# mirrors Go's ``executeLocal`` recursion and Rust's ``RunTask::into_future``
+# propagation: at each level, ``take_remote_todos`` drains the child and
+# extends the parent before re-raising ``SuspendedError``.
+# =============================================================================
+
+
+async def deep_inner(ctx: Context) -> int:
+    """Leaf stand-in for rpc/sleep -- registers a remote dep and suspends."""
+    ctx.spawned_remote.append("deep-dep")
+    raise SuspendedError
+
+
+async def deep_middle(ctx: Context) -> int:
+    return await ctx.run(deep_inner)
+
+
+async def deep_top(ctx: Context) -> int:
+    return await ctx.run(deep_middle)
+
+
+async def completes_then_suspends(ctx: Context) -> int:
+    """Settle one child, then suspend on a sibling."""
+    a = await ctx.run(double, 21)
+    b = await ctx.run(blocks_on_remote)
+    return a + b
+
+
+async def multi_remote(ctx: Context) -> int:
+    """Register multiple remote deps before suspending -- a multi-todo leaf."""
+    ctx.spawned_remote.extend(["dep-a", "dep-b", "dep-c"])
+    raise SuspendedError
+
+
+async def parent_with_fire_and_forget(ctx: Context) -> int:
+    """Spawn a child that suspends, then return without awaiting it.
+
+    The unawaited bg task only runs once ``flush_local_work`` joins it; if
+    ``ctx.run`` didn't register the task in ``spawned_locals``, its
+    ``spawned_remote.append`` would happen after the parent had already
+    decided to settle, and the todo would be lost.
+    """
+    _ = ctx.run(blocks_on_remote)
+    return 99
+
+
+@pytest.mark.asyncio
+async def test_run_suspension_propagates_through_intermediate_workflow() -> None:
+    # A grandchild that suspends must bubble its todo up through the parent
+    # workflow into the root's ``spawned_remote``.
+    ctx = _root()
+    with pytest.raises(SuspendedError):
+        await ctx.run(deep_middle)
+    assert ctx.spawned_remote == ["deep-dep"]
+    # Both promises along the suspension path are left pending.
+    assert ctx.effects.cache["root.1"].state == "pending"  # middle
+    assert ctx.effects.cache["root.1.1"].state == "pending"  # inner
+
+
+@pytest.mark.asyncio
+async def test_run_suspension_propagates_through_three_levels() -> None:
+    # Same property at one more level of nesting: todos travel arbitrarily deep.
+    ctx = _root()
+    with pytest.raises(SuspendedError):
+        await ctx.run(deep_top)
+    assert ctx.spawned_remote == ["deep-dep"]
+    assert ctx.effects.cache["root.1"].state == "pending"  # top
+    assert ctx.effects.cache["root.1.1"].state == "pending"  # middle
+    assert ctx.effects.cache["root.1.1.1"].state == "pending"  # inner
+
+
+@pytest.mark.asyncio
+async def test_run_completed_sibling_settles_but_parent_still_suspends() -> None:
+    # The first child runs to completion and is settled, but a later child
+    # suspends -- the parent must surface the suspension and stay pending,
+    # even though one of its sub-promises is already resolved.
+    ctx = _root()
+    with pytest.raises(SuspendedError):
+        await ctx.run(completes_then_suspends)
+    assert ctx.spawned_remote == ["remote-dep"]
+    # First child got fully settled with its computed value.
+    assert ctx.effects.cache["root.1.1"].state == "resolved"
+    assert ctx.effects.cache["root.1.1"].value.data == 42
+    # Second child remains pending -- its body raised SuspendedError.
+    assert ctx.effects.cache["root.1.2"].state == "pending"
+    # Parent workflow itself stays pending: ``outcome == "suspended"`` skips
+    # the settle_promise call at the bottom of ``run``.
+    assert ctx.effects.cache["root.1"].state == "pending"
+
+
+@pytest.mark.asyncio
+async def test_run_merges_multiple_todos_from_single_child() -> None:
+    # ``take_remote_todos`` drains the full list, not just the first entry,
+    # so a child registering N pending deps surfaces all N at the parent.
+    ctx = _root()
+    with pytest.raises(SuspendedError):
+        await ctx.run(multi_remote)
+    assert ctx.spawned_remote == ["dep-a", "dep-b", "dep-c"]
+
+
+@pytest.mark.asyncio
+async def test_run_fire_and_forget_child_suspension_propagates() -> None:
+    # Parent spawns a child via ctx.run but doesn't await it. The child's bg
+    # task only runs once flush_local_work joins it; that join must pull the
+    # child's todo into the parent's spawned_remote and force the parent to
+    # suspend even though the body returned 99.
+    #
+    # This is the exact scenario Go's executeLocal calls out with
+    # ``localResult{suspended: true}`` when the function returned but left
+    # remote todos (context.go:362-371) -- it depends on spawned_locals
+    # being populated so flush has something to wait for.
+    ctx = _root()
+    with pytest.raises(SuspendedError):
+        await ctx.run(parent_with_fire_and_forget)
+    assert ctx.spawned_remote == ["remote-dep"]
+    # Parent's value (99) was dropped in favour of suspension; both promises
+    # along the suspension path are left pending.
+    assert ctx.effects.cache["root.1"].state == "pending"
+    assert ctx.effects.cache["root.1.1"].state == "pending"
+
+
+# =============================================================================
 # run: blocks until the durable promise has been created
 #
 # ``Context.run`` returns a Task immediately, but the underlying
@@ -374,7 +500,7 @@ async def test_run_task_pending_while_create_promise_blocked() -> None:
 
         # Wait until we *know* the inner coroutine is parked inside create_promise.
         await entered.wait()
-        assert not task.done()
+
         # And the durable record is not in the cache yet.
         assert "root.1" not in ctx.effects.cache
 
@@ -405,7 +531,6 @@ async def test_run_body_does_not_execute_before_promise_created() -> None:
         await entered.wait()
         # We're now parked inside create_promise -- the body must not have run.
         assert not body_ran.is_set()
-        assert not task.done()
 
         gate.set()
         assert await task == 7
@@ -466,7 +591,6 @@ async def test_run_does_not_settle_before_create_returns() -> None:
 
         await entered.wait()
         settle_mock.assert_not_awaited()
-        assert not task.done()
 
         gate.set()
         assert await task == 6
@@ -786,7 +910,7 @@ async def test_rpc_task_pending_while_create_promise_blocked() -> None:
         task = ctx.rpc("fn")
 
         await entered.wait()
-        assert not task.done()
+
         assert "root.1" not in ctx.effects.cache
 
         gate.set()

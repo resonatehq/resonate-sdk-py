@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable, Generator
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Concatenate, Final, Self, overload
+from typing import TYPE_CHECKING, Any, Concatenate, Final, Literal, Self, overload
 
 import msgspec
 
@@ -47,9 +48,6 @@ class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
     async def id(self) -> str:
         await self._created.wait()
         return self._id
-
-    def done(self) -> bool:
-        return self._task.done()
 
 
 def _decode_settled(record: PromiseRecord) -> Any:
@@ -182,11 +180,19 @@ class Context:
         unbounded ``wg.Wait()``): the structured-concurrency invariant requires
         every child's remote todos be merged before the parent decides to
         suspend, otherwise the suspend would register a partial awaited list.
+
+        Per-task ``SuspendedError`` / ``ResonateError`` are swallowed: by the
+        time a task ends, it has either merged its todos into our
+        ``spawned_remote`` (suspended) or settled its own promise (errored).
+        Either way, the error belongs to whoever holds the future. This
+        matches Go's ``wg.Wait`` + channel-based result delivery and Rust's
+        ``Outcome::{Done, Suspended}`` handling in ``flush_local_work``.
         """
         tasks = self.spawned_locals
         self.spawned_locals = []
         for task in tasks:
-            await task.handle
+            with contextlib.suppress(SuspendedError, ResonateError):
+                await task.handle
 
     def take_remote_todos(self) -> list[str]:
         """Drain and return all remote todos accumulated on this context.
@@ -330,43 +336,46 @@ class Context:
             # what every durable function receives as its first argument.
             child = self.child(req.id, df.name, record.timeout_at)
 
-            suspended = False
-            app_error: ResonateError | None = None
+            outcome: Literal["done", "errored", "suspended"]
             value: Any = None
             try:
                 value = await df.invoke(child, payload)
+                outcome = "done"
             except SuspendedError:
-                suspended = True
+                outcome = "suspended"
             except ResonateError as exc:
-                app_error = exc
+                value = exc
+                outcome = "errored"
 
-            # Flush sub-tasks and collect remote todos. Done unconditionally so
-            # a suspended child's already-registered todos are merged up too.
+            # Always drain the child's sub-work before deciding: a suspended
+            # child has already pushed its own todos, and a "done" child may
+            # still have spawned background work that registered todos.
             await child.flush_local_work()
             child_remote = child.take_remote_todos()
 
-            # Suspend when the child blocked on a remote dependency, or when it
-            # finished but left fire-and-forget sub-work pending. Both merge the
-            # child's todos up and unwind via SuspendedError -- Go reports
-            # ``localResult{suspended: true}`` in exactly these two cases.
-            if suspended or child_remote:
+            # Structured-concurrency: any pending child work forces the parent
+            # to suspend too, so its spawned_remote covers all pending IDs.
+            # Mirrors Go's ``localResult{suspended: true}`` in executeLocal.
+            if outcome == "suspended" or len(child_remote) > 0:
                 self.spawned_remote.extend(child_remote)
                 raise SuspendedError
 
-            # Fully done: settle the child's promise (resolved or rejected) and
-            # surface the result, re-raising a rejection to the caller.
-            if app_error:
-                assert value is None
-                await self.effects.settle_promise(req.id, app_error)
-                if app_error is not None:
-                    raise app_error
-
             await self.effects.settle_promise(req.id, value)
+            if outcome == "errored":
+                raise value
+            assert not isinstance(value, ResonateError)
             return value
 
+        task = asyncio.create_task(bg())
+        # Register for structured-concurrency flush: a fire-and-forget child
+        # that suspends or errors in the background must be joined here so its
+        # todos / settled state are observed before the parent decides what to
+        # do. Mirrors Go's append to ``spawnedLocals`` + ``wg.Add(1)`` and
+        # Rust's ``tasks.push(SpawnedLocal { id, handle })``.
+        self.spawned_locals.append(SpawnedLocal(id=req.id, handle=task))
         return ResonateFuture(
             _id=req.id,
-            _task=asyncio.create_task(bg()),
+            _task=task,
             _created=created,
         )
 
@@ -391,22 +400,28 @@ class Context:
                 if prev_created is not None:
                     await prev_created.wait()
                 record = await self.effects.create_promise(req)
+
+                # Idempotent recovery: an already-settled promise short-circuits.
+                if record.state != "pending":
+                    return _decode_settled(record)
+
+                # Pending remote dependency: register the child id so the parent's
+                # suspend list is complete, then unwind via SuspendedError. Mirrors
+                # Go's Future.Await on a futureRemote pending record (appendRemoteTodo
+                # + panic(suspendSignal{})).
+                self.spawned_remote.append(req.id)
+                raise SuspendedError
             finally:
                 # Release the next link no matter what -- a failing bg must
                 # not deadlock its successors in the chain.
                 created.set()
 
-            # Idempotent recovery: an already-settled promise short-circuits.
-            if record.state != "pending":
-                return _decode_settled(record)
-
-            # Pending remote dependency: register the child id so the parent's
-            # suspend list is complete, then unwind via SuspendedError. Mirrors
-            # Go's Future.Await on a futureRemote pending record (appendRemoteTodo
-            # + panic(suspendSignal{})).
-            self.spawned_remote.append(req.id)
-            raise SuspendedError
-
+        # rpc tracks its child id in ``spawned_remote`` (the remote-deps list),
+        # not in ``spawned_locals``. The bg task is just the mechanism that
+        # defers create_promise through the chain; it is expected to be
+        # awaited via the returned future (use ``Detached`` for fire-and-forget
+        # remote dispatch). Matches Go's RPC and Rust's RpcTask, neither of
+        # which track for structured-concurrency joining.
         return ResonateFuture(
             _id=req.id,
             _task=asyncio.create_task(bg()),
