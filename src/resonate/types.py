@@ -191,12 +191,6 @@ class Suspended(msgspec.Struct, frozen=True, kw_only=True):
 type Outcome[T] = Done[T] | Suspended
 
 
-# The kind of durable function. Mirrors Rust's internal ``DurableKind`` enum:
-# ``"function"`` is a leaf (no sub-tasks, always completes); ``"workflow"`` can
-# call ctx.run/rpc and may suspend.
-type DurableKind = Literal["function", "workflow"]
-
-
 class TaskData(msgspec.Struct, kw_only=True, frozen=True):
     """Parsed task data from the root promise param.
 

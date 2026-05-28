@@ -1,9 +1,10 @@
 """Tests for :class:`resonate.registry.Registry`.
 
 Mirrors Go's ``registry_test.go``: explicit-name registration backed by
-reflection-built :class:`~resonate.durable.DurableFunction` entries. The
-function's *kind* is detected when it is registered, while the lookup *name* is
-supplied by the caller (so it stays stable across renames of the Python function).
+reflection-built :class:`~resonate.durable.DurableFunction` entries. The lookup
+*name* is supplied by the caller (so it stays stable across renames of the
+Python function); the registered callable must follow the Python SDK
+convention of accepting a :class:`Context` as its first argument.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from resonate.context import Context
 
 
-async def leaf(x: int) -> int:
+async def leaf(ctx: Context, x: int) -> int:
     return x
 
 
@@ -32,16 +33,7 @@ def test_register_and_get() -> None:
     r.register("leaf", leaf)
     df = r.get("leaf")
     assert df is not None
-    assert df.kind == "function"
     assert df.name == "leaf"
-
-
-def test_register_records_workflow_kind() -> None:
-    r = Registry()
-    r.register("flow", flow)
-    df = r.get("flow")
-    assert df is not None
-    assert df.kind == "workflow"
 
 
 def test_custom_name_is_independent_of_fn_name() -> None:

@@ -8,7 +8,6 @@ import pytest
 from resonate.error import ApplicationError, SerializationError
 from resonate.types import (
     Done,
-    DurableKind,
     Outcome,
     PromiseCreateReq,
     PromiseRecord,
@@ -390,11 +389,7 @@ def test_task_data_into_value_unserializable_raises() -> None:
         TaskData.into_value("f", object())
 
 
-# --- DurableKind / Status: internal string literals ---
-
-
-def test_durable_kind_permitted_values() -> None:
-    assert get_args(DurableKind.__value__) == ("function", "workflow")
+# --- Status: internal string literals ---
 
 
 def test_status_permitted_values() -> None:

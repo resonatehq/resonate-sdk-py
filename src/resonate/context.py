@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Generator
 from datetime import timedelta
-from functools import wraps
 from typing import TYPE_CHECKING, Any, Concatenate, Final, Self, overload
 
 import msgspec
 
 from resonate import now_ms
 from resonate.codec import deserialize_error
-from resonate.durable import durable_function_for
+from resonate.durable import DurableFunction
 from resonate.error import ApplicationError, ResonateError, SuspendedError
 from resonate.info import Info
 from resonate.types import PromiseCreateReq, TaskData, Value
@@ -26,26 +25,6 @@ DEFAULT_TIMEOUT: Final[timedelta] = timedelta(days=1)
 TargetResolver = Callable[[str | None], str]
 
 
-def wait_for_signal[**P, T](
-    event: asyncio.Event,
-) -> Callable[
-    [Callable[P, Coroutine[Any, Any, T]]],
-    Callable[P, Coroutine[Any, Any, T]],
-]:
-    def decorator[**P, T](
-        fn: Callable[P, Coroutine[Any, Any, T]],
-    ) -> Callable[P, Coroutine[Any, Any, T]]:
-        @wraps(fn)
-        async def inner(*args: P.args, **kwargs: P.kwargs) -> T:
-            task = asyncio.create_task(fn(*args, **kwargs))
-            await event.wait()
-            return await task
-
-        return inner
-
-    return decorator
-
-
 class SpawnedLocal(msgspec.Struct, frozen=True, kw_only=True):
     id: str
     handle: asyncio.Task[Any]
@@ -55,6 +34,22 @@ class Opts(msgspec.Struct, frozen=True, kw_only=True):
     timeout: timedelta | None = None
     target: str | None = None
     data: Any | None = None
+
+
+class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
+    _id: str
+    _task: asyncio.Task[T]
+    _created: asyncio.Event
+
+    def __await__(self) -> Generator[Any, None, T]:
+        return self._task.__await__()
+
+    async def id(self) -> str:
+        await self._created.wait()
+        return self._id
+
+    def done(self) -> bool:
+        return self._task.done()
 
 
 def _decode_settled(record: PromiseRecord) -> Any:
@@ -75,20 +70,46 @@ def _decode_settled(record: PromiseRecord) -> Any:
             raise ApplicationError(msg)
 
 
-class Context(msgspec.Struct, kw_only=True):
-    id: str
-    origin_id: str
-    branch_id: str
-    parent_id: str
-    func_name: str
-    timeout_at: int
-    seq: int
-    effects: Effects
-    target_resolver: TargetResolver
-    spawned_remote: list[str]
-    spawned_locals: list[SpawnedLocal]
-    deps: DependencyMap
-    opts: Opts
+class Context:
+    def __init__(
+        self,
+        id: str,
+        origin_id: str,
+        branch_id: str,
+        parent_id: str,
+        func_name: str,
+        timeout_at: int,
+        seq: int,
+        effects: Effects,
+        target_resolver: TargetResolver,
+        spawned_remote: list[str],
+        spawned_locals: list[SpawnedLocal],
+        deps: DependencyMap,
+        opts: Opts,
+    ) -> None:
+        self.id = id
+        self.origin_id = origin_id
+        self.branch_id = branch_id
+        self.parent_id = parent_id
+
+        self.func_name = func_name
+
+        self.timeout_at = timeout_at
+        self.seq = seq
+
+        self.effects = effects
+        self.target_resolver = target_resolver
+
+        self.spawned_remote = spawned_remote
+        self.spawned_locals = spawned_locals
+
+        self.deps = deps
+        self.opts = opts
+
+        # Tail of the create-promise chain. Each ctx.run() captures this as
+        # its prev-link and installs a fresh event as the new tail, so bg
+        # tasks issue create_promise in ctx.run call order under concurrency.
+        self._tail: asyncio.Event | None = None
 
     @classmethod
     def root(
@@ -136,7 +157,7 @@ class Context(msgspec.Struct, kw_only=True):
             opts=Opts(),
         )
 
-    def with_options(
+    def with_opts(
         self,
         timeout: timedelta | None = None,
         target: str | None = None,
@@ -144,21 +165,6 @@ class Context(msgspec.Struct, kw_only=True):
     ) -> Self:
         self.opts = Opts(timeout=timeout, target=target, data=data)
         return self
-
-    def child_info(self, id: str, func_name: str, timeout_at: int) -> Info:
-        assert self.timeout_at >= timeout_at, (
-            "child timeout_at must be bounded by parents timeout_at"
-        )
-        return Info(
-            id=id,
-            parent_id=self.id,
-            origin_id=self.origin_id,
-            branch_id=id,
-            timeout_at=timeout_at,
-            func_name=func_name,
-            tags={},
-            deps=self.deps,
-        )
 
     def get_dependency[T](self, type: type[T]) -> T:
         return self.deps.get(type)
@@ -279,95 +285,65 @@ class Context(msgspec.Struct, kw_only=True):
         fn: Callable[Concatenate[Context, P], Awaitable[T]],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> asyncio.Task[T]: ...
+    ) -> ResonateFuture[T]: ...
     @overload
     def run[**P, T](
         self,
         fn: Callable[Concatenate[Context, P], T],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> asyncio.Task[T]: ...
-    @overload
-    def run[**P, T](
-        self,
-        fn: Callable[Concatenate[Info, P], Awaitable[T]],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> asyncio.Task[T]: ...
-    @overload
-    def run[**P, T](
-        self,
-        fn: Callable[Concatenate[Info, P], T],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> asyncio.Task[T]: ...
-    @overload
-    def run[**P, T](
-        self,
-        fn: Callable[P, Awaitable[T]],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> asyncio.Task[T]: ...
-    @overload
-    def run[**P, T](
-        self,
-        fn: Callable[P, T],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> asyncio.Task[T]: ...
+    ) -> ResonateFuture[T]: ...
     def run[T](
         self, fn: Callable[..., T], *args: Any, **kwargs: Any
-    ) -> asyncio.Task[T]:
-        durable_promise_created = asyncio.Event()
+    ) -> ResonateFuture[T]:
+        # Chain promise creation: capture the previous tail
+        # and install ours as the new tail.
+        prev_created, created = self._advance_promise_chain()
 
-        @wait_for_signal(durable_promise_created)
-        async def _(opts: Opts, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+        # Build id/req synchronously so child-id ordering matches call order
+        # without relying on asyncio's task-start scheduling being FIFO.
+        df = DurableFunction(fn)
+        payload = df.pack_args(*args, **kwargs)
+        req = self.local_create_req(
+            self.next_id(),
+            payload,
+            self.opts.timeout,
+        )
+        self.opts = Opts()
+
+        async def bg() -> T:
             try:
-                df = durable_function_for(fn)
-                child_id = self.next_id()
-                # Pack once: the same envelope backs the durable promise's param and
-                # the (re-)invocation, so a recovered call rebuilds the same call.
-                payload = df.pack_args(*args, **kwargs)
-
-                req = self.local_create_req(child_id, payload, opts.timeout)
+                if prev_created is not None:
+                    await prev_created.wait()
                 record = await self.effects.create_promise(req)
-            except Exception:
-                durable_promise_created.set()
-                raise
+            finally:
+                # Release the next link no matter what -- a failing bg must
+                # not deadlock its successors in the chain.
+                created.set()
 
-            durable_promise_created.set()
             # Idempotent recovery: an already-settled promise short-circuits
-            # execution (Go's ``rec.State != PromiseStatePending`` branch).
+            # execution
             if record.state != "pending":
                 return _decode_settled(record)
 
-            # Pending: execute the child locally. A workflow receives a child
-            # Context (so it can spawn sub-tasks); a leaf receives read-only Info.
-            match df.kind:
-                case "workflow":
-                    child = self.child(child_id, df.name, record.timeout_at)
-                    env: Info | Context = child
-                case "function":
-                    child = None
-                    env = self.child_info(child_id, df.name, record.timeout_at)
+            # Pending: execute the child locally on its own Context, which is
+            # what every durable function receives as its first argument.
+            child = self.child(req.id, df.name, record.timeout_at)
 
             suspended = False
             app_error: ResonateError | None = None
             value: Any = None
             try:
-                value = await df.invoke(env, payload)
+                value = await df.invoke(child, payload)
             except SuspendedError:
                 suspended = True
             except ResonateError as exc:
                 app_error = exc
 
-            # Flush sub-tasks and collect remote todos (workflows only -- a leaf
-            # holds an Info and can spawn nothing). Done unconditionally so a
-            # suspended child's already-registered todos are merged up too.
-            child_remote: list[str] = []
-            if child is not None:
-                await child.flush_local_work()
-                child_remote = child.take_remote_todos()
+            # Flush sub-tasks and collect remote todos. Done unconditionally so
+            # a suspended child's already-registered todos are merged up too.
+            await child.flush_local_work()
+            child_remote = child.take_remote_todos()
 
             # Suspend when the child blocked on a remote dependency, or when it
             # finished but left fire-and-forget sub-work pending. Both merge the
@@ -379,13 +355,67 @@ class Context(msgspec.Struct, kw_only=True):
 
             # Fully done: settle the child's promise (resolved or rejected) and
             # surface the result, re-raising a rejection to the caller.
-            await self.effects.settle_promise(
-                child_id, app_error if app_error is not None else value
-            )
-            if app_error is not None:
-                raise app_error
+            if app_error:
+                assert value is None
+                await self.effects.settle_promise(req.id, app_error)
+                if app_error is not None:
+                    raise app_error
+
+            await self.effects.settle_promise(req.id, value)
             return value
 
-        opts = self.opts
+        return ResonateFuture(
+            _id=req.id,
+            _task=asyncio.create_task(bg()),
+            _created=created,
+        )
+
+    def rpc(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture:
+        # Chain promise creation: capture the previous tail
+        # and install ours as the new tail.
+        prev_created, created = self._advance_promise_chain()
+
+        # Build id/req synchronously so child-id ordering matches call order
+        # without relying on asyncio's task-start scheduling being FIFO.
+        req = self.remote_create_req(
+            self.next_id(),
+            fn,
+            {"args": list(args), "kwargs": kwargs} if args or kwargs else None,
+            self.opts.timeout,
+            self.opts.target,
+        )
         self.opts = Opts()
-        return asyncio.create_task(_(opts, fn, *args, **kwargs))
+
+        async def bg() -> Any:
+            try:
+                if prev_created is not None:
+                    await prev_created.wait()
+                record = await self.effects.create_promise(req)
+            finally:
+                # Release the next link no matter what -- a failing bg must
+                # not deadlock its successors in the chain.
+                created.set()
+
+            # Idempotent recovery: an already-settled promise short-circuits.
+            if record.state != "pending":
+                return _decode_settled(record)
+
+            # Pending remote dependency: register the child id so the parent's
+            # suspend list is complete, then unwind via SuspendedError. Mirrors
+            # Go's Future.Await on a futureRemote pending record (appendRemoteTodo
+            # + panic(suspendSignal{})).
+            self.spawned_remote.append(req.id)
+            raise SuspendedError
+
+        return ResonateFuture(
+            _id=req.id,
+            _task=asyncio.create_task(bg()),
+            _created=created,
+        )
+
+    def _advance_promise_chain(self) -> tuple[asyncio.Event | None, asyncio.Event]:
+        """Advances the creation chain tail, returning (prev_tail, new_tail)."""
+        prev_tail = self._tail
+        new_tail = asyncio.Event()
+        self._tail = new_tail
+        return prev_tail, new_tail

@@ -26,7 +26,7 @@ import pytest
 
 from resonate import DependencyMap, now_ms
 from resonate.codec import Codec, NoopEncryptor, encode_error
-from resonate.context import Context, Opts, wait_for_signal
+from resonate.context import Context, Opts
 from resonate.effects import Effects
 from resonate.error import ApplicationError, SuspendedError
 from resonate.network import LocalNetwork
@@ -98,8 +98,8 @@ def _rejected(id: str, message: str) -> PromiseRecord:
 # =============================================================================
 
 
-async def double(x: int) -> int:
-    """Double ``x`` -- a pure leaf with no env parameter."""
+async def double(ctx: Context, x: int) -> int:
+    """Double ``x`` -- a leaf that ignores the injected Context."""
     return x * 2
 
 
@@ -108,12 +108,12 @@ async def add(ctx: Context, a: int, b: int) -> int:
     return a + b
 
 
-async def beat() -> str:
-    """Return a constant -- a no-arg leaf (``pack_args`` -> ``None``)."""
+async def beat(ctx: Context) -> str:
+    """Return a constant -- a ctx-only leaf (``pack_args`` -> ``None``)."""
     return "ok"
 
 
-async def failing(x: int) -> int:
+async def failing(ctx: Context) -> int:
     msg = "denied"
     raise ApplicationError(msg)
 
@@ -123,7 +123,7 @@ class Point(msgspec.Struct, frozen=True):
     y: int
 
 
-async def sum_point(p: Point) -> int:
+async def sum_point(ctx: Context, p: Point) -> int:
     return p.x + p.y
 
 
@@ -196,7 +196,7 @@ async def test_run_leaf_returns_and_settles_resolved() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_zero_arg_function() -> None:
+async def test_run_ctx_only_function() -> None:
     ctx = _root()
     assert await ctx.run(beat) == "ok"
     assert ctx.effects.cache["root.1"].state == "resolved"
@@ -234,7 +234,7 @@ async def test_run_rejects_non_callable() -> None:
 async def test_run_function_error_propagates_and_settles_rejected() -> None:
     ctx = _root()
     with pytest.raises(ApplicationError, match="denied"):
-        await ctx.run(failing, 0)
+        await ctx.run(failing)
     assert ctx.effects.cache["root.1"].state == "rejected"
 
 
@@ -247,7 +247,7 @@ async def test_run_function_error_propagates_and_settles_rejected() -> None:
 async def test_run_presettled_resolved_skips_execution() -> None:
     calls = 0
 
-    async def counted(x: int) -> int:
+    async def counted(ctx: Context, x: int) -> int:
         nonlocal calls
         calls += 1
         return x
@@ -261,7 +261,7 @@ async def test_run_presettled_resolved_skips_execution() -> None:
 async def test_run_presettled_rejected_raises_without_execution() -> None:
     calls = 0
 
-    async def counted(x: int) -> int:
+    async def counted(ctx: Context, x: int) -> int:
         nonlocal calls
         calls += 1
         return x
@@ -276,7 +276,7 @@ async def test_run_presettled_rejected_raises_without_execution() -> None:
 async def test_run_replay_does_not_reinvoke() -> None:
     calls = 0
 
-    async def counted(x: int) -> int:
+    async def counted(ctx: Context, x: int) -> int:
         nonlocal calls
         calls += 1
         return x
@@ -392,7 +392,7 @@ async def test_run_body_does_not_execute_before_promise_created() -> None:
     # promise creation could be raced by side effects in the body.
     body_ran = asyncio.Event()
 
-    async def observed(x: int) -> int:
+    async def observed(ctx: Context, x: int) -> int:
         body_ran.set()
         return x
 
@@ -482,7 +482,7 @@ async def test_run_does_not_settle_before_create_returns() -> None:
 async def test_run_with_options_timeout_sets_child_deadline() -> None:
     ctx = _root()
     before = now_ms()
-    assert await ctx.with_options(timeout=timedelta(seconds=30)).run(double, 5) == 10
+    assert await ctx.with_opts(timeout=timedelta(seconds=30)).run(double, 5) == 10
     after = now_ms()
     record = ctx.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
@@ -493,14 +493,14 @@ async def test_run_with_options_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
     # A year-long timeout still cannot outlive the parent's deadline.
-    await ctx.with_options(timeout=timedelta(days=365)).run(double, 1)
+    await ctx.with_opts(timeout=timedelta(days=365)).run(double, 1)
     assert ctx.effects.cache["root.1"].timeout_at == cap
 
 
 @pytest.mark.asyncio
 async def test_run_consumes_options_after_one_call() -> None:
     ctx = _root()
-    await ctx.with_options(timeout=timedelta(seconds=30)).run(double, 1)  # root.1
+    await ctx.with_opts(timeout=timedelta(seconds=30)).run(double, 1)  # root.1
     short = ctx.effects.cache["root.1"].timeout_at
     # The next run carries no options -> the 24h default, well past the 30s one.
     await ctx.run(double, 1)  # root.2
@@ -511,105 +511,344 @@ async def test_run_consumes_options_after_one_call() -> None:
 @pytest.mark.asyncio
 async def test_run_resets_options_even_on_error() -> None:
     ctx = _root()
-    ctx.with_options(timeout=timedelta(seconds=5))
+    ctx.with_opts(timeout=timedelta(seconds=5))
     with pytest.raises(ApplicationError):
-        await ctx.run(failing, 0)
+        await ctx.run(failing)
+    assert ctx.opts == Opts()
+
+
+# =============================================================================
+# run: promise creation order under concurrency
+#
+# ``Context.run`` returns its ``ResonateFuture`` immediately and the inner bg
+# task is what awaits ``create_promise``. The chain on ``Context._tail`` is the
+# guarantee that those bg tasks issue ``create_promise`` in call order, no
+# matter how asyncio schedules them.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_run_promise_creation_order_under_concurrency() -> None:
+    # Mirror of ``test_rpc_promise_creation_order_under_concurrency`` for
+    # ``ctx.run``: even with bg tasks spawned concurrently, the chain
+    # serializes ``create_promise`` calls into call order.
+    ctx = _root()
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        # Yield so a non-chained implementation would let root.2 race ahead.
+        await asyncio.sleep(0)
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.run(double, 1)
+        f2 = ctx.run(double, 2)
+        # Await in reverse so completion order can't accidentally line up.
+        assert await f2 == 4
+        assert await f1 == 2
+
+    assert seen == ["root.1", "root.2"]
+
+
+@pytest.mark.asyncio
+async def test_run_chain_blocks_second_create_until_first_returns() -> None:
+    # Stronger than the recorder-style test above: gate the first
+    # ``create_promise`` and assert the second has NOT entered ``create_promise``
+    # at all. This proves the chain parks bg #2 at ``await prev_created.wait()``
+    # rather than just happening to win a scheduling race.
+    ctx = _root()
+    gate = asyncio.Event()
+    seen: list[str] = []
+    entered_second = asyncio.Event()
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        if req.id == "root.1":
+            await gate.wait()
+        else:
+            entered_second.set()
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.run(double, 1)
+        f2 = ctx.run(double, 2)
+        # Yield generously: a non-chained impl would let bg #2 enter create_promise.
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert seen == ["root.1"]
+        assert not entered_second.is_set()
+
+        gate.set()
+        assert await f1 == 2
+        assert await f2 == 4
+
+    assert seen == ["root.1", "root.2"]
+
+
+# =============================================================================
+# rpc: pending -> register a remote todo and suspend
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_rpc_pending_registers_todo_and_suspends() -> None:
+    # A fresh remote promise is created pending; awaiting the future appends
+    # its id to ``spawned_remote`` and raises ``SuspendedError`` (mirrors Go's
+    # Future.Await for a futureRemote pending record).
+    ctx = _root()
+    fut = ctx.rpc("remote_fn", 1, 2)
+    with pytest.raises(SuspendedError):
+        await fut
+    assert ctx.spawned_remote == ["root.1"]
+    assert ctx.effects.cache["root.1"].state == "pending"
+
+
+# =============================================================================
+# rpc: idempotent recovery (pre-settled records short-circuit)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_rpc_presettled_resolved_returns_value() -> None:
+    ctx = _root([_resolved("root.1", "remote-result")])
+    assert await ctx.rpc("remote_fn") == "remote-result"
+    assert ctx.spawned_remote == []
+
+
+@pytest.mark.asyncio
+async def test_rpc_presettled_rejected_raises() -> None:
+    ctx = _root([_rejected("root.1", "remote failure")])
+    with pytest.raises(ApplicationError, match="remote failure"):
+        await ctx.rpc("remote_fn")
+    assert ctx.spawned_remote == []
+
+
+# =============================================================================
+# rpc: request shape (tags + TaskData envelope)
+# =============================================================================
+
+
+@contextmanager
+def _spy_create_promise(ctx: Context) -> Iterator[list[Any]]:
+    """Capture every PromiseCreateReq passed to ``effects.create_promise``."""
+    captured: list[Any] = []
+    original = ctx.effects.create_promise
+
+    async def spy(req: Any) -> Any:
+        captured.append(req)
+        return await original(req)
+
+    with patch.object(ctx.effects, "create_promise", new=AsyncMock(side_effect=spy)):
+        yield captured
+
+
+@pytest.mark.asyncio
+async def test_rpc_request_tags_and_param() -> None:
+    ctx = _root()
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.rpc("remote_fn", 1, 2, k="v")
+
+    [req] = captured
+    assert req.id == "root.1"
+    assert req.tags == {
+        "resonate:scope": "global",
+        "resonate:target": "",
+        "resonate:branch": "root.1",
+        "resonate:parent": "root",
+        "resonate:origin": "root",
+    }
+    assert req.param.data == {
+        "func": "remote_fn",
+        "args": {"args": [1, 2], "kwargs": {"k": "v"}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_rpc_no_args_param_is_null() -> None:
+    # ``pack_args``-style envelope: an empty call collapses to ``None`` so a
+    # remote receiver can round-trip via ``_unpack`` -> ([], {}).
+    ctx = _root()
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.rpc("remote_fn")
+
+    assert captured[0].param.data == {"func": "remote_fn", "args": None}
+
+
+# =============================================================================
+# rpc: child id allocation matches call order
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_rpc_sequential_child_ids() -> None:
+    ctx = _root([_resolved("root.1", "a"), _resolved("root.2", "b")])
+    assert await ctx.rpc("fn") == "a"  # root.1
+    assert await ctx.rpc("fn") == "b"  # root.2
+
+
+@pytest.mark.asyncio
+async def test_rpc_promise_creation_order_under_concurrency() -> None:
+    # The chain in ``_advance_promise_chain`` must serialize ``create_promise``
+    # calls into call order even when both rpcs are spawned concurrently.
+    ctx = _root([_resolved("root.1", "a"), _resolved("root.2", "b")])
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        # Yield so a non-chained implementation would let root.2 race ahead.
+        await asyncio.sleep(0)
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.rpc("fn")
+        f2 = ctx.rpc("fn")
+        # Await in reverse so completion order can't accidentally line up.
+        assert await f2 == "b"
+        assert await f1 == "a"
+
+    assert seen == ["root.1", "root.2"]
+
+
+# =============================================================================
+# rpc: with_options(timeout=, target=) and per-call opts reset
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_rpc_with_options_target_sets_tag() -> None:
+    ctx = _root()
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.with_opts(target="worker-1").rpc("fn")
+    assert captured[0].tags["resonate:target"] == "worker-1"
+
+
+@pytest.mark.asyncio
+async def test_rpc_with_options_timeout_sets_child_deadline() -> None:
+    ctx = _root()
+    before = now_ms()
+    with pytest.raises(SuspendedError):
+        await ctx.with_opts(timeout=timedelta(seconds=30)).rpc("fn")
+    after = now_ms()
+    record = ctx.effects.cache["root.1"]
+    assert before + 30_000 <= record.timeout_at <= after + 30_000
+
+
+@pytest.mark.asyncio
+async def test_rpc_with_options_timeout_capped_to_parent() -> None:
+    cap = now_ms() + 5_000
+    ctx = _root(timeout_at=cap)
+    with pytest.raises(SuspendedError):
+        await ctx.with_opts(timeout=timedelta(days=365)).rpc("fn")
+    assert ctx.effects.cache["root.1"].timeout_at == cap
+
+
+@pytest.mark.asyncio
+async def test_rpc_consumes_options_after_one_call() -> None:
+    ctx = _root([_resolved("root.1", "a")])
+    await ctx.with_opts(timeout=timedelta(seconds=30), target="x").rpc("fn")
     assert ctx.opts == Opts()
 
 
 @pytest.mark.asyncio
-async def test_waits_for_event_before_returning() -> None:
-    event = asyncio.Event()
-    started = asyncio.Event()
+async def test_rpc_resets_options_even_on_suspend() -> None:
+    # Suspension is the common rpc terminal state; opts must still reset so the
+    # next call does not inherit them.
+    ctx = _root()
+    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
+    with pytest.raises(SuspendedError):
+        await ctx.rpc("fn")
+    assert ctx.opts == Opts()
 
-    @wait_for_signal(event)
-    async def fn() -> int:
-        started.set()
-        event.set()
-        return 42
 
-    task = asyncio.create_task(fn())
-
-    await started.wait()
-
-    assert not task.done()
-
-    result = await task
-
-    assert result == 42
-    assert event.is_set()
+# =============================================================================
+# rpc: blocks until the durable promise has been created
+# =============================================================================
 
 
 @pytest.mark.asyncio
-async def test_propagates_return_value() -> None:
-    event = asyncio.Event()
+async def test_rpc_task_pending_while_create_promise_blocked() -> None:
+    # Mirrors ``test_run_task_pending_while_create_promise_blocked``: the Task
+    # must not be ``done()`` until ``create_promise`` resolves.
+    ctx = _root()
+    gate = asyncio.Event()
 
-    @wait_for_signal(event)
-    async def add(a: int, b: int) -> int:
-        event.set()
-        return a + b
+    with _gated_create_promise(ctx, gate) as entered:
+        task = ctx.rpc("fn")
 
-    result = await add(2, 3)
+        await entered.wait()
+        assert not task.done()
+        assert "root.1" not in ctx.effects.cache
 
-    assert result == 5
-
-
-@pytest.mark.asyncio
-async def test_propagates_exception() -> None:
-    event = asyncio.Event()
-
-    @wait_for_signal(event)
-    async def fn() -> None:
-        event.set()
-        msg = "boom"
-        raise RuntimeError(msg)
-
-    with pytest.raises(RuntimeError, match="boom"):
-        await fn()
-
-
-def foo(a: int, b: int) -> asyncio.Task[int]:
-    validated = asyncio.Event()
-
-    @wait_for_signal(validated)
-    async def _(a: int, b: int) -> int:
-        if a < 0 or b < 0:
-            validated.set()
-            raise RuntimeError
-
-        validated.set()
-
-        return a + b
-
-    return asyncio.create_task(_(a, b))
+        gate.set()
+        with pytest.raises(SuspendedError):
+            await task
+        assert ctx.effects.cache["root.1"].state == "pending"
 
 
 @pytest.mark.asyncio
-async def test_foo_returns_sum() -> None:
-    task = foo(2, 3)
+async def test_rpc_releases_event_when_create_promise_raises() -> None:
+    # If ``create_promise`` raises, the chain event still fires (the ``finally``
+    # in bg) and the Task surfaces the original error -- otherwise a chained
+    # successor would hang forever.
+    ctx = _root()
 
-    result = await task
+    failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
+    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+        task = ctx.rpc("fn")
+        with pytest.raises(RuntimeError, match="network down"):
+            await task
 
-    assert result == 5
+    failing_mock.assert_awaited_once()
+    assert "root.1" not in ctx.effects.cache
+    assert ctx.spawned_remote == []
+
+
+# =============================================================================
+# run + rpc: shared promise-creation chain orders both code paths
+# =============================================================================
 
 
 @pytest.mark.asyncio
-async def test_foo_raises_for_negative_values() -> None:
-    task = foo(-1, 3)
+async def test_mixed_run_and_rpc_create_in_call_order() -> None:
+    # ``run`` and ``rpc`` share the same ``_tail`` chain on Context. A mixed
+    # sequence must see ``create_promise`` called in call order across both
+    # code paths -- otherwise interleaving the two would break id allocation.
+    ctx = _root(
+        [
+            _resolved("root.2", "remote-1"),
+            _resolved("root.4", "remote-2"),
+        ]
+    )
+    seen: list[str] = []
+    original = ctx.effects.create_promise
 
-    with pytest.raises(RuntimeError):
-        await task
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        # Yield so a non-chained implementation could let later calls race ahead.
+        await asyncio.sleep(0)
+        return await original(req)
 
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.run(double, 1)  # root.1 (executes locally)
+        f2 = ctx.rpc("remote_fn")  # root.2 (preloaded resolved)
+        f3 = ctx.run(double, 3)  # root.3 (executes locally)
+        f4 = ctx.rpc("remote_fn")  # root.4 (preloaded resolved)
+        # Await in reverse so completion order is decoupled from call order.
+        assert await f4 == "remote-2"
+        assert await f3 == 6
+        assert await f2 == "remote-1"
+        assert await f1 == 2
 
-@pytest.mark.asyncio
-async def test_decorator_preserves_function_metadata() -> None:
-    event = asyncio.Event()
-
-    @wait_for_signal(event)
-    async def sample() -> int:
-        """Show docstring."""
-        event.set()
-        return 1
-
-    assert sample.__name__ == "sample"
-    assert sample.__doc__ == "Show docstring."
+    assert seen == ["root.1", "root.2", "root.3", "root.4"]
