@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 import msgspec
 
 from resonate.error import ApplicationError, SerializationError
+from resonate.types import Args
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -68,14 +69,14 @@ class DurableFunction:
         #: time, mirroring Go.
         self.name: str = name
 
-    def pack_args(self, *args: Any, **kwargs: Any) -> Any:
-        """Validate a call and pack it into a serializable promise param.
+    def pack_args(self, *args: Any, **kwargs: Any) -> Args:
+        """Validate a call and pack it into a serializable :class:`Args`.
 
-        Called at dispatch (``ctx.run``) time. Returns ``None`` when the function
-        takes no user arguments, otherwise an ``{"args": [...], "kwargs": {...}}``
-        envelope -- the single slot able to round-trip Python ``*args``/
-        ``**kwargs`` through the durable promise's one ``param`` field. The
-        injected ``Context`` is never part of the payload.
+        Called at dispatch (``ctx.run``) time. Returns an :class:`Args` -- the
+        single slot able to round-trip Python ``*args``/``**kwargs`` through the
+        durable promise's one ``param`` field. An empty call yields ``Args()``
+        (both fields default to empty). The injected ``Context`` is never part of
+        the payload.
 
         Raises :class:`ApplicationError` if the call does not match the signature.
         """
@@ -85,23 +86,22 @@ class DurableFunction:
             msg = f"{self.name}: {exc}"
             raise ApplicationError(msg) from exc
 
-        if not args and not kwargs:
-            return None
-        return {"args": list(args), "kwargs": kwargs}
+        return Args(args=args, kwargs=kwargs)
 
-    async def invoke(self, ctx: Context, payload: Any) -> Any:
-        """Re-bind ``payload`` to the signature and execute the function.
+    async def invoke(self, ctx: Context, packed: Args) -> Any:
+        """Re-bind ``packed`` to the signature and execute the function.
 
-        ``payload`` is whatever :meth:`pack_args` produced, after a round trip
-        through the durability boundary -- so on recovery its contents are JSON
-        builtins. Each argument is coerced back to its declared type before the
-        call, mirroring Go's ``coerceArgs`` JSON round-trip. ``ctx`` is always
-        injected as the first positional argument. Synchronous and ``async``
-        user functions are both supported.
+        ``packed`` is the :class:`Args` :meth:`pack_args` produced (for a local
+        child) or the :class:`~resonate.types.TaskData` Core decoded from the root
+        promise param (for the root) -- ``TaskData`` is an ``Args``, so both reach
+        here through the same typed slot. On recovery its ``args``/``kwargs`` hold
+        JSON builtins, so each argument is coerced back to its declared type before
+        the call, mirroring Go's ``coerceArgs`` JSON round-trip. ``ctx`` is always
+        injected as the first positional argument. Synchronous and ``async`` user
+        functions are both supported.
         """
-        args, kwargs = _unpack(payload)
         try:
-            bound = self._user_sig.bind(*args, **kwargs)
+            bound = self._user_sig.bind(*packed.args, **packed.kwargs)
         except TypeError as exc:
             msg = f"{self.name}: {exc}"
             raise ApplicationError(msg) from exc
@@ -192,20 +192,6 @@ def _resolve_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
         return eval(annotation, globalns)  # noqa: S307
     except (NameError, AttributeError, SyntaxError, TypeError):
         return annotation
-
-
-def _unpack(payload: Any) -> tuple[list[Any], dict[str, Any]]:
-    """Reverse :meth:`DurableFunction.pack_args`.
-
-    Recognizes the ``{"args", "kwargs"}`` envelope; any other value is treated as
-    a single positional argument (e.g. a bare value dispatched by a non-Python
-    caller via RPC).
-    """
-    if payload is None:
-        return [], {}
-    if isinstance(payload, dict) and payload and set(payload) <= {"args", "kwargs"}:
-        return list(payload.get("args") or []), dict(payload.get("kwargs") or {})
-    return [payload], {}
 
 
 def _convert[T](value: Any, annotation: type[T], fn_name: str) -> Any:

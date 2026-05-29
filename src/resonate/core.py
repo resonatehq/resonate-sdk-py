@@ -303,7 +303,7 @@ class Core:
         suspended: bool = False
         run_err: ResonateError | None = None
         try:
-            res = await df.invoke(root_ctx, task_data.args)
+            res = await df.invoke(root_ctx, task_data)
         except SuspendedError:
             suspended = True
         except ResonateError as exc:

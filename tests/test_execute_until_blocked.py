@@ -133,15 +133,23 @@ def _core(reg: Registry) -> Core:
 
 
 def _root(func: str, args: Any = None, *, id: str = "foo.1") -> PromiseRecord:
-    """Build a pending root promise whose param carries ``{"func", "args"}``.
+    """Build a pending root promise whose param carries a ``TaskData``.
 
     The inner decodes ``param.data`` straight into ``TaskData`` (it is handed an
     already-decoded promise), so the param data is the plain dict, not encoded.
+    ``args`` is the (optional) single user positional.
     """
     return PromiseRecord(
         id=id,
         state="pending",
-        param=Value(data={"func": func, "args": args}),
+        param=Value(
+            data={
+                "func": func,
+                "args": [] if args is None else [args],
+                "kwargs": {},
+                "version": 0,
+            }
+        ),
         timeout_at=FAR_FUTURE,
     )
 

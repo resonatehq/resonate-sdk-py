@@ -480,16 +480,23 @@ async def test_rpc_args_and_kwargs_round_trip_into_param() -> None:
         record = await wait_for_promise(r, "rpc-args")
         assert record.param.data == {
             "func": "remote",
-            "args": {"args": [1, 2], "kwargs": {"flag": True}},
+            "args": [1, 2],
+            "kwargs": {"flag": True},
+            "version": 0,
         }
 
 
 @pytest.mark.asyncio
-async def test_rpc_no_args_has_null_args() -> None:
+async def test_rpc_no_args_has_empty_args() -> None:
     async with local() as r:
         r.rpc("rpc-empty", "remote")
         record = await wait_for_promise(r, "rpc-empty")
-        assert record.param.data == {"func": "remote", "args": None}
+        assert record.param.data == {
+            "func": "remote",
+            "args": [],
+            "kwargs": {},
+            "version": 0,
+        }
 
 
 @pytest.mark.asyncio
@@ -547,7 +554,7 @@ async def test_with_opts_returns_self_for_chaining() -> None:
 async def test_with_opts_consumed_synchronously_and_reset() -> None:
     async with local() as r:
         r.register(noop)
-        r.with_opts(target="worker", tags={"k": "v"})
+        r.with_opts(target="worker")
         assert r._opts.target == "worker"
         r.run("c", noop)
         # Consumed and reset the moment run is called (run is synchronous).
@@ -572,12 +579,13 @@ async def test_with_opts_url_target_passes_through() -> None:
 
 
 @pytest.mark.asyncio
-async def test_with_opts_custom_tags_merged() -> None:
+async def test_with_opts_version() -> None:
     async with local() as r:
         r.register(noop)
-        await r.with_opts(tags={"user:k": "v"}).run("t-tags", noop).result()
+        await r.with_opts(version=99).run("t-tags", noop).result()
         record = await r.promises.get("t-tags")
-        assert record.tags["user:k"] == "v"
+        assert record.param.data
+        assert record.param.data.get("version") == 99
         # SDK tags still present.
         assert record.tags["resonate:scope"] == "global"
 

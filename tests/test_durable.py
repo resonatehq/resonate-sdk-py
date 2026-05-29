@@ -7,8 +7,9 @@ function -- workflow or leaf -- receives a :class:`Context` as its first
 positional argument, the runtime never inspects annotations, and the
 ``*args``/``**kwargs`` round trip through
 :meth:`~resonate.durable.DurableFunction.pack_args` /
-:meth:`~resonate.durable.DurableFunction.invoke` preserves the call across the
-durability boundary.
+:meth:`~resonate.durable.DurableFunction.invoke` (a typed
+:class:`~resonate.types.Args` slot) preserves the call across the durability
+boundary.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from resonate.error import ApplicationError, SerializationError
 from resonate.network import LocalNetwork
 from resonate.send import Sender
 from resonate.transport import Transport
+from resonate.types import Args
 
 I64_MAX = 2**63 - 1
 
@@ -107,7 +109,7 @@ def test_first_param_treated_as_ctx_regardless_of_annotation() -> None:
     # Builds without error: first param is reserved for the runtime-injected ctx.
     df = DurableFunction(fn)
     # Only ``x`` shows up as a user-facing argument.
-    assert df.pack_args(7) == {"args": [7], "kwargs": {}}
+    assert df.pack_args(7) == Args(args=(7,), kwargs={})
     # Passing a second positional overflows the env-stripped signature.
     with pytest.raises(ApplicationError):
         df.pack_args(1, 2)
@@ -128,8 +130,8 @@ async def test_invoke_injects_context() -> None:
 @pytest.mark.asyncio
 async def test_invoke_ctx_only_no_user_args() -> None:
     df = DurableFunction(ctx_only)
-    assert df.pack_args() is None
-    assert await df.invoke(_context(), None) == 42
+    assert df.pack_args() == Args()
+    assert await df.invoke(_context(), Args()) == 42
 
 
 @pytest.mark.asyncio
@@ -182,19 +184,18 @@ def test_pack_args_validates_arity() -> None:
         df.pack_args(1, 2)  # leaf takes a single user positional
 
 
-def test_pack_args_envelope_shape() -> None:
+def test_pack_args_packs_into_typed_args() -> None:
     df = DurableFunction(variadic)
     payload = df.pack_args(1, 2, 3, k=4)
-    assert payload == {"args": [1, 2, 3], "kwargs": {"k": 4}}
+    assert payload == Args(args=(1, 2, 3), kwargs={"k": 4})
 
 
 @pytest.mark.asyncio
 async def test_variadic_round_trip() -> None:
     df = DurableFunction(variadic)
     payload = df.pack_args(1, 2, 3, k=4)
-    # Simulate the durability boundary: payload is JSON-decoded back to builtins.
-    decoded = msgspec.json.decode(msgspec.json.encode(payload))
-    assert await df.invoke(_context(), decoded) == 1 + 2 + 3 + 4  # ctx.seq == 0
+    # Simulate the durability boundary: payload is JSON-decoded back into Args.
+    assert await df.invoke(_context(), _roundtrip(payload)) == 1 + 2 + 3 + 4  # seq==0
 
 
 @pytest.mark.asyncio
@@ -222,14 +223,14 @@ async def sum_point(ctx: Context, p: Point) -> int:
 async def test_struct_arg_coerced_from_builtins() -> None:
     df = DurableFunction(sum_point)
     # On recovery the arg arrives as a plain dict, not a Point.
-    payload = {"args": [{"x": 3, "y": 4}], "kwargs": {}}
+    payload = Args(args=({"x": 3, "y": 4},), kwargs={})
     assert await df.invoke(_context(), payload) == 7
 
 
 @pytest.mark.asyncio
 async def test_coercion_failure_raises_serialization_error() -> None:
     df = DurableFunction(sum_point)
-    payload = {"args": [{"x": "not-an-int", "y": 4}], "kwargs": {}}
+    payload = Args(args=({"x": "not-an-int", "y": 4},), kwargs={})
     with pytest.raises(SerializationError):
         await df.invoke(_context(), payload)
 
@@ -239,9 +240,14 @@ async def test_coercion_failure_raises_serialization_error() -> None:
 # =============================================================================
 
 
-def _roundtrip(payload: Any) -> Any:
-    """Simulate the durability boundary: JSON-encode the payload and decode it back."""
-    return msgspec.json.decode(msgspec.json.encode(payload))
+def _roundtrip(packed: Args) -> Args:
+    """Simulate the durability boundary: JSON-encode the packed Args, decode back.
+
+    Mirrors recovery: Core decodes the promise param into a typed
+    :class:`~resonate.types.TaskData` (an :class:`Args`), so the recovered slot
+    carries JSON builtins for its element values rather than live objects.
+    """
+    return msgspec.json.decode(msgspec.json.encode(packed), type=Args)
 
 
 class Line(msgspec.Struct, frozen=True):
@@ -298,12 +304,13 @@ async def test_distinct_payloads_do_not_interfere() -> None:
     assert await df.invoke(_context(), a) == 2  # re-running A stays stable
 
 
-def test_pack_args_does_not_alias_caller() -> None:
+def test_pack_args_produces_immutable_args() -> None:
     df = DurableFunction(variadic)
     payload = df.pack_args(1, 2, 3)
-    payload["args"].append(999)  # mutate the returned envelope
-    # A fresh pack is unaffected -- pack_args copies args into a new envelope.
-    assert df.pack_args(1, 2, 3) == {"args": [1, 2, 3], "kwargs": {}}
+    assert payload == Args(args=(1, 2, 3), kwargs={})
+    # ``args`` is a tuple: the packed payload is immutable and cannot be aliased
+    # or mutated by the caller after the fact.
+    assert isinstance(payload.args, tuple)
 
 
 # =============================================================================
@@ -363,7 +370,7 @@ def test_pack_args_unexpected_keyword_raises() -> None:
 
 def test_pack_args_positional_as_keyword() -> None:
     df = DurableFunction(leaf)
-    assert df.pack_args(x=21) == {"args": [], "kwargs": {"x": 21}}
+    assert df.pack_args(x=21) == Args(args=(), kwargs={"x": 21})
 
 
 @pytest.mark.asyncio
@@ -397,16 +404,16 @@ async def posonly(ctx: Context, x: int, /, y: int) -> int:
     return x - y
 
 
-def test_empty_variadic_packs_to_none() -> None:
-    assert DurableFunction(star_args).pack_args() is None
-    assert DurableFunction(star_kwargs).pack_args() is None
+def test_empty_variadic_packs_to_empty_args() -> None:
+    assert DurableFunction(star_args).pack_args() == Args()
+    assert DurableFunction(star_kwargs).pack_args() == Args()
 
 
 @pytest.mark.asyncio
 async def test_star_args_round_trip() -> None:
     df = DurableFunction(star_args)
     assert await df.invoke(_context(), _roundtrip(df.pack_args(1, 2, 3))) == 6
-    assert await df.invoke(_context(), None) == 0  # no args supplied
+    assert await df.invoke(_context(), Args()) == 0  # no args supplied
 
 
 @pytest.mark.asyncio
@@ -422,46 +429,23 @@ async def test_positional_only_round_trip() -> None:
 
 
 # =============================================================================
-# invoke: payload shapes (envelope vs bare value, cross-language RPC)
+# invoke: a typed Args slot removes the old envelope-detection ambiguity
 # =============================================================================
 
 
 @pytest.mark.asyncio
-async def test_bare_value_payload_is_single_positional() -> None:
-    # A non-Python caller (RPC) may send a bare value, not an envelope.
-    df = DurableFunction(leaf)
-    assert await df.invoke(_context(), 21) == 42
-
-
-@pytest.mark.asyncio
-async def test_bare_struct_dict_payload_coerced() -> None:
-    df = DurableFunction(sum_point)
-    # A bare dict (no envelope) is treated as one positional and coerced.
-    assert await df.invoke(_context(), {"x": 3, "y": 4}) == 7
-
-
-@pytest.mark.asyncio
-async def test_user_dict_shaped_like_envelope_round_trips() -> None:
-    # A function taking a single dict whose keys happen to be {"args","kwargs"}:
-    # pack_args nests it inside the outer envelope, so it round-trips safely.
+async def test_user_dict_shaped_like_args_is_unambiguous() -> None:
+    # With a typed ``Args`` slot there is no envelope-detection heuristic: a user
+    # dict that happens to look like ``{"args", "kwargs"}`` is just an ordinary
+    # positional argument, so it round-trips with no special-casing.
     async def echo(ctx: Context, d: dict[str, Any]) -> dict[str, Any]:
         return d
 
     df = DurableFunction(echo)
     tricky = {"args": [1, 2], "kwargs": {"z": 9}}
     payload = df.pack_args(tricky)
-    assert payload == {"args": [tricky], "kwargs": {}}
+    assert payload == Args(args=(tricky,), kwargs={})
     assert await df.invoke(_context(), _roundtrip(payload)) == tricky
-
-
-@pytest.mark.asyncio
-async def test_bare_envelope_shaped_dict_is_ambiguous() -> None:
-    # KNOWN, documented behavior: a *bare* dict with only "args"/"kwargs" keys is
-    # read as an envelope, not as a single dict argument. Foreign callers must
-    # avoid that exact shape for a lone dict arg (Python callers are safe -- their
-    # pack_args always nests the user dict one level deeper).
-    df = DurableFunction(leaf)  # (ctx, x: int)
-    assert await df.invoke(_context(), {"args": [5]}) == 10  # -> leaf(ctx, 5)
 
 
 # =============================================================================
@@ -476,9 +460,8 @@ async def test_unannotated_param_passes_through() -> None:
 
     del fn.__annotations__["x"]  # a genuinely unannotated parameter
     df = DurableFunction(fn)
-    assert await df.invoke(_context(), {"args": [{"keep": "me"}], "kwargs": {}}) == {
-        "keep": "me"
-    }
+    payload = Args(args=({"keep": "me"},), kwargs={})
+    assert await df.invoke(_context(), payload) == {"keep": "me"}
 
 
 @pytest.mark.asyncio
@@ -487,7 +470,7 @@ async def test_any_annotation_passes_through() -> None:
         return x
 
     df = DurableFunction(any_leaf)
-    assert await df.invoke(_context(), {"args": [{"a": 1}], "kwargs": {}}) == {"a": 1}
+    assert await df.invoke(_context(), Args(args=({"a": 1},), kwargs={})) == {"a": 1}
 
 
 @pytest.mark.asyncio
@@ -503,7 +486,8 @@ async def test_unresolvable_ctx_annotation_does_not_block_sibling_coercion() -> 
     fn.__annotations__["ctx"] = "TypeCheckingOnlyContext"
     df = DurableFunction(fn)
     # p is still coerced from the JSON-builtins dict into a Point.
-    assert await df.invoke(_context(), {"args": [{"x": 1, "y": 2}], "kwargs": {}}) == 3
+    payload = Args(args=({"x": 1, "y": 2},), kwargs={})
+    assert await df.invoke(_context(), payload) == 3
 
 
 @pytest.mark.asyncio
@@ -522,7 +506,7 @@ async def test_list_annotation_coerces_elements() -> None:
         return sum(xs)
 
     df = DurableFunction(total)
-    assert await df.invoke(_context(), {"args": [[1, 2, 3]], "kwargs": {}}) == 6
+    assert await df.invoke(_context(), Args(args=([1, 2, 3],), kwargs={})) == 6
 
 
 @pytest.mark.asyncio
@@ -531,7 +515,7 @@ async def test_var_positional_struct_coercion() -> None:
         return sum(p.x + p.y for p in points)
 
     df = DurableFunction(sum_points)
-    payload = {"args": [{"x": 1, "y": 2}, {"x": 3, "y": 4}], "kwargs": {}}
+    payload = Args(args=({"x": 1, "y": 2}, {"x": 3, "y": 4}), kwargs={})
     assert await df.invoke(_context(), payload) == 10
 
 
@@ -541,7 +525,7 @@ async def test_var_keyword_struct_coercion() -> None:
         return sum(p.x for p in points.values())
 
     df = DurableFunction(gather)
-    payload = {"args": [], "kwargs": {"a": {"x": 5, "y": 0}, "b": {"x": 6, "y": 0}}}
+    payload = Args(args=(), kwargs={"a": {"x": 5, "y": 0}, "b": {"x": 6, "y": 0}})
     assert await df.invoke(_context(), payload) == 11
 
 
@@ -562,7 +546,7 @@ async def test_unprovided_default_is_not_coerced() -> None:
         return x is _SENTINEL
 
     df = DurableFunction(with_sentinel)
-    assert await df.invoke(_context(), None) is True  # default kept as-is
+    assert await df.invoke(_context(), Args()) is True  # default kept as-is
     assert await df.invoke(_context(), df.pack_args(7)) is False  # provided value used
 
 
@@ -572,8 +556,8 @@ async def test_provided_value_coerced_with_defaults_present() -> None:
         return a + b
 
     df = DurableFunction(add)
-    assert await df.invoke(_context(), {"args": [1], "kwargs": {}}) == 101  # b default
-    assert await df.invoke(_context(), {"args": [1, 2], "kwargs": {}}) == 3
+    assert await df.invoke(_context(), Args(args=(1,), kwargs={})) == 101  # b default
+    assert await df.invoke(_context(), Args(args=(1, 2), kwargs={})) == 3
 
 
 # =============================================================================
@@ -585,20 +569,20 @@ async def test_provided_value_coerced_with_defaults_present() -> None:
 async def test_invoke_too_many_args_raises() -> None:
     df = DurableFunction(leaf)  # (ctx, x: int)
     with pytest.raises(ApplicationError, match="leaf"):
-        await df.invoke(_context(), {"args": [1, 2], "kwargs": {}})
+        await df.invoke(_context(), Args(args=(1, 2), kwargs={}))
 
 
 @pytest.mark.asyncio
 async def test_invoke_unexpected_keyword_raises() -> None:
     df = DurableFunction(leaf)
     with pytest.raises(ApplicationError):
-        await df.invoke(_context(), {"args": [1], "kwargs": {"nope": 9}})
+        await df.invoke(_context(), Args(args=(1,), kwargs={"nope": 9}))
 
 
 @pytest.mark.asyncio
 async def test_coercion_error_notes_function_name() -> None:
     df = DurableFunction(sum_point)
-    payload = {"args": [{"x": "bad", "y": 1}], "kwargs": {}}
+    payload = Args(args=({"x": "bad", "y": 1},), kwargs={})
     with pytest.raises(SerializationError) as excinfo:
         await df.invoke(_context(), payload)
     notes = getattr(excinfo.value, "__notes__", [])
@@ -660,7 +644,7 @@ async def sum_dataclass(ctx: Context, p: DataclassArg) -> int:
 async def test_dataclass_arg_coerced_from_builtins() -> None:
     df = DurableFunction(sum_dataclass)
     # On recovery the arg arrives as a plain dict, not a DataclassArg.
-    payload = {"args": [{"x": 3, "y": 4}], "kwargs": {}}
+    payload = Args(args=({"x": 3, "y": 4},), kwargs={})
     assert await df.invoke(_context(), payload) == 7
 
 
@@ -705,7 +689,7 @@ async def test_enum_arg_coerced_from_builtins() -> None:
     fresh = df.pack_args(Priority.HIGH)
     # On recovery the enum arrives as its raw value (2) and is coerced back.
     recovered = _roundtrip(fresh)
-    assert recovered == {"args": [2], "kwargs": {}}
+    assert recovered == Args(args=(2,), kwargs={})
     assert await df.invoke(_context(), recovered) == 4
 
 
@@ -723,6 +707,6 @@ async def test_pydantic_arg_coercion_is_unsupported() -> None:
     # msgspec cannot build a pydantic model from the recovered dict, so coercion
     # raises rather than handing the function an un-coerced mapping.
     df = DurableFunction(sum_pydantic)
-    payload = {"args": [{"x": 3, "y": 4}], "kwargs": {}}
+    payload = Args(args=({"x": 3, "y": 4},), kwargs={})
     with pytest.raises(SerializationError):
         await df.invoke(_context(), payload)

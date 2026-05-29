@@ -2,29 +2,30 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import msgspec
-
 from resonate.send import PromiseSearchResult, ScheduleCreateReq
-from resonate.types import PromiseCreateReq, PromiseSettleReq
+from resonate.types import PromiseCreateReq, PromiseSettleReq, Value
 
 if TYPE_CHECKING:
     from resonate.codec import Codec
     from resonate.core import SettleState
     from resonate.send import ScheduleSearchResult, Sender
-    from resonate.types import PromiseRecord, ScheduleRecord, Value
+    from resonate.types import PromiseRecord, ScheduleRecord
 
 
 def encode_value(codec: Codec, value: Value) -> Value:
-    """Encode a user-supplied ``Value``'s ``data`` field through the codec.
+    """Encode a plaintext :class:`Value` for the wire via the codec.
 
-    The wire protocol requires ``data`` to be a base64-encoded JSON string. The
-    public client API accepts a deserialized :class:`~resonate.types.Value`;
-    this helper converts it into the wire format, preserving any headers.
+    The single symmetric counterpart to the codec decode applied on the way back
+    (:meth:`Codec.decode_promise`): a caller hands a *plaintext* ``Value`` (built
+    with :meth:`~resonate.types.Value.from_serializable`) and the codec
+    serializes, encrypts, and base64-encodes its ``data``. Keeps the
+    :class:`~resonate.codec.Codec` the sole owner of encode/decode -- and so of
+    encryption/decryption -- exactly mirroring
+    :meth:`resonate.effects.ResonateEffects.create_promise`'s encode step for
+    child promises and :meth:`Resonate._encode_create_req` for top-level
+    run/rpc. ``data`` of ``None`` round-trips to an empty wire value.
     """
-    encoded = codec.encode(value.data)
-    if value.headers is not None:
-        encoded = msgspec.structs.replace(encoded, headers=value.headers)
-    return encoded
+    return codec.encode(value.data)
 
 
 class Promises:
@@ -47,12 +48,11 @@ class Promises:
         tags: dict[str, str],
     ) -> PromiseRecord:
         """Create a promise."""
-        encoded_param = encode_value(self.codec, param)
         record = await self.sender.promise_create(
             PromiseCreateReq(
                 id=id,
                 timeout_at=timeout_at,
-                param=encoded_param,
+                param=encode_value(self.codec, param),
                 tags=tags,
             )
         )
@@ -76,9 +76,8 @@ class Promises:
         state: SettleState,
         value: Value,
     ) -> PromiseRecord:
-        encoded_value = encode_value(self.codec, value)
         record = await self.sender.promise_settle(
-            PromiseSettleReq(id=id, state=state, value=encoded_value)
+            PromiseSettleReq(id=id, state=state, value=encode_value(self.codec, value))
         )
         return self.codec.decode_promise(record)
 
@@ -116,14 +115,13 @@ class Schedules:
         promise_param: Value,
     ) -> ScheduleRecord:
         """Create a schedule."""
-        encoded_param = encode_value(self.codec, promise_param)
         return await self.sender.schedule_create(
             ScheduleCreateReq(
                 id=id,
                 cron=cron,
                 promise_id=promise_id,
                 promise_timeout=promise_timeout,
-                promise_param=encoded_param,
+                promise_param=encode_value(self.codec, promise_param),
                 promise_tags={},
             )
         )

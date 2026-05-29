@@ -14,7 +14,7 @@ from resonate.codec import deserialize_error
 from resonate.durable import DurableFunction
 from resonate.error import ApplicationError, ResonateError, SuspendedError
 from resonate.info import Info
-from resonate.types import PromiseCreateReq, Status, TaskData, Value
+from resonate.types import Args, PromiseCreateReq, Status, TaskData, Value
 
 if TYPE_CHECKING:
     from resonate import DependencyMap
@@ -35,7 +35,7 @@ class SpawnedLocal(msgspec.Struct, frozen=True, kw_only=True):
 class Opts(msgspec.Struct, frozen=True, kw_only=True):
     timeout: timedelta | None = None
     target: str | None = None
-    data: Any | None = None
+    version: int = 0
 
 
 class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
@@ -171,11 +171,12 @@ class Context:
 
     def with_opts(
         self,
+        *,
         timeout: timedelta | None = None,
         target: str | None = None,
-        data: Any | None = None,
+        version: int = 0,
     ) -> Self:
-        self.opts = Opts(timeout=timeout, target=target, data=data)
+        self.opts = Opts(timeout=timeout, target=target, version=version)
         return self
 
     def get_dependency[T](self, type: type[T]) -> T:
@@ -250,7 +251,7 @@ class Context:
         )
 
     def _local_create_req(
-        self, id: str, args: Any, timeout: timedelta | None
+        self, id: str, args: Args, timeout: timedelta | None
     ) -> PromiseCreateReq:
         return PromiseCreateReq(
             id=id,
@@ -268,14 +269,23 @@ class Context:
         self,
         id: str,
         func_name: str,
-        args: Any,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        version: int,
         timeout: timedelta | None,
         target_override: str | None,
     ) -> PromiseCreateReq:
         return PromiseCreateReq(
             id=id,
             timeout_at=self._child_timeout(timeout),
-            param=TaskData.into_value(func=func_name, args=args),
+            param=Value.from_serializable(
+                TaskData(
+                    func=func_name,
+                    args=args,
+                    kwargs=kwargs,
+                    version=version,
+                )
+            ),
             tags={
                 "resonate:scope": "global",
                 "resonate:target": self.target_resolver(target_override),
@@ -417,10 +427,14 @@ class Context:
 
         # Build id/req synchronously so child-id ordering matches call order
         # without relying on asyncio's task-start scheduling being FIFO.
+        # Context-level dispatch carries no function version (version routing is
+        # a top-level concern); the receiver decodes a complete ``TaskData``.
         req = self._remote_create_req(
             self._next_id(),
             fn,
-            None if not args and not kwargs else {"args": list(args), "kwargs": kwargs},
+            args,
+            kwargs,
+            self.opts.version,
             self.opts.timeout,
             self.opts.target,
         )
@@ -482,7 +496,9 @@ class Context:
         req = self._remote_create_req(
             child_id,
             fn,
-            None if not args and not kwargs else {"args": list(args), "kwargs": kwargs},
+            args,
+            kwargs,
+            self.opts.version,
             self.opts.timeout,
             self.opts.target,
         )

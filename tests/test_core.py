@@ -30,7 +30,6 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Any
 
-import msgspec
 import pytest
 
 from resonate.codec import Codec, NoopEncryptor
@@ -45,7 +44,7 @@ from resonate.network import LocalNetwork
 from resonate.registry import Registry
 from resonate.send import Sender
 from resonate.transport import Transport
-from resonate.types import PromiseCreateReq, PromiseSettleReq
+from resonate.types import PromiseCreateReq, PromiseSettleReq, TaskData
 
 if TYPE_CHECKING:
     from resonate.context import Context
@@ -100,14 +99,26 @@ class CoreFixture:
         )
 
     async def create_root_task(
-        self, id: str, func_name: str, args: Any
+        self,
+        id: str,
+        func_name: str,
+        *args: Any,
+        **kwargs: Any,
     ) -> tuple[int, PromiseRecord, list[PromiseRecord]]:
         """Create a root durable promise + task atomically, acquired by us at v0.
 
         ``func_name`` and ``args`` go into the promise param as ``TaskData``.
-        Mirrors Go's ``createRootTask``.
+        ``args`` is the (optional) single user positional -- ``None`` means a
+        ctx-only call. Mirrors Go's ``createRootTask``.
         """
-        param = self.codec.encode({"func": func_name, "args": args})
+        param = self.codec.encode(
+            TaskData(
+                func=func_name,
+                args=args,
+                kwargs=kwargs,
+                version=0,
+            )
+        )
         res = await self.sender.task_create(
             self.pid,
             TTL,
@@ -151,13 +162,8 @@ def wf_fail(ctx: Context) -> int:
     raise ApplicationError(msg)
 
 
-class AddArgs(msgspec.Struct):
-    a: int
-    b: int
-
-
-def wf_add(ctx: Context, args: AddArgs) -> int:
-    return args.a + args.b
+def wf_add(ctx: Context, a: int, b: int) -> int:
+    return a + b
 
 
 async def wf_suspend_on_pending(ctx) -> int:  # noqa: ANN001
@@ -199,7 +205,7 @@ def wf_unwrap_suspend(ctx: Context) -> int:
 @pytest.mark.asyncio
 async def test_fulfill_resolved_via_execute_until_blocked(fix: CoreFixture) -> None:
     fix.reg.register("add", wf_add)
-    v, promise, preload = await fix.create_root_task("p1-add", "add", {"a": 3, "b": 4})
+    v, promise, preload = await fix.create_root_task("p1-add", "add", a=3, b=4)
 
     status = await fix.core.execute_until_blocked("p1-add", v, promise, preload)
     assert status == "done"
@@ -212,7 +218,7 @@ async def test_fulfill_resolved_via_execute_until_blocked(fix: CoreFixture) -> N
 @pytest.mark.asyncio
 async def test_fulfill_rejected_via_execute_until_blocked(fix: CoreFixture) -> None:
     fix.reg.register("fail", wf_fail)
-    v, promise, preload = await fix.create_root_task("p1-fail", "fail", None)
+    v, promise, preload = await fix.create_root_task("p1-fail", "fail")
 
     status = await fix.core.execute_until_blocked("p1-fail", v, promise, preload)
     assert status == "done"
@@ -224,7 +230,7 @@ async def test_fulfill_rejected_via_execute_until_blocked(fix: CoreFixture) -> N
 @pytest.mark.asyncio
 async def test_fulfill_object_value_round_trips_codec(fix: CoreFixture) -> None:
     fix.reg.register("obj", wf_return_obj)
-    v, promise, preload = await fix.create_root_task("p1-obj", "obj", None)
+    v, promise, preload = await fix.create_root_task("p1-obj", "obj")
 
     await fix.core.execute_until_blocked("p1-obj", v, promise, preload)
 
@@ -238,7 +244,7 @@ async def test_fulfill_object_value_round_trips_codec(fix: CoreFixture) -> None:
 @pytest.mark.asyncio
 async def test_suspends_on_pending_remote(fix: CoreFixture) -> None:
     fix.reg.register("waitOne", wf_suspend_on_pending)
-    v, promise, preload = await fix.create_root_task("p1-wait", "waitOne", None)
+    v, promise, preload = await fix.create_root_task("p1-wait", "waitOne")
 
     status = await fix.core.execute_until_blocked("p1-wait", v, promise, preload)
     assert status == "suspended"
@@ -262,7 +268,7 @@ async def test_suspends_registers_all_awaiteds(fix: CoreFixture) -> None:
 @pytest.mark.asyncio
 async def test_on_message_happy_path(fix: CoreFixture) -> None:
     fix.reg.register("seven", wf_return_seven)
-    v, _, _ = await fix.create_root_task("p1-on", "seven", None)
+    v, _, _ = await fix.create_root_task("p1-on", "seven")
     # Release so on_message can re-acquire under its own lease.
     await fix.sender.task_release("p1-on", v)
 
@@ -282,7 +288,7 @@ async def test_on_message_acquire_failure_raises(fix: CoreFixture) -> None:
 @pytest.mark.asyncio
 async def test_on_message_returns_suspended(fix: CoreFixture) -> None:
     fix.reg.register("waitOne", wf_suspend_on_pending)
-    v, _, _ = await fix.create_root_task("p1-onsus", "waitOne", None)
+    v, _, _ = await fix.create_root_task("p1-onsus", "waitOne")
     await fix.sender.task_release("p1-onsus", v)
 
     status = await fix.core.on_message("p1-onsus", v)
@@ -294,7 +300,7 @@ async def test_on_message_returns_suspended(fix: CoreFixture) -> None:
 
 @pytest.mark.asyncio
 async def test_execute_until_blocked_with_preload(fix: CoreFixture) -> None:
-    v, promise, _ = await fix.create_root_task("p1-pre", "readPre", None)
+    v, promise, _ = await fix.create_root_task("p1-pre", "readPre")
     fix.reg.register("readPre", wf_read_preloaded)
 
     # Pre-resolve the child the workflow will read. ctx.rpc generates the child
@@ -334,7 +340,7 @@ async def test_execute_until_blocked_with_preload(fix: CoreFixture) -> None:
 
 @pytest.mark.asyncio
 async def test_releases_task_on_function_not_found(fix: CoreFixture) -> None:
-    v, promise, preload = await fix.create_root_task("p1-nofn", "missing", None)
+    v, promise, preload = await fix.create_root_task("p1-nofn", "missing")
 
     with pytest.raises(FunctionNotFoundError):
         await fix.core.execute_until_blocked("p1-nofn", v, promise, preload)
@@ -350,7 +356,7 @@ async def test_releases_task_on_function_not_found(fix: CoreFixture) -> None:
 @pytest.mark.asyncio
 async def test_heartbeat_started_and_stopped_on_success(fix: CoreFixture) -> None:
     fix.reg.register("seven2", wf_return_seven)
-    v, promise, preload = await fix.create_root_task("p1-hb-ok", "seven2", None)
+    v, promise, preload = await fix.create_root_task("p1-hb-ok", "seven2")
 
     await fix.core.execute_until_blocked("p1-hb-ok", v, promise, preload)
     assert fix.hb.started == 1
@@ -359,7 +365,7 @@ async def test_heartbeat_started_and_stopped_on_success(fix: CoreFixture) -> Non
 
 @pytest.mark.asyncio
 async def test_heartbeat_stopped_on_error(fix: CoreFixture) -> None:
-    v, promise, preload = await fix.create_root_task("p1-hb-err", "missing", None)
+    v, promise, preload = await fix.create_root_task("p1-hb-err", "missing")
 
     with pytest.raises(FunctionNotFoundError):
         await fix.core.execute_until_blocked("p1-hb-err", v, promise, preload)
@@ -375,7 +381,7 @@ async def test_plain_panic_yields_application_error_and_releases_task(
     fix: CoreFixture,
 ) -> None:
     fix.reg.register("boom", wf_plain_panic)
-    v, promise, preload = await fix.create_root_task("p1-panic", "boom", None)
+    v, promise, preload = await fix.create_root_task("p1-panic", "boom")
 
     with pytest.raises(ApplicationError) as exc_info:
         await fix.core.execute_until_blocked("p1-panic", v, promise, preload)
@@ -390,7 +396,7 @@ async def test_panic_mentioning_suspend_still_classified_as_app_error(
     fix: CoreFixture,
 ) -> None:
     fix.reg.register("unwrap", wf_unwrap_suspend)
-    v, promise, preload = await fix.create_root_task("p1-unwrap", "unwrap", None)
+    v, promise, preload = await fix.create_root_task("p1-unwrap", "unwrap")
 
     with pytest.raises(ApplicationError):
         await fix.core.execute_until_blocked("p1-unwrap", v, promise, preload)
@@ -399,7 +405,7 @@ async def test_panic_mentioning_suspend_still_classified_as_app_error(
 @pytest.mark.asyncio
 async def test_heartbeat_stopped_after_panic(fix: CoreFixture) -> None:
     fix.reg.register("boomHb", wf_plain_panic)
-    v, promise, preload = await fix.create_root_task("p1-hb-panic", "boomHb", None)
+    v, promise, preload = await fix.create_root_task("p1-hb-panic", "boomHb")
 
     with pytest.raises(ApplicationError):
         await fix.core.execute_until_blocked("p1-hb-panic", v, promise, preload)
@@ -421,7 +427,7 @@ async def test_noop_heartbeat_does_not_interfere() -> None:
     # heartbeat=None -> NoopHeartbeat.
     core = Core(sender, codec, reg, identity_target_resolver, None, pid, TTL)
 
-    param = codec.encode({"func": "seven3", "args": None})
+    param = codec.encode(TaskData(func="seven3", args=(), kwargs={}, version=0))
     res = await sender.task_create(
         pid,
         TTL,
@@ -448,7 +454,7 @@ async def test_done_on_return(fix: CoreFixture) -> None:
         return 7
 
     fix.reg.register("done", done)
-    v, promise, preload = await fix.create_root_task("p1-done", "done", None)
+    v, promise, preload = await fix.create_root_task("p1-done", "done")
 
     status = await fix.core.execute_until_blocked("p1-done", v, promise, preload)
     assert status == "done"
@@ -468,7 +474,7 @@ async def test_swallowed_suspend_still_suspends(fix: CoreFixture) -> None:
         return 0
 
     fix.reg.register("swallow", swallow)
-    v, promise, preload = await fix.create_root_task("p1-swallow", "swallow", None)
+    v, promise, preload = await fix.create_root_task("p1-swallow", "swallow")
 
     status = await fix.core.execute_until_blocked("p1-swallow", v, promise, preload)
     assert status == "suspended"
@@ -487,7 +493,7 @@ async def test_fire_and_forget_local_suspension(fix: CoreFixture) -> None:
         return 0
 
     fix.reg.register("ffparent", parent)
-    v, promise, preload = await fix.create_root_task("p1-ff", "ffparent", None)
+    v, promise, preload = await fix.create_root_task("p1-ff", "ffparent")
 
     status = await fix.core.execute_until_blocked("p1-ff", v, promise, preload)
     assert status == "suspended"

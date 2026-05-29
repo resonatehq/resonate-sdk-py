@@ -5,6 +5,7 @@ import pytest
 
 from resonate.error import ApplicationError, SerializationError
 from resonate.types import (
+    Args,
     Done,
     Outcome,
     PromiseCreateReq,
@@ -348,42 +349,66 @@ def test_promise_register_callback_data_roundtrip() -> None:
     assert back.awaiter == "b"
 
 
-# --- TaskData: `func` / `args` (no rename) + `args` default null + into_value ---
+# --- Args: the packed *args / **kwargs slot (defaults empty) ---
+
+
+def test_args_decode_minimal_applies_defaults() -> None:
+    a = msgspec.json.decode(b"{}", type=Args)
+    assert a.args == ()
+    assert a.kwargs == {}
+
+
+def test_args_decode_full() -> None:
+    a = msgspec.json.decode(b'{"args":[1,2],"kwargs":{"k":3}}', type=Args)
+    assert a.args == (1, 2)
+    assert a.kwargs == {"k": 3}
+
+
+def test_args_encode() -> None:
+    a = Args(args=(1, 2), kwargs={"k": 3})
+    assert msgspec.json.encode(a) == b'{"args":[1,2],"kwargs":{"k":3}}'
+
+
+# --- TaskData: Args fields flattened + `func` / `version` + into_value ---
 
 
 def test_task_data_decode_minimal_applies_default_args() -> None:
-    d = msgspec.json.decode(b'{"func":"f"}', type=TaskData)
+    d = msgspec.json.decode(b'{"func":"f","version":0}', type=TaskData)
     assert d.func == "f"
-    assert d.args is None
+    assert d.args == ()
+    assert d.kwargs == {}
+    assert d.version == 0
 
 
 def test_task_data_decode_full() -> None:
-    d = msgspec.json.decode(b'{"func":"f","args":[1,2]}', type=TaskData)
+    d = msgspec.json.decode(
+        b'{"func":"f","args":[1,2],"kwargs":{"k":3},"version":1}', type=TaskData
+    )
     assert d.func == "f"
-    assert d.args == [1, 2]
+    assert d.args == (1, 2)
+    assert d.kwargs == {"k": 3}
+    assert d.version == 1
+
+
+def test_task_data_version_is_required() -> None:
+    # ``version`` has no default: a payload missing it is rejected at decode time
+    # rather than silently defaulting (the structure-enforcing intent).
+    with pytest.raises(msgspec.ValidationError):
+        msgspec.json.decode(b'{"func":"f"}', type=TaskData)
 
 
 def test_task_data_encode() -> None:
-    d = TaskData(func="f", args={"x": 1})
-    assert msgspec.json.encode(d) == b'{"func":"f","args":{"x":1}}'
+    # Inherited Args fields encode first, then ``func`` / ``version``.
+    d = TaskData(func="f", args=(1, 2), kwargs={"k": 3}, version=2)
+    assert (
+        msgspec.json.encode(d)
+        == b'{"args":[1,2],"kwargs":{"k":3},"func":"f","version":2}'
+    )
 
 
-def test_task_data_encode_default_args_emit_null() -> None:
-    d = TaskData(func="f")
-    assert msgspec.json.encode(d) == b'{"func":"f","args":null}'
-
-
-def test_task_data_into_value_wraps_func_and_args() -> None:
-    v = TaskData.into_value("f", [1, 2])
-    assert v.headers is None
-    # Compare structurally: serde_json (BTreeMap) and Python dict differ in key
-    # order on the wire, but the decoded content is identical.
-    assert v.data == {"func": "f", "args": [1, 2]}
-
-
-def test_task_data_into_value_unserializable_raises() -> None:
-    with pytest.raises(SerializationError):
-        TaskData.into_value("f", object())
+def test_task_data_encode_defaults_emit_empty() -> None:
+    d = TaskData(func="f", version=0)
+    assert msgspec.json.encode(d) == b'{"args":[],"kwargs":{},"func":"f","version":0}'
 
 
 # --- Outcome: sum type mirroring `Outcome<T> { Done(Result<T>), Suspended }` ---

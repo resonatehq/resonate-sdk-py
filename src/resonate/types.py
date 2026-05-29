@@ -199,26 +199,35 @@ class Suspended(msgspec.Struct, frozen=True, kw_only=True):
 type Outcome[T] = Done[T] | Suspended
 
 
-class TaskData(msgspec.Struct, kw_only=True, frozen=True):
+class Args(msgspec.Struct, kw_only=True, frozen=True):
+    """The packed user arguments of a durable call: positional + keyword.
+
+    Produced by :meth:`~resonate.durable.DurableFunction.pack_args`, this is the
+    single serializable slot able to round-trip Python ``*args`` / ``**kwargs``
+    through a durable promise's one ``param`` field. Stored verbatim as a local
+    child's promise param and embedded (flattened) into :class:`TaskData` for
+    root / remote dispatch. Both fields default to empty when absent.
+    """
+
+    args: tuple[Any, ...] = msgspec.field(default_factory=tuple)
+    kwargs: dict[str, Any] = msgspec.field(default_factory=dict)
+
+
+class TaskData(Args, kw_only=True, frozen=True):
     """Parsed task data from the root promise param.
 
-    Rust declares no ``rename_all``, so the field names stay ``func`` / ``args``
-    on the wire. ``args`` mirrors Rust's ``#[serde(default)] serde_json::Value``:
-    it defaults to JSON ``null`` (``None``) when absent and is still emitted
-    when ``None``.
+    The wire shape is ``{"func": ..., "args": [...], "kwargs": {...}}``: ``func``
+    is the registered function name and ``args`` / ``kwargs`` carry the call,
+    each defaulting to empty when absent.
+
+    NOTE: unlike most of the SDK this intentionally does **not** mirror the Rust
+    SDK, where the dispatch params are a single untyped ``serde_json::Value``.
+    Python instead enforces the ``args: list`` / ``kwargs: dict`` shape so a
+    malformed payload is rejected at decode time rather than at bind time.
     """
 
     func: str
-    args: Any | None = msgspec.field(default=None)
-
-    @staticmethod
-    def into_value(func: str, args: Any) -> Value:
-        """Encode ``{"func": ..., "args": ...}`` into a :class:`Value` for dispatch.
-
-        Mirrors ``TaskData::into_value``. Raises :class:`SerializationError` if
-        ``args`` cannot be serialized, matching Rust's ``serde_json::to_value``.
-        """
-        return Value.from_serializable({"func": func, "args": args})
+    version: int
 
 
 # Execution status returned from Core methods. Mirrors Rust's ``Status`` enum.

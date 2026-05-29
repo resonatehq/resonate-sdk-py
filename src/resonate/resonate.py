@@ -31,12 +31,11 @@ import inspect
 import logging
 import os
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Concatenate, overload
-
-import msgspec
+from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
 from resonate import DependencyMap, now_ms
 from resonate.codec import Codec, NoopEncryptor, encode_error
+from resonate.context import Opts
 from resonate.core import Core
 from resonate.error import (
     ApplicationError,
@@ -52,7 +51,7 @@ from resonate.promises import Promises, Schedules
 from resonate.registry import Registry
 from resonate.send import Sender
 from resonate.transport import ExecuteMsg, Transport, UnblockMsg
-from resonate.types import PromiseCreateReq, PromiseState, Value
+from resonate.types import Args, PromiseCreateReq, PromiseState, TaskData, Value
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -100,19 +99,6 @@ _SUBSCRIPTION_REFRESH_SECS = 60
 _SETTLED_STATES = frozenset(
     {"resolved", "rejected", "rejected_canceled", "rejected_timedout"}
 )
-
-
-class Opts(msgspec.Struct, frozen=True, kw_only=True):
-    """Transient per-call options for the next :meth:`Resonate.run` / :meth:`rpc`.
-
-    Set by :meth:`Resonate.with_opts` and consumed by the following call, which
-    resets them to defaults. Mirrors the ``Opts`` carried on
-    :class:`~resonate.context.Context`; ``None`` means "use the default".
-    """
-
-    timeout: timedelta | None = None
-    target: str | None = None
-    tags: dict[str, str] | None = None
 
 
 class ResonateSchedule:
@@ -257,12 +243,12 @@ class Resonate:
         Always uses the in-process network regardless of ``RESONATE_URL`` --
         local must mean local. ``pid`` and ``group`` default to ``"default"``.
         """
-        pid = pid if pid is not None else "default"
-        group = group if group is not None else "default"
+        resolved_pid = pid if pid is not None else "default"
+        resolved_group = group if group is not None else "default"
         return cls(
-            network=LocalNetwork(pid=pid, group=group),
-            group=group,
-            pid=pid,
+            network=LocalNetwork(pid=resolved_pid, group=resolved_group),
+            group=resolved_group,
+            pid=resolved_pid,
             ttl=ttl,
             encryptor=encryptor,
             max_concurrent_tasks=max_concurrent_tasks,
@@ -285,8 +271,8 @@ class Resonate:
         *,
         timeout: timedelta | None = None,
         target: str | None = None,
-        tags: dict[str, str] | None = None,
-    ) -> Resonate:
+        version: int = 0,
+    ) -> Self:
         """Set options for the **next** :meth:`run` / :meth:`rpc`, then chain.
 
         Mirrors :meth:`~resonate.context.Context.with_opts`: returns ``self`` so
@@ -295,7 +281,7 @@ class Resonate:
         (``run``/``rpc`` are synchronous), so the value is captured the moment
         the call is made, not when its handle is awaited.
         """
-        self._opts = Opts(timeout=timeout, target=target, tags=tags)
+        self._opts = Opts(timeout=timeout, target=target, version=version)
         return self
 
     @overload
@@ -396,9 +382,13 @@ class Resonate:
             raise FunctionNotFoundError(name)
 
         prefixed_id = self._prefix_id(id)
-        payload = df.pack_args(*args, **kwargs)
         req = self._build_root_promise_create_req(
-            prefixed_id, name, payload, opts.timeout, opts.target, opts.tags
+            prefixed_id,
+            name,
+            df.pack_args(*args, **kwargs),
+            opts.version,
+            opts.timeout,
+            opts.target,
         )
 
         prev_created, created = self._advance_promise_chain()
@@ -417,7 +407,9 @@ class Resonate:
                 if prev_created is not None:
                     await prev_created.wait()
                 outcome = await self._sender.task_create_or_conflict(
-                    self._pid, self._safe_ttl_ms(), req
+                    self._pid,
+                    self._safe_ttl_ms(),
+                    self._encode_create_req(req),
                 )
             finally:
                 created.set()
@@ -455,9 +447,13 @@ class Resonate:
         """
         opts = self._consume_opts()
         prefixed_id = self._prefix_id(id)
-        args_value = {"args": list(args), "kwargs": kwargs} if args or kwargs else None
         req = self._build_root_promise_create_req(
-            prefixed_id, fn, args_value, opts.timeout, opts.target, opts.tags
+            prefixed_id,
+            fn,
+            Args(args=args, kwargs=kwargs),
+            opts.version,
+            opts.timeout,
+            opts.target,
         )
 
         prev_created, created = self._advance_promise_chain()
@@ -468,7 +464,7 @@ class Resonate:
             try:
                 if prev_created is not None:
                     await prev_created.wait()
-                await self._sender.promise_create(req)
+                await self._sender.promise_create(self._encode_create_req(req))
             finally:
                 created.set()
 
@@ -511,22 +507,36 @@ class Resonate:
 
     async def schedule(
         self,
-        name: str,
+        id: str,
         cron: str,
         func_name: str,
-        *args: Any,
-        timeout: timedelta | None = None,  # noqa: ASYNC109
+        args: tuple[Any, ...] | None = None,
+        kwargs: dict[str, Any] | None = None,
+        promise_timeout: timedelta | None = None,
         version: int = 0,
     ) -> ResonateSchedule:
         """Create a schedule for periodic function execution."""
-        timeout = timeout if timeout is not None else DEFAULT_TOP_LEVEL_TIMEOUT
-        args_value = {"args": list(args), "kwargs": {}} if args else None
-        param = Value.from_serializable(
-            {"func": func_name, "args": args_value, "version": version}
+        promise_timeout = (
+            promise_timeout
+            if promise_timeout is not None
+            else DEFAULT_TOP_LEVEL_TIMEOUT
         )
-        template = f"{self._id_prefix}{{{{.id}}}}.{{{{.timestamp}}}}"
-        await self.schedules.create(name, cron, template, _timeout_ms(timeout), param)
-        return ResonateSchedule(name, self.schedules)
+
+        await self.schedules.create(
+            id=id,
+            cron=cron,
+            promise_id=f"{self._id_prefix}{{{{.id}}}}.{{{{.timestamp}}}}",
+            promise_timeout=_timeout_ms(promise_timeout),
+            promise_param=Value.from_serializable(
+                TaskData(
+                    func=func_name,
+                    args=args or (),
+                    kwargs=kwargs or {},
+                    version=version,
+                )
+            ),
+        )
+        return ResonateSchedule(id, self.schedules)
 
     async def stop(self) -> None:
         """Tear down background jobs and the network. Idempotent.
@@ -620,21 +630,24 @@ class Resonate:
         self,
         prefixed_id: str,
         func_name: str,
-        args_value: Any,
+        packed: Args,
+        version: int,
         timeout: timedelta | None,
         target: str | None,
-        extra_tags: dict[str, str] | None,
     ) -> PromiseCreateReq:
         """Build the root ``PromiseCreateReq`` for a top-level run or rpc.
 
-        The param is codec-encoded (the symmetric inverse of
-        :meth:`~resonate.codec.Codec.decode_promise`, which Core applies on the
-        worker that acquires the task) and carries the SDK's
-        ``resonate:origin/branch/parent/scope/target`` tags.
+        The param is a **plaintext** :class:`~resonate.types.Value` wrapping the
+        :class:`~resonate.types.TaskData` -- symmetric with the requests
+        :class:`~resonate.context.Context` builds for child promises. Encryption
+        is deferred to a single boundary, :meth:`_encode_create_req`, applied
+        immediately before the request is handed to the sender (mirroring
+        :meth:`~resonate.effects.Effects.create_promise` for child promises and
+        :func:`~resonate.promises.encode_value` for the public clients). Carries
+        the SDK's ``resonate:origin/branch/parent/scope/target`` tags.
         """
         timeout = timeout if timeout is not None else DEFAULT_TOP_LEVEL_TIMEOUT
-        param = self._codec.encode({"func": func_name, "args": args_value})
-        tags = dict(extra_tags) if extra_tags else {}
+        tags = {}
         tags["resonate:origin"] = prefixed_id
         tags["resonate:branch"] = prefixed_id
         tags["resonate:parent"] = prefixed_id
@@ -643,8 +656,33 @@ class Resonate:
         return PromiseCreateReq(
             id=prefixed_id,
             timeout_at=now_ms() + _timeout_ms(timeout),
-            param=param,
+            param=Value.from_serializable(
+                TaskData(
+                    func=func_name,
+                    args=packed.args,
+                    kwargs=packed.kwargs,
+                    version=version,
+                )
+            ),
             tags=tags,
+        )
+
+    def _encode_create_req(self, req: PromiseCreateReq) -> PromiseCreateReq:
+        """Encode a plaintext root req's ``param`` through the codec for the wire.
+
+        The single symmetric encode boundary for top-level run/rpc, applied
+        immediately before the request is handed to the sender. Mirrors
+        :meth:`resonate.effects.ResonateEffects.create_promise` for child
+        promises and :func:`resonate.promises.encode_value` for the public
+        clients, keeping the :class:`~resonate.codec.Codec` the sole owner of
+        encode/decode -- and so of encryption/decryption. The companion decode
+        happens on the way back via :meth:`Codec.decode_promise`.
+        """
+        return PromiseCreateReq(
+            id=req.id,
+            timeout_at=req.timeout_at,
+            param=self._codec.encode(req.param.data),
+            tags=req.tags,
         )
 
     # ── Promise-creation chain ─────────────────────────────────────────────────
