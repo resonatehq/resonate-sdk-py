@@ -116,7 +116,7 @@ class CoreFixture:
                 func=func_name,
                 args=args,
                 kwargs=kwargs,
-                version=0,
+                version=1,
             )
         )
         res = await self.sender.task_create(
@@ -427,7 +427,7 @@ async def test_noop_heartbeat_does_not_interfere() -> None:
     # heartbeat=None -> NoopHeartbeat.
     core = Core(sender, codec, reg, identity_target_resolver, None, pid, TTL)
 
-    param = codec.encode(TaskData(func="seven3", args=(), kwargs={}, version=0))
+    param = codec.encode(TaskData(func="seven3", args=(), kwargs={}, version=1))
     res = await sender.task_create(
         pid,
         TTL,

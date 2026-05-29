@@ -269,11 +269,11 @@ def test_args_encode() -> None:
 
 
 def test_task_data_decode_minimal_applies_default_args() -> None:
-    d = msgspec.json.decode(b'{"func":"f","version":0}', type=TaskData)
+    d = msgspec.json.decode(b'{"func":"f","version":2}', type=TaskData)
     assert d.func == "f"
     assert d.args == ()
     assert d.kwargs == {}
-    assert d.version == 0
+    assert d.version == 2
 
 
 def test_task_data_decode_full() -> None:
@@ -286,11 +286,13 @@ def test_task_data_decode_full() -> None:
     assert d.version == 1
 
 
-def test_task_data_version_is_required() -> None:
-    # ``version`` has no default: a payload missing it is rejected at decode time
-    # rather than silently defaulting (the structure-enforcing intent).
-    with pytest.raises(msgspec.ValidationError):
-        msgspec.json.decode(b'{"func":"f"}', type=TaskData)
+def test_task_data_version_defaults_to_one() -> None:
+    # ``version`` defaults to 1: an omitted version (e.g. a foreign-SDK payload)
+    # resolves deterministically to the first registered version. Version 0 --
+    # which once meant "latest registered" -- is no longer used.
+    d = msgspec.json.decode(b'{"func":"f"}', type=TaskData)
+    assert d.func == "f"
+    assert d.version == 1
 
 
 def test_task_data_encode() -> None:
@@ -303,5 +305,5 @@ def test_task_data_encode() -> None:
 
 
 def test_task_data_encode_defaults_emit_empty() -> None:
-    d = TaskData(func="f", version=0)
-    assert msgspec.json.encode(d) == b'{"args":[],"kwargs":{},"func":"f","version":0}'
+    d = TaskData(func="f")
+    assert msgspec.json.encode(d) == b'{"args":[],"kwargs":{},"func":"f","version":1}'

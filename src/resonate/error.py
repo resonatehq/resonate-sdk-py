@@ -6,15 +6,19 @@ class ResonateError(Exception):
 
 
 class FunctionNotFoundError(ResonateError):
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, version: int = 1) -> None:
         self.name = name
-        super().__init__(f"function not found: {name}")
+        self.version = version
+        super().__init__(f"function not found: {name} (version {version})")
 
 
 class AlreadyRegisteredError(ResonateError):
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, version: int = 1) -> None:
         self.name = name
-        super().__init__(f"function '{self.name}' is already registered")
+        self.version = version
+        super().__init__(
+            f"function '{self.name}' (version {self.version}) is already registered"
+        )
 
 
 class ServerError(ResonateError):

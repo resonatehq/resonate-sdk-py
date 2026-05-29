@@ -482,7 +482,7 @@ async def test_rpc_args_and_kwargs_round_trip_into_param() -> None:
             "func": "remote",
             "args": [1, 2],
             "kwargs": {"flag": True},
-            "version": 0,
+            "version": 1,
         }
 
 
@@ -495,7 +495,7 @@ async def test_rpc_no_args_has_empty_args() -> None:
             "func": "remote",
             "args": [],
             "kwargs": {},
-            "version": 0,
+            "version": 1,
         }
 
 
@@ -579,15 +579,27 @@ async def test_with_opts_url_target_passes_through() -> None:
 
 
 @pytest.mark.asyncio
-async def test_with_opts_version() -> None:
+async def test_run_version_comes_from_registration() -> None:
+    # run() recovers the version by function identity, not from with_opts:
+    # the registered object carries its own version.
     async with local() as r:
-        r.register(noop)
-        await r.with_opts(version=99).run("t-tags", noop).result()
+        r.register(noop, version=99)
+        await r.run("t-tags", noop).result()
         record = await r.promises.get("t-tags")
         assert record.param.data
         assert record.param.data.get("version") == 99
         # SDK tags still present.
         assert record.tags["resonate:scope"] == "global"
+
+
+@pytest.mark.asyncio
+async def test_rpc_version_comes_from_opts() -> None:
+    # rpc() dispatches by name, so with_opts(version=) selects the version.
+    async with local() as r:
+        r.with_opts(version=7).rpc("t-rpc-ver", "remote")
+        record = await wait_for_promise(r, "t-rpc-ver")
+        assert record.param.data
+        assert record.param.data.get("version") == 7
 
 
 @pytest.mark.asyncio

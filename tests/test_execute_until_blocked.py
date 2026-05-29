@@ -147,7 +147,7 @@ def _root(func: str, args: Any = None, *, id: str = "foo.1") -> PromiseRecord:
                 "func": func,
                 "args": [] if args is None else [args],
                 "kwargs": {},
-                "version": 0,
+                "version": 1,
             }
         ),
         timeout_at=FAR_FUTURE,

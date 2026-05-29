@@ -195,7 +195,7 @@ class TaskData(Args, kw_only=True, frozen=True):
     """
 
     func: str
-    version: int
+    version: int = msgspec.field(default=1)
 
 
 # Execution status returned from Core methods. Mirrors Rust's ``Status`` enum.

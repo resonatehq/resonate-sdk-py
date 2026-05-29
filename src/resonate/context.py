@@ -35,7 +35,7 @@ class SpawnedLocal(msgspec.Struct, frozen=True, kw_only=True):
 class Opts(msgspec.Struct, frozen=True, kw_only=True):
     timeout: timedelta | None = None
     target: str | None = None
-    version: int = 0
+    version: int = 1
 
 
 class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
@@ -179,7 +179,7 @@ class Context:
         *,
         timeout: timedelta | None = None,
         target: str | None = None,
-        version: int = 0,
+        version: int = 1,
     ) -> Self:
         self.opts = Opts(timeout=timeout, target=target, version=version)
         return self

@@ -191,10 +191,12 @@ class Resonate:
         #: id -> settle-once subscription. A single subscription is shared by
         #: every handle to that id, so one settle wakes them all.
         self._subs: dict[str, Subscription] = {}
-        #: Registered-function identity -> registered name, so :meth:`run` can
-        #: resolve the registry name for the exact ``fn`` object it was given
-        #: (falling back to ``__name__`` for an unrecorded callable).
-        self._names: dict[Callable[..., Any], str] = {}
+        #: Registered-function identity -> ``(name, version)``, so :meth:`run` can
+        #: resolve both the registry name and version for the exact ``fn`` object
+        #: it was given. A ``fn`` registered at version 2 is dispatched at version
+        #: 2 -- the object itself carries the version, so :meth:`with_opts` does
+        #: not. Falls back to ``(__name__, 1)`` for an unrecorded callable.
+        self._names: dict[Callable[..., Any], tuple[str, int]] = {}
         #: Live fire-and-forget tasks (network start, promise creation, workflow
         #: execution), retained both so the event loop does not collect them
         #: mid-flight and so :meth:`stop` can join them.
@@ -271,7 +273,7 @@ class Resonate:
         *,
         timeout: timedelta | None = None,
         target: str | None = None,
-        version: int = 0,
+        version: int = 1,
     ) -> Self:
         """Set options for the **next** :meth:`run` / :meth:`rpc`, then chain.
 
@@ -280,6 +282,11 @@ class Resonate:
         are consumed -- and reset to defaults -- synchronously by that next call
         (``run``/``rpc`` are synchronous), so the value is captured the moment
         the call is made, not when its handle is awaited.
+
+        ``version`` applies to :meth:`rpc` (which dispatches by name and so must
+        be told which version to target). It does **not** apply to :meth:`run`:
+        ``run`` takes a function *object* whose registered version is recovered
+        by identity, so the version is implied by the object itself.
         """
         self._opts = Opts(timeout=timeout, target=target, version=version)
         return self
@@ -290,6 +297,7 @@ class Resonate:
         fn: Callable[Concatenate[Context, P], T],
         *,
         name: str | None = None,
+        version: int = 1,
     ) -> Callable[Concatenate[Context, P], T]: ...
     @overload
     def register[**P, T](
@@ -297,30 +305,36 @@ class Resonate:
         fn: None = None,
         *,
         name: str | None = None,
+        version: int = 1,
     ) -> Callable[
         [Callable[Concatenate[Context, P], T]], Callable[Concatenate[Context, P], T]
     ]: ...
     def register(
-        self, fn: Callable[..., Any] | None = None, *, name: str | None = None
+        self,
+        fn: Callable[..., Any] | None = None,
+        *,
+        name: str | None = None,
+        version: int = 1,
     ) -> Any:
         """Register a durable function. Usable as a decorator.
 
-        ``name`` defaults to the function's ``__name__``. Returns ``fn``
-        unchanged (preserving its type) so it can be used bare
-        (``@resonate.register``) or parameterized
-        (``@resonate.register(name="...")``) -- and so the same object stays
-        usable from a workflow via ``ctx.run(fn, ...)``. The identity->name map
-        lets :meth:`run` recover the registered name even when it differs from
-        ``__name__``.
+        ``name`` defaults to the function's ``__name__``; ``version`` defaults to
+        ``1``. The same name may be registered at several versions so multiple
+        implementations coexist. Returns ``fn`` unchanged (preserving its type)
+        so it can be used bare (``@resonate.register``) or parameterized
+        (``@resonate.register(name="...", version=2)``) -- and so the same object
+        stays usable from a workflow via ``ctx.run(fn, ...)``. The
+        identity -> ``(name, version)`` map lets :meth:`run` recover both for the
+        exact ``fn`` object it is later given.
         """
         if fn is None:
-            return lambda f: self.register(f, name=name)
+            return lambda f: self.register(f, name=name, version=version)
         reg_name = name if name is not None else getattr(fn, "__name__", "")
         if not reg_name:
             msg = "register: a name is required for an anonymous function"
             raise ApplicationError(msg)
-        self._registry.register(reg_name, fn)
-        self._names[fn] = reg_name
+        self._registry.register(reg_name, fn, version)
+        self._names[fn] = (reg_name, version)
         return fn
 
     @overload
@@ -374,19 +388,26 @@ class Resonate:
         """
         opts = self._consume_opts()
 
+        # The function object carries its own version: recover both name and
+        # version by identity so the exact registered implementation is
+        # dispatched (opts.version applies to rpc, not run). An unrecorded
+        # callable falls back to (__name__, 1), which then fails fast below.
         recorded = self._names.get(func)
-        name = recorded if recorded is not None else getattr(func, "__name__", "")
+        if recorded is not None:
+            name, version = recorded
+        else:
+            name, version = getattr(func, "__name__", ""), 1
 
-        df = self._registry.get(name)
+        df = self._registry.get(name, version)
         if df is None:
-            raise FunctionNotFoundError(name)
+            raise FunctionNotFoundError(name, version)
 
         prefixed_id = self._prefix_id(id)
         req = self._build_root_promise_create_req(
             prefixed_id,
             name,
             df.pack_args(*args, **kwargs),
-            opts.version,
+            version,
             opts.timeout,
             opts.target,
         )
@@ -513,7 +534,7 @@ class Resonate:
         args: tuple[Any, ...] | None = None,
         kwargs: dict[str, Any] | None = None,
         promise_timeout: timedelta | None = None,
-        version: int = 0,
+        version: int = 1,
     ) -> ResonateSchedule:
         """Create a schedule for periodic function execution."""
         promise_timeout = (

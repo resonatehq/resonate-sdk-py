@@ -82,3 +82,50 @@ def test_names_and_len() -> None:
 
 def test_empty_registry_len_is_zero() -> None:
     assert len(Registry()) == 0
+
+
+# ── Versioning (a Python-only divergence from the Rust/Go reference SDKs, which
+#    key the registry purely on name; see Registry's docstring) ───────────────
+
+
+def test_default_version_is_one() -> None:
+    r = Registry()
+    r.register("leaf", leaf)  # version defaults to 1
+    assert r.contains("leaf")  # version defaults to 1
+    assert r.contains("leaf", 1)
+    assert r.get("leaf") is not None
+    assert r.get("leaf", 1) is not None
+
+
+def test_same_name_different_versions_coexist() -> None:
+    r = Registry()
+    r.register("flow", leaf, 1)
+    r.register("flow", flow, 2)
+    assert len(r) == 2
+    v1 = r.get("flow", 1)
+    v2 = r.get("flow", 2)
+    assert v1 is not None
+    assert v2 is not None
+    assert v1 is not v2
+
+
+def test_duplicate_name_version_rejected() -> None:
+    r = Registry()
+    r.register("dup", leaf, 2)
+    # Same name at a different version is fine ...
+    r.register("dup", flow, 3)
+    # ... but the same (name, version) pair is not.
+    with pytest.raises(AlreadyRegisteredError, match="version 2"):
+        r.register("dup", flow, 2)
+
+
+def test_unknown_version_returns_none() -> None:
+    r = Registry()
+    r.register("leaf", leaf, 1)
+    assert r.get("leaf", 2) is None
+    assert not r.contains("leaf", 2)
+
+
+def test_version_below_one_rejected() -> None:
+    with pytest.raises(ApplicationError, match="version must be >= 1"):
+        Registry().register("zero", leaf, 0)

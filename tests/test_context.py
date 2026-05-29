@@ -848,7 +848,7 @@ async def test_rpc_request_tags_and_param() -> None:
         "func": "remote_fn",
         "args": (1, 2),
         "kwargs": {"k": "v"},
-        "version": 0,
+        "version": 1,
     }
 
 
@@ -864,7 +864,7 @@ async def test_rpc_no_args_param_is_empty() -> None:
         "func": "remote_fn",
         "args": (),
         "kwargs": {},
-        "version": 0,
+        "version": 1,
     }
 
 
@@ -1456,7 +1456,7 @@ async def test_detached_request_tags_and_param() -> None:
         "func": "remote_fn",
         "args": (1, 2),
         "kwargs": {"k": "v"},
-        "version": 0,
+        "version": 1,
     }
 
 
@@ -1469,7 +1469,7 @@ async def test_detached_no_args_param_is_empty() -> None:
         "func": "remote_fn",
         "args": (),
         "kwargs": {},
-        "version": 0,
+        "version": 1,
     }
 
 

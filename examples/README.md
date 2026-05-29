@@ -17,6 +17,8 @@ virtualenv (with the local `resonate` checkout installed editable).
 | `pipeline`   | DAG-shaped pipeline with parallel transforms and a merge stage.     |
 | `human`      | Human-in-the-loop: suspend on `ctx.promise` until externally resolved. |
 | `recurring`  | Periodic "continue as new" via `ctx.sleep` + `ctx.detached`.        |
+| `versioning` | Register one name at multiple versions; pick via `run` object vs `rpc` opts. |
+| `rpc`        | Two instances in different groups; one `rpc`s the other by name + target. |
 
 ## Run an example
 

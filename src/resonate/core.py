@@ -269,10 +269,12 @@ class Core:
             msg = f"invalid task data: {exc}"
             raise DecodingError(msg) from exc
 
-        # 2. Look up the function in the registry.
-        df = self.registry.get(task_data.func)
+        # 2. Look up the function in the registry by (name, version). The version
+        #    was persisted in TaskData at create time, so this resolves the same
+        #    implementation on every replay regardless of later registrations.
+        df = self.registry.get(task_data.func, task_data.version)
         if df is None:
-            raise FunctionNotFoundError(task_data.func)
+            raise FunctionNotFoundError(task_data.func, task_data.version)
 
         # 3. SHORT-CIRCUIT: if the root promise is already settled, report a
         #    fulfill outcome without invoking the function.
