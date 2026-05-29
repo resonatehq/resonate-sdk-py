@@ -74,6 +74,13 @@ class ResonateHandle[T]:
     The target type ``type_`` stands in for Rust's ``PhantomData<T>``: Python
     cannot resolve the type variable at runtime, so the decode type is passed
     explicitly at construction.
+
+    The promise id is not exposed synchronously. For ``run``/``rpc`` the durable
+    promise is created in the background, so the id is only meaningful once that
+    creation round-trip has confirmed; :meth:`id` awaits ``created`` before
+    handing it back, mirroring :class:`~resonate.context.ResonateFuture.id`. The
+    ``get`` path passes an already-set event, since it only builds a handle after
+    the promise has been confirmed to exist.
     """
 
     def __init__(
@@ -82,14 +89,26 @@ class ResonateHandle[T]:
         sub: Subscription,
         codec: Codec,
         type_: type[T],
+        created: asyncio.Event,
     ) -> None:
-        self.id = id
+        self._id = id
         self._sub = sub
         self._codec = codec
         self._type = type_
+        self._created = created
 
     def __repr__(self) -> str:
-        return f"ResonateHandle(id={self.id!r})"
+        return f"ResonateHandle(id={self._id!r})"
+
+    async def id(self) -> str:
+        """Return the durable promise id, once its creation is confirmed.
+
+        Waits on the creation event so a caller never observes an id before the
+        backing durable promise is known to exist. Mirrors
+        :meth:`~resonate.context.ResonateFuture.id`.
+        """
+        await self._created.wait()
+        return self._id
 
     async def result(self) -> T:
         """Block until the promise completes, returning the result or raising."""

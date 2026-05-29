@@ -28,6 +28,8 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.14",
     "ty>=0.0.39",
+    "attrs>=24.0.0",
+    "pydantic>=2.0.0",
 ]
 
 [tool.pytest.ini_options]

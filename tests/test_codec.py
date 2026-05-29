@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import base64
-from typing import Any
+import dataclasses
+import enum
+from typing import Any, NamedTuple, TypedDict
 
+import attrs
 import msgspec
+import pydantic
 import pytest
 
 from resonate.codec import Codec, NoopEncryptor, encode_error
-from resonate.error import ApplicationError, ResonateError
+from resonate.error import ApplicationError, ResonateError, SerializationError
 from resonate.types import PromiseRecord, Value
 
 
@@ -135,3 +139,196 @@ def test_encode_error_produces_correct_shape() -> None:
     encoded = encode_error(err)
     assert encoded["__type"] == "error"
     assert encoded["message"] == "application error: boom"
+
+
+# =============================================================================
+# User-defined struct styles round-trip through the codec
+#
+# Users declare the values they pass as durable-function arguments and return
+# as results in many different ways. The codec serializes via
+# ``msgspec.to_builtins`` and deserializes via ``msgspec.json.decode(type=...)``,
+# so a style survives the durability boundary iff msgspec supports it. These
+# tests pin which popular styles round-trip -- preserving both value and type --
+# and pin that pydantic (which msgspec does NOT support) fails loudly rather
+# than silently corrupting data. See also the end-to-end argument-coercion
+# variants in ``test_durable.py``.
+# =============================================================================
+
+
+def _roundtrip[T](value: Any, type_: type[T]) -> T | None:
+    """Encode then decode ``value`` back into ``type_`` through a real codec."""
+    c = codec()
+    return c.decode(c.encode(value), type_)
+
+
+# -- msgspec.Struct (the SDK's own convention) --------------------------------
+
+
+class MsgspecPoint(msgspec.Struct, frozen=True):
+    x: int
+    y: int
+
+
+def test_roundtrip_msgspec_struct() -> None:
+    p = MsgspecPoint(x=3, y=4)
+    out = _roundtrip(p, MsgspecPoint)
+    assert out == p
+    assert isinstance(out, MsgspecPoint)
+
+
+# -- stdlib dataclass ---------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class DataclassPoint:
+    x: int
+    y: str
+
+
+def test_roundtrip_dataclass() -> None:
+    p = DataclassPoint(x=1, y="a")
+    out = _roundtrip(p, DataclassPoint)
+    assert out == p
+    assert isinstance(out, DataclassPoint)
+
+
+# -- attrs --------------------------------------------------------------------
+
+
+@attrs.frozen
+class AttrsPoint:
+    x: int
+    y: str
+
+
+def test_roundtrip_attrs() -> None:
+    p = AttrsPoint(x=1, y="a")
+    out = _roundtrip(p, AttrsPoint)
+    assert out == p
+    assert isinstance(out, AttrsPoint)
+
+
+# -- typing.NamedTuple (encodes as a JSON array, decodes back to the tuple) ---
+
+
+class NamedTuplePoint(NamedTuple):
+    x: int
+    y: str
+
+
+def test_roundtrip_namedtuple() -> None:
+    p = NamedTuplePoint(1, "a")
+    # NamedTuple serializes positionally as a tuple (JSON-encoded as an array),
+    # not as an object.
+    assert msgspec.to_builtins(p) == (1, "a")
+    out = _roundtrip(p, NamedTuplePoint)
+    assert out == p
+    assert isinstance(out, NamedTuplePoint)
+
+
+# -- typing.TypedDict (decodes back to a plain dict) --------------------------
+
+
+class TypedDictPoint(TypedDict):
+    x: int
+    y: str
+
+
+def test_roundtrip_typeddict() -> None:
+    p: TypedDictPoint = {"x": 1, "y": "a"}
+    out = _roundtrip(p, TypedDictPoint)
+    assert out == {"x": 1, "y": "a"}
+
+
+# -- enum.Enum / enum.IntEnum -------------------------------------------------
+
+
+class Color(enum.Enum):
+    RED = "red"
+    BLUE = "blue"
+
+
+class Size(enum.IntEnum):
+    SMALL = 1
+    LARGE = 2
+
+
+def test_roundtrip_enum() -> None:
+    assert msgspec.to_builtins(Color.RED) == "red"
+    out = _roundtrip(Color.RED, Color)
+    assert out is Color.RED
+
+
+def test_roundtrip_int_enum() -> None:
+    assert msgspec.to_builtins(Size.LARGE) == 2
+    out = _roundtrip(Size.LARGE, Size)
+    assert out is Size.LARGE
+
+
+# -- nested / mixed styles ----------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class MixedShape:
+    """A dataclass nesting a msgspec.Struct, a collection, and an optional."""
+
+    corner: MsgspecPoint
+    sides: list[int]
+    label: str | None = None
+
+
+def test_roundtrip_nested_mixed_styles() -> None:
+    shape = MixedShape(corner=MsgspecPoint(x=1, y=2), sides=[3, 4, 5], label="tri")
+    out = _roundtrip(shape, MixedShape)
+    assert out == shape
+    assert isinstance(out, MixedShape)
+    assert isinstance(out.corner, MsgspecPoint)
+
+
+def test_roundtrip_nested_optional_default_none() -> None:
+    shape = MixedShape(corner=MsgspecPoint(x=0, y=0), sides=[])
+    out = _roundtrip(shape, MixedShape)
+    assert isinstance(out, MixedShape)
+    assert out == shape
+    assert out.label is None
+
+
+def test_roundtrip_list_of_dataclasses() -> None:
+    points = [DataclassPoint(x=1, y="a"), DataclassPoint(x=2, y="b")]
+    out = _roundtrip(points, list[DataclassPoint])
+    assert out is not None
+    assert out == points
+    assert all(isinstance(p, DataclassPoint) for p in out)
+
+
+# -- pydantic: unsupported by msgspec, must fail loudly -----------------------
+
+
+class PydanticPoint(pydantic.BaseModel):
+    x: int
+    y: str
+
+
+def test_pydantic_encode_is_unsupported() -> None:
+    # msgspec.to_builtins cannot encode a pydantic model: the codec must surface
+    # a SerializationError rather than silently dropping or mangling the value.
+    c = codec()
+    with pytest.raises(SerializationError):
+        c.encode(PydanticPoint(x=1, y="a"))
+
+
+def test_pydantic_decode_into_model_is_unsupported() -> None:
+    # msgspec cannot construct a pydantic model from builtins either.
+    c = codec()
+    encoded = c.encode({"x": 1, "y": "a"})
+    with pytest.raises(SerializationError):
+        c.decode(encoded, PydanticPoint)
+
+
+def test_pydantic_via_model_dump_roundtrips_as_dict() -> None:
+    # The supported escape hatch: dump the model to builtins yourself. The codec
+    # then round-trips it as a plain mapping (the SDK never reconstructs the
+    # model type for you).
+    p = PydanticPoint(x=1, y="a")
+    out = _roundtrip(p.model_dump(), Any)
+    assert out == {"x": 1, "y": "a"}

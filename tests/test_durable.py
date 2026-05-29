@@ -13,9 +13,13 @@ durability boundary.
 
 from __future__ import annotations
 
+import dataclasses
+import enum
 from typing import Any
 
+import attrs
 import msgspec
+import pydantic
 import pytest
 
 from resonate import DependencyMap
@@ -627,3 +631,98 @@ async def test_function_returning_none() -> None:
     df = DurableFunction(sink)
     assert await df.invoke(_context(), df.pack_args(5)) is None
     assert captured == [5]
+
+
+# =============================================================================
+# Argument coercion across popular struct-definition styles
+#
+# The codec-level matrix lives in ``test_codec.py``; these pin the same support
+# from the angle a user actually hits it -- a durable function whose parameter
+# is annotated with some struct style. On recovery the argument arrives as JSON
+# builtins, and ``invoke`` coerces it back to the declared type (via
+# ``msgspec.convert``) before the call. msgspec supports dataclasses, attrs, and
+# enums natively; pydantic is unsupported and must raise rather than silently
+# hand the function a raw dict.
+# =============================================================================
+
+
+@dataclasses.dataclass(frozen=True)
+class DataclassArg:
+    x: int
+    y: int
+
+
+async def sum_dataclass(ctx: Context, p: DataclassArg) -> int:
+    return p.x + p.y
+
+
+@pytest.mark.asyncio
+async def test_dataclass_arg_coerced_from_builtins() -> None:
+    df = DurableFunction(sum_dataclass)
+    # On recovery the arg arrives as a plain dict, not a DataclassArg.
+    payload = {"args": [{"x": 3, "y": 4}], "kwargs": {}}
+    assert await df.invoke(_context(), payload) == 7
+
+
+@pytest.mark.asyncio
+async def test_dataclass_arg_replay_parity() -> None:
+    df = DurableFunction(sum_dataclass)
+    fresh = df.pack_args(DataclassArg(x=3, y=4))
+    assert await df.invoke(_context(), fresh) == 7
+    assert await df.invoke(_context(), _roundtrip(fresh)) == 7
+
+
+@attrs.frozen
+class AttrsArg:
+    x: int
+    y: int
+
+
+async def sum_attrs(ctx: Context, p: AttrsArg) -> int:
+    return p.x + p.y
+
+
+@pytest.mark.asyncio
+async def test_attrs_arg_replay_parity() -> None:
+    df = DurableFunction(sum_attrs)
+    fresh = df.pack_args(AttrsArg(x=5, y=6))
+    assert await df.invoke(_context(), fresh) == 11
+    assert await df.invoke(_context(), _roundtrip(fresh)) == 11
+
+
+class Priority(enum.IntEnum):
+    LOW = 1
+    HIGH = 2
+
+
+async def double_priority(ctx: Context, p: Priority) -> int:
+    return int(p) * 2
+
+
+@pytest.mark.asyncio
+async def test_enum_arg_coerced_from_builtins() -> None:
+    df = DurableFunction(double_priority)
+    fresh = df.pack_args(Priority.HIGH)
+    # On recovery the enum arrives as its raw value (2) and is coerced back.
+    recovered = _roundtrip(fresh)
+    assert recovered == {"args": [2], "kwargs": {}}
+    assert await df.invoke(_context(), recovered) == 4
+
+
+class PydanticArg(pydantic.BaseModel):
+    x: int
+    y: int
+
+
+async def sum_pydantic(ctx: Context, p: PydanticArg) -> int:
+    return p.x + p.y
+
+
+@pytest.mark.asyncio
+async def test_pydantic_arg_coercion_is_unsupported() -> None:
+    # msgspec cannot build a pydantic model from the recovered dict, so coercion
+    # raises rather than handing the function an un-coerced mapping.
+    df = DurableFunction(sum_pydantic)
+    payload = {"args": [{"x": 3, "y": 4}], "kwargs": {}}
+    with pytest.raises(SerializationError):
+        await df.invoke(_context(), payload)

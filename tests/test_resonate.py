@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from unittest import mock
 
 import msgspec
@@ -42,6 +42,7 @@ from resonate.resonate import DEFAULT_TTL, Opts, Resonate
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
+    from resonate.codec import Encryptor
     from resonate.context import Context
     from resonate.types import PromiseCreateReq, PromiseRecord
 
@@ -50,9 +51,22 @@ if TYPE_CHECKING:
 
 
 @contextlib.asynccontextmanager
-async def local(**kwargs: Any) -> AsyncIterator[Resonate]:
+async def local(
+    *,
+    group: str | None = None,
+    pid: str | None = None,
+    ttl: timedelta | None = None,
+    encryptor: Encryptor | None = None,
+    prefix: str | None = None,
+) -> AsyncIterator[Resonate]:
     """Yield a local-mode Resonate, stopping it (and its refresh task) on exit."""
-    r = Resonate.local(**kwargs)
+    r = Resonate.local(
+        group=group,
+        pid=pid,
+        ttl=ttl,
+        encryptor=encryptor,
+        prefix=prefix,
+    )
     try:
         yield r
     finally:
@@ -98,6 +112,19 @@ class Point(msgspec.Struct, frozen=True):
 
 async def make_point(ctx: Context, x: int, y: int) -> Point:
     return Point(x=x, y=y)
+
+
+# Deliberately unannotated: annotations are optional in Python, so the SDK must
+# run a function that declares none. No param annotations means arg coercion is
+# skipped (pass-through); no return annotation means the result decodes as Any.
+def bare_add(ctx, x, y):  # noqa: ANN001, ANN201
+    return x + y
+
+
+async def add_via_child(ctx: Context, x: int, y: int) -> int:
+    # A multi-step workflow: spawns a child via ``ctx.run`` and awaits it. The
+    # child function need not be registered -- ``ctx.run`` takes the object.
+    return await ctx.run(add, x, y)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -248,7 +275,7 @@ async def test_run_is_synchronous_and_returns_handle() -> None:
         h = r.run("greet-1", noop)
         assert isinstance(h, ResonateHandle)
         assert not asyncio.iscoroutine(h)
-        assert h.id == "greet-1"
+        assert await h.id() == "greet-1"
 
 
 @pytest.mark.asyncio
@@ -301,7 +328,7 @@ async def test_run_with_prefix_prepends_id() -> None:
     async with local(prefix="app") as r:
         r.register(noop)
         h = r.run("my-id", noop)
-        assert h.id == "app:my-id"
+        assert await h.id() == "app:my-id"
 
 
 @pytest.mark.asyncio
@@ -328,6 +355,61 @@ async def test_run_idempotent_same_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_unannotated_function_resolves() -> None:
+    # Annotations are optional: a function with no param/return annotations runs
+    # end-to-end. The result decodes as Any (pass-through) since there is no
+    # return annotation to coerce against.
+    async with local() as r:
+        r.register(bare_add)
+        assert await r.run("bare", bare_add, 2, 3).result() == 5
+
+
+@pytest.mark.asyncio
+async def test_run_handle_id_resolves_to_created_id() -> None:
+    # ``id()`` is gated on the background promise creation; once that confirms it
+    # yields the (prefixed) id. Awaiting the result guarantees creation happened.
+    async with local() as r:
+        r.register(add)
+        h = r.run("rid", add, 1, 1)
+        assert await h.id() == "rid"
+        await h.result()
+        # Still available -- and immediate -- after settling.
+        assert await h.id() == "rid"
+
+
+@pytest.mark.asyncio
+async def test_run_done_false_until_settled() -> None:
+    async with local() as r:
+        gate = asyncio.Event()
+
+        @r.register
+        async def waits(ctx: Context) -> int:
+            await gate.wait()
+            return 7
+
+        h = r.run("rd", waits)
+        assert h.done() is False
+        gate.set()
+        assert await h.result() == 7
+        assert h.done() is True
+
+
+@pytest.mark.asyncio
+async def test_run_returns_none_result() -> None:
+    async with local() as r:
+        r.register(noop)
+        assert await r.run("rn", noop).result() is None
+
+
+@pytest.mark.asyncio
+async def test_run_multistep_workflow_resolves() -> None:
+    # A top-level run of a workflow that itself spawns a child via ctx.run.
+    async with local() as r:
+        r.register(add_via_child)
+        assert await r.run("wf", add_via_child, 4, 5).result() == 9
+
+
+@pytest.mark.asyncio
 async def test_run_default_target_uses_network_resolver() -> None:
     async with local() as r:
         r.register(noop)
@@ -348,7 +430,7 @@ async def test_rpc_is_synchronous_and_returns_handle() -> None:
         h = r.rpc("rpc-1", "remote_fn", 1)
         assert isinstance(h, ResonateHandle)
         assert not asyncio.iscoroutine(h)
-        assert h.id == "rpc-1"
+        assert await h.id() == "rpc-1"
 
 
 @pytest.mark.asyncio
@@ -364,7 +446,7 @@ async def test_rpc_does_not_require_registration() -> None:
 async def test_rpc_with_prefix() -> None:
     async with local(prefix="svc") as r:
         h = r.rpc("rpc-2", "remote", ())
-        assert h.id == "svc:rpc-2"
+        assert await h.id() == "svc:rpc-2"
         await wait_for_promise(r, "svc:rpc-2")
 
 
@@ -393,6 +475,38 @@ async def test_rpc_default_target() -> None:
         r.rpc("rpc-dt", "remote")
         record = await wait_for_promise(r, "rpc-dt")
         assert record.tags["resonate:target"] == "local://any@default"
+
+
+@pytest.mark.asyncio
+async def test_rpc_done_false_while_pending() -> None:
+    # A remote rpc promise never settles in local mode, so the handle stays
+    # un-done after the promise is created.
+    async with local() as r:
+        h = r.rpc("rpc-pending", "remote")
+        await wait_for_promise(r, "rpc-pending")
+        assert h.done() is False
+
+
+@pytest.mark.asyncio
+async def test_rpc_idempotent_same_id() -> None:
+    # Two rpc calls with the same id both yield handles to the one promise.
+    async with local() as r:
+        h1 = r.rpc("rpc-dup", "remote", 1)
+        h2 = r.rpc("rpc-dup", "remote", 1)
+        assert await h1.id() == "rpc-dup"
+        assert await h2.id() == "rpc-dup"
+        record = await wait_for_promise(r, "rpc-dup")
+        # The first create wins; the param reflects that single promise.
+        assert record.param.data
+        assert record.param.data["func"] == "remote"
+
+
+@pytest.mark.asyncio
+async def test_rpc_handle_id_resolves() -> None:
+    async with local() as r:
+        h = r.rpc("rpc-id", "remote")
+        assert await h.id() == "rpc-id"
+        assert h.done() is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -511,8 +625,8 @@ async def test_get_existing_returns_handle() -> None:
     async with local() as r:
         r.register(add)
         await r.run("g1", add, 1, 2).result()
-        handle = await r.get("g1", type_=int)
-        assert handle.id == "g1"
+        handle = await r.get("g1")
+        assert await handle.id() == "g1"
         assert await handle.result() == 3
 
 
@@ -522,7 +636,50 @@ async def test_get_with_prefix_prepends() -> None:
         r.rpc("p1", "remote")
         await wait_for_promise(r, "ns:p1")
         handle = await r.get("p1")
-        assert handle.id == "ns:p1"
+        assert await handle.id() == "ns:p1"
+
+
+@pytest.mark.asyncio
+async def test_get_pending_promise_returns_unsettled_handle() -> None:
+    # get on a still-pending promise returns a handle that is not yet done.
+    async with local() as r:
+        r.rpc("g-pending", "remote")
+        await wait_for_promise(r, "g-pending")
+        handle = await r.get("g-pending")
+        assert handle.done() is False
+
+
+@pytest.mark.asyncio
+async def test_get_rejected_promise_raises_on_result() -> None:
+    async with local() as r:
+        r.register(boom)
+        with contextlib.suppress(ApplicationError):
+            await r.run("g-boom", boom).result()
+        handle = await r.get("g-boom")
+        with pytest.raises(ApplicationError, match="deliberate failure"):
+            await handle.result()
+
+
+@pytest.mark.asyncio
+async def test_get_decodes_result_as_any() -> None:
+    # get is untyped: a struct result that run would decode to ``Point`` comes
+    # back through get as the raw mapping, since there is no type to coerce to.
+    async with local() as r:
+        r.register(make_point)
+        await r.run("g-pt", make_point, 1, 2).result()
+        handle = await r.get("g-pt")
+        assert await handle.result() == {"x": 1, "y": 2}
+
+
+@pytest.mark.asyncio
+async def test_get_twice_shares_subscription() -> None:
+    async with local() as r:
+        r.register(add)
+        await r.run("g-share", add, 1, 2).result()
+        h1 = await r.get("g-share")
+        h2 = await r.get("g-share")
+        assert await h1.result() == 3
+        assert await h2.result() == 3
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -535,7 +692,7 @@ async def test_multiple_handles_same_id_all_resolve() -> None:
     async with local() as r:
         r.register(add)
         h1 = r.run("multi", add, 2, 3)
-        h2 = await r.get("multi", type_=int)
+        h2 = await r.get("multi")
         assert await h1.result() == 5
         assert await h2.result() == 5
 
@@ -550,12 +707,12 @@ async def test_prefix_applied_consistently_to_run_rpc_get() -> None:
     async with local(prefix="p") as r:
         r.register(add)
         h1 = r.run("id1", add, 1, 1)
-        assert h1.id == "p:id1"
+        assert await h1.id() == "p:id1"
         h2 = r.rpc("id2", "remote")
-        assert h2.id == "p:id2"
+        assert await h2.id() == "p:id2"
         await wait_for_promise(r, "p:id2")
         h3 = await r.get("id2")
-        assert h3.id == "p:id2"
+        assert await h3.id() == "p:id2"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -596,3 +753,90 @@ async def test_stop_cancels_refresh_task() -> None:
     with contextlib.suppress(asyncio.CancelledError):
         await handle
     assert handle.cancelled()
+
+
+# ═════════════════════════════════════════════════════════════════════════
+#  Promise-gone settlement -- handle must surface a 404 instead of hanging
+# ═════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_handle_settles_with_error_when_listener_register_returns_404() -> None:
+    """A 404 on the initial listener register must settle the handle.
+
+    Reproduces the silent hang when the server forgets the promise mid-flight
+    (ephemeral-storage restart, manual purge): without the 404 catch in
+    ``_register_and_settle``, the bg task logs a warning and the subscription
+    sits pending for the rest of the process lifetime; ``handle.result()``
+    waits on the event forever and the user only learns the workflow is
+    unrecoverable by hitting Ctrl+C.
+    """
+    async with local() as r:
+
+        async def gone(*_args: object, **_kwargs: object) -> object:
+            raise ServerError(404, "Awaited promise not found")
+
+        with mock.patch.object(
+            r._sender, "promise_register_listener", side_effect=gone
+        ):
+            # Use rpc so the promise stays pending in local mode -- nothing else
+            # can race the 404 to settle the subscription naturally.
+            handle = r.rpc("zombie", "remote")
+            with pytest.raises(
+                ApplicationError, match="Awaited promise not found"
+            ):
+                await asyncio.wait_for(handle.result(), timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_subscription_refresh_settles_handle_on_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 60s refresh must also settle on 404, not just the initial register.
+
+    Without this, a workflow that started healthy and *later* loses its
+    promise (server purge, retention expiry) would hang once the SSE-pushed
+    ``unblock`` is no longer possible.
+    """
+    # Collapse the refresh interval so the test does not actually wait 60s.
+    monkeypatch.setattr(
+        "resonate.resonate._SUBSCRIPTION_REFRESH_SECS", 0.01
+    )
+    async with local() as r:
+        # Start with a pending rpc whose listener registers successfully.
+        handle = r.rpc("vanish", "remote")
+        await wait_for_promise(r, "vanish")
+        # Now make the next refresh tick observe a 404 -- the promise has
+        # "vanished" from the server.
+        async def gone(*_args: object, **_kwargs: object) -> object:
+            raise ServerError(404, "Awaited promise not found")
+
+        with mock.patch.object(
+            r._sender, "promise_register_listener", side_effect=gone
+        ), pytest.raises(
+            ApplicationError, match="Awaited promise not found"
+        ):
+            await asyncio.wait_for(handle.result(), timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_non_404_server_errors_do_not_settle_the_handle() -> None:
+    """Only 404 maps to a synthetic rejection; transient 5xx errors are logged.
+
+    A 500/503 is presumed transient -- the periodic refresh re-registers the
+    listener, and the SSE push will eventually settle the handle when the
+    promise actually resolves. Settling the handle on those would mask real
+    progress; the contract is "only 404 means *definitely* gone".
+    """
+    async with local() as r:
+
+        async def transient(*_args: object, **_kwargs: object) -> object:
+            raise ServerError(503, "transient")
+
+        with mock.patch.object(
+            r._sender, "promise_register_listener", side_effect=transient
+        ):
+            handle = r.rpc("flaky", "remote")
+            # Should NOT raise -- the handle stays pending despite the 503.
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(handle.result(), timeout=0.3)

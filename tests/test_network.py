@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest import mock
 
+import aiohttp
 import msgspec
+import pytest
 
+from resonate.error import HttpError
 from resonate.network import HttpNetwork, LocalNetwork
 
 I64_MAX = 2**63 - 1
@@ -408,3 +412,193 @@ def test_http_network_default_group() -> None:
     net = HttpNetwork("http://localhost:8001", pid="pid1")
     assert net.group() == "default"
     assert net.unicast() == "poll://uni@default/pid1"
+
+
+# ---------------------------------------------------------------------------
+# Resilience: HttpNetwork.send must survive a server outage and recover.
+# Mirrors the existing _sse_loop retry-with-backoff -- the request half had
+# none, so any task.create / promise.create / task.fulfill / promise.settle
+# in flight when the server died (or before it came up) would propagate
+# HttpError and strand the awaiting handle. See resonate.network._http.send.
+# ---------------------------------------------------------------------------
+
+
+class _FlakySession:
+    """Minimal ``aiohttp.ClientSession`` stand-in that fails N times then succeeds.
+
+    The real session is built from ``_ensure_session`` and held on the network;
+    monkey-patching that one factory keeps the rest of ``send`` exercised
+    (header assembly, response decoding, the retry loop itself).
+    """
+
+    def __init__(self, fail_times: int, body: str = '{"ok": true}') -> None:
+        self.fail_times = fail_times
+        self.body = body
+        self.attempts = 0
+        self.closed = False
+
+    def post(self, *_args: object, **_kwargs: object) -> _FlakySession._Ctx:
+        self.attempts += 1
+        if self.attempts <= self.fail_times:
+            return _FlakySession._Ctx(error=aiohttp.ClientConnectionError("down"))
+        return _FlakySession._Ctx(body=self.body)
+
+    async def close(self) -> None:
+        self.closed = True
+
+    class _Ctx:
+        def __init__(
+            self, body: str | None = None, error: Exception | None = None
+        ) -> None:
+            self._body = body
+            self._error = error
+
+        async def __aenter__(self) -> _FlakySession._Resp:
+            if self._error is not None:
+                raise self._error
+            assert self._body is not None
+            return _FlakySession._Resp(self._body)
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+    class _Resp:
+        def __init__(self, body: str) -> None:
+            self._body = body
+
+        async def text(self) -> str:
+            return self._body
+
+
+@pytest.mark.asyncio
+async def test_http_send_retries_through_connection_outage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``send`` must retry on ``aiohttp.ClientError`` and recover.
+
+    Reproduces ``resonate dev`` not yet running when the client makes a
+    request: without retry, the first ``task.create`` raises ``HttpError``,
+    the bg task aborts, and ``handle.result()`` hangs forever.
+    """
+    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    flaky = _FlakySession(fail_times=3, body='{"head":{"status":200},"data":{}}')
+    monkeypatch.setattr(net, "_ensure_session", lambda: flaky)
+    # Mark as ``started`` so the retry loop does not exit on ``not _running``.
+    net._running = True
+    # Collapse the backoff sleep so the test stays fast.
+    monkeypatch.setattr(net, "_sleep_or_stop", lambda _s: asyncio.sleep(0))
+
+    body = await net.send("{}")
+    assert body == '{"head":{"status":200},"data":{}}'
+    assert flaky.attempts == 4  # three failures + one success
+
+
+@pytest.mark.asyncio
+async def test_http_send_stops_retrying_after_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stop`` must unblock a ``send`` parked in the retry backoff.
+
+    Without ``_stop_event``, a request retrying through an outage would block
+    the bounded join inside ``Resonate.stop`` (which only awaits bg tasks; it
+    does not cancel them).
+    """
+    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    # Permanently failing session: only stop can break the loop.
+    flaky = _FlakySession(fail_times=10_000)
+    monkeypatch.setattr(net, "_ensure_session", lambda: flaky)
+    net._running = True
+
+    send_task = asyncio.create_task(net.send("{}"))
+    # Let the retry enter its first real backoff sleep.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    await net.stop()  # signals _stop_event and flips _running
+
+    with pytest.raises(HttpError):
+        await asyncio.wait_for(send_task, timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_http_send_after_stop_raises_http_error_not_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``send`` racing with ``stop`` must surface :class:`HttpError`.
+
+    Reproduces the Ctrl+C shutdown race: ``Resonate.stop`` closes the
+    aiohttp session by design *before* joining bg tasks, so an in-flight
+    ``session.post`` raises a bare ``RuntimeError("Session is closed")``.
+    Without the catch in :meth:`HttpNetwork.send`, that ``RuntimeError``
+    propagates out of every untracked ``ctx.run`` ``bg()`` task and asyncio
+    prints a ``Task exception was never retrieved`` traceback for each.
+    """
+    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+
+    class _ClosedSession:
+        def post(self, *_args: object, **_kwargs: object) -> _ClosedSession._Ctx:
+            return _ClosedSession._Ctx()
+
+        async def close(self) -> None:
+            pass
+
+        class _Ctx:
+            async def __aenter__(self) -> object:
+                msg = "Session is closed"
+                raise RuntimeError(msg)
+
+            async def __aexit__(self, *_exc: object) -> None:
+                return None
+
+    monkeypatch.setattr(net, "_ensure_session", lambda: _ClosedSession())
+    # send() must observe ``_running == False`` while the in-flight post
+    # raises -- that is exactly the shutdown race we want to model.
+    net._running = False
+
+    with pytest.raises(HttpError):
+        await net.send("{}")
+
+
+@pytest.mark.asyncio
+async def test_http_send_does_not_open_a_session_after_stop() -> None:
+    """A post-stop ``send`` must not lazily open a fresh ``ClientSession``.
+
+    Otherwise a retry loop racing with shutdown leaks a session that nobody
+    will close (aiohttp's ``Unclosed client session`` warning at process
+    exit).
+    """
+    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    await net.start()
+    await net.stop()  # closes the session, sets _running=False
+
+    assert net._session is None
+
+    with pytest.raises(HttpError):
+        await net.send("{}")
+
+    # No session was created during the failed ``send``.
+    assert net._session is None
+
+
+@pytest.mark.asyncio
+async def test_http_send_does_not_retry_server_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HTTP responses (200/404/500/…) bypass the retry loop.
+
+    Only ``aiohttp.ClientError`` -- the "server unreachable" signal -- is
+    retried. A 404/500 body is a deliberate response: ``ServerError`` must
+    propagate unchanged so callers see it on the first attempt.
+    """
+    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    not_found = _FlakySession(
+        fail_times=0,
+        body='{"head":{"status":404},"data":{"error":"nope"}}',
+    )
+    monkeypatch.setattr(net, "_ensure_session", lambda: not_found)
+    net._running = True
+    monkeypatch.setattr(net, "_sleep_or_stop", mock.AsyncMock())
+
+    body = await net.send("{}")
+    assert '"status":404' in body
+    assert not_found.attempts == 1  # one shot -- no retry on a real HTTP response

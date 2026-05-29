@@ -36,9 +36,14 @@ from typing import TYPE_CHECKING, Any, Concatenate, overload
 import msgspec
 
 from resonate import DependencyMap, now_ms
-from resonate.codec import Codec, NoopEncryptor
+from resonate.codec import Codec, NoopEncryptor, encode_error
 from resonate.core import Core
-from resonate.error import ApplicationError, FunctionNotFoundError, ResonateError
+from resonate.error import (
+    ApplicationError,
+    FunctionNotFoundError,
+    ResonateError,
+    ServerError,
+)
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.network import HttpNetwork, LocalNetwork
@@ -397,7 +402,9 @@ class Resonate:
                 await self._register_and_settle(req.id, sub)
 
         self._spawn(_())
-        return ResonateHandle(prefixed_id, sub, self._codec, _result_type(func))
+        return ResonateHandle(
+            prefixed_id, sub, self._codec, _result_type(func), created
+        )
 
     def rpc(self, id: str, fn: str, *args: Any, **kwargs: Any) -> ResonateHandle[Any]:
         """Dispatch a function remotely.
@@ -432,17 +439,38 @@ class Resonate:
                 await self._register_and_settle(req.id, sub)
 
         self._spawn(_())
-        return ResonateHandle(prefixed_id, sub, self._codec, Any)
+        return ResonateHandle(prefixed_id, sub, self._codec, Any, created)
 
-    async def get(self, id: str, type_: Any = Any) -> ResonateHandle[Any]:
+    async def get(self, id: str) -> ResonateHandle[Any]:
         """Return a handle for an existing promise.
 
         Unlike :meth:`run` / :meth:`rpc`, this is ``async``: a lookup has nothing
         to fire-and-forget, and the listener registration is what surfaces a
         :class:`~resonate.error.ServerError` (code 404) when the promise does not
-        exist.
+        exist. The result is untyped (``Any``): with no local function to read a
+        return annotation from -- the source :meth:`run` uses, and which :meth:`rpc`
+        likewise lacks -- there is nothing to infer a decode type from, so the
+        settled value passes through undecoded rather than asking the caller for
+        a type.
         """
-        return await self._create_handle_from_id(self._prefix_id(id), type_)
+        id = self._prefix_id(id)
+
+        sub, is_new = self._subscribe(id)
+        if is_new:
+            try:
+                record = await self._sender.promise_register_listener(
+                    id, self._network.unicast()
+                )
+            except ResonateError:
+                if self._subs.get(id) is sub and not sub.settled():
+                    del self._subs[id]
+                raise
+            if record.state != "pending":
+                self._settle_and_cleanup(id, sub, record.state, record.value)
+
+        created = asyncio.Event()
+        created.set()
+        return ResonateHandle(id, sub, self._codec, Any, created)
 
     async def schedule(
         self,
@@ -619,42 +647,46 @@ class Resonate:
 
         Failures are logged, not raised -- the background caller has nobody to
         propagate to, and the periodic refresh re-registers any still-pending
-        subscription.
+        subscription. A 404 is the one exception: it means the durable promise
+        no longer exists on the server (memory-storage restart, manual purge,
+        ...), so retrying is pointless; settle the subscription with a
+        synthetic rejection so :meth:`ResonateHandle.result` raises an
+        :class:`ApplicationError` instead of hanging on the next ``wait``.
         """
         try:
             record = await self._sender.promise_register_listener(
                 id, self._network.unicast()
             )
+        except ServerError as exc:
+            if exc.code == 404:
+                self._settle_subscription_gone(id, sub, exc.message)
+                return
+            logger.warning("listener registration failed id=%s: %s", id, exc)
+            return
         except ResonateError as exc:
             logger.warning("listener registration failed id=%s: %s", id, exc)
             return
         if record.state != "pending":
             self._settle_and_cleanup(id, sub, record.state, record.value)
 
-    async def _create_handle_from_id(
-        self, id: str, type_: Any = Any
-    ) -> ResonateHandle[Any]:
-        """Subscribe to ``id``, register a listener if new, and build a handle.
+    def _settle_subscription_gone(
+        self, id: str, sub: Subscription, reason: str
+    ) -> None:
+        """Settle ``sub`` with a rejected state when the promise is gone.
 
-        The synchronous query path used by :meth:`get`: unlike the run/rpc
-        background bodies, a listener-registration failure (e.g. a 404 for an
-        unknown promise) is propagated to the caller after dropping the dangling
-        subscription.
+        The server returned 404 for ``promise.register_listener`` -- the
+        durable promise no longer exists (ephemeral-storage restart, manual
+        purge, expired retention, ...). There is no settled value to deliver
+        and no future ``unblock`` push will ever come, so fabricate a
+        :class:`~resonate.error.ApplicationError` carrying the server's
+        reason and route it through the regular ``rejected`` path. Without
+        this, :meth:`ResonateHandle.result` waits on the subscription event
+        for the rest of the process lifetime -- the user only learns the
+        workflow is unrecoverable by hitting Ctrl+C.
         """
-        sub, is_new = self._subscribe(id)
-        if is_new:
-            try:
-                record = await self._sender.promise_register_listener(
-                    id, self._network.unicast()
-                )
-            except ResonateError:
-                if self._subs.get(id) is sub and not sub.settled():
-                    del self._subs[id]
-                raise
-            if record.state != "pending":
-                self._settle_and_cleanup(id, sub, record.state, record.value)
-
-        return ResonateHandle(id, sub, self._codec, type_)
+        err = ApplicationError(reason)
+        encoded = self._codec.encode(encode_error(err))
+        self._settle_and_cleanup(id, sub, "rejected", encoded)
 
     def _settle_and_cleanup(
         self,
@@ -670,7 +702,12 @@ class Resonate:
         idempotent, so a duplicate settle (e.g. the 60s refresh racing an
         ``unblock``) is safe.
         """
-        sub.settle(_promise_result(state, value))
+        wire: dict[str, Any] = {}
+        if value.headers is not None:
+            wire["headers"] = value.headers
+        wire["data"] = value.data
+
+        sub.settle(PromiseResult(state=state, value=wire))
         if self._subs.get(id) is sub:
             del self._subs[id]
 
@@ -690,7 +727,9 @@ class Resonate:
             raw = msg.promise()
             if not isinstance(raw, dict):
                 return
-            state = _parse_state(raw.get("state"))
+            raw_state = raw.get("state")
+            state = raw_state if raw_state in _SETTLED_STATES else "pending"
+
             if state == "pending":
                 return
             id = raw.get("id")
@@ -733,7 +772,10 @@ class Resonate:
         """Re-register listeners for pending subscriptions every interval.
 
         Defends a handle against a dropped SSE connection. Returns when
-        cancelled by :meth:`stop`.
+        cancelled by :meth:`stop`. A 404 from the server means the promise
+        no longer exists -- settle the subscription with a synthetic rejection
+        (see :meth:`_register_and_settle`) so the awaiting handle is not
+        stranded for the rest of the process lifetime.
         """
         with contextlib.suppress(asyncio.CancelledError):
             while True:
@@ -746,6 +788,16 @@ class Resonate:
                             record = await self._sender.promise_register_listener(
                                 id, addr
                             )
+                        except ServerError as exc:
+                            if exc.code == 404:
+                                self._settle_subscription_gone(
+                                    id, sub, exc.message
+                                )
+                                continue
+                            logger.warning(
+                                "subscription refresh failed id=%s: %s", id, exc
+                            )
+                            continue
                         except ResonateError as exc:
                             logger.warning(
                                 "subscription refresh failed id=%s: %s", id, exc
@@ -788,6 +840,23 @@ def _result_type(func: Callable[..., Any]) -> Any:
     return ret
 
 
+def _select_network(
+    url: str | None,
+    network: Network | None,
+    group: str | None,
+    pid: str | None,
+    auth: str | None,
+) -> Network:
+    if url is not None:
+        return HttpNetwork(url=url, pid=pid, group=group, auth=auth)
+    if network is not None:
+        return network
+    env_url = _resolve_env_url()
+    if env_url is not None:
+        return HttpNetwork(url=env_url, pid=pid, group=group, auth=auth)
+    return LocalNetwork(pid=pid, group=group)
+
+
 def _resolve_env_url() -> str | None:
     """Resolve a server URL from the environment.
 
@@ -804,43 +873,3 @@ def _resolve_env_url() -> str | None:
     scheme = os.environ.get("RESONATE_SCHEME", "http")
     port = os.environ.get("RESONATE_PORT", "8001")
     return f"{scheme}://{host}:{port}"
-
-
-def _parse_state(
-    state: Any,
-) -> PromiseState:
-    """Fold a wire-format state string into a known state, else ``"pending"``."""
-    return state if state in _SETTLED_STATES else "pending"
-
-
-def _promise_result(
-    state: PromiseState,
-    value: Value,
-) -> PromiseResult:
-    """Build a :class:`PromiseResult` from a state and value.
-
-    Its ``value`` is the raw ``{data, headers}`` wire shape that
-    :class:`ResonateHandle` decodes.
-    """
-    wire: dict[str, Any] = {}
-    if value.headers is not None:
-        wire["headers"] = value.headers
-    wire["data"] = value.data
-    return PromiseResult(state=state, value=wire)
-
-
-def _select_network(
-    url: str | None,
-    network: Network | None,
-    group: str | None,
-    pid: str | None,
-    auth: str | None,
-) -> Network:
-    if url is not None:
-        return HttpNetwork(url=url, pid=pid, group=group, auth=auth)
-    if network is not None:
-        return network
-    env_url = _resolve_env_url()
-    if env_url is not None:
-        return HttpNetwork(url=env_url, pid=pid, group=group, auth=auth)
-    return LocalNetwork(pid=pid, group=group)
