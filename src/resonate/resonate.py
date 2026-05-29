@@ -599,10 +599,6 @@ class Resonate:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _consume_opts(self) -> Opts:
-        """Take the pending :meth:`with_opts` options, resetting to defaults.
-
-        Mirrors ``Context``'s ``self.opts = Opts()`` reset after each run/rpc.
-        """
         opts = self._opts
         self._opts = Opts()
         return opts

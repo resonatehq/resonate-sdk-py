@@ -64,11 +64,10 @@ class ResonateEffects:
         if cached is not None:
             return cached
 
-        encoded_param = self.codec.encode(req.param.data)
         encoded_req = PromiseCreateReq(
             id=req.id,
             timeout_at=req.timeout_at,
-            param=encoded_param,
+            param=self.codec.encode(req.param.data),
             tags=req.tags,
         )
 
@@ -120,8 +119,7 @@ class ResonateEffects:
             state = "resolved"
             value_data = result
 
-        encoded_value = self.codec.encode(value_data)
-        req = PromiseSettleReq(id=id, state=state, value=encoded_value)
+        req = PromiseSettleReq(id=id, state=state, value=self.codec.encode(value_data))
 
         logger.info("promise_settle_request promise_id=%s state=%s", req.id, req.state)
         record = await self.sender.promise_settle(req)

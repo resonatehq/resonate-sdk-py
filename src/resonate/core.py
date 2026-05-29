@@ -72,7 +72,7 @@ def identity_target_resolver(override: str | None) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 
-class _ExecFulfill(msgspec.Struct, frozen=True, kw_only=True):
+class _ExecFulfilled(msgspec.Struct, frozen=True, kw_only=True):
     """The workflow finished; the task should be fulfilled with these args.
 
     ``value`` is already codec-encoded, so the caller has a single uniform
@@ -83,7 +83,7 @@ class _ExecFulfill(msgspec.Struct, frozen=True, kw_only=True):
     value: Value
 
 
-class _ExecSuspend(msgspec.Struct, frozen=True, kw_only=True):
+class _ExecSuspended(msgspec.Struct, frozen=True, kw_only=True):
     """The workflow has remote dependencies; suspend on these awaiteds.
 
     Mirrors Go's ``execOutcome{kind: execSuspend}``.
@@ -94,7 +94,7 @@ class _ExecSuspend(msgspec.Struct, frozen=True, kw_only=True):
 
 #: Outcome reported by :meth:`Core._execute_until_blocked_inner`. Mirrors Go's
 #: ``execOutcome`` discriminated by ``execOutcomeKind``.
-type _ExecOutcome = _ExecFulfill | _ExecSuspend
+_ExecOutcome = _ExecFulfilled | _ExecSuspended
 
 
 class Core:
@@ -191,7 +191,7 @@ class Core:
                     outcome = await self._execute_until_blocked_inner(promise, effects)
 
                     match outcome:
-                        case _ExecFulfill(state=state, value=value):
+                        case _ExecFulfilled(state=state, value=value):
                             await self.sender.task_fulfill(
                                 task_id,
                                 task_version,
@@ -207,7 +207,7 @@ class Core:
                             )
                             return "done"
 
-                        case _ExecSuspend(todos=todos):
+                        case _ExecSuspended(todos=todos):
                             logger.debug(
                                 "core: attempting to suspend task task_id=%s "
                                 "remote_deps=%d",
@@ -283,7 +283,7 @@ class Core:
                 promise.id,
                 promise.state,
             )
-            return _ExecFulfill(
+            return _ExecFulfilled(
                 state="rejected"
                 if promise.state == "rejected_timedout"
                 else promise.state,
@@ -326,7 +326,7 @@ class Core:
             else:
                 state = "resolved"
                 encoded = self.codec.encode(res)
-            return _ExecFulfill(state=state, value=encoded)
+            return _ExecFulfilled(state=state, value=encoded)
 
         # If the function returned done but there are pending todos, treat as
         # suspended (structured-concurrency rule; covers the fire-and-forget
@@ -341,4 +341,4 @@ class Core:
                 todos,
             )
 
-        return _ExecSuspend(todos=todos)
+        return _ExecSuspended(todos=todos)

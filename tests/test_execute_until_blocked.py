@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import pytest
 
 from resonate.codec import Codec, NoopEncryptor, encode_error
-from resonate.core import Core, _ExecFulfill, _ExecSuspend, identity_target_resolver
+from resonate.core import Core, _ExecFulfilled, _ExecSuspended, identity_target_resolver
 from resonate.error import ApplicationError, ResonateError
 from resonate.registry import Registry
 from resonate.types import PromiseCreateReq, PromiseRecord, Value
@@ -278,7 +278,7 @@ async def test_nested_tree_blocks_on_rpc_leaves() -> None:
         "foo.1.2.3": ("run", "resolved"),
     }
 
-    assert isinstance(outcome, _ExecSuspend)
+    assert isinstance(outcome, _ExecSuspended)
     assert sorted(outcome.todos) == ["foo.1.1.2", "foo.1.2.2"]
     # One pass: every function ran exactly once.
     assert calls == {"foo": 1, "bar": 2, "baz": 4}
@@ -317,7 +317,7 @@ async def test_single_level_suspends_on_rpc_between_settled_leaves() -> None:
     assert effects.cache["m.3"].value.data == 1
     assert effects.cache["m.2"].value.data is None
 
-    assert isinstance(outcome, _ExecSuspend)
+    assert isinstance(outcome, _ExecSuspended)
     assert outcome.todos == ["m.2"]
 
 
@@ -338,7 +338,7 @@ async def test_sleep_creates_timer_promise_and_replay_fulfills() -> None:
 
     # Blocked on a single timer promise.
     assert describe(effects.cache) == {"s.1": ("sleep", "pending")}
-    assert isinstance(outcome, _ExecSuspend)
+    assert isinstance(outcome, _ExecSuspended)
     assert outcome.todos == ["s.1"]
 
     # Replay after the server fired the timer (timers resolve with null).
@@ -346,7 +346,7 @@ async def test_sleep_creates_timer_promise_and_replay_fulfills() -> None:
     outcome2 = await core._execute_until_blocked_inner(_root("naps", id="s"), effects2)
 
     assert describe(effects2.cache) == {"s.1": ("sleep", "resolved")}
-    assert isinstance(outcome2, _ExecFulfill)
+    assert isinstance(outcome2, _ExecFulfilled)
     assert core.codec.decode(outcome2.value, str) == "awake"
 
 
@@ -365,7 +365,7 @@ async def test_promise_creates_external_promise_and_replay_delivers_value() -> N
     outcome = await core._execute_until_blocked_inner(_root("waits", id="p"), effects)
 
     assert describe(effects.cache) == {"p.1": ("promise", "pending")}
-    assert isinstance(outcome, _ExecSuspend)
+    assert isinstance(outcome, _ExecSuspended)
     assert outcome.todos == ["p.1"]
 
     # Replay after something external resolved the promise with a payload.
@@ -373,7 +373,7 @@ async def test_promise_creates_external_promise_and_replay_delivers_value() -> N
     outcome2 = await core._execute_until_blocked_inner(_root("waits", id="p"), effects2)
 
     assert describe(effects2.cache) == {"p.1": ("promise", "resolved")}
-    assert isinstance(outcome2, _ExecFulfill)
+    assert isinstance(outcome2, _ExecFulfilled)
     assert core.codec.decode(outcome2.value, str) == "signal"
 
 
@@ -403,7 +403,7 @@ async def test_detached_child_is_created_but_does_not_block() -> None:
     assert only.state == "pending"
 
     # The parent did NOT suspend on it.
-    assert isinstance(outcome, _ExecFulfill)
+    assert isinstance(outcome, _ExecFulfilled)
     assert outcome.state == "resolved"
     assert core.codec.decode(outcome.value, str) == only.id
 
@@ -439,7 +439,7 @@ async def test_all_local_tree_fulfills_with_every_node_resolved() -> None:
     assert effects.cache["g.1"].value.data == 1
     assert effects.cache["g.2"].value.data == 1
 
-    assert isinstance(outcome, _ExecFulfill)
+    assert isinstance(outcome, _ExecFulfilled)
     assert outcome.state == "resolved"
     # The fulfill path encodes the return value through the codec, so decode it.
     assert core.codec.decode(outcome.value, int) == 2
@@ -477,7 +477,7 @@ async def test_rejected_child_recorded_and_caught_by_parent() -> None:
     }
 
     # The parent swallowed the rejection, so the root resolves.
-    assert isinstance(outcome, _ExecFulfill)
+    assert isinstance(outcome, _ExecFulfilled)
     assert outcome.state == "resolved"
     assert core.codec.decode(outcome.value, str) == "rescued"
 
@@ -504,7 +504,7 @@ async def test_uncaught_rejection_propagates_to_root() -> None:
     )
 
     assert describe(effects.cache) == {"x.1": ("run", "rejected")}
-    assert isinstance(outcome, _ExecFulfill)
+    assert isinstance(outcome, _ExecFulfilled)
     assert outcome.state == "rejected"
 
 
@@ -548,7 +548,7 @@ async def test_replay_settles_remotes_and_fulfills_without_reexecuting_leaves() 
     # Run 1: suspend on both rpc leaves.
     effects1 = MockEffects()
     outcome1 = await core._execute_until_blocked_inner(_root("foo"), effects1)
-    assert isinstance(outcome1, _ExecSuspend)
+    assert isinstance(outcome1, _ExecSuspended)
     assert calls == {"foo": 1, "bar": 2, "baz": 4}
 
     # Run 2: the server settled both rpcs; replay over that preload.
@@ -567,7 +567,7 @@ async def test_replay_settles_remotes_and_fulfills_without_reexecuting_leaves() 
         "foo.1.2.2": ("rpc", "resolved"),
         "foo.1.2.3": ("run", "resolved"),
     }
-    assert isinstance(outcome2, _ExecFulfill)
+    assert isinstance(outcome2, _ExecFulfilled)
     assert outcome2.state == "resolved"
 
     # foo and bar replayed (pending promises); baz did NOT (already resolved).
@@ -623,7 +623,7 @@ async def test_replay_partial_settle_still_suspends_on_remaining() -> None:
         "foo.1.2.2": ("rpc", "pending"),
         "foo.1.2.3": ("run", "resolved"),
     }
-    assert isinstance(outcome2, _ExecSuspend)
+    assert isinstance(outcome2, _ExecSuspended)
     assert outcome2.todos == ["foo.1.2.2"]
 
     # baz never re-ran across either pass.

@@ -14,7 +14,7 @@ from resonate.codec import deserialize_error
 from resonate.durable import DurableFunction
 from resonate.error import ApplicationError, ResonateError, SuspendedError
 from resonate.info import Info
-from resonate.types import Args, PromiseCreateReq, Status, TaskData, Value
+from resonate.types import PromiseCreateReq, Status, TaskData, Value
 
 if TYPE_CHECKING:
     from resonate import DependencyMap
@@ -169,6 +169,11 @@ class Context:
             opts=Opts(),
         )
 
+    def _consume_opts(self) -> Opts:
+        opts = self.opts
+        self.opts = Opts()
+        return opts
+
     def with_opts(
         self,
         *,
@@ -250,21 +255,6 @@ class Context:
             tags={},
         )
 
-    def _local_create_req(
-        self, id: str, args: Args, timeout: timedelta | None
-    ) -> PromiseCreateReq:
-        return PromiseCreateReq(
-            id=id,
-            timeout_at=self._child_timeout(timeout),
-            param=Value.from_serializable(args),
-            tags={
-                "resonate:scope": "local",
-                "resonate:branch": self.branch_id,
-                "resonate:parent": self.id,
-                "resonate:origin": self.origin_id,
-            },
-        )
-
     def _remote_create_req(
         self,
         id: str,
@@ -295,35 +285,6 @@ class Context:
             },
         )
 
-    def _promise_create_req(
-        self, id: str, timeout: timedelta | None
-    ) -> PromiseCreateReq:
-        return PromiseCreateReq(
-            id=id,
-            timeout_at=self._child_timeout(timeout),
-            param=Value(),
-            tags={
-                "resonate:scope": "global",
-                "resonate:branch": id,
-                "resonate:parent": self.id,
-                "resonate:origin": self.origin_id,
-            },
-        )
-
-    def _sleep_create_req(self, id: str, duration: timedelta) -> PromiseCreateReq:
-        return PromiseCreateReq(
-            id=id,
-            timeout_at=self._child_timeout(duration),
-            param=Value(),
-            tags={
-                "resonate:scope": "global",
-                "resonate:branch": id,
-                "resonate:parent": self.id,
-                "resonate:origin": self.origin_id,
-                "resonate:timer": "true",
-            },
-        )
-
     @overload
     def run[**P, T](
         self,
@@ -341,6 +302,7 @@ class Context:
     def run[T](
         self, fn: Callable[..., T], *args: Any, **kwargs: Any
     ) -> ResonateFuture[T]:
+        opts = self._consume_opts()
         # Chain promise creation: capture the previous tail
         # and install ours as the new tail.
         prev_created, created = self._advance_promise_chain()
@@ -349,12 +311,18 @@ class Context:
         # without relying on asyncio's task-start scheduling being FIFO.
         df = DurableFunction(fn)
         payload = df.pack_args(*args, **kwargs)
-        req = self._local_create_req(
-            self._next_id(),
-            payload,
-            self.opts.timeout,
+
+        req = PromiseCreateReq(
+            id=self._next_id(),
+            timeout_at=self._child_timeout(opts.timeout),
+            param=Value.from_serializable(payload),
+            tags={
+                "resonate:scope": "local",
+                "resonate:branch": self.branch_id,
+                "resonate:parent": self.id,
+                "resonate:origin": self.origin_id,
+            },
         )
-        self.opts = Opts()
 
         async def bg() -> T:
             try:
@@ -421,6 +389,7 @@ class Context:
         )
 
     def rpc(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture:
+        opts = self._consume_opts()
         # Chain promise creation: capture the previous tail
         # and install ours as the new tail.
         prev_created, created = self._advance_promise_chain()
@@ -434,11 +403,10 @@ class Context:
             fn,
             args,
             kwargs,
-            self.opts.version,
-            self.opts.timeout,
-            self.opts.target,
+            opts.version,
+            opts.timeout,
+            opts.target,
         )
-        self.opts = Opts()
 
         # rpc tracks its child id in ``spawned_remote`` (the remote-deps list),
         # not in ``spawned_locals``. The bg task is the mechanism that defers
@@ -456,10 +424,22 @@ class Context:
         )
 
     def sleep(self, duration: timedelta) -> ResonateFuture[None]:
+        _ = self._consume_opts()
         prev_created, created = self._advance_promise_chain()
 
-        req = self._sleep_create_req(self._next_id(), duration)
-        self.opts = Opts()
+        id = self._next_id()
+        req = PromiseCreateReq(
+            id=id,
+            timeout_at=self._child_timeout(duration),
+            param=Value(),
+            tags={
+                "resonate:scope": "global",
+                "resonate:branch": id,
+                "resonate:parent": self.id,
+                "resonate:origin": self.origin_id,
+                "resonate:timer": "true",
+            },
+        )
 
         return ResonateFuture(
             _id=req.id,
@@ -468,10 +448,22 @@ class Context:
         )
 
     def promise(self, timeout: timedelta | None = None) -> ResonateFuture[Any]:
+        _ = self._consume_opts()
         prev_created, created = self._advance_promise_chain()
 
-        req = self._promise_create_req(self._next_id(), timeout)
-        self.opts = Opts()
+        id = self._next_id()
+
+        req = PromiseCreateReq(
+            id=id,
+            timeout_at=self._child_timeout(timeout),
+            param=Value(),
+            tags={
+                "resonate:scope": "global",
+                "resonate:branch": id,
+                "resonate:parent": self.id,
+                "resonate:origin": self.origin_id,
+            },
+        )
 
         return ResonateFuture(
             _id=req.id,
@@ -480,6 +472,7 @@ class Context:
         )
 
     def detached(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture[str]:
+        opts = self._consume_opts()
         # Fire-and-forget remote dispatch. Mirrors Go's ``Detached``: unlike
         # ``rpc``, the detached child is NOT tracked in ``spawned_remote`` -- the
         # workflow never suspends on it and its lifecycle is independent of the
@@ -492,17 +485,16 @@ class Context:
         # consumes a seq slot so sibling ids stay stable across replay, but the
         # promise itself is created under the hashed id.
         raw = self._next_id()
-        child_id = f"{self.origin_id}.{_hash_id(raw)}"
+        id = f"{self.origin_id}.{_hash_id(raw)}"
         req = self._remote_create_req(
-            child_id,
+            id,
             fn,
             args,
             kwargs,
-            self.opts.version,
-            self.opts.timeout,
-            self.opts.target,
+            opts.version,
+            opts.timeout,
+            opts.target,
         )
-        self.opts = Opts()
 
         async def bg() -> str:
             """Background body for :meth:`detached`.
@@ -524,7 +516,7 @@ class Context:
             return req.id
 
         return ResonateFuture(
-            _id=child_id,
+            _id=id,
             _task=asyncio.create_task(bg()),
             _created=created,
         )

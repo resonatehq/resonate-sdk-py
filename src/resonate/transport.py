@@ -74,7 +74,7 @@ class UnblockMsg(
 
 # A parsed incoming message from the network. Mirrors Rust's internally tagged
 # ``Message`` enum (``#[serde(tag = "kind")]``).
-type Message = ExecuteMsg | UnblockMsg
+Message = ExecuteMsg | UnblockMsg
 
 
 # =============================================================================
