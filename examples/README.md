@@ -12,6 +12,7 @@ virtualenv (with the local `resonate` checkout installed editable).
 |--------------|---------------------------------------------------------------------|
 | `hello`      | Minimal: register a function, run it durably, read the result.      |
 | `fibonacci`  | Recursive composition via `ctx.run` / `ctx.rpc` / a mix.            |
+| `concat`     | Divide-and-conquer recursion; deterministic left-to-right join.     |
 | `saga`       | Multi-step workflow with compensation on failure.                   |
 | `pipeline`   | DAG-shaped pipeline with parallel transforms and a merge stage.     |
 
