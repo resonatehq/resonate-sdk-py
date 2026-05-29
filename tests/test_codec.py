@@ -138,7 +138,7 @@ def test_encode_error_produces_correct_shape() -> None:
     err = ApplicationError("boom")
     encoded = encode_error(err)
     assert encoded["__type"] == "error"
-    assert encoded["message"] == "application error: boom"
+    assert encoded["message"] == "boom"
 
 
 # =============================================================================

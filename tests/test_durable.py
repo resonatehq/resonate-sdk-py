@@ -26,7 +26,7 @@ from resonate import DependencyMap
 from resonate.codec import Codec, NoopEncryptor
 from resonate.context import Context
 from resonate.durable import DurableFunction
-from resonate.effects import Effects
+from resonate.effects import ResonateEffects
 from resonate.error import ApplicationError, SerializationError
 from resonate.network import LocalNetwork
 from resonate.send import Sender
@@ -42,7 +42,7 @@ I64_MAX = 2**63 - 1
 
 def _context() -> Context:
     sender = Sender(Transport(LocalNetwork()), None)
-    effects = Effects(sender, Codec(NoopEncryptor()), [])
+    effects = ResonateEffects(sender, Codec(NoopEncryptor()), [])
     return Context.root(
         id="root",
         timeout_at=I64_MAX,

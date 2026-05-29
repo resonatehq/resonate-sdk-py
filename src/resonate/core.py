@@ -24,7 +24,7 @@ import msgspec
 from resonate import DependencyMap
 from resonate.codec import encode_error
 from resonate.context import Context
-from resonate.effects import Effects
+from resonate.effects import Effects, ResonateEffects
 from resonate.error import (
     ApplicationError,
     DecodingError,
@@ -111,7 +111,7 @@ class Core:
 
     def __init__(
         self,
-        sender: Sender,
+        sender: Sender | None,
         codec: Codec,
         registry: Registry,
         resolver: TargetResolver | None,
@@ -146,6 +146,7 @@ class Core:
         Acquires the task, decodes the root promise, and runs
         :meth:`execute_until_blocked`. Mirrors Go's ``OnMessage``.
         """
+        assert self.sender, "sender must be set"
         res = await self.sender.task_acquire(task_id, version, self.pid, self.ttl)
         logger.debug("core: task acquired task_id=%s", task_id)
 
@@ -176,6 +177,7 @@ class Core:
         and releases on error. Mirrors Go's ``ExecuteUntilBlocked``.
         """
         self.heartbeat.start(task_id, task_version)
+        assert self.sender, "sender must be set"
         try:
             try:
                 logger.debug(
@@ -185,7 +187,7 @@ class Core:
                 )
                 current_preload = preload
                 while True:
-                    effects = Effects(self.sender, self.codec, current_preload)
+                    effects = ResonateEffects(self.sender, self.codec, current_preload)
                     outcome = await self._execute_until_blocked_inner(promise, effects)
 
                     match outcome:

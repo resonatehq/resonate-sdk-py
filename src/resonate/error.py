@@ -85,7 +85,7 @@ class JoinError(ResonateError):
 class ApplicationError(ResonateError):
     def __init__(self, message: str) -> None:
         self.message = message
-        super().__init__(f"application error: {self.message}")
+        super().__init__(self.message)
 
 
 class TimeoutError(ResonateError):

@@ -16,7 +16,7 @@ import msgspec
 import pytest
 
 from resonate.codec import Codec, NoopEncryptor
-from resonate.effects import Effects
+from resonate.effects import ResonateEffects
 from resonate.send import Sender
 from resonate.transport import Transport
 from resonate.types import PromiseCreateReq, PromiseRecord, Value
@@ -168,9 +168,9 @@ class Harness:
     def add_promise(self, record: PromiseRecord) -> None:
         self.network.promises[record.id] = record
 
-    def build_effects(self, preload: list[PromiseRecord]) -> Effects:
+    def build_effects(self, preload: list[PromiseRecord]) -> ResonateEffects:
         sender = Sender(Transport(self.network), None)
-        return Effects(sender, _test_codec(), preload)
+        return ResonateEffects(sender, _test_codec(), preload)
 
 
 def pending_promise(id: str) -> PromiseRecord:

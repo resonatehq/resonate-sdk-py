@@ -27,7 +27,7 @@ import pytest
 from resonate import DependencyMap, now_ms
 from resonate.codec import Codec, NoopEncryptor, encode_error
 from resonate.context import Context, Opts, _hash_id
-from resonate.effects import Effects
+from resonate.effects import ResonateEffects
 from resonate.error import ApplicationError, SuspendedError
 from resonate.network import LocalNetwork
 from resonate.send import Sender
@@ -54,7 +54,7 @@ def _root(
 ) -> Context:
     """Build a root ``Context`` over a fresh ``LocalNetwork``."""
     sender = Sender(Transport(LocalNetwork()), None)
-    effects = Effects(sender, _codec(), preload or [])
+    effects = ResonateEffects(sender, _codec(), preload or [])
     return Context.root(
         id="root",
         timeout_at=timeout_at,

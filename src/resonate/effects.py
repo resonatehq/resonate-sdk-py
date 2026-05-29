@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from resonate.codec import encode_error
 from resonate.error import ResonateError
@@ -17,7 +17,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger("resonate.validation")
 
 
-class Effects:
+class Effects(Protocol):
+    cache: dict[str, PromiseRecord]
+
+    async def create_promise(self, req: PromiseCreateReq) -> PromiseRecord: ...
+    async def settle_promise[T](
+        self, id: str, result: T | ResonateError
+    ) -> PromiseRecord: ...
+
+
+class ResonateEffects:
     """The two durable operations the SDK needs, built from a Sender and Codec.
 
     Maintains an internal cache of decoded :class:`PromiseRecord`s. Mirrors
