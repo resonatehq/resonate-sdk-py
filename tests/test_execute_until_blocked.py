@@ -178,27 +178,6 @@ def describe(cache: dict[str, PromiseRecord]) -> dict[str, tuple[str, str]]:
     return {id: (kind(rec), rec.state) for id, rec in cache.items()}
 
 
-def render_tree(cache: dict[str, PromiseRecord], root_id: str) -> str:
-    """Render ``cache`` as an indented ``id [type] state`` pre-order tree.
-
-    Children are discovered by id prefix (``X.k`` under ``X``) and ordered by
-    their numeric path, so the output is deterministic DFS pre-order. The root
-    is created by the caller, not by Effects, so it is not in the cache and not
-    rendered. Assumes structured numeric ids (no detached/hashed nodes).
-    """
-    prefix = f"{root_id}."
-
-    def path(id: str) -> list[int]:
-        return [int(seg) for seg in id[len(prefix) :].split(".")]
-
-    lines = []
-    for id in sorted(cache, key=path):
-        depth = len(path(id)) - 1
-        rec = cache[id]
-        lines.append(f"{'  ' * depth}{id} [{kind(rec)}] {rec.state}")
-    return "\n".join(lines)
-
-
 def _replayed(
     cache: dict[str, PromiseRecord], resolved: dict[str, Any]
 ) -> list[PromiseRecord]:
@@ -290,17 +269,6 @@ async def test_nested_tree_blocks_on_rpc_leaves() -> None:
         "foo.1.2.2": ("rpc", "pending"),
         "foo.1.2.3": ("run", "resolved"),
     }
-
-    assert render_tree(effects.cache, "foo.1") == (
-        "foo.1.1 [run] pending\n"
-        "  foo.1.1.1 [run] resolved\n"
-        "  foo.1.1.2 [rpc] pending\n"
-        "  foo.1.1.3 [run] resolved\n"
-        "foo.1.2 [run] pending\n"
-        "  foo.1.2.1 [run] resolved\n"
-        "  foo.1.2.2 [rpc] pending\n"
-        "  foo.1.2.3 [run] resolved"
-    )
 
     assert isinstance(outcome, _ExecSuspend)
     assert sorted(outcome.todos) == ["foo.1.1.2", "foo.1.2.2"]
