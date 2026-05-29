@@ -84,7 +84,7 @@ class AsyncHeartbeat:
         """Spawn the heartbeat loop if not already running."""
         if self._handle is not None:
             return
-        self._handle = asyncio.ensure_future(self._run())
+        self._handle = asyncio.create_task(self._run())
 
     async def _run(self) -> None:
         interval = self.interval_ms / 1000

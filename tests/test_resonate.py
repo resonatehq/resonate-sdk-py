@@ -37,7 +37,13 @@ from resonate.error import (
 from resonate.handle import ResonateHandle
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.network import LocalNetwork
-from resonate.resonate import DEFAULT_TTL, Opts, Resonate
+from resonate.resonate import (
+    DEFAULT_MAX_CONCURRENT_TASKS,
+    DEFAULT_TTL,
+    HEARTBEAT_INTERVAL_DIVISOR,
+    Opts,
+    Resonate,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -58,6 +64,7 @@ async def local(
     ttl: timedelta | None = None,
     encryptor: Encryptor | None = None,
     prefix: str | None = None,
+    max_concurrent_tasks: int | None = None,
 ) -> AsyncIterator[Resonate]:
     """Yield a local-mode Resonate, stopping it (and its refresh task) on exit."""
     r = Resonate.local(
@@ -66,6 +73,7 @@ async def local(
         ttl=ttl,
         encryptor=encryptor,
         prefix=prefix,
+        max_concurrent_tasks=max_concurrent_tasks,
     )
     try:
         yield r
@@ -205,6 +213,21 @@ async def test_explicit_heartbeat_override_wins() -> None:
     r = Resonate(network=_FakeNetwork(), heartbeat=hb)
     try:
         assert r._heartbeat is hb
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_interval_is_a_third_of_the_ttl() -> None:
+    """The heartbeat beats ``ttl/HEARTBEAT_INTERVAL_DIVISOR``, not ``ttl/2``.
+
+    Three beats per lease tolerate two slow/missed round-trips before a lapse,
+    which (with start-anchored pacing) is what keeps leases alive under load.
+    """
+    r = Resonate(network=_FakeNetwork(), ttl=timedelta(seconds=60))
+    try:
+        assert isinstance(r._heartbeat, AsyncHeartbeat)
+        assert r._heartbeat.interval_ms == 60_000 // HEARTBEAT_INTERVAL_DIVISOR
     finally:
         await r.stop()
 
@@ -782,9 +805,7 @@ async def test_handle_settles_with_error_when_listener_register_returns_404() ->
             # Use rpc so the promise stays pending in local mode -- nothing else
             # can race the 404 to settle the subscription naturally.
             handle = r.rpc("zombie", "remote")
-            with pytest.raises(
-                ApplicationError, match="Awaited promise not found"
-            ):
+            with pytest.raises(ApplicationError, match="Awaited promise not found"):
                 await asyncio.wait_for(handle.result(), timeout=2.0)
 
 
@@ -799,22 +820,20 @@ async def test_subscription_refresh_settles_handle_on_404(
     ``unblock`` is no longer possible.
     """
     # Collapse the refresh interval so the test does not actually wait 60s.
-    monkeypatch.setattr(
-        "resonate.resonate._SUBSCRIPTION_REFRESH_SECS", 0.01
-    )
+    monkeypatch.setattr("resonate.resonate._SUBSCRIPTION_REFRESH_SECS", 0.01)
     async with local() as r:
         # Start with a pending rpc whose listener registers successfully.
         handle = r.rpc("vanish", "remote")
         await wait_for_promise(r, "vanish")
+
         # Now make the next refresh tick observe a 404 -- the promise has
         # "vanished" from the server.
         async def gone(*_args: object, **_kwargs: object) -> object:
             raise ServerError(404, "Awaited promise not found")
 
-        with mock.patch.object(
-            r._sender, "promise_register_listener", side_effect=gone
-        ), pytest.raises(
-            ApplicationError, match="Awaited promise not found"
+        with (
+            mock.patch.object(r._sender, "promise_register_listener", side_effect=gone),
+            pytest.raises(ApplicationError, match="Awaited promise not found"),
         ):
             await asyncio.wait_for(handle.result(), timeout=2.0)
 
@@ -840,3 +859,50 @@ async def test_non_404_server_errors_do_not_settle_the_handle() -> None:
             # Should NOT raise -- the handle stays pending despite the 503.
             with pytest.raises(asyncio.TimeoutError):
                 await asyncio.wait_for(handle.result(), timeout=0.3)
+
+
+# ── Bounded execution concurrency ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bounded_execute_caps_concurrent_executions() -> None:
+    """``_bounded_execute`` never runs more coroutines than the semaphore allows.
+
+    A task holds its lease for the whole acquire→execute→suspend/fulfill span,
+    so capping concurrent executions is what keeps the live-lease count low
+    enough for the heartbeat to keep every lease alive under a heavy ``execute``
+    fan-out (the 409-storm fix). Here we drive many coroutines through the gate
+    and assert the observed peak never exceeds the configured ceiling.
+    """
+    async with local(max_concurrent_tasks=2) as r:
+        live = 0
+        peak = 0
+        gate = asyncio.Event()
+
+        async def work() -> None:
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            # Hold the permit across an await so peers must contend for it.
+            await gate.wait()
+            live -= 1
+
+        tasks = [asyncio.create_task(r._bounded_execute(work())) for _ in range(10)]
+        # Let everything that can start, start; only the ceiling should be live.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert peak <= 2, f"expected at most 2 concurrent executions, saw {peak}"
+        assert live <= 2
+
+        # Release them and confirm they all drain.
+        gate.set()
+        await asyncio.gather(*tasks)
+        assert live == 0
+        assert peak <= 2
+
+
+@pytest.mark.asyncio
+async def test_default_concurrency_ceiling_applied() -> None:
+    """With no override the semaphore uses :data:`DEFAULT_MAX_CONCURRENT_TASKS`."""
+    async with local() as r:
+        assert r._execute_sema._value == DEFAULT_MAX_CONCURRENT_TASKS

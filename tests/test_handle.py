@@ -156,7 +156,7 @@ async def test_id_blocks_until_creation_confirmed() -> None:
         int,
         created,
     )
-    id_task = asyncio.ensure_future(handle.id())
+    id_task = asyncio.create_task(handle.id())
     await asyncio.sleep(0)
     assert not id_task.done()
     created.set()

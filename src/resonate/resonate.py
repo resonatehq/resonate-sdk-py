@@ -72,6 +72,26 @@ DEFAULT_TOP_LEVEL_TIMEOUT = timedelta(days=1)
 #: Default per-task lease duration.
 DEFAULT_TTL = timedelta(minutes=1)
 
+#: Ceiling on tasks executing concurrently in this process. A task holds a
+#: server lease from acquire until it suspends or fulfills; with no bound, an
+#: ``execute`` flood (e.g. a deep recursive workflow whose rpc children are all
+#: routed back to this worker) acquires leases far faster than it can drain
+#: them, so the per-task heartbeat can't keep every lease alive and they lapse
+#: -- a self-amplifying 409 storm as the server re-delivers each lapsed task.
+#: Bounding concurrent executions caps both the live-lease count (so the
+#: heartbeat payload stays small) and the request burst against the connection
+#: pool, leaving it headroom (see
+#: :data:`~resonate.network._http._DEFAULT_CONN_LIMIT`). Safe because a task
+#: never *blocks* on a child while holding its permit: durable functions
+#: suspend (unwind, releasing the permit) and resume as a fresh ``execute``, so
+#: bounding cannot deadlock a parent waiting on a child.
+DEFAULT_MAX_CONCURRENT_TASKS = 64
+
+#: Divisor applied to the lease TTL to derive the heartbeat interval. Three
+#: beats per lease tolerates two missed/slow round-trips before a lapse (the
+#: old ``ttl/2`` tolerated only one).
+HEARTBEAT_INTERVAL_DIVISOR = 2
+
 #: How often the background loop re-issues ``promise.register_listener`` for
 #: still-pending subscriptions, defending against a dropped SSE connection.
 _SUBSCRIPTION_REFRESH_SECS = 60
@@ -133,6 +153,7 @@ class Resonate:
         encryptor: Encryptor | None = None,
         heartbeat: Heartbeat | None = None,
         prefix: str | None = None,
+        max_concurrent_tasks: int | None = None,
     ) -> None:
         self._ttl = ttl if ttl is not None else DEFAULT_TTL
 
@@ -157,7 +178,7 @@ class Resonate:
         elif isinstance(network, LocalNetwork):
             self._heartbeat = NoopHeartbeat()
         else:
-            interval_ms = max(self._safe_ttl_ms() // 2, 1)
+            interval_ms = max(self._safe_ttl_ms() // HEARTBEAT_INTERVAL_DIVISOR, 1)
             self._heartbeat = AsyncHeartbeat(self._pid, interval_ms, self._sender)
 
         self._core = Core(
@@ -197,6 +218,15 @@ class Resonate:
         #: re-deliver an ``execute`` message, which would spawn a fresh job --
         #: an unbounded loop the join could never drain.
         self._stopping = False
+        #: Caps tasks executing (holding a lease) at once. Acquired for the whole
+        #: acquire→execute→suspend/fulfill span of every core execution, so the
+        #: live-lease count never exceeds it regardless of how fast ``execute``
+        #: messages arrive (see :data:`DEFAULT_MAX_CONCURRENT_TASKS`).
+        self._execute_sema = asyncio.Semaphore(
+            max_concurrent_tasks
+            if max_concurrent_tasks is not None
+            else DEFAULT_MAX_CONCURRENT_TASKS
+        )
 
         # Wire push-message dispatch BEFORE starting the network so the initial
         # frames are not missed.
@@ -220,6 +250,7 @@ class Resonate:
         ttl: timedelta | None = None,
         encryptor: Encryptor | None = None,
         prefix: str | None = None,
+        max_concurrent_tasks: int | None = None,
     ) -> Resonate:
         """Local-only mode backed by an in-process :class:`LocalNetwork`.
 
@@ -234,6 +265,7 @@ class Resonate:
             pid=pid,
             ttl=ttl,
             encryptor=encryptor,
+            max_concurrent_tasks=max_concurrent_tasks,
             prefix=prefix,
         )
 
@@ -393,8 +425,13 @@ class Resonate:
             if outcome != "conflict" and outcome.task.state == "acquired":
                 decoded = self._codec.decode_promise(outcome.promise)
                 self._spawn(
-                    self._core.execute_until_blocked(
-                        outcome.task.id, outcome.task.version, decoded, outcome.preload
+                    self._bounded_execute(
+                        self._core.execute_until_blocked(
+                            outcome.task.id,
+                            outcome.task.version,
+                            decoded,
+                            outcome.preload,
+                        )
                     )
                 )
 
@@ -722,7 +759,11 @@ class Resonate:
         """
         if isinstance(msg, ExecuteMsg):
             if not self._stopping:
-                self._spawn(self._core.on_message(msg.task_id(), msg.version()))
+                self._spawn(
+                    self._bounded_execute(
+                        self._core.on_message(msg.task_id(), msg.version())
+                    )
+                )
         elif isinstance(msg, UnblockMsg):
             raw = msg.promise()
             if not isinstance(raw, dict):
@@ -748,6 +789,21 @@ class Resonate:
             )
 
     # ── Background tasks ──────────────────────────────────────────────────────
+
+    async def _bounded_execute(self, coro: Any) -> None:
+        """Run a core execution coroutine under the concurrency semaphore.
+
+        Holds a permit for the coroutine's whole lifetime -- which, for both
+        :meth:`Core.on_message` and :meth:`Core.execute_until_blocked`, spans
+        from acquiring the task's lease to suspending or fulfilling it -- so the
+        number of leases held at once never exceeds the ceiling. When permits
+        are exhausted, surplus ``execute`` jobs wait here *before* touching the
+        network, so no extra lease is taken until one frees up. ``coro`` is an
+        un-awaited coroutine, so the ``task.acquire`` round-trip inside it is
+        deferred until the permit is in hand.
+        """
+        async with self._execute_sema:
+            await coro
 
     def _spawn(self, coro: Any) -> None:
         """Fire-and-forget a coroutine, logging failures and retaining the task.
@@ -790,9 +846,7 @@ class Resonate:
                             )
                         except ServerError as exc:
                             if exc.code == 404:
-                                self._settle_subscription_gone(
-                                    id, sub, exc.message
-                                )
+                                self._settle_subscription_gone(id, sub, exc.message)
                                 continue
                             logger.warning(
                                 "subscription refresh failed id=%s: %s", id, exc

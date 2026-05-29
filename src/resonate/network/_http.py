@@ -24,6 +24,17 @@ _MAX_BACKOFF_SECS = 60
 _HTTP_OK_MIN = 200
 _HTTP_OK_MAX = 300
 
+#: Total connection cap for the shared :class:`aiohttp.ClientSession`. aiohttp's
+#: default ``TCPConnector`` caps at 100; under a heavy fan-out (e.g. a deep
+#: recursive workflow whose rpc children are all dispatched back to this worker)
+#: that pool saturates with acquire/create/suspend traffic, and the periodic
+#: ``task.heartbeat`` POST queues behind it -- so leases lapse and the server
+#: re-delivers them, a self-amplifying 409 storm. Raising the cap well above the
+#: execution-concurrency ceiling (see
+#: ``resonate.resonate.DEFAULT_MAX_CONCURRENT_TASKS``) guarantees the heartbeat
+#: always finds a free connection. The long-lived SSE ``GET`` occupies one slot.
+_DEFAULT_CONN_LIMIT = 256
+
 
 class HttpNetwork:
     """:class:`Network` that communicates with a Resonate server over HTTP.
@@ -49,6 +60,7 @@ class HttpNetwork:
         pid: str | None = None,
         group: str | None = None,
         auth: str | None = None,
+        conn_limit: int | None = None,
     ) -> None:
         self._pid = pid if pid is not None else uuid.uuid4().hex
         self._group = group if group is not None else "default"
@@ -57,6 +69,7 @@ class HttpNetwork:
         # Strip trailing slash(es) from url.
         self._url = url.rstrip("/")
         self._auth = auth
+        self._conn_limit = conn_limit if conn_limit is not None else _DEFAULT_CONN_LIMIT
 
         self._subscribers: list[Callable[[str], None]] = []
         self._session: aiohttp.ClientSession | None = None
@@ -200,7 +213,13 @@ class HttpNetwork:
             if not self._running:
                 msg = "network has been stopped"
                 raise RuntimeError(msg)
-            self._session = aiohttp.ClientSession()
+            # Raise the connector cap above aiohttp's default 100 so heartbeat
+            # and execution traffic never starve each other (see
+            # ``_DEFAULT_CONN_LIMIT``). The session owns the connector, so the
+            # existing ``session.close()`` in :meth:`stop` tears it down.
+            self._session = aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(limit=self._conn_limit)
+            )
         return self._session
 
     def _auth_headers(self, headers: dict[str, str]) -> dict[str, str]:

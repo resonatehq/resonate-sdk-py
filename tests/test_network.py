@@ -10,6 +10,7 @@ import pytest
 
 from resonate.error import HttpError
 from resonate.network import HttpNetwork, LocalNetwork
+from resonate.network._http import _DEFAULT_CONN_LIMIT
 
 I64_MAX = 2**63 - 1
 
@@ -414,6 +415,38 @@ def test_http_network_default_group() -> None:
     assert net.unicast() == "poll://uni@default/pid1"
 
 
+@pytest.mark.asyncio
+async def test_http_session_connector_limit_above_aiohttp_default() -> None:
+    """The shared session raises the connector cap above aiohttp's default 100.
+
+    A saturated 100-connection pool is what lets the periodic heartbeat queue
+    behind execution traffic until leases lapse; the higher cap (paired with a
+    bounded execution concurrency) keeps a connection free for the heartbeat.
+    """
+    net = HttpNetwork("http://localhost:8001", pid="pid")
+    await net.start()
+    try:
+        session = net._ensure_session()
+        assert net._conn_limit == _DEFAULT_CONN_LIMIT
+        assert _DEFAULT_CONN_LIMIT > 100
+        assert session.connector
+        assert session.connector.limit == _DEFAULT_CONN_LIMIT
+    finally:
+        await net.stop()
+
+
+@pytest.mark.asyncio
+async def test_http_session_connector_limit_override() -> None:
+    net = HttpNetwork("http://localhost:8001", pid="pid", conn_limit=7)
+    await net.start()
+    try:
+        conn = net._ensure_session().connector
+        assert conn
+        assert conn.limit == 7
+    finally:
+        await net.stop()
+
+
 # ---------------------------------------------------------------------------
 # Resilience: HttpNetwork.send must survive a server outage and recover.
 # Mirrors the existing _sse_loop retry-with-backoff -- the request half had
@@ -550,7 +583,7 @@ async def test_http_send_after_stop_raises_http_error_not_runtime_error(
             async def __aexit__(self, *_exc: object) -> None:
                 return None
 
-    monkeypatch.setattr(net, "_ensure_session", lambda: _ClosedSession())
+    monkeypatch.setattr(net, "_ensure_session", _ClosedSession)
     # send() must observe ``_running == False`` while the in-flight post
     # raises -- that is exactly the shutdown race we want to model.
     net._running = False
