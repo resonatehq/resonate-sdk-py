@@ -21,17 +21,26 @@ if TYPE_CHECKING:
     from resonate.context import Context
 
 
-async def greet(ctx: Context, name: str) -> str:
+async def foo(ctx: Context, name: str) -> str:
+    return await ctx.run(bar, name)
+
+
+async def bar(ctx: Context, name: str) -> str:
+    return await ctx.rpc("baz", name)
+
+
+async def baz(ctx: Context, name: str) -> str:
     return f"hello, {name}!"
 
 
 async def main() -> None:
     url = os.environ.get("RESONATE_URL", "http://localhost:8001")
     r = Resonate(url=url)
-    r.register(greet)
+    r.register(foo)
+    r.register(baz)
     try:
         id = f"hello-{time.time_ns()}"
-        handle = r.run(id, greet, "world")
+        handle = r.run(id, foo, "world")
         print(await handle.result())
     finally:
         await r.stop()

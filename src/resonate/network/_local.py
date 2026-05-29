@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 # =============================================================================
 
 PENDING_RETRY_TTL = 30_000
-I64_MAX = 2**63 - 1
-I64_MIN = -(2**63)
+I64_MAX = (1 << 63) - 1
+I64_MIN = -(1 << 63)
 
 # Rust serde enums (``PromiseState`` / ``TaskState``) fold into ``Literal``s here,
 # following the type-mapping convention used across the mirror.

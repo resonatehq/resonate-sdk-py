@@ -32,82 +32,59 @@ import os
 import time
 from typing import TYPE_CHECKING
 
-import msgspec
-
 from resonate.error import ApplicationError
 from resonate.resonate import Resonate
 
 if TYPE_CHECKING:
     from resonate.context import Context
 
-# -- Domain types ----------------------------------------------------------
-
-
-class FlightArgs(msgspec.Struct, frozen=True):
-    customer: str
-    frm: str
-    to: str
-
-
-class HotelArgs(msgspec.Struct, frozen=True):
-    customer: str
-    city: str
-    fail: bool
-
-
-class ChargeArgs(msgspec.Struct, frozen=True):
-    customer: str
-    amount: int
-    fail: bool
-
-
-class ReleaseArgs(msgspec.Struct, frozen=True):
-    ref: str
-
-
-class TripResult(msgspec.Struct, frozen=True):
-    flight_ref: str
-    hotel_ref: str
-    charge_ref: str
-
-
 # -- Step functions (leaves: each prints once, settles once) ---------------
 
 
-async def reserve_flight(ctx: Context, args: FlightArgs) -> str:
-    ref = f"FL-{args.customer}-{args.frm}-{args.to}"
+async def reserve_flight(
+    ctx: Context,
+    customer: str,
+    frm: str,
+    to: str,
+) -> str:
+    ref = f"FL-{customer}-{frm}-{to}"
     print(f"  [reserve_flight] reserved {ref}")
     return ref
 
 
-async def reserve_hotel(ctx: Context, args: HotelArgs) -> str:
-    if args.fail:
-        print(f"  [reserve_hotel] FAILED for {args.customer} in {args.city}")
-        msg = f"no rooms available in {args.city}"
+async def reserve_hotel(
+    ctx: Context,
+    customer: str,
+    city: str,
+    fail: bool,
+) -> str:
+    if fail:
+        print(f"  [reserve_hotel] FAILED for {customer} in {city}")
+        msg = f"no rooms available in {city}"
         raise ApplicationError(msg)
-    ref = f"HT-{args.customer}-{args.city}"
+    ref = f"HT-{customer}-{city}"
     print(f"  [reserve_hotel] reserved {ref}")
     return ref
 
 
-async def charge_card(ctx: Context, args: ChargeArgs) -> str:
-    if args.fail:
-        print(f"  [charge_card] FAILED for {args.customer} (${args.amount})")
-        msg = f"card declined for ${args.amount}"
+async def charge_card(ctx: Context, customer: str, amount: int, fail: bool) -> str:
+    if fail:
+        print(f"  [charge_card] FAILED for {customer} (${amount})")
+        msg = f"card declined for ${amount}"
         raise ApplicationError(msg)
-    ref = f"CH-{args.customer}-{args.amount}"
+    ref = f"CH-{customer}-{amount}"
     print(f"  [charge_card] charged {ref}")
     return ref
 
 
-async def release_flight(ctx: Context, args: ReleaseArgs) -> str:
-    print(f"  [release_flight] released {args.ref}")
-    return args.ref
+async def release_flight(ctx: Context, ref: str) -> str:
+    print(f"  [release_flight] released {ref}")
+    return ref
 
 
-async def release_hotel(ctx: Context, args: ReleaseArgs) -> str:
-    print(f"  [release_hotel] released {args.ref}")
-    return args.ref
+async def release_hotel(ctx: Context, ref: str) -> str:
+    print(f"  [release_hotel] released {ref}")
+    return ref
 
 
 # -- Saga orchestrator -----------------------------------------------------
@@ -120,17 +97,17 @@ async def book_trip(
     to: str,
     amount: int,
     fail_at: str,
-) -> TripResult:
+) -> tuple[str, str, str]:
     # Step 1: flight
-    flight = await ctx.rpc(
-        "reserve_flight", FlightArgs(customer=customer, frm=frm, to=to)
-    )
+    flight = await ctx.rpc("reserve_flight", customer=customer, frm=frm, to=to)
 
     # Step 2: hotel (compensate the flight on failure)
     try:
         hotel = await ctx.rpc(
             "reserve_hotel",
-            HotelArgs(customer=customer, city=to, fail=fail_at == "hotel"),
+            customer=customer,
+            city=to,
+            fail=fail_at == "hotel",
         )
     except ApplicationError:
         await compensate(ctx, "", flight)
@@ -140,13 +117,15 @@ async def book_trip(
     try:
         charge = await ctx.rpc(
             "charge_card",
-            ChargeArgs(customer=customer, amount=amount, fail=fail_at == "charge"),
+            customer=customer,
+            amount=amount,
+            fail=fail_at == "charge",
         )
     except ApplicationError:
         await compensate(ctx, hotel, flight)
         raise
 
-    return TripResult(flight_ref=flight, hotel_ref=hotel, charge_ref=charge)
+    return flight, hotel, charge
 
 
 async def compensate(ctx: Context, hotel_ref: str, flight_ref: str) -> None:
@@ -156,9 +135,9 @@ async def compensate(ctx: Context, hotel_ref: str, flight_ref: str) -> None:
     crash mid-rollback resumes at the first unsettled one.
     """
     if hotel_ref:
-        await ctx.rpc("release_hotel", ReleaseArgs(ref=hotel_ref))
+        await ctx.rpc("release_hotel", ref=hotel_ref)
     if flight_ref:
-        await ctx.rpc("release_flight", ReleaseArgs(ref=flight_ref))
+        await ctx.rpc("release_flight", ref=flight_ref)
 
 
 # -- main ------------------------------------------------------------------
@@ -186,13 +165,12 @@ async def main() -> None:
         print(f"[book_trip] starting workflow id={id} fail_at={args.fail!r}")
         handle = r.run(id, book_trip, "alice", "SFO", "JFK", 850, args.fail)
         try:
-            out = await handle.result()
+            flight_ref, hotel_ref, charge_ref = await handle.result()
         except ApplicationError as exc:
             print(f"[book_trip] FAILED: {exc}")
             return
         print(
-            f"[book_trip] OK: flight={out.flight_ref} "
-            f"hotel={out.hotel_ref} charge={out.charge_ref}"
+            f"[book_trip] OK: flight={flight_ref} hotel={hotel_ref} charge={charge_ref}"
         )
     finally:
         await r.stop()

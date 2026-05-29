@@ -453,7 +453,7 @@ class Context:
             _created=created,
         )
 
-    def promise(self, timeout: timedelta | None) -> ResonateFuture[Any]:
+    def promise(self, timeout: timedelta | None = None) -> ResonateFuture[Any]:
         prev_created, created = self._advance_promise_chain()
 
         req = self._promise_create_req(self._next_id(), timeout)

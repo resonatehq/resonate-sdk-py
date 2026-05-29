@@ -67,6 +67,8 @@ async def main() -> None:
         handle = r.run(id, fns[args.mode], args.n)
         out = await handle.result()
         print(f"fib({args.n}) = {out}  [mode={args.mode}]")
+    except Exception as e:
+        print("oops", e)
     finally:
         await r.stop()
 

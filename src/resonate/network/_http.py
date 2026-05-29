@@ -21,8 +21,6 @@ logger = logging.getLogger(__name__)
 
 _INITIAL_BACKOFF_SECS = 1
 _MAX_BACKOFF_SECS = 60
-_HTTP_OK_MIN = 200
-_HTTP_OK_MAX = 300
 
 #: Total connection cap for the shared :class:`aiohttp.ClientSession`. aiohttp's
 #: default ``TCPConnector`` caps at 100; under a heavy fan-out (e.g. a deep
@@ -74,7 +72,7 @@ class HttpNetwork:
         self._subscribers: list[Callable[[str], None]] = []
         self._session: aiohttp.ClientSession | None = None
         self._sse_handle: asyncio.Task[None] | None = None
-        self._running = False
+        self._running: bool = False
         # Awaitable mirror of ``_running``: lets a ``send`` parked in the
         # retry backoff wake immediately on :meth:`stop`. Without it, an
         # in-flight request retrying through a server outage would block the
@@ -249,7 +247,7 @@ class HttpNetwork:
                 try:
                     session = self._ensure_session()
                     async with session.get(url, headers=headers) as resp:
-                        if not (_HTTP_OK_MIN <= resp.status < _HTTP_OK_MAX):
+                        if not (200 <= resp.status < 300):
                             logger.warning(
                                 "SSE endpoint returned %s, retrying (backoff=%ss)",
                                 resp.status,

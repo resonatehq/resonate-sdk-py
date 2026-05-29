@@ -15,6 +15,8 @@ virtualenv (with the local `resonate` checkout installed editable).
 | `concat`     | Divide-and-conquer recursion; deterministic left-to-right join.     |
 | `saga`       | Multi-step workflow with compensation on failure.                   |
 | `pipeline`   | DAG-shaped pipeline with parallel transforms and a merge stage.     |
+| `human`      | Human-in-the-loop: suspend on `ctx.promise` until externally resolved. |
+| `recurring`  | Periodic "continue as new" via `ctx.sleep` + `ctx.detached`.        |
 
 ## Run an example
 

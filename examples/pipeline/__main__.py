@@ -28,97 +28,65 @@ import os
 import time
 from typing import TYPE_CHECKING
 
-import msgspec
-
 from resonate.resonate import Resonate
 
 if TYPE_CHECKING:
     from resonate.context import Context
 
-# -- Domain types ----------------------------------------------------------
 
-
-class Raw(msgspec.Struct, frozen=True):
-    body: str
-
-
-class Parsed(msgspec.Struct, frozen=True):
-    words: list[str]
-
-
-class MergeArgs(msgspec.Struct, frozen=True):
-    word_count: int
-    upper: str
-
-
-class Merged(msgspec.Struct, frozen=True):
-    word_count: int
-    upper: str
-
-
-# -- Stage functions (leaves: each prints once, settles once) --------------
-
-
-async def download(ctx: Context, url: str) -> Raw:
+async def download(ctx: Context, url: str) -> str:
     body = f"the quick brown fox jumps over {url}"
     print(f"  [download] {url} -> {len(body)} bytes")
-    return Raw(body=body)
+    return body
 
 
-async def parse(ctx: Context, raw: Raw) -> Parsed:
-    words = raw.body.split()
+async def parse(ctx: Context, raw: str) -> list[str]:
+    words = raw.split()
     print(f"  [parse] {len(words)} words")
-    return Parsed(words=words)
+    return words
 
 
-async def transform_a(ctx: Context, p: Parsed) -> int:
+async def transform_a(ctx: Context, p: list[str]) -> int:
     print("  [transform_a] counting words")
-    return len(p.words)
+    return len(p)
 
 
-async def transform_b(ctx: Context, p: Parsed) -> str:
-    upper = " ".join(p.words).upper()
+async def transform_b(ctx: Context, p: list[str]) -> str:
+    upper = " ".join(p).upper()
     print(f"  [transform_b] uppercased {len(upper)} chars")
     return upper
 
 
-async def merge(ctx: Context, args: MergeArgs) -> Merged:
+async def merge(ctx: Context, word_count: int, upper: str) -> tuple[int, str]:
     print("  [merge] combining transforms")
-    return Merged(word_count=args.word_count, upper=args.upper)
+    return word_count, upper
 
 
-async def emit(ctx: Context, m: Merged) -> str:
-    print(f"  [emit] words={m.word_count} upper={m.upper!r}")
+async def emit(ctx: Context, word_count: int, upper: str) -> str:
+    print(f"  [emit] words={word_count} upper={upper!r}")
     return "ok"
 
 
-# -- Pipeline orchestrator -------------------------------------------------
-
-
 async def run_pipeline(ctx: Context, url: str) -> str:
-    raw = await ctx.rpc("download", url)
-    parsed = await ctx.rpc("parse", raw)
+    raw = await ctx.run(download, url)
+    parsed = await ctx.run(parse, raw)
 
     # fan out: transform_a and transform_b dispatched before either is awaited
-    fa = ctx.rpc("transform_a", parsed)
-    fb = ctx.rpc("transform_b", parsed)
+    fa = ctx.run(transform_a, parsed)
+    fb = ctx.run(transform_b, parsed)
 
     # fan in
     a = await fa
     b = await fb
 
-    merged = await ctx.rpc("merge", MergeArgs(word_count=a, upper=b))
-    return await ctx.rpc("emit", merged)
-
-
-# -- main ------------------------------------------------------------------
+    word_count, upper = await ctx.run(merge, word_count=a, upper=b)
+    return await ctx.run(emit, word_count, upper)
 
 
 async def main() -> None:
     url = os.environ.get("RESONATE_URL", "http://localhost:8001")
     r = Resonate(url=url)
-    for fn in (run_pipeline, download, parse, transform_a, transform_b, merge, emit):
-        r.register(fn)
+    r.register(run_pipeline)
 
     try:
         id = f"pipeline-{time.time_ns()}"
