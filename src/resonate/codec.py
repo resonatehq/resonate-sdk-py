@@ -116,15 +116,6 @@ class Codec:
             raise DecodingError(msg) from exc
         return self.decode_promise(record)
 
-    @staticmethod
-    def is_valid_base64(s: str) -> bool:
-        """Check if a string is valid base64."""
-        try:
-            base64.b64decode(s, validate=True)
-        except (binascii.Error, ValueError):
-            return False
-        return True
-
 
 def encode_error(err: ResonateError) -> dict[str, str]:
     """Encode an error for durable storage."""

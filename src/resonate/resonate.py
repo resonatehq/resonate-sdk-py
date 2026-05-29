@@ -647,12 +647,7 @@ class Resonate:
         the SDK's ``resonate:origin/branch/parent/scope/target`` tags.
         """
         timeout = timeout if timeout is not None else DEFAULT_TOP_LEVEL_TIMEOUT
-        tags = {}
-        tags["resonate:origin"] = prefixed_id
-        tags["resonate:branch"] = prefixed_id
-        tags["resonate:parent"] = prefixed_id
-        tags["resonate:scope"] = "global"
-        tags["resonate:target"] = self._resolve_target(target)
+
         return PromiseCreateReq(
             id=prefixed_id,
             timeout_at=now_ms() + _timeout_ms(timeout),
@@ -664,7 +659,13 @@ class Resonate:
                     version=version,
                 )
             ),
-            tags=tags,
+            tags={
+                "resonate:origin": prefixed_id,
+                "resonate:branch": prefixed_id,
+                "resonate:parent": prefixed_id,
+                "resonate:scope": "global",
+                "resonate:target": self._resolve_target(target),
+            },
         )
 
     def _encode_create_req(self, req: PromiseCreateReq) -> PromiseCreateReq:

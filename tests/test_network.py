@@ -466,16 +466,12 @@ class _FlakySession:
         self.fail_times = fail_times
         self.body = body
         self.attempts = 0
-        self.closed = False
 
     def post(self, *_args: object, **_kwargs: object) -> _FlakySession._Ctx:
         self.attempts += 1
         if self.attempts <= self.fail_times:
             return _FlakySession._Ctx(error=aiohttp.ClientConnectionError("down"))
         return _FlakySession._Ctx(body=self.body)
-
-    async def close(self) -> None:
-        self.closed = True
 
     class _Ctx:
         def __init__(

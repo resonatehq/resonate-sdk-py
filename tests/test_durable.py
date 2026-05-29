@@ -103,7 +103,7 @@ def test_zero_arg_function_rejected() -> None:
 
 def test_first_param_treated_as_ctx_regardless_of_annotation() -> None:
     # No Context annotation, no Info annotation -- the runtime does not care.
-    async def fn(anything: int, x: int) -> int:
+    async def fn(_: int, x: int) -> int:
         return x
 
     # Builds without error: first param is reserved for the runtime-injected ctx.
@@ -675,7 +675,6 @@ async def test_attrs_arg_replay_parity() -> None:
 
 
 class Priority(enum.IntEnum):
-    LOW = 1
     HIGH = 2
 
 

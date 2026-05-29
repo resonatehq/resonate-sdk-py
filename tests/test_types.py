@@ -3,17 +3,13 @@ from __future__ import annotations
 import msgspec
 import pytest
 
-from resonate.error import ApplicationError, SerializationError
+from resonate.error import SerializationError
 from resonate.types import (
     Args,
-    Done,
-    Outcome,
     PromiseCreateReq,
     PromiseRecord,
     PromiseRegisterCallbackData,
     PromiseSettleReq,
-    ScheduleRecord,
-    Suspended,
     TaskData,
     TaskRecord,
     Value,
@@ -61,17 +57,6 @@ def test_data_or_null_returns_data() -> None:
     assert Value(data=42).data == 42
 
 
-# --- headers_or_empty ---
-
-
-def test_headers_or_empty_defaults_to_empty() -> None:
-    assert Value().headers_or_empty() == {}
-
-
-def test_headers_or_empty_returns_headers() -> None:
-    assert Value(headers={"a": "b"}).headers_or_empty() == {"a": "b"}
-
-
 # --- from_serializable ---
 
 
@@ -109,12 +94,6 @@ def test_from_wire_null_is_empty_value() -> None:
     assert v.data is None
 
 
-def test_from_wire_object_splits_headers_and_data() -> None:
-    v = from_wire_json('{"headers":{"a":"b"},"data":[1,2,3]}')
-    assert v.headers_or_empty() == {"a": "b"}
-    assert v.data == [1, 2, 3]
-
-
 def test_from_wire_invalid_headers_are_dropped() -> None:
     # headers that are not a `str -> str` map become None (Rust `.ok()`).
     assert from_wire_json('{"headers":[1,2],"data":1}').headers is None
@@ -125,40 +104,6 @@ def test_from_wire_bare_value_is_treated_as_data() -> None:
     assert from_wire_json("42").data == 42
     assert from_wire_json('"hello"').data == "hello"
     assert from_wire_json("[1,2,3]").data == [1, 2, 3]
-
-
-def test_from_wire_object_without_data_field() -> None:
-    v = from_wire_json("{}")
-    assert v.headers is None
-    assert v.data is None
-
-    v2 = from_wire_json('{"headers":{"a":"b"}}')
-    assert v2.headers_or_empty() == {"a": "b"}
-    assert v2.data is None
-
-
-# --- PromiseRecord: camelCase wire format + `#[serde(default)]` parity ---
-
-PROMISE_FULL = (
-    b'{"id":"p1","state":"resolved",'
-    b'"param":{"data":1},'
-    b'"value":{"headers":{"a":"b"},"data":[1,2]},'
-    b'"tags":{"k":"v"},'
-    b'"timeoutAt":10,"createdAt":5,"settledAt":9}'
-)
-
-
-def test_promise_record_decode_full() -> None:
-    r = msgspec.json.decode(PROMISE_FULL, type=PromiseRecord)
-    assert r.id == "p1"
-    assert r.state == "resolved"
-    assert r.param.data == 1
-    assert r.value.headers_or_empty() == {"a": "b"}
-    assert r.value.data == [1, 2]
-    assert r.tags == {"k": "v"}
-    assert r.timeout_at == 10
-    assert r.created_at == 5
-    assert r.settled_at == 9
 
 
 def test_promise_record_decode_minimal_applies_defaults() -> None:
@@ -236,55 +181,6 @@ def test_task_record_encode_defaults_emit_null() -> None:
     assert (
         msgspec.json.encode(r)
         == b'{"id":"t1","state":"pending","version":1,"resumes":null,"ttl":null,"pid":null}'
-    )
-
-
-# --- ScheduleRecord ---
-
-SCHEDULE_FULL = (
-    b'{"id":"s1","cron":"* * * * *","promiseId":"p1","promiseTimeout":100,'
-    b'"promiseParam":{"data":1},"promiseTags":{"k":"v"},'
-    b'"createdAt":1,"nextRunAt":2,"lastRunAt":3}'
-)
-
-
-def test_schedule_record_decode_full() -> None:
-    r = msgspec.json.decode(SCHEDULE_FULL, type=ScheduleRecord)
-    assert r.id == "s1"
-    assert r.cron == "* * * * *"
-    assert r.promise_id == "p1"
-    assert r.promise_timeout == 100
-    assert r.promise_param.data == 1
-    assert r.promise_tags == {"k": "v"}
-    assert r.created_at == 1
-    assert r.next_run_at == 2
-    assert r.last_run_at == 3
-
-
-def test_schedule_record_decode_minimal_applies_defaults() -> None:
-    r = msgspec.json.decode(
-        b'{"id":"s1","cron":"c","promiseId":"p1","promiseTimeout":100}',
-        type=ScheduleRecord,
-    )
-    assert r.promise_param.data is None
-    assert r.promise_tags == {}
-    assert r.created_at == 0
-    assert r.next_run_at == 0
-    assert r.last_run_at is None
-
-
-def test_schedule_record_encode() -> None:
-    r = ScheduleRecord(
-        id="s1",
-        cron="c",
-        promise_id="p1",
-        promise_timeout=100,
-        created_at=1,
-        next_run_at=2,
-    )
-    assert msgspec.json.encode(r) == (
-        b'{"id":"s1","cron":"c","promiseId":"p1","promiseTimeout":100,'
-        b'"promiseParam":{},"promiseTags":{},"createdAt":1,"nextRunAt":2,"lastRunAt":null}'
     )
 
 
@@ -409,25 +305,3 @@ def test_task_data_encode() -> None:
 def test_task_data_encode_defaults_emit_empty() -> None:
     d = TaskData(func="f", version=0)
     assert msgspec.json.encode(d) == b'{"args":[],"kwargs":{},"func":"f","version":0}'
-
-
-# --- Outcome: sum type mirroring `Outcome<T> { Done(Result<T>), Suspended }` ---
-
-
-def test_outcome_done_holds_ok_result() -> None:
-    o: Outcome[int] = Done(result=42)
-    assert isinstance(o, Done)
-    assert o.result == 42
-
-
-def test_outcome_done_holds_err_result() -> None:
-    err = ApplicationError("boom")
-    o: Outcome[int] = Done(result=err)
-    assert isinstance(o, Done)
-    assert o.result is err
-
-
-def test_outcome_suspended_holds_remote_todos() -> None:
-    o: Outcome[None] = Suspended(remote_todos=["a", "b"])
-    assert isinstance(o, Suspended)
-    assert o.remote_todos == ["a", "b"]

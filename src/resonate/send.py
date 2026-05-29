@@ -40,19 +40,9 @@ class Redirect(msgspec.Struct, frozen=True, kw_only=True):
 SuspendResult = Literal["suspended"] | Redirect
 
 
-class TaskFenceResult(msgspec.Struct, frozen=True, kw_only=True):
-    promise: PromiseRecord
-    preload: list[PromiseRecord]
-
-
 class TaskRef(msgspec.Struct, frozen=True, kw_only=True):
     id: str
     version: int
-
-
-class TaskSearchResult(msgspec.Struct, frozen=True, kw_only=True):
-    tasks: list[TaskRecord]
-    cursor: str | None
 
 
 class PromiseSearchResult(msgspec.Struct, frozen=True, kw_only=True):
@@ -138,15 +128,6 @@ class Sender:
             "task.release", {"id": id, "version": version}, allow_409=False
         )
 
-    async def task_get(self, id: str) -> TaskRecord:
-        """Get a task by ID."""
-        _, resp = await self._send_envelope("task.get", {"id": id}, allow_409=False)
-        task = resp.get("task") if isinstance(resp, dict) else None
-        if task is None:
-            msg = "missing 'task' in response"
-            raise DecodingError(msg)
-        return _decode_or_raise(task, TaskRecord, "task record")
-
     async def task_create(
         self, pid: str, ttl: int, action: PromiseCreateReq
     ) -> TaskCreateResult:
@@ -169,59 +150,11 @@ class Sender:
             return "conflict"
         return parse_task_acquire(resp)
 
-    async def task_halt(self, id: str) -> None:
-        """Halt a task, preventing it from being acquired or making progress."""
-        await self._send_envelope("task.halt", {"id": id}, allow_409=False)
-
-    async def task_continue(self, id: str) -> None:
-        """Continue a halted task, transitioning it back to pending."""
-        await self._send_envelope("task.continue", {"id": id}, allow_409=False)
-
-    async def task_fence(self, id: str, version: int, action: Any) -> TaskFenceResult:
-        """Execute a promise operation only if the task's lease is still valid."""
-        # Detect sub-kind: if a "state" field is present -> settle, else -> create.
-        sub_kind = (
-            "promise.settle"
-            if isinstance(action, dict) and "state" in action
-            else "promise.create"
-        )
-        data = {
-            "id": id,
-            "version": version,
-            "action": SubEnvelope(kind=sub_kind, head=self._make_head(), data=action),
-        }
-        _, resp = await self._send_envelope("task.fence", data, allow_409=False)
-        action_resp = resp.get("action") if isinstance(resp, dict) else None
-        inner = action_resp.get("data") if isinstance(action_resp, dict) else None
-        promise_val = inner.get("promise") if isinstance(inner, dict) else None
-        if promise_val is None:
-            msg = "missing promise in fence action response"
-            raise DecodingError(msg)
-        promise = _decode_or_raise(
-            promise_val, PromiseRecord, "promise in fence response"
-        )
-        return TaskFenceResult(promise=promise, preload=parse_preloaded(resp))
-
     async def task_heartbeat(self, pid: str, tasks: list[TaskRef]) -> None:
         """Extend the lease for one or more tasks."""
         await self._send_envelope(
             "task.heartbeat", {"pid": pid, "tasks": tasks}, allow_409=False
         )
-
-    async def task_search(
-        self, state: str | None, limit: int | None, cursor: str | None
-    ) -> TaskSearchResult:
-        """Search for tasks matching criteria."""
-        data: dict[str, Any] = {}
-        if state is not None:
-            data["state"] = state
-        if limit is not None:
-            data["limit"] = limit
-        if cursor is not None:
-            data["cursor"] = cursor
-        _, resp = await self._send_envelope("task.search", data, allow_409=False)
-        tasks = _decode_list(resp, "tasks", TaskRecord)
-        return TaskSearchResult(tasks=tasks, cursor=_cursor(resp))
 
     # -- promise operations ---------------------------------------------------
 
@@ -238,16 +171,6 @@ class Sender:
     async def promise_settle(self, req: PromiseSettleReq) -> PromiseRecord:
         """Settle (resolve/reject) a durable promise."""
         _, resp = await self._send_envelope("promise.settle", req, allow_409=False)
-        return parse_promise(resp)
-
-    async def promise_register_callback(
-        self, awaited: str, awaiter: str
-    ) -> PromiseRecord:
-        """Register a callback between two promises."""
-        data = {"awaited": awaited, "awaiter": awaiter}
-        _, resp = await self._send_envelope(
-            "promise.register_callback", data, allow_409=False
-        )
         return parse_promise(resp)
 
     async def promise_register_listener(

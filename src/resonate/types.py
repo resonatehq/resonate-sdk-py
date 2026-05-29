@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 import msgspec
 
-from resonate.error import ResonateError, SerializationError
+from resonate.error import SerializationError
 
 PromiseState = Literal[
     "pending",
@@ -32,10 +32,6 @@ class Value(msgspec.Struct, omit_defaults=True, kw_only=True, frozen=True):
 
     headers: dict[str, str] | None = msgspec.field(default=None)
     data: Any | None = msgspec.field(default=None)
-
-    def headers_or_empty(self) -> dict[str, str]:
-        """Return the headers, defaulting to an empty map if absent."""
-        return {} if self.headers is None else self.headers
 
     @classmethod
     def from_serializable(cls, val: Any) -> Value:
@@ -144,8 +140,6 @@ class ScheduleRecord(msgspec.Struct, rename="camel", kw_only=True, frozen=True):
     promise_param: Value = msgspec.field(default_factory=Value)
     promise_tags: dict[str, str] = msgspec.field(default_factory=dict)
     created_at: int = msgspec.field(default=0)
-    next_run_at: int = msgspec.field(default=0)
-    last_run_at: int | None = msgspec.field(default=None)
 
 
 class PromiseCreateReq(msgspec.Struct, rename="camel", kw_only=True, frozen=True):
@@ -171,32 +165,6 @@ class PromiseRegisterCallbackData(
 # =============================================================================
 # SDK-INTERNAL TYPES (not part of the wire protocol)
 # =============================================================================
-
-
-class Done[T](msgspec.Struct, frozen=True, kw_only=True):
-    """``Outcome`` variant: the function completed, successfully or with an error.
-
-    Mirrors Rust's ``Outcome::Done(Result<T>)``. ``result`` holds either the
-    success value (a ``T``) or a :class:`~resonate.error.ResonateError`, the two
-    arms of ``Result[T] = T | ResonateError``.
-    """
-
-    result: T | ResonateError
-
-
-class Suspended(msgspec.Struct, frozen=True, kw_only=True):
-    """``Outcome`` variant: the function cannot proceed.
-
-    Mirrors Rust's ``Outcome::Suspended { remote_todos }`` -- the function has
-    unresolved remote dependencies, listed by id in ``remote_todos``.
-    """
-
-    remote_todos: list[str]
-
-
-# The result of executing a durable function. Mirrors the Rust enum
-# ``Outcome<T> { Done(Result<T>), Suspended { remote_todos: Vec<String> } }``.
-type Outcome[T] = Done[T] | Suspended
 
 
 class Args(msgspec.Struct, kw_only=True, frozen=True):

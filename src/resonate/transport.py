@@ -82,35 +82,6 @@ type Message = ExecuteMsg | UnblockMsg
 # =============================================================================
 
 
-def response_data(resp: Any) -> Any:
-    """Extract the ``data`` portion from a protocol envelope response.
-
-    Mirrors Rust's ``response_data``: raises :class:`DecodingError` when the
-    field is absent.
-    """
-    if isinstance(resp, dict) and "data" in resp:
-        return resp["data"]
-    msg = "response missing 'data' envelope field"
-    raise DecodingError(msg)
-
-
-def response_status(resp: Any) -> int:
-    """Extract ``head.status`` from a protocol envelope response.
-
-    Mirrors Rust's ``response_status`` (``as_u64``): the value must be a
-    non-negative integer (JSON booleans do not count), otherwise
-    :class:`DecodingError` is raised.
-    """
-    if isinstance(resp, dict):
-        head = resp.get("head")
-        if isinstance(head, dict):
-            status = head.get("status")
-            if isinstance(status, int) and not isinstance(status, bool) and status >= 0:
-                return status
-    msg = "response missing 'head.status' envelope field"
-    raise DecodingError(msg)
-
-
 def _nested_str(value: Any, *keys: str) -> str:
     """Walk nested mapping ``keys`` and return the final string, or ``""``.
 
@@ -170,17 +141,6 @@ class Transport:
             raise ServerError(500, msg)
 
         return response
-
-    async def send_json(self, request: Any) -> Any:
-        """Serialize a JSON envelope and send it.
-
-        Extracts ``kind`` and ``head.corrId`` from ``request`` before
-        delegating to :meth:`send`. Mirrors Rust's ``Transport::send_json``.
-        """
-        kind = _nested_str(request, "kind")
-        corr_id = _nested_str(request, "head", "corrId")
-        body = msgspec.json.encode(request).decode("utf-8")
-        return await self.send(kind, corr_id, body)
 
     def recv(self, callback: Callable[[Message], None]) -> None:
         """Register a callback for incoming messages.

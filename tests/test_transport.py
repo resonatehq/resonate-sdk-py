@@ -12,8 +12,6 @@ from resonate.transport import (
     Message,
     Transport,
     UnblockMsg,
-    response_data,
-    response_status,
 )
 
 if TYPE_CHECKING:
@@ -123,20 +121,6 @@ def test_send_missing_fields_treated_as_empty() -> None:
         asyncio.run(transport.send("k", "c", "{}"))
 
 
-# -- send_json ----------------------------------------------------------------
-
-
-def test_send_json_extracts_kind_and_corr_id() -> None:
-    net = StubNetwork(envelope("promise.get", "abc", {"promise": {"id": "p1"}}))
-    transport = Transport(net)
-    request = {"kind": "promise.get", "head": {"corrId": "abc"}, "data": {"id": "p1"}}
-
-    resp = asyncio.run(transport.send_json(request))
-    assert resp["data"]["promise"]["id"] == "p1"
-    # The serialized request was forwarded verbatim.
-    assert msgspec.json.decode(net.sent[0]) == request
-
-
 # -- recv ---------------------------------------------------------------------
 
 
@@ -186,38 +170,6 @@ def test_recv_discards_unknown_kind() -> None:
     net = StubNetwork()
     received = feed(Transport(net), net, '{"kind":"mystery","data":{}}')
     assert received == []
-
-
-# -- envelope helpers ---------------------------------------------------------
-
-
-def test_response_data() -> None:
-    assert response_data({"data": {"x": 1}}) == {"x": 1}
-
-
-def test_response_data_missing() -> None:
-    with pytest.raises(DecodingError):
-        response_data({"head": {}})
-
-
-def test_response_status() -> None:
-    assert response_status({"head": {"status": 200}}) == 200
-
-
-@pytest.mark.parametrize(
-    "resp",
-    [
-        {"head": {}},
-        {"head": {"status": -1}},
-        {"head": {"status": True}},
-        {"head": {"status": 1.5}},
-        {},
-        "not a dict",
-    ],
-)
-def test_response_status_missing_or_invalid(resp: object) -> None:
-    with pytest.raises(DecodingError):
-        response_status(resp)
 
 
 # -- network accessor ---------------------------------------------------------
