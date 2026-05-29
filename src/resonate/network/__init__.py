@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol
 
-from resonate.network._http import HttpNetwork
-from resonate.network._local import LocalNetwork
+from resonate.network.http import HttpNetwork
+from resonate.network.local import LocalNetwork
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 __all__ = ["HttpNetwork", "LocalNetwork", "Network"]
 
 
-@runtime_checkable
 class Network(Protocol):
     """The transport abstraction for all server communication.
 

@@ -31,7 +31,7 @@ _MAX_BACKOFF_SECS = 60
 #: execution-concurrency ceiling (see
 #: ``resonate.resonate.DEFAULT_MAX_CONCURRENT_TASKS``) guarantees the heartbeat
 #: always finds a free connection. The long-lived SSE ``GET`` occupies one slot.
-_DEFAULT_CONN_LIMIT = 256
+DEFAULT_CONN_LIMIT = 256
 
 
 class HttpNetwork:
@@ -67,7 +67,7 @@ class HttpNetwork:
         # Strip trailing slash(es) from url.
         self._url = url.rstrip("/")
         self._auth = auth
-        self._conn_limit = conn_limit if conn_limit is not None else _DEFAULT_CONN_LIMIT
+        self._conn_limit = conn_limit if conn_limit is not None else DEFAULT_CONN_LIMIT
 
         self._subscribers: list[Callable[[str], None]] = []
         self._session: aiohttp.ClientSession | None = None

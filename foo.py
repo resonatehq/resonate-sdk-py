@@ -12,26 +12,39 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import time
-from typing import TYPE_CHECKING
 
 from resonate.resonate import Resonate
 
-if TYPE_CHECKING:
-    from resonate.context import Context
+
+async def foo(context):
+
+    p1 = context.run(bar)  # foo.1
+    p2 = context.run(bar)  # foo.2
+    await p1
+    await p2
 
 
-async def foo(ctx: Context, name: str) -> str:
-    return await ctx.run(bar, name)
+async def bar(context):
+
+    p1 = context.run(baz)
+    p2 = context.rpc(".")
+    p3 = context.run(baz)
+
+    await p1
+    await p2
+    await p3
 
 
-async def bar(ctx: Context, name: str) -> str:
-    return await ctx.rpc("baz", name)
+async def baz(context):
+
+    await asyncio.sleep(random)
+
+    print("hello from", context.id)
 
 
-async def baz(ctx: Context, name: str) -> str:
-    print("foo")
-    return f"hello, {name}!"
+print(execute_until_blocked_inner(foo))
 
 
 async def main() -> None:
@@ -41,7 +54,7 @@ async def main() -> None:
     r.register(baz)
     try:
         id = f"hello-{time.time_ns()}"
-        handle = r.run(id, foo, "world")
+        handle = r.run(id, foo)
         print(await handle.result())
     finally:
         await r.stop()
