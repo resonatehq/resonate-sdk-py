@@ -1,0 +1,598 @@
+"""Behaviour tests for :mod:`resonate.resonate`.
+
+Mirrors the Rust ``resonate.rs`` ``#[cfg(test)]`` suite (same cases, same names
+where they map), adapted to the Python port's API:
+
+* ``run`` / ``rpc`` are **synchronous** fire-and-forget triggers returning a
+  :class:`~resonate.handle.ResonateHandle` -- the task is created (and, when this
+  process wins the race, executed) in the background, exactly like ``ctx.run``.
+  The result is awaited via ``handle.result()``.
+* Per-call options come from :meth:`~resonate.resonate.Resonate.with_opts`
+  (chained), not keyword arguments.
+* ``get`` stays ``async`` (a lookup whose listener registration surfaces a 404).
+
+Like the rest of the suite these run against the real in-process
+:class:`~resonate.network.LocalNetwork` driven through the real
+:class:`~resonate.send.Sender` / :class:`~resonate.transport.Transport` -- "real
+server, real wire", no mocks.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any
+from unittest import mock
+
+import msgspec
+import pytest
+
+from resonate.error import (
+    AlreadyRegisteredError,
+    ApplicationError,
+    FunctionNotFoundError,
+    ServerError,
+)
+from resonate.handle import ResonateHandle
+from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
+from resonate.network import LocalNetwork
+from resonate.resonate import DEFAULT_TTL, Opts, Resonate
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable
+
+    from resonate.context import Context
+    from resonate.types import PromiseCreateReq, PromiseRecord
+
+
+# ── Harness ──────────────────────────────────────────────────────────────
+
+
+@contextlib.asynccontextmanager
+async def local(**kwargs: Any) -> AsyncIterator[Resonate]:
+    """Yield a local-mode Resonate, stopping it (and its refresh task) on exit."""
+    r = Resonate.local(**kwargs)
+    try:
+        yield r
+    finally:
+        await r.stop()
+
+
+async def wait_for_promise(r: Resonate, id: str, tries: int = 200) -> PromiseRecord:
+    """Poll until the durable promise ``id`` exists, for fire-and-forget creates.
+
+    ``rpc`` (and ``run`` before its result settles) creates the promise in the
+    background; a remote ``rpc`` promise never settles in local mode, so its
+    creation can't be observed by awaiting a result.
+    """
+    for _ in range(tries):
+        try:
+            return await r.promises.get(id)
+        except ServerError:
+            await asyncio.sleep(0)
+    msg = f"promise {id} was never created"
+    raise AssertionError(msg)
+
+
+# ── Workflow library ───────────────────────────────────────────────────────
+
+
+async def noop(ctx: Context) -> None:
+    return None
+
+
+async def add(ctx: Context, x: int, y: int) -> int:
+    return x + y
+
+
+async def boom(ctx: Context) -> int:
+    msg = "deliberate failure"
+    raise ApplicationError(msg)
+
+
+class Point(msgspec.Struct, frozen=True):
+    x: int
+    y: int
+
+
+async def make_point(ctx: Context, x: int, y: int) -> Point:
+    return Point(x=x, y=y)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Constructor / configuration
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_local_constructor_sets_defaults() -> None:
+    async with local() as r:
+        assert r.pid == "default"
+        assert r.id_prefix == ""
+        assert r.ttl == DEFAULT_TTL
+        assert isinstance(r.network, LocalNetwork)
+
+
+@pytest.mark.asyncio
+async def test_config_with_custom_pid_and_group() -> None:
+    async with local(pid="worker-1", group="workers") as r:
+        assert r.pid == "worker-1"
+        assert "worker-1" in r.network.unicast()
+        assert "workers" in r.network.unicast()
+
+
+@pytest.mark.asyncio
+async def test_config_with_prefix() -> None:
+    async with local(prefix="myapp", ttl=timedelta(seconds=30)) as r:
+        assert r.id_prefix == "myapp:"
+        assert r.ttl == timedelta(seconds=30)
+
+
+@pytest.mark.asyncio
+async def test_config_with_empty_prefix() -> None:
+    async with local(prefix="") as r:
+        assert r.id_prefix == ""
+
+
+@pytest.mark.asyncio
+async def test_default_ttl_is_one_minute() -> None:
+    async with local() as r:
+        assert r.ttl == timedelta(minutes=1)
+
+
+@pytest.mark.asyncio
+async def test_network_identity_local_mode() -> None:
+    async with local() as r:
+        assert r.network.unicast().startswith("local://uni@")
+        assert r.network.anycast().startswith("local://any@")
+        assert r.network.group() == "default"
+        assert r.network.pid() == "default"
+
+
+@pytest.mark.asyncio
+async def test_target_resolver_returns_local_anycast() -> None:
+    async with local() as r:
+        assert r.network.target_resolver("my-target") == "local://any@my-target"
+
+
+@pytest.mark.asyncio
+async def test_local_mode_uses_noop_heartbeat() -> None:
+    async with local() as r:
+        assert isinstance(r._heartbeat, NoopHeartbeat)
+
+
+@pytest.mark.asyncio
+async def test_remote_network_uses_async_heartbeat() -> None:
+    # A non-Local network selects the AsyncHeartbeat branch without any HTTP.
+    r = Resonate(network=_FakeNetwork())
+    try:
+        assert isinstance(r._heartbeat, AsyncHeartbeat)
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_explicit_heartbeat_override_wins() -> None:
+    hb = NoopHeartbeat()
+    r = Resonate(network=_FakeNetwork(), heartbeat=hb)
+    try:
+        assert r._heartbeat is hb
+    finally:
+        await r.stop()
+
+
+class _FakeNetwork:
+    """Minimal non-Local :class:`~resonate.network.Network` for heartbeat tests."""
+
+    def pid(self) -> str:
+        return "fake"
+
+    def group(self) -> str:
+        return "g"
+
+    def unicast(self) -> str:
+        return "fake://uni@g/fake"
+
+    def anycast(self) -> str:
+        return "fake://any@g/fake"
+
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    async def send(self, req: str) -> str:
+        return "{}"
+
+    def recv(self, callback: Callable[[str], None]) -> None: ...
+    def target_resolver(self, target: str) -> str:
+        return f"fake://any@{target}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  register
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_register_then_run_succeeds() -> None:
+    async with local() as r:
+        r.register(add)
+        assert await r.run("t", add, 1, 2).result() == 3
+
+
+@pytest.mark.asyncio
+async def test_register_with_custom_name() -> None:
+    async with local() as r:
+        r.register(add, name="sum")
+        # run takes the function object; its registered name ("sum", not the
+        # __name__ "add") is recovered by identity.
+        assert await r.run("t", add, 4, 5).result() == 9
+
+
+@pytest.mark.asyncio
+async def test_register_duplicate_raises() -> None:
+    async with local() as r:
+        r.register(noop)
+        with pytest.raises(AlreadyRegisteredError):
+            r.register(noop)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  run
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_run_is_synchronous_and_returns_handle() -> None:
+    async with local() as r:
+        r.register(noop)
+        h = r.run("greet-1", noop)
+        assert isinstance(h, ResonateHandle)
+        assert not asyncio.iscoroutine(h)
+        assert h.id == "greet-1"
+
+
+@pytest.mark.asyncio
+async def test_run_starts_execution_immediately() -> None:
+    async with local() as r:
+        started = asyncio.Event()
+
+        @r.register
+        async def slow(ctx: Context) -> int:
+            started.set()
+            return 1
+
+        h = r.run("s", slow)
+        # The body runs in the background without awaiting the result.
+        await asyncio.wait_for(started.wait(), timeout=1)
+        assert await h.result() == 1
+
+
+@pytest.mark.asyncio
+async def test_run_resolves_result() -> None:
+    async with local() as r:
+        r.register(add)
+        assert await r.run("a", add, 2, 3).result() == 5
+
+
+@pytest.mark.asyncio
+async def test_run_with_kwargs() -> None:
+    async with local() as r:
+        r.register(add)
+        assert await r.run("a", add, x=4, y=6).result() == 10
+
+
+@pytest.mark.asyncio
+async def test_run_decodes_struct_result() -> None:
+    async with local() as r:
+        r.register(make_point)
+        assert await r.run("pt", make_point, 1, 2).result() == Point(x=1, y=2)
+
+
+@pytest.mark.asyncio
+async def test_run_rejected_workflow_raises() -> None:
+    async with local() as r:
+        r.register(boom)
+        with pytest.raises(ApplicationError, match="deliberate failure"):
+            await r.run("b", boom).result()
+
+
+@pytest.mark.asyncio
+async def test_run_with_prefix_prepends_id() -> None:
+    async with local(prefix="app") as r:
+        r.register(noop)
+        h = r.run("my-id", noop)
+        assert h.id == "app:my-id"
+
+
+@pytest.mark.asyncio
+async def test_run_unregistered_raises_synchronously() -> None:
+    async with local() as r:
+
+        async def unregistered(ctx: Context) -> None:
+            return None
+
+        # Raised at the call site (not from an awaited coroutine): an
+        # unregistered callable resolves to its __name__, which the registry
+        # lookup rejects.
+        with pytest.raises(FunctionNotFoundError):
+            r.run("x", unregistered)
+
+
+@pytest.mark.asyncio
+async def test_run_idempotent_same_id() -> None:
+    async with local() as r:
+        r.register(add)
+        assert await r.run("dup", add, 1, 1).result() == 2
+        # Second run with the same id observes the existing settled promise.
+        assert await r.run("dup", add, 1, 1).result() == 2
+
+
+@pytest.mark.asyncio
+async def test_run_default_target_uses_network_resolver() -> None:
+    async with local() as r:
+        r.register(noop)
+        await r.run("rt", noop).result()
+        record = await r.promises.get("rt")
+        assert record.tags["resonate:target"] == "local://any@default"
+        assert record.tags["resonate:scope"] == "global"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  rpc
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_rpc_is_synchronous_and_returns_handle() -> None:
+    async with local() as r:
+        h = r.rpc("rpc-1", "remote_fn", 1)
+        assert isinstance(h, ResonateHandle)
+        assert not asyncio.iscoroutine(h)
+        assert h.id == "rpc-1"
+
+
+@pytest.mark.asyncio
+async def test_rpc_does_not_require_registration() -> None:
+    async with local() as r:
+        r.rpc("rpc-1", "remote_fn", 1)
+        # The promise is created even though no function is registered locally.
+        record = await wait_for_promise(r, "rpc-1")
+        assert record.state == "pending"
+
+
+@pytest.mark.asyncio
+async def test_rpc_with_prefix() -> None:
+    async with local(prefix="svc") as r:
+        h = r.rpc("rpc-2", "remote", ())
+        assert h.id == "svc:rpc-2"
+        await wait_for_promise(r, "svc:rpc-2")
+
+
+@pytest.mark.asyncio
+async def test_rpc_args_and_kwargs_round_trip_into_param() -> None:
+    async with local() as r:
+        r.rpc("rpc-args", "remote", 1, 2, flag=True)
+        record = await wait_for_promise(r, "rpc-args")
+        assert record.param.data == {
+            "func": "remote",
+            "args": {"args": [1, 2], "kwargs": {"flag": True}},
+        }
+
+
+@pytest.mark.asyncio
+async def test_rpc_no_args_has_null_args() -> None:
+    async with local() as r:
+        r.rpc("rpc-empty", "remote")
+        record = await wait_for_promise(r, "rpc-empty")
+        assert record.param.data == {"func": "remote", "args": None}
+
+
+@pytest.mark.asyncio
+async def test_rpc_default_target() -> None:
+    async with local() as r:
+        r.rpc("rpc-dt", "remote")
+        record = await wait_for_promise(r, "rpc-dt")
+        assert record.tags["resonate:target"] == "local://any@default"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  with_opts
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_with_opts_returns_self_for_chaining() -> None:
+    async with local() as r:
+        assert r.with_opts(timeout=timedelta(seconds=1)) is r
+
+
+@pytest.mark.asyncio
+async def test_with_opts_consumed_synchronously_and_reset() -> None:
+    async with local() as r:
+        r.register(noop)
+        r.with_opts(target="worker", tags={"k": "v"})
+        assert r._opts.target == "worker"
+        r.run("c", noop)
+        # Consumed and reset the moment run is called (run is synchronous).
+        assert r._opts == Opts()
+
+
+@pytest.mark.asyncio
+async def test_with_opts_bare_name_target_rewritten() -> None:
+    async with local() as r:
+        r.with_opts(target="my-worker").rpc("t-bare", "remote")
+        record = await wait_for_promise(r, "t-bare")
+        assert record.tags["resonate:target"] == "local://any@my-worker"
+
+
+@pytest.mark.asyncio
+async def test_with_opts_url_target_passes_through() -> None:
+    async with local() as r:
+        url = "https://remote:9000/workers/hello"
+        r.with_opts(target=url).rpc("t-url", "remote")
+        record = await wait_for_promise(r, "t-url")
+        assert record.tags["resonate:target"] == url
+
+
+@pytest.mark.asyncio
+async def test_with_opts_custom_tags_merged() -> None:
+    async with local() as r:
+        r.register(noop)
+        await r.with_opts(tags={"user:k": "v"}).run("t-tags", noop).result()
+        record = await r.promises.get("t-tags")
+        assert record.tags["user:k"] == "v"
+        # SDK tags still present.
+        assert record.tags["resonate:scope"] == "global"
+
+
+@pytest.mark.asyncio
+async def test_with_opts_applies_to_run_target() -> None:
+    async with local() as r:
+        r.register(noop)
+        await r.with_opts(target="my-target").run("rt2", noop).result()
+        record = await r.promises.get("rt2")
+        assert record.tags["resonate:target"] == "local://any@my-target"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Promise-creation chain (ordering under concurrency)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_chain_serializes_create_order() -> None:
+    async with local() as r:
+        started: list[str] = []
+        finished: list[str] = []
+        original = r._sender.promise_create
+
+        async def traced(req: PromiseCreateReq) -> PromiseRecord:
+            started.append(req.id)
+            if req.id == "c0":
+                # Slow the first create; the chain must hold back the rest.
+                await asyncio.sleep(0.05)
+            record = await original(req)
+            finished.append(req.id)
+            return record
+
+        with mock.patch.object(r._sender, "promise_create", side_effect=traced):
+            # Fire three back-to-back with no await between them.
+            r.rpc("c0", "f")
+            r.rpc("c1", "f")
+            r.rpc("c2", "f")
+
+            # Real sleeps so the 0.05s delay on c0 can actually elapse.
+            for _ in range(400):
+                if finished == ["c0", "c1", "c2"]:
+                    break
+                await asyncio.sleep(0.005)
+
+        # c1/c2 must not have started their create until c0 (the slow one)
+        # finished -- proof the chain serialized them in call order.
+        assert started == ["c0", "c1", "c2"]
+        assert finished == ["c0", "c1", "c2"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  get
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_get_nonexistent_raises_404() -> None:
+    async with local() as r:
+        with pytest.raises(ServerError) as excinfo:
+            await r.get("nonexistent")
+        assert excinfo.value.code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_existing_returns_handle() -> None:
+    async with local() as r:
+        r.register(add)
+        await r.run("g1", add, 1, 2).result()
+        handle = await r.get("g1", type_=int)
+        assert handle.id == "g1"
+        assert await handle.result() == 3
+
+
+@pytest.mark.asyncio
+async def test_get_with_prefix_prepends() -> None:
+    async with local(prefix="ns") as r:
+        r.rpc("p1", "remote")
+        await wait_for_promise(r, "ns:p1")
+        handle = await r.get("p1")
+        assert handle.id == "ns:p1"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Multiple handles to the same id
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_multiple_handles_same_id_all_resolve() -> None:
+    async with local() as r:
+        r.register(add)
+        h1 = r.run("multi", add, 2, 3)
+        h2 = await r.get("multi", type_=int)
+        assert await h1.result() == 5
+        assert await h2.result() == 5
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  id prefix consistency
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_prefix_applied_consistently_to_run_rpc_get() -> None:
+    async with local(prefix="p") as r:
+        r.register(add)
+        h1 = r.run("id1", add, 1, 1)
+        assert h1.id == "p:id1"
+        h2 = r.rpc("id2", "remote")
+        assert h2.id == "p:id2"
+        await wait_for_promise(r, "p:id2")
+        h3 = await r.get("id2")
+        assert h3.id == "p:id2"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  schedule
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_schedule_creates_and_deletes() -> None:
+    async with local() as r:
+        schedule = await r.schedule("my-schedule", "*/5 * * * *", "my-func")
+        assert schedule.name == "my-schedule"
+        # Deleting a created schedule does not raise.
+        await schedule.delete()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  stop
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_stop_is_clean_and_idempotent() -> None:
+    r = Resonate.local()
+    await r.stop()
+    await r.stop()  # second stop is a no-op
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_refresh_task() -> None:
+    r = Resonate.local()
+    handle = r._refresh_handle
+    assert handle is not None
+    assert not handle.done()
+    await r.stop()
+    assert r._refresh_handle is None
+    # Let the cancellation finish processing, then confirm the task is done.
+    with contextlib.suppress(asyncio.CancelledError):
+        await handle
+    assert handle.cancelled()

@@ -8,14 +8,13 @@ public API, using a real :class:`Codec` round-trip rather than white-box calls.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import pytest
 
 from resonate.codec import Codec, NoopEncryptor
 from resonate.error import ApplicationError, TimeoutError as ResonateTimeoutError
-from resonate.handle import PromiseResult, ResonateHandle
+from resonate.handle import PromiseResult, ResonateHandle, Subscription
 
 
 def _codec() -> Codec:
@@ -27,10 +26,10 @@ def _encoded(codec: Codec, value: Any) -> dict[str, Any]:
     return {"data": codec.encode(value).data}
 
 
-def _ready(result: PromiseResult) -> asyncio.Future[PromiseResult]:
-    fut: asyncio.Future[PromiseResult] = asyncio.get_running_loop().create_future()
-    fut.set_result(result)
-    return fut
+def _ready(result: PromiseResult) -> Subscription:
+    sub = Subscription()
+    sub.settle(result)
+    return sub
 
 
 @pytest.mark.asyncio
@@ -77,9 +76,11 @@ async def test_result_pending_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_result_channel_closed_raises() -> None:
-    fut: asyncio.Future[PromiseResult] = asyncio.get_running_loop().create_future()
-    fut.cancel()
-    handle: ResonateHandle[int] = ResonateHandle("p1", fut, _codec(), int)
+    # A subscription woken without a settled result (the analogue of tokio's
+    # "all senders dropped") surfaces as "promise channel closed".
+    sub = Subscription()
+    sub._done.set()
+    handle: ResonateHandle[int] = ResonateHandle("p1", sub, _codec(), int)
     with pytest.raises(ApplicationError, match="promise channel closed"):
         await handle.result()
 
@@ -114,10 +115,10 @@ async def test_result_non_object_value_passed_through() -> None:
 
 @pytest.mark.asyncio
 async def test_done_reflects_channel_state() -> None:
-    fut: asyncio.Future[PromiseResult] = asyncio.get_running_loop().create_future()
-    handle: ResonateHandle[int] = ResonateHandle("p1", fut, _codec(), int)
+    sub = Subscription()
+    handle: ResonateHandle[int] = ResonateHandle("p1", sub, _codec(), int)
     assert handle.done() is False
-    fut.set_result(PromiseResult(state="resolved", value={"data": ""}))
+    sub.settle(PromiseResult(state="resolved", value={"data": ""}))
     assert handle.done() is True
 
 
