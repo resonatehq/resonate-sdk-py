@@ -50,7 +50,10 @@ def _codec() -> Codec:
 
 
 def _root(
-    preload: list[PromiseRecord] | None = None, *, timeout_at: int = I64_MAX
+    preload: list[PromiseRecord] | None = None,
+    *,
+    timeout_at: int = I64_MAX,
+    deps: DependencyMap | None = None,
 ) -> Context:
     """Build a root ``Context`` over a fresh ``LocalNetwork``."""
     sender = Sender(Transport(LocalNetwork()), None)
@@ -61,7 +64,7 @@ def _root(
         func_name="root",
         effects=effects,
         target_resolver=lambda target: target or "",
-        deps=DependencyMap(),
+        deps=deps or DependencyMap(),
     )
 
 
@@ -179,6 +182,48 @@ def test_child_timeout_caps_to_parent() -> None:
     assert ctx._child_timeout(timedelta(days=1)) == cap
     # A nearer deadline is honoured.
     assert ctx._child_timeout(timedelta(milliseconds=500)) <= cap
+
+
+# =============================================================================
+# get_dependency: type-keyed lookup into the shared DependencyMap
+#
+# ``Context.get_dependency`` is a thin pass-through to ``deps.get(type)`` -- the
+# same map ``Resonate.with_dependency`` populates. It returns the stored value
+# by concrete type and surfaces the map's ``KeyError`` when absent. Mirrors
+# Rust's ``Context::get_dependency``.
+# =============================================================================
+
+
+class _Config:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+
+def test_get_dependency_returns_stored_value() -> None:
+    deps = DependencyMap()
+    cfg = _Config("hello")
+    deps.insert(cfg)
+    ctx = _root(deps=deps)
+    # Keyed by concrete type -- the very object that was inserted comes back.
+    assert ctx.get_dependency(_Config) is cfg
+    assert ctx.get_dependency(_Config).value == "hello"
+
+
+def test_get_dependency_missing_raises_keyerror() -> None:
+    ctx = _root(deps=DependencyMap())
+    with pytest.raises(KeyError):
+        ctx.get_dependency(_Config)
+
+
+def test_get_dependency_shared_with_child_context() -> None:
+    # Children inherit the same ``deps`` map, so a dependency is visible on every
+    # context in the tree, not just the root.
+    deps = DependencyMap()
+    cfg = _Config("shared")
+    deps.insert(cfg)
+    ctx = _root(deps=deps)
+    child = ctx._child("root.1", "fn", I64_MAX)
+    assert child.get_dependency(_Config) is cfg
 
 
 # =============================================================================

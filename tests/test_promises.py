@@ -54,6 +54,26 @@ async def test_promises_create_get_resolve_roundtrip() -> None:
 
 
 @pytest.mark.asyncio
+async def test_promises_create_get_reject_roundtrip() -> None:
+    # Symmetric counterpart to the resolve roundtrip: ``reject`` settles the
+    # promise as ``rejected`` (via ``_settle``), and the state survives a re-get.
+    promises, _ = _local()
+
+    created = await promises.create(
+        "unit-p-reject", I64_MAX, Value.from_serializable({"x": 1}), {}
+    )
+    assert created.state == "pending"
+
+    settled = await promises.reject(
+        "unit-p-reject", Value.from_serializable({"error": "boom"})
+    )
+    assert settled.state == "rejected"
+
+    after = await promises.get("unit-p-reject")
+    assert after.state == "rejected"
+
+
+@pytest.mark.asyncio
 async def test_promises_get_missing_returns_server_error() -> None:
     promises, _ = _local()
     with pytest.raises(ServerError):

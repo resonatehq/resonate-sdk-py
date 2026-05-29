@@ -540,6 +540,60 @@ async def test_rpc_handle_id_resolves() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  with_dependency (DI)
+#
+# Mirrors the Rust ``resonate.rs`` dependency-injection suite
+# (``e2e_workflow_reads_dependency_via_context`` / ``e2e_multiple_dependencies``):
+# ``with_dependency`` stores a value keyed by concrete type into the shared
+# DependencyMap, and a running workflow reads it back via ``ctx.get_dependency``.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class Config:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+
+class Counter:
+    def __init__(self, count: int) -> None:
+        self.count = count
+
+
+async def read_config(ctx: Context) -> str:
+    return ctx.get_dependency(Config).value
+
+
+async def read_two_deps(ctx: Context) -> str:
+    cfg = ctx.get_dependency(Config)
+    counter = ctx.get_dependency(Counter)
+    return f"{cfg.value}:{counter.count}"
+
+
+@pytest.mark.asyncio
+async def test_with_dependency_returns_self_for_chaining() -> None:
+    async with local() as r:
+        assert r.with_dependency(Config("x")) is r
+
+
+@pytest.mark.asyncio
+async def test_workflow_reads_dependency_via_context() -> None:
+    async with local() as r:
+        r.with_dependency(Config("hello-from-di"))
+        r.register(read_config)
+        assert await r.run("di-ctx", read_config).result() == "hello-from-di"
+
+
+@pytest.mark.asyncio
+async def test_multiple_dependencies() -> None:
+    # Each ``with_dependency`` keys by concrete type, so distinct types coexist
+    # and a workflow can read every one of them.
+    async with local() as r:
+        r.with_dependency(Config("multi")).with_dependency(Counter(42))
+        r.register(read_two_deps)
+        assert await r.run("di-multi", read_two_deps).result() == "multi:42"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  with_opts
 # ═══════════════════════════════════════════════════════════════════════════
 

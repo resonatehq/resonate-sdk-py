@@ -107,15 +107,6 @@ class Codec:
             settled_at=promise.settled_at,
         )
 
-    def decode_promise_from_json(self, json: Any) -> PromiseRecord:
-        """Decode a promise from a raw (parsed) JSON value."""
-        try:
-            record = msgspec.convert(json, PromiseRecord)
-        except (TypeError, ValueError, msgspec.MsgspecError) as exc:
-            msg = f"invalid promise JSON: {exc}"
-            raise DecodingError(msg) from exc
-        return self.decode_promise(record)
-
 
 def encode_error(err: ResonateError) -> dict[str, str]:
     """Encode an error for durable storage."""

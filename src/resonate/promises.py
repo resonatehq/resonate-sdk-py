@@ -81,11 +81,6 @@ class Promises:
         )
         return self.codec.decode_promise(record)
 
-    async def register_listener(self, awaited: str, address: str) -> PromiseRecord:
-        """Register a listener on a promise so ``address`` is notified when it settles."""
-        record = await self.sender.promise_register_listener(awaited, address)
-        return self.codec.decode_promise(record)
-
     async def search(
         self,
         state: str | None,
