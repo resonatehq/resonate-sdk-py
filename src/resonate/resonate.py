@@ -943,8 +943,10 @@ def _result_type(func: Callable[..., Any]) -> Any:
     if ret is inspect.Signature.empty:
         return Any
     if isinstance(ret, str):
+        globalns = getattr(func, "__globals__", {})
+        holder = type("_", (), {"__annotations__": {"a": ret}})
         try:
-            return eval(ret, getattr(func, "__globals__", {}))  # noqa: S307
+            return inspect.get_annotations(holder, globals=globalns, eval_str=True)["a"]
         except (NameError, AttributeError, SyntaxError, TypeError):
             return Any
     return ret

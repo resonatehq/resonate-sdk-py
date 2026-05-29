@@ -181,15 +181,18 @@ def _signature(fn: Callable[..., Any]) -> inspect.Signature:
 def _resolve_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
     """Evaluate one string annotation, leaving it as-is if it cannot resolve.
 
-    Mirrors what ``eval_str=True`` does internally (``eval`` against the
-    function's globals) but tolerant per annotation: a name missing at runtime
-    yields the raw string -- :meth:`DurableFunction._coerce` then skips it, the
-    same as a genuinely unannotated parameter.
+    Defers the forward-reference evaluation to :func:`inspect.get_annotations`
+    (``eval_str=True``) -- the lone annotation is wrapped on a throwaway class so
+    the stdlib does the ``eval`` against ``globalns`` -- but stays tolerant per
+    annotation: a name missing at runtime yields the raw string, which
+    :meth:`DurableFunction._coerce` then skips, the same as a genuinely
+    unannotated parameter.
     """
     if not isinstance(annotation, str):
         return annotation
+    holder = type("_", (), {"__annotations__": {"a": annotation}})
     try:
-        return eval(annotation, globalns)  # noqa: S307
+        return inspect.get_annotations(holder, globals=globalns, eval_str=True)["a"]
     except (NameError, AttributeError, SyntaxError, TypeError):
         return annotation
 

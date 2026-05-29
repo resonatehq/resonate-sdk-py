@@ -149,20 +149,20 @@ def fix() -> CoreFixture:
 # ── Workflow library used across tests ──────────────────────────────────
 
 
-def wf_return_seven(ctx: Context) -> int:
-    return 7
+def wf_return_seven(_: Context, n) -> int:  # noqa: ANN001
+    return n
 
 
-def wf_return_obj(ctx: Context) -> dict[str, Any]:
-    return {"x": 1}
+def wf_return_obj(_, n: int) -> dict[str, Any]:  # noqa: ANN001
+    return {"x": n}
 
 
-def wf_fail(ctx: Context) -> int:
+def wf_fail(_: Context) -> int:
     msg = "deliberate failure"
     raise ApplicationError(msg)
 
 
-def wf_add(ctx: Context, a: int, b: int) -> int:
+def wf_add(_: Context, a: int, b: int) -> int:
     return a + b
 
 
@@ -173,7 +173,7 @@ async def wf_suspend_on_pending(ctx) -> int:  # noqa: ANN001
     return 0
 
 
-async def wf_suspend_on_two(ctx, n: int) -> int:  # noqa: ANN001
+async def wf_suspend_on_two(ctx, n) -> int:  # noqa: ANN001
     """Create two pending remote children, then await -- suspends on the first."""
     fut1 = ctx.rpc("childA")
     fut2 = ctx.rpc("childB")
@@ -182,18 +182,18 @@ async def wf_suspend_on_two(ctx, n: int) -> int:  # noqa: ANN001
     return n
 
 
-async def wf_read_preloaded(ctx: Context) -> int:
+async def wf_read_preloaded(ctx) -> int:  # noqa: ANN001
     """Read a remote child the test pre-resolved; ``ctx.rpc`` returns it resolved, the await resolves inline."""
     fut = ctx.rpc("preloaded")
     return await fut
 
 
-def wf_plain_panic(ctx: Context) -> int:
+def wf_plain_panic(_) -> int:  # noqa: ANN001
     msg = "something went wrong"
     raise RuntimeError(msg)
 
 
-def wf_unwrap_suspend(ctx: Context) -> int:
+def wf_unwrap_suspend(_) -> int:  # noqa: ANN001
     """Mimic a user error that *mentions* suspension -- still classified as a plain panic."""
     msg = "execution suspended (simulated .unwrap() on suspended future)"
     raise RuntimeError(msg)
@@ -230,7 +230,7 @@ async def test_fulfill_rejected_via_execute_until_blocked(fix: CoreFixture) -> N
 @pytest.mark.asyncio
 async def test_fulfill_object_value_round_trips_codec(fix: CoreFixture) -> None:
     fix.reg.register("obj", wf_return_obj)
-    v, promise, preload = await fix.create_root_task("p1-obj", "obj")
+    v, promise, preload = await fix.create_root_task("p1-obj", "obj", 1)
 
     await fix.core.execute_until_blocked("p1-obj", v, promise, preload)
 
@@ -268,7 +268,7 @@ async def test_suspends_registers_all_awaiteds(fix: CoreFixture) -> None:
 @pytest.mark.asyncio
 async def test_on_message_happy_path(fix: CoreFixture) -> None:
     fix.reg.register("seven", wf_return_seven)
-    v, _, _ = await fix.create_root_task("p1-on", "seven")
+    v, _, _ = await fix.create_root_task("p1-on", "seven", 1)
     # Release so on_message can re-acquire under its own lease.
     await fix.sender.task_release("p1-on", v)
 
