@@ -255,34 +255,38 @@ class Context:
             tags={},
         )
 
-    def _remote_create_req(
+    def _global_req(
         self,
         id: str,
-        func_name: str,
-        args: tuple[Any, ...],
-        kwargs: dict[str, Any],
-        version: int,
         timeout: timedelta | None,
-        target_override: str | None,
+        *,
+        data: TaskData | None = None,
+        target: str | None = None,
+        timer: bool = False,
     ) -> PromiseCreateReq:
+        """Build a global-scope promise request.
+
+        Backs every global-scope creator -- remote dispatch (:meth:`rpc`,
+        :meth:`detached`) as well as bare promises (:meth:`sleep`,
+        :meth:`promise`). ``data`` carries a ``TaskData`` payload for function
+        dispatch (empty otherwise); ``target`` adds the routing tag for remote
+        dispatch; ``timer`` adds the ``resonate:timer`` tag that distinguishes a
+        sleep from a bare promise. Tags are inserted in a fixed order so the
+        serialized form matches across SDKs.
+        """
+        tags = {"resonate:scope": "global"}
+        if target is not None:
+            tags["resonate:target"] = target
+        tags["resonate:branch"] = id
+        tags["resonate:parent"] = self.id
+        tags["resonate:origin"] = self.origin_id
+        if timer:
+            tags["resonate:timer"] = "true"
         return PromiseCreateReq(
             id=id,
             timeout_at=self._child_timeout(timeout),
-            param=Value.from_serializable(
-                TaskData(
-                    func=func_name,
-                    args=args,
-                    kwargs=kwargs,
-                    version=version,
-                )
-            ),
-            tags={
-                "resonate:scope": "global",
-                "resonate:target": self.target_resolver(target_override),
-                "resonate:branch": id,
-                "resonate:parent": self.id,
-                "resonate:origin": self.origin_id,
-            },
+            param=Value.from_serializable(data) if data is not None else Value(),
+            tags=tags,
         )
 
     @overload
@@ -325,14 +329,7 @@ class Context:
         )
 
         async def bg() -> T:
-            try:
-                if prev_created is not None:
-                    await prev_created.wait()
-                record = await self.effects.create_promise(req)
-            finally:
-                # Release the next link no matter what -- a failing bg must
-                # not deadlock its successors in the chain.
-                created.set()
+            record = await self._create_promise_in_chain(req, prev_created, created)
 
             # Idempotent recovery: an already-settled promise short-circuits
             # execution
@@ -390,110 +387,45 @@ class Context:
 
     def rpc(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture:
         opts = self._consume_opts()
-        # Chain promise creation: capture the previous tail
-        # and install ours as the new tail.
+
         prev_created, created = self._advance_promise_chain()
 
-        # Build id/req synchronously so child-id ordering matches call order
-        # without relying on asyncio's task-start scheduling being FIFO.
-        # Context-level dispatch carries no function version (version routing is
-        # a top-level concern); the receiver decodes a complete ``TaskData``.
-        req = self._remote_create_req(
+        req = self._global_req(
             self._next_id(),
-            fn,
-            args,
-            kwargs,
-            opts.version,
             opts.timeout,
-            opts.target,
+            data=TaskData(func=fn, args=args, kwargs=kwargs, version=opts.version),
+            target=self.target_resolver(opts.target),
         )
 
-        # rpc tracks its child id in ``spawned_remote`` (the remote-deps list),
-        # not in ``spawned_locals``. The bg task is the mechanism that defers
-        # create_promise through the chain; it is normally awaited via the
-        # returned future (use ``Detached`` for fire-and-forget remote
-        # dispatch). ``_spawn_remote_await`` also registers it in
-        # ``spawned_remote_tasks`` so ``flush_local_work`` joins it -- a
-        # Python-specific step (Go's RPC and Rust's RpcTask await synchronously
-        # and need no background task) that keeps ``spawned_remote`` population
-        # deterministic for a future the workflow never awaited.
-        return ResonateFuture(
-            _id=req.id,
-            _task=self._spawn_remote_await(req, prev_created, created),
-            _created=created,
-        )
+        return self._remote_future(req, prev_created, created)
 
     def sleep(self, duration: timedelta) -> ResonateFuture[None]:
         _ = self._consume_opts()
+
         prev_created, created = self._advance_promise_chain()
 
-        id = self._next_id()
-        req = PromiseCreateReq(
-            id=id,
-            timeout_at=self._child_timeout(duration),
-            param=Value(),
-            tags={
-                "resonate:scope": "global",
-                "resonate:branch": id,
-                "resonate:parent": self.id,
-                "resonate:origin": self.origin_id,
-                "resonate:timer": "true",
-            },
-        )
+        req = self._global_req(self._next_id(), duration, timer=True)
 
-        return ResonateFuture(
-            _id=req.id,
-            _task=self._spawn_remote_await(req, prev_created, created),
-            _created=created,
-        )
+        return self._remote_future(req, prev_created, created)
 
     def promise(self, timeout: timedelta | None = None) -> ResonateFuture[Any]:
         _ = self._consume_opts()
+
         prev_created, created = self._advance_promise_chain()
 
-        id = self._next_id()
+        req = self._global_req(self._next_id(), timeout)
 
-        req = PromiseCreateReq(
-            id=id,
-            timeout_at=self._child_timeout(timeout),
-            param=Value(),
-            tags={
-                "resonate:scope": "global",
-                "resonate:branch": id,
-                "resonate:parent": self.id,
-                "resonate:origin": self.origin_id,
-            },
-        )
-
-        return ResonateFuture(
-            _id=req.id,
-            _task=self._spawn_remote_await(req, prev_created, created),
-            _created=created,
-        )
+        return self._remote_future(req, prev_created, created)
 
     def detached(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture[str]:
         opts = self._consume_opts()
-        # Fire-and-forget remote dispatch. Mirrors Go's ``Detached``: unlike
-        # ``rpc``, the detached child is NOT tracked in ``spawned_remote`` -- the
-        # workflow never suspends on it and its lifecycle is independent of the
-        # parent. The future resolves to the child id (Go returns the id), not a
-        # remote result; there is nothing to await for a value.
         prev_created, created = self._advance_promise_chain()
 
-        # The detached id lives outside the structured ``{id}.{seq}`` namespace:
-        # it is ``{origin}.{FNV-1a 64 hex of the raw seq id}``. ``next_id`` still
-        # consumes a seq slot so sibling ids stay stable across replay, but the
-        # promise itself is created under the hashed id.
-        raw = self._next_id()
-        id = f"{self.origin_id}.{_hash_id(raw)}"
-        req = self._remote_create_req(
-            id,
-            fn,
-            args,
-            kwargs,
-            opts.version,
+        req = self._global_req(
+            f"{self.origin_id}.{_hash_id(self._next_id())}",
             opts.timeout,
-            opts.target,
+            data=TaskData(func=fn, args=args, kwargs=kwargs, version=opts.version),
+            target=self.target_resolver(opts.target),
         )
 
         async def bg() -> str:
@@ -507,16 +439,11 @@ class Context:
             record returned by ``CreatePromise``. ``created.set()`` lives in
             ``finally`` so a failing create never deadlocks the chain's successors.
             """
-            try:
-                if prev_created is not None:
-                    await prev_created.wait()
-                await self.effects.create_promise(req)
-            finally:
-                created.set()
+            await self._create_promise_in_chain(req, prev_created, created)
             return req.id
 
         return ResonateFuture(
-            _id=id,
+            _id=req.id,
             _task=asyncio.create_task(bg()),
             _created=created,
         )
@@ -527,6 +454,44 @@ class Context:
         new_tail = asyncio.Event()
         self._tail = new_tail
         return prev_tail, new_tail
+
+    async def _create_promise_in_chain(
+        self,
+        req: PromiseCreateReq,
+        prev_created: asyncio.Event | None,
+        created: asyncio.Event,
+    ) -> PromiseRecord:
+        """Create ``req``'s promise in creation-chain order.
+
+        Waits on the previous chain link (so create_promise calls issue in
+        ctx.run call order under concurrency), creates the promise, then
+        releases the next link. ``created.set()`` lives in ``finally`` so a
+        failing create never deadlocks the chain's successors.
+        """
+        try:
+            if prev_created is not None:
+                await prev_created.wait()
+            return await self.effects.create_promise(req)
+        finally:
+            created.set()
+
+    def _remote_future(
+        self,
+        req: PromiseCreateReq,
+        prev_created: asyncio.Event | None,
+        created: asyncio.Event,
+    ) -> ResonateFuture:
+        """Wrap a remote ``req`` in a future backed by a deferred-create task.
+
+        Shared by :meth:`rpc`, :meth:`sleep`, and :meth:`promise`: the future's
+        body is the :meth:`_await_remote` task spawned via
+        :meth:`_spawn_remote_await`.
+        """
+        return ResonateFuture(
+            _id=req.id,
+            _task=self._spawn_remote_await(req, prev_created, created),
+            _created=created,
+        )
 
     def _spawn_remote_await(
         self,
@@ -570,12 +535,7 @@ class Context:
         with a peer task. ``created.set()`` lives in ``finally`` so a failing
         create never deadlocks the successors waiting on this chain link.
         """
-        try:
-            if prev_created is not None:
-                await prev_created.wait()
-            record = await self.effects.create_promise(req)
-        finally:
-            created.set()
+        record = await self._create_promise_in_chain(req, prev_created, created)
 
         if record.state != "pending":
             return _decode_settled(record)
