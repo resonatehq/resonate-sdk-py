@@ -51,10 +51,10 @@ from resonate.promises import Promises, Schedules
 from resonate.registry import Registry
 from resonate.send import Sender
 from resonate.transport import ExecuteMsg, Transport, UnblockMsg
-from resonate.types import Args, PromiseCreateReq, PromiseState, TaskData, Value
+from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Coroutine
 
     from resonate.codec import Encryptor
     from resonate.context import Context
@@ -846,7 +846,7 @@ class Resonate:
 
     # ── Background tasks ──────────────────────────────────────────────────────
 
-    async def _bounded_execute(self, coro: Any) -> None:
+    async def _bounded_execute(self, coro: Coroutine[Any, Any, Status | None]) -> None:
         """Run a core execution coroutine under the concurrency semaphore.
 
         Holds a permit for the coroutine's whole lifetime -- which, for both
@@ -861,7 +861,7 @@ class Resonate:
         async with self._execute_sema:
             await coro
 
-    def _spawn(self, coro: Any) -> None:
+    def _spawn(self, coro: Coroutine[Any, Any, None]) -> None:
         """Fire-and-forget a coroutine, logging failures and retaining the task.
 
         Uses :func:`asyncio.create_task` (not ``ensure_future``): every caller
