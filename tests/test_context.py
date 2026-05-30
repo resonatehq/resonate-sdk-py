@@ -24,9 +24,10 @@ from unittest.mock import AsyncMock, patch
 import msgspec
 import pytest
 
-from resonate import DependencyMap, now_ms
+from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor, encode_error
 from resonate.context import Context, Opts, _hash_id
+from resonate.dependencies import DependencyMap
 from resonate.effects import ResonateEffects
 from resonate.error import ApplicationError, SuspendedError
 from resonate.network import LocalNetwork
@@ -112,7 +113,7 @@ async def add(ctx: Context, a: int, b: int) -> int:
 
 
 async def beat(ctx: Context) -> str:
-    """Return a constant -- a ctx-only leaf (``pack_args`` -> ``None``)."""
+    """Return a constant -- a ctx-only leaf (no user arguments)."""
     return "ok"
 
 
@@ -257,7 +258,9 @@ async def test_run_ctx_only_function() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_coerces_struct_arg() -> None:
+async def test_run_passes_live_struct_arg() -> None:
+    # A local child receives the live object as-is (no serialization boundary),
+    # so a struct argument reaches the function unchanged.
     ctx = _root()
     assert await ctx.run(sum_point, Point(x=3, y=4)) == 7
 

@@ -2,27 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 from collections.abc import Awaitable, Callable, Generator
 from datetime import timedelta
 from hashlib import blake2b
-from typing import TYPE_CHECKING, Any, Concatenate, Final, Self, overload
+from typing import TYPE_CHECKING, Any, Concatenate, Self, TypeGuard, overload
 
 import msgspec
 
 from resonate import now_ms
 from resonate.codec import deserialize_error
-from resonate.durable import DurableFunction
 from resonate.error import ApplicationError, SuspendedError
-from resonate.info import Info
-from resonate.types import PromiseCreateReq, Status, TaskData, Value
+from resonate.types import Args, Info, PromiseCreateReq, Status, TaskData, Value
 
 if TYPE_CHECKING:
-    from resonate import DependencyMap
+    from resonate.dependencies import DependencyMap
     from resonate.effects import Effects
     from resonate.types import PromiseRecord
 
 
-DEFAULT_TIMEOUT: Final[timedelta] = timedelta(days=1)
+DEFAULT_TIMEOUT = timedelta(days=1)
 
 TargetResolver = Callable[[str | None], str]
 
@@ -248,6 +247,22 @@ class Context:
         timeout = requested if requested is not None else DEFAULT_TIMEOUT
         return min(now + int(timeout.total_seconds() * 1000), self.timeout_at)
 
+    async def invoke[**P, T](
+        self,
+        fn: Callable[Concatenate[Context, P], T | Awaitable[T]],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> T:
+
+        def _(value: T | Awaitable[T]) -> TypeGuard[Awaitable[T]]:
+            return inspect.isawaitable(value)
+
+        result = fn(self, *args, **kwargs)
+        if _(result):
+            result = await result
+        assert not inspect.isawaitable(result)
+        return result
+
     def info(self) -> Info:
         return Info(
             id=self.id,
@@ -307,8 +322,11 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> ResonateFuture[T]: ...
-    def run[T](
-        self, fn: Callable[..., T], *args: Any, **kwargs: Any
+    def run[**P, T](
+        self,
+        fn: Callable[Concatenate[Context, P], T | Awaitable[T]],
+        *args: P.args,
+        **kwargs: P.kwargs,
     ) -> ResonateFuture[T]:
         opts = self._consume_opts()
         # Chain promise creation: capture the previous tail
@@ -317,8 +335,7 @@ class Context:
 
         # Build id/req synchronously so child-id ordering matches call order
         # without relying on asyncio's task-start scheduling being FIFO.
-        df = DurableFunction(fn)
-        payload = df.pack_args(*args, **kwargs)
+        payload = Args(args=args, kwargs=kwargs)
 
         req = PromiseCreateReq(
             id=self._next_id(),
@@ -342,12 +359,14 @@ class Context:
 
             # Pending: execute the child locally on its own Context, which is
             # what every durable function receives as its first argument.
-            child = self._child(req.id, df.name, record.timeout_at)
+            child = self._child(
+                req.id, getattr(fn, "__name__", "unknown"), record.timeout_at
+            )
 
             outcome: Status
             value: Any | ApplicationError
             try:
-                value = await df.invoke(child, payload)
+                value = await child.invoke(fn, *payload.args, **payload.kwargs)
                 outcome = "done"
             except SuspendedError:
                 outcome = "suspended"
@@ -381,13 +400,14 @@ class Context:
                     raise SuspendedError
 
                 case ("error", _):
-                    await self.effects.settle_promise(req.id, value)
                     assert isinstance(value, ApplicationError)
+                    await self.effects.settle_promise(req.id, value)
                     raise value
 
                 case _:
-                    await self.effects.settle_promise(req.id, value)
                     assert not isinstance(value, ApplicationError)
+                    assert not inspect.isawaitable(value)
+                    await self.effects.settle_promise(req.id, value)
                     return value
 
         task = asyncio.create_task(bg())

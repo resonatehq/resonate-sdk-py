@@ -101,3 +101,13 @@ class TaskData(Args, kw_only=True, frozen=True):
 
 
 Status = Literal["done", "suspended", "error"]
+
+
+class Info(msgspec.Struct, frozen=True, kw_only=True):
+    id: str
+    parent_id: str
+    origin_id: str
+    branch_id: str
+    timeout_at: int
+    func_name: str
+    tags: dict[str, str]

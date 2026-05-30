@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING, Literal
 
 import msgspec
 
-from resonate import DependencyMap
 from resonate.codec import encode_error
 from resonate.context import Context
+from resonate.dependencies import DependencyMap
 from resonate.effects import Effects, ResonateEffects
 from resonate.error import (
     ApplicationError,
@@ -272,8 +272,8 @@ class Core:
         # 2. Look up the function in the registry by (name, version). The version
         #    was persisted in TaskData at create time, so this resolves the same
         #    implementation on every replay regardless of later registrations.
-        df = self.registry.get(task_data.func, task_data.version)
-        if df is None:
+        fn = self.registry.get(task_data.func, task_data.version)
+        if fn is None:
             raise FunctionNotFoundError(task_data.func, task_data.version)
 
         # 3. SHORT-CIRCUIT: if the root promise is already settled, report a
@@ -305,7 +305,7 @@ class Core:
         suspended: bool = False
         run_err: ApplicationError | None = None
         try:
-            res = await df.invoke(root_ctx, task_data)
+            res = await root_ctx.invoke(fn, *task_data.args, **task_data.kwargs)
         except SuspendedError:
             suspended = True
         except ApplicationError as exc:

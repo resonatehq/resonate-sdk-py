@@ -5,6 +5,7 @@ import pytest
 
 from resonate.types import (
     Args,
+    Info,
     PromiseCreateReq,
     PromiseRecord,
     PromiseRegisterCallbackData,
@@ -261,3 +262,26 @@ def test_task_data_encode() -> None:
 def test_task_data_encode_defaults_emit_empty() -> None:
     d = TaskData(func="f")
     assert msgspec.json.encode(d) == b'{"args":[],"kwargs":{},"func":"f","version":1}'
+
+
+def info() -> Info:
+    return Info(
+        id="id",
+        parent_id="parent",
+        origin_id="origin",
+        branch_id="branch",
+        timeout_at=123,
+        func_name="func",
+        tags={"k": "v"},
+    )
+
+
+def test_info_fields() -> None:
+    i = info()
+    assert i.id == "id"
+    assert i.parent_id == "parent"
+    assert i.origin_id == "origin"
+    assert i.branch_id == "branch"
+    assert i.timeout_at == 123
+    assert i.func_name == "func"
+    assert i.tags == {"k": "v"}

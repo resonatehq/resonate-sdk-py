@@ -33,10 +33,11 @@ import os
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
-from resonate import DependencyMap, now_ms
+from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor, encode_error
 from resonate.context import Opts
 from resonate.core import Core
+from resonate.dependencies import DependencyMap
 from resonate.error import (
     ApplicationError,
     FunctionNotFoundError,
@@ -397,15 +398,15 @@ class Resonate:
         else:
             name, version = getattr(func, "__name__", ""), 1
 
-        df = self._registry.get(name, version)
-        if df is None:
+        fn = self._registry.get(name, version)
+        if fn is None:
             raise FunctionNotFoundError(name, version)
 
         prefixed_id = self._prefix_id(id)
         req = self._build_root_promise_create_req(
             prefixed_id,
             name,
-            df.pack_args(*args, **kwargs),
+            Args(args=args, kwargs=kwargs),
             version,
             opts.timeout,
             opts.target,

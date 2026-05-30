@@ -78,8 +78,7 @@ class ResonateEffects:
         elif scope == "global":
             invocation = "rpc"
         else:
-            msg = "scope is either local|remote"
-            raise ValueError(msg)
+            invocation = "unknown"
         logger.info(
             "promise_create_request promise_id=%s invocation=%s",
             encoded_req.id,
