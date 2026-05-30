@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Concatenate, Self, TypeGuard, overload
 import msgspec
 
 from resonate import now_ms
-from resonate.codec import deserialize_error
+from resonate.codec import decode_settled
 from resonate.error import ApplicationError, SuspendedError
 from resonate.types import Args, Info, PromiseCreateReq, Status, TaskData, Value
 
@@ -52,24 +52,6 @@ class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
 
 def _hash_id(s: str) -> str:
     return blake2b(s.encode(), digest_size=8).hexdigest()
-
-
-def _decode_settled(record: PromiseRecord) -> Any:
-    """Map an already-settled record to its value, raising on rejection.
-
-    Mirrors Go's ``decodeSettled`` / Rust's ``PromiseRecord::as_result``. The
-    record's ``value`` has already been decoded by the codec, so a resolved
-    payload is returned as-is and any rejected payload is turned back into the
-    originating error.
-    """
-    match record.state:
-        case "resolved":
-            return record.value.data
-        case "rejected" | "rejected_canceled" | "rejected_timedout":
-            raise deserialize_error(record.value.data)
-        case _:
-            msg = f"future {record.id} has unexpected state {record.state!r}"
-            raise ApplicationError(msg)
 
 
 class Context:
@@ -355,7 +337,7 @@ class Context:
             # Idempotent recovery: an already-settled promise short-circuits
             # execution
             if record.state != "pending":
-                return _decode_settled(record)
+                return decode_settled(record)
 
             # Pending: execute the child locally on its own Context, which is
             # what every durable function receives as its first argument.
@@ -576,7 +558,7 @@ class Context:
         record = await self._create_promise_in_chain(req, prev_created, created)
 
         if record.state != "pending":
-            return _decode_settled(record)
+            return decode_settled(record)
 
         self.spawned_remote.append(req.id)
         raise SuspendedError

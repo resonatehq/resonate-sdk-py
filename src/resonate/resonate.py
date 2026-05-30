@@ -796,13 +796,13 @@ class Resonate:
         keeps the map from growing without bound. ``Subscription.settle`` is
         idempotent, so a duplicate settle (e.g. the 60s refresh racing an
         ``unblock``) is safe.
-        """
-        wire: dict[str, Any] = {}
-        if value.headers is not None:
-            wire["headers"] = value.headers
-        wire["data"] = value.data
 
-        sub.settle(PromiseResult(state=state, value=wire))
+        ``value`` is still in wire form (its ``data`` base64-encoded); decoding
+        it is deferred to :class:`~resonate.codec.Codec` when a handle reads the
+        result, keeping the codec the sole owner of the durability-boundary
+        decode.
+        """
+        sub.settle(PromiseResult(state=state, value=value))
         if self._subs.get(id) is sub:
             del self._subs[id]
 

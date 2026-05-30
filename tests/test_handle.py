@@ -16,15 +16,16 @@ import pytest
 from resonate.codec import Codec, NoopEncryptor
 from resonate.error import ApplicationError, TimeoutError as ResonateTimeoutError
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
+from resonate.types import Value
 
 
 def _codec() -> Codec:
     return Codec(NoopEncryptor())
 
 
-def _encoded(codec: Codec, value: Any) -> dict[str, Any]:
-    """Build a raw promise ``value`` whose ``data`` is the codec-encoded ``value``."""
-    return {"data": codec.encode(value).data}
+def _encoded(codec: Codec, value: Any) -> Value:
+    """Build a wire ``Value`` whose ``data`` is the codec-encoded ``value``."""
+    return codec.encode(value)
 
 
 def _ready(result: PromiseResult) -> Subscription:
@@ -62,7 +63,7 @@ async def test_result_rejected_raises_application_error() -> None:
 
 @pytest.mark.asyncio
 async def test_result_rejected_canceled_raises() -> None:
-    result = PromiseResult(state="rejected_canceled", value=None)
+    result = PromiseResult(state="rejected_canceled", value=Value())
     handle: ResonateHandle[int] = ResonateHandle(
         "p1", _ready(result), _codec(), int, _created()
     )
@@ -72,7 +73,7 @@ async def test_result_rejected_canceled_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_result_rejected_timedout_raises_timeout() -> None:
-    result = PromiseResult(state="rejected_timedout", value=None)
+    result = PromiseResult(state="rejected_timedout", value=Value())
     handle: ResonateHandle[int] = ResonateHandle(
         "p1", _ready(result), _codec(), int, _created()
     )
@@ -82,7 +83,7 @@ async def test_result_rejected_timedout_raises_timeout() -> None:
 
 @pytest.mark.asyncio
 async def test_result_pending_raises() -> None:
-    result = PromiseResult(state="pending", value=None)
+    result = PromiseResult(state="pending", value=Value())
     handle: ResonateHandle[int] = ResonateHandle(
         "p1", _ready(result), _codec(), int, _created()
     )
@@ -103,7 +104,7 @@ async def test_result_channel_closed_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_result_empty_data_decodes_to_none() -> None:
-    result = PromiseResult(state="resolved", value={"data": ""})
+    result = PromiseResult(state="resolved", value=Value(data=""))
     handle: ResonateHandle[Any] = ResonateHandle(
         "p1", _ready(result), _codec(), Any, _created()
     )
@@ -111,27 +112,29 @@ async def test_result_empty_data_decodes_to_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_result_non_string_data_passed_through() -> None:
-    result = PromiseResult(state="resolved", value={"data": {"x": 1}})
+async def test_result_absent_data_decodes_to_none() -> None:
+    result = PromiseResult(state="resolved", value=Value())
     handle: ResonateHandle[Any] = ResonateHandle(
         "p1", _ready(result), _codec(), Any, _created()
+    )
+    assert await handle.result() is None
+
+
+@pytest.mark.asyncio
+async def test_result_object_round_trips() -> None:
+    codec = _codec()
+    result = PromiseResult(state="resolved", value=_encoded(codec, {"x": 1}))
+    handle: ResonateHandle[Any] = ResonateHandle(
+        "p1", _ready(result), codec, Any, _created()
     )
     assert await handle.result() == {"x": 1}
 
 
 @pytest.mark.asyncio
-async def test_result_value_without_data_key_passed_through() -> None:
-    result = PromiseResult(state="resolved", value={"x": 1})
-    handle: ResonateHandle[Any] = ResonateHandle(
-        "p1", _ready(result), _codec(), Any, _created()
-    )
-    assert await handle.result() == {"x": 1}
-
-
-@pytest.mark.asyncio
-async def test_result_non_object_value_passed_through() -> None:
-    result = PromiseResult(state="resolved", value=7)
-    handle = ResonateHandle("p1", _ready(result), _codec(), int, _created())
+async def test_result_scalar_round_trips() -> None:
+    codec = _codec()
+    result = PromiseResult(state="resolved", value=_encoded(codec, 7))
+    handle = ResonateHandle("p1", _ready(result), codec, int, _created())
     assert await handle.result() == 7
 
 
@@ -140,7 +143,7 @@ async def test_done_reflects_channel_state() -> None:
     sub = Subscription()
     handle: ResonateHandle[int] = ResonateHandle("p1", sub, _codec(), int, _created())
     assert handle.done() is False
-    sub.settle(PromiseResult(state="resolved", value={"data": ""}))
+    sub.settle(PromiseResult(state="resolved", value=Value(data="")))
     assert handle.done() is True
 
 
@@ -151,7 +154,7 @@ async def test_id_blocks_until_creation_confirmed() -> None:
     created = asyncio.Event()
     handle = ResonateHandle(
         "p1",
-        _ready(PromiseResult(state="pending", value=None)),
+        _ready(PromiseResult(state="pending", value=Value())),
         _codec(),
         int,
         created,

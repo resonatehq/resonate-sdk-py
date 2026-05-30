@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import os
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,13 @@ from resonate.resonate import Resonate
 
 if TYPE_CHECKING:
     from resonate.context import Context
+
+
+@functools.cache
+def fib(n: int) -> int:
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
 
 
 async def fib_rpc(ctx: Context, n: int) -> int:
@@ -66,6 +74,7 @@ async def main() -> None:
         id = f"fib-{args.mode}-{args.n}"
         handle = r.run(id, fns[args.mode], args.n)
         out = await handle.result()
+        assert out == fib(args.n)
         print(f"fib({args.n}) = {out}  [mode={args.mode}]")
     except Exception as e:
         print("oops", e)

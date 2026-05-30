@@ -189,6 +189,9 @@ async def main() -> None:
         print(
             f"[book_trip] OK: flight={flight_ref} hotel={hotel_ref} charge={charge_ref}"
         )
+        assert flight_ref == "FL-alice-SFO-JFK"
+        assert hotel_ref == "HT-alice-JFK"
+        assert charge_ref == "CH-alice-850"
     finally:
         await r.stop()
 

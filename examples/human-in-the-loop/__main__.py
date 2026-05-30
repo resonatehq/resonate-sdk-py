@@ -183,6 +183,10 @@ async def main() -> None:
 
         out = await handle.result()
         await reviewer
+        if args.decision == "approve":
+            assert out == "shipped-order-42"
+        else:
+            assert out == "canceled-order-42"
         print(f"[fulfill_order] OK: {out}")
     finally:
         await r.stop()

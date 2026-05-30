@@ -108,3 +108,22 @@ def deserialize_error(value: Any) -> ApplicationError:
     # msgspec.json.encode outputs bytes, so .decode() is necessary here to format the string
     rendered = msgspec.json.encode(value).decode("utf-8")
     return ApplicationError(f"unknown error: {rendered}")
+
+
+def decode_settled(record: PromiseRecord) -> Any:
+    """Map an already-decoded, settled record to its value, raising on rejection.
+
+    Mirrors Go's ``decodeSettled`` / Rust's ``PromiseRecord::as_result``. The
+    record's ``value`` has already been decoded by :meth:`Codec.decode_promise`,
+    so a resolved payload is returned as-is and any rejected payload is turned
+    back into the originating error via :func:`deserialize_error`. Lives in the
+    codec so the durability boundary remains the sole owner of decode.
+    """
+    match record.state:
+        case "resolved":
+            return record.value.data
+        case "rejected" | "rejected_canceled" | "rejected_timedout":
+            raise deserialize_error(record.value.data)
+        case _:
+            msg = f"future {record.id} has unexpected state {record.state!r}"
+            raise ApplicationError(msg)

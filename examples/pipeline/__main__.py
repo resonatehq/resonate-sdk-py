@@ -93,6 +93,7 @@ async def main() -> None:
         print(f"[run_pipeline] starting workflow id={id}")
         handle = r.run(id, run_pipeline, "example.com/doc")
         out = await handle.result()
+        assert out == "ok"
         print(f"[run_pipeline] OK: sent={out!r}")
     finally:
         await r.stop()

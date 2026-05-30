@@ -11,7 +11,7 @@ from resonate.error import (
     SerializationError,
     TimeoutError as ResonateTimeoutError,
 )
-from resonate.types import PromiseState
+from resonate.types import PromiseState, Value
 
 if TYPE_CHECKING:
     from resonate.codec import Codec
@@ -21,11 +21,12 @@ class PromiseResult(msgspec.Struct, frozen=True, kw_only=True):
     """The settled state of a durable promise, delivered over the result channel.
 
     Mirrors Rust's crate-internal ``PromiseResult``: a (folded) ``PromiseState``
-    and the raw, still-encoded ``value``.
+    and the raw, still-encoded wire ``value``. Decoding the value is deferred to
+    :class:`~resonate.codec.Codec` when the holder reads the result.
     """
 
     state: PromiseState
-    value: Any
+    value: Value
 
 
 class Subscription:
@@ -121,17 +122,24 @@ class ResonateHandle[T]:
         return self._sub.settled()
 
     def _decode_result(self, result: PromiseResult) -> T:
-        """Decode a :class:`PromiseResult` into the final ``T`` or raise."""
+        """Decode a :class:`PromiseResult` into the final ``T`` or raise.
+
+        The wire ``value`` crosses the durability boundary through the
+        :class:`~resonate.codec.Codec` -- the sole owner of that decode. This
+        method only maps the settled state onto the decoded value (coerced to
+        ``T``) or the matching error. The coercion mirrors Rust's
+        ``serde_json::from_value::<T>`` in ``handle.rs``: type-shaping an
+        already-decoded value, distinct from the codec's serialization work.
+        """
         match result.state:
             case "resolved":
-                decoded = self._decode_value(result.value)
+                decoded = self._codec.decode(result.value, Any)
                 try:
                     return msgspec.convert(decoded, self._type)
                 except (TypeError, ValueError, msgspec.MsgspecError) as exc:
                     raise SerializationError(exc) from exc
             case "rejected":
-                decoded = self._decode_value(result.value)
-                raise deserialize_error(decoded)
+                raise deserialize_error(self._codec.decode(result.value, Any))
             case "rejected_canceled":
                 msg = "Promise canceled"
                 raise ApplicationError(msg)
@@ -140,14 +148,3 @@ class ResonateHandle[T]:
             case "pending":
                 msg = "promise still pending"
                 raise ApplicationError(msg)
-
-    def _decode_value(self, value: Any) -> Any:
-        """Decode a promise's ``value`` field, which may be base64-encoded."""
-        if isinstance(value, dict) and "data" in value:
-            data = value["data"]
-            if isinstance(data, str):
-                if data == "":
-                    return None
-                return self._codec.decode_base64_str(data, Any)
-            return data
-        return value
