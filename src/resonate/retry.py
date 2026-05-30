@@ -32,6 +32,26 @@ class Exponential(msgspec.Struct, frozen=True, kw_only=True):
         return min(self.delay * self.factor**attempt, self.max_delay)
 
 
+class Linear(msgspec.Struct, frozen=True, kw_only=True):
+    max_retries: int
+    delay: int
+
+    def next(self, attempt: int) -> float | None:
+        if attempt > self.max_retries:
+            return None
+        return self.delay * attempt
+
+
+class Constant(msgspec.Struct, frozen=True, kw_only=True):
+    max_retries: int
+    delay: int
+
+    def next(self, attempt: int) -> float | None:
+        if attempt > self.max_retries:
+            return None
+        return self.delay
+
+
 class Never(msgspec.Struct, frozen=True, kw_only=True):
     def next(self, _: int) -> float | None:
         return None

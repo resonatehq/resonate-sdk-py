@@ -10,7 +10,6 @@ from resonate.error import (
     ApplicationError,
     Base64DecodeError,
     DecodingError,
-    ResonateError,
     SerializationError,
     Utf8Error,
 )
@@ -108,12 +107,12 @@ class Codec:
         )
 
 
-def encode_error(err: ResonateError) -> dict[str, str]:
+def encode_error(err: Exception) -> dict[str, str]:
     """Encode an error for durable storage."""
     return {"__type": "error", "message": str(err)}
 
 
-def deserialize_error(value: Any) -> ResonateError:
+def deserialize_error(value: Any) -> ApplicationError:
     """Deserialize an error value from a rejected promise."""
     if isinstance(value, dict):
         msg = value.get("message")
