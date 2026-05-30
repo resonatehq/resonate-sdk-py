@@ -3,7 +3,6 @@ from __future__ import annotations
 import msgspec
 import pytest
 
-from resonate.error import SerializationError
 from resonate.types import (
     Args,
     PromiseCreateReq,
@@ -14,17 +13,6 @@ from resonate.types import (
     TaskRecord,
     Value,
 )
-
-
-class Point(msgspec.Struct):
-    x: int
-    y: int
-
-
-def from_wire_json(raw: str) -> Value:
-    """Decode a JSON string then build a Value, mirroring Rust's `from_str::<Value>`."""
-    return Value.from_wire(msgspec.json.decode(raw.encode()))
-
 
 # --- serialization: omit_defaults mirrors serde `skip_serializing_if = is_none` ---
 
@@ -57,53 +45,19 @@ def test_data_or_null_returns_data() -> None:
     assert Value(data=42).data == 42
 
 
-# --- from_serializable ---
+# --- wire decode: msgspec decodes the {headers, data} struct natively ---
 
 
-def test_from_serializable_wraps_data() -> None:
-    v = Value.from_serializable(Point(1, 2))
-    assert v.headers is None
-    assert v.data == {"x": 1, "y": 2}
-    assert msgspec.json.encode(v) == b'{"data":{"x":1,"y":2}}'
+def test_value_decodes_from_wire_object() -> None:
+    v = msgspec.json.decode(b'{"headers":{"a":"b"},"data":1}', type=Value)
+    assert v.headers == {"a": "b"}
+    assert v.data == 1
 
 
-def test_from_serializable_unserializable_raises() -> None:
-    with pytest.raises(SerializationError):
-        Value.from_serializable(object())
-
-
-# --- decode ---
-
-
-def test_decode_roundtrip() -> None:
-    v = Value.from_serializable(Point(1, 2))
-    assert v.decode(Point) == Point(1, 2)
-
-
-def test_decode_null_into_required_type_raises() -> None:
-    with pytest.raises(SerializationError):
-        Value().decode(int)
-
-
-# --- from_wire: mirrors the Rust custom `Deserialize` impl ---
-
-
-def test_from_wire_null_is_empty_value() -> None:
-    v = from_wire_json("null")
+def test_value_decodes_empty_object() -> None:
+    v = msgspec.json.decode(b"{}", type=Value)
     assert v.headers is None
     assert v.data is None
-
-
-def test_from_wire_invalid_headers_are_dropped() -> None:
-    # headers that are not a `str -> str` map become None (Rust `.ok()`).
-    assert from_wire_json('{"headers":[1,2],"data":1}').headers is None
-    assert from_wire_json('{"headers":{"a":1}}').headers is None
-
-
-def test_from_wire_bare_value_is_treated_as_data() -> None:
-    assert from_wire_json("42").data == 42
-    assert from_wire_json('"hello"').data == "hello"
-    assert from_wire_json("[1,2,3]").data == [1, 2, 3]
 
 
 def test_promise_record_decode_minimal_applies_defaults() -> None:

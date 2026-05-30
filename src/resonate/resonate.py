@@ -547,8 +547,8 @@ class Resonate:
             cron=cron,
             promise_id=f"{self._id_prefix}{{{{.id}}}}.{{{{.timestamp}}}}",
             promise_timeout=_timeout_ms(promise_timeout),
-            promise_param=Value.from_serializable(
-                TaskData(
+            promise_param=Value(
+                data=TaskData(
                     func=func_name,
                     args=args or (),
                     kwargs=kwargs or {},
@@ -669,8 +669,8 @@ class Resonate:
         return PromiseCreateReq(
             id=prefixed_id,
             timeout_at=now_ms() + _timeout_ms(timeout),
-            param=Value.from_serializable(
-                TaskData(
+            param=Value(
+                data=TaskData(
                     func=func_name,
                     args=packed.args,
                     kwargs=packed.kwargs,

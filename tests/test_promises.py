@@ -35,18 +35,14 @@ def _local() -> tuple[Promises, Schedules]:
 async def test_promises_create_get_resolve_roundtrip() -> None:
     promises, _ = _local()
 
-    created = await promises.create(
-        "unit-p1", I64_MAX, Value.from_serializable({"x": 1}), {}
-    )
+    created = await promises.create("unit-p1", I64_MAX, Value(data={"x": 1}), {})
     assert created.id == "unit-p1"
     assert created.state == "pending"
 
     fetched = await promises.get("unit-p1")
     assert fetched.id == "unit-p1"
 
-    settled = await promises.resolve(
-        "unit-p1", Value.from_serializable({"result": "ok"})
-    )
+    settled = await promises.resolve("unit-p1", Value(data={"result": "ok"}))
     assert settled.state == "resolved"
 
     after = await promises.get("unit-p1")
@@ -59,14 +55,10 @@ async def test_promises_create_get_reject_roundtrip() -> None:
     # promise as ``rejected`` (via ``_settle``), and the state survives a re-get.
     promises, _ = _local()
 
-    created = await promises.create(
-        "unit-p-reject", I64_MAX, Value.from_serializable({"x": 1}), {}
-    )
+    created = await promises.create("unit-p-reject", I64_MAX, Value(data={"x": 1}), {})
     assert created.state == "pending"
 
-    settled = await promises.reject(
-        "unit-p-reject", Value.from_serializable({"error": "boom"})
-    )
+    settled = await promises.reject("unit-p-reject", Value(data={"error": "boom"}))
     assert settled.state == "rejected"
 
     after = await promises.get("unit-p-reject")

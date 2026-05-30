@@ -12,22 +12,6 @@ if TYPE_CHECKING:
     from resonate.types import PromiseRecord, ScheduleRecord
 
 
-def encode_value(codec: Codec, value: Value) -> Value:
-    """Encode a plaintext :class:`Value` for the wire via the codec.
-
-    The single symmetric counterpart to the codec decode applied on the way back
-    (:meth:`Codec.decode_promise`): a caller hands a *plaintext* ``Value`` (built
-    with :meth:`~resonate.types.Value.from_serializable`) and the codec
-    serializes, encrypts, and base64-encodes its ``data``. Keeps the
-    :class:`~resonate.codec.Codec` the sole owner of encode/decode -- and so of
-    encryption/decryption -- exactly mirroring
-    :meth:`resonate.effects.ResonateEffects.create_promise`'s encode step for
-    child promises and :meth:`Resonate._encode_create_req` for top-level
-    run/rpc. ``data`` of ``None`` round-trips to an empty wire value.
-    """
-    return codec.encode(value.data)
-
-
 class Promises:
     """Sub-client for promise operations. Mirrors Rust's ``Promises``."""
 
@@ -52,7 +36,7 @@ class Promises:
             PromiseCreateReq(
                 id=id,
                 timeout_at=timeout_at,
-                param=encode_value(self.codec, param),
+                param=self.codec.encode(param),
                 tags=tags,
             )
         )
@@ -77,7 +61,7 @@ class Promises:
         value: Value,
     ) -> PromiseRecord:
         record = await self.sender.promise_settle(
-            PromiseSettleReq(id=id, state=state, value=encode_value(self.codec, value))
+            PromiseSettleReq(id=id, state=state, value=self.codec.encode(value))
         )
         return self.codec.decode_promise(record)
 
@@ -116,7 +100,7 @@ class Schedules:
                 cron=cron,
                 promise_id=promise_id,
                 promise_timeout=promise_timeout,
-                promise_param=encode_value(self.codec, promise_param),
+                promise_param=self.codec.encode(promise_param),
                 promise_tags={},
             )
         )

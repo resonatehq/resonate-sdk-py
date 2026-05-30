@@ -148,7 +148,7 @@ async def simulate_reviewer(
     then settles it. No polling, no hardcoded id.
     """
     approval_id = await inbox.approval_id
-    await r.promises.resolve(approval_id, Value.from_serializable(decision))
+    await r.promises.resolve(approval_id, Value(data=decision))
     print(
         f"[reviewer] resolved {approval_id} -> "
         f"approve={decision.approve} note={decision.note!r}"

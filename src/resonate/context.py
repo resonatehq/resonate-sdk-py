@@ -289,7 +289,7 @@ class Context:
         return PromiseCreateReq(
             id=id,
             timeout_at=self._child_timeout(timeout),
-            param=Value.from_serializable(data) if data is not None else Value(),
+            param=Value(data=data),
             tags=tags,
         )
 
@@ -323,7 +323,7 @@ class Context:
         req = PromiseCreateReq(
             id=self._next_id(),
             timeout_at=self._child_timeout(opts.timeout),
-            param=Value.from_serializable(payload),
+            param=Value(data=payload),
             tags={
                 "resonate:scope": "local",
                 "resonate:branch": self.branch_id,

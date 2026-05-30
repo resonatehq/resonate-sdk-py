@@ -342,9 +342,10 @@ class Core:
 
         # 5. FINALIZE: fulfill when no remote todos remain and the function did
         #    not request suspension.
+        state: SettleState
         if not suspended and not todos:
             if run_err is not None:
-                state: SettleState = "rejected"
+                state = "rejected"
                 encoded = self.codec.encode(encode_error(run_err))
             else:
                 state = "resolved"

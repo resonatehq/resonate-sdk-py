@@ -25,21 +25,18 @@ class Heartbeat(Protocol):
 
         Starts the heartbeat loop if this is the first tracked task.
         """
-        ...
 
     def stop(self, task_id: str) -> None:
         """Remove a task from the heartbeat set.
 
         Stops the heartbeat loop if no tasks remain.
         """
-        ...
 
     def shutdown(self) -> None:
         """Shut down the heartbeat entirely.
 
         Clears all tracked tasks and aborts the loop. Called on graceful shutdown.
         """
-        ...
 
 
 class NoopHeartbeat:

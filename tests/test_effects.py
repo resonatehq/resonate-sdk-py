@@ -36,6 +36,11 @@ def _test_codec() -> Codec:
     return Codec(NoopEncryptor())
 
 
+def _value_from_wire(raw: Any) -> Value:
+    """Build a Value from a parsed-JSON ``{headers, data}`` object (or null)."""
+    return Value() if raw is None else msgspec.convert(raw, Value)
+
+
 def _promise_to_json(p: PromiseRecord) -> dict[str, Any]:
     """Convert a PromiseRecord to the server response JSON (Rust ``promise_to_json``)."""
     return {
@@ -116,7 +121,7 @@ class StubNetwork:
             id=promise_id,
             state="pending",
             timeout_at=data.get("timeoutAt", I64_MAX),
-            param=Value.from_wire(data.get("param")),
+            param=_value_from_wire(data.get("param")),
             value=Value(),
             tags=data.get("tags") or {},
             created_at=0,
@@ -130,7 +135,7 @@ class StubNetwork:
         state_str = data.get("state") or "resolved"
         # resolved -> resolved; rejected / rejected_canceled -> rejected.
         promise_state = "resolved" if state_str == "resolved" else "rejected"
-        value = Value.from_wire(data.get("value"))
+        value = _value_from_wire(data.get("value"))
 
         existing = self.promises.get(promise_id)
         if existing is not None:

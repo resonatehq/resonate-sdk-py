@@ -4,8 +4,6 @@ from typing import Any, Literal
 
 import msgspec
 
-from resonate.error import SerializationError
-
 PromiseState = Literal[
     "pending",
     "resolved",
@@ -20,73 +18,18 @@ class Value(msgspec.Struct, omit_defaults=True, kw_only=True, frozen=True):
 
     On the wire, ``data`` is a base64-encoded JSON string (or omitted).
     Internally, after decoding by the Codec, ``data`` holds the deserialized
-    value.
+    value; before encoding, it holds the plaintext value the
+    :class:`~resonate.codec.Codec` will serialize.
 
     Both fields default to ``None`` and, with ``omit_defaults=True``, are left
     out when encoding -- the equivalent of serde's ``skip_serializing_if``.
 
     Note: Python uses ``None`` for JSON ``null``, so an absent ``data`` field
-    and an explicit ``null`` collapse to the same value. This matches the Rust
-    accessors, which all fall back to ``null``.
+    and an explicit ``null`` collapse to the same value.
     """
 
-    headers: dict[str, str] | None = msgspec.field(default=None)
-    data: Any | None = msgspec.field(default=None)
-
-    @classmethod
-    def from_serializable(cls, val: Any) -> Value:
-        """Build a ``Value`` whose data is ``val`` converted to JSON builtins.
-
-        Mirrors ``serde_json::to_value``: ``val`` is normalized into JSON-shaped
-        builtins (dicts, lists, scalars). Raises :class:`SerializationError` if
-        it cannot be serialized, matching Rust's ``serde_json::to_value(val)?``.
-        """
-        try:
-            data = msgspec.to_builtins(val)
-        except (TypeError, ValueError, msgspec.MsgspecError) as exc:
-            raise SerializationError(exc) from exc
-        return cls(headers=None, data=data)
-
-    def decode[T](self, type: type[T]) -> T:
-        """Deserialize the data field into ``type``.
-
-        Decoding ``None`` (an absent or null ``data``) into a non-optional type
-        raises :class:`SerializationError`, matching the Rust behaviour of
-        deserializing ``null`` (a ``serde_json::Error`` becomes
-        ``Error::SerializationError``).
-        """
-        try:
-            return msgspec.convert(self.data, type)
-        except (TypeError, ValueError, msgspec.MsgspecError) as exc:
-            raise SerializationError(exc) from exc
-
-    @classmethod
-    def from_wire(cls, raw: Any) -> Value:
-        """Construct a ``Value`` from a parsed-JSON value.
-
-        Mirrors the Rust custom ``Deserialize``:
-
-        * ``None`` (JSON null) -> an empty ``Value``.
-        * a mapping -> ``headers`` and ``data`` are read from the map; headers
-          that are not a ``str -> str`` map are dropped.
-        * any other value -> treated as the raw ``data``.
-        """
-        match raw:
-            case None:
-                return cls()
-            case dict():
-                headers: dict[str, str] | None
-                try:
-                    headers = (
-                        msgspec.convert(raw["headers"], dict[str, str])
-                        if "headers" in raw
-                        else None
-                    )
-                except (TypeError, ValueError, msgspec.MsgspecError):
-                    headers = None
-                return cls(headers=headers, data=raw.get("data"))
-            case _:
-                return cls(headers=None, data=raw)
+    headers: dict[str, str] | None = None
+    data: Any | None = None
 
 
 class PromiseRecord(msgspec.Struct, rename="camel", kw_only=True, frozen=True):

@@ -32,7 +32,7 @@ from resonate.error import ApplicationError, SuspendedError
 from resonate.network import LocalNetwork
 from resonate.send import Sender
 from resonate.transport import Transport
-from resonate.types import PromiseRecord, Value
+from resonate.types import PromiseRecord, TaskData, Value
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -915,13 +915,11 @@ async def test_rpc_request_tags_and_param() -> None:
         "resonate:origin": "root",
     }
     # ``TaskData`` flattens func + args + kwargs + version; ``args`` is the live
-    # tuple here (it serializes to a JSON array on the wire).
-    assert req.param.data == {
-        "func": "remote_fn",
-        "args": (1, 2),
-        "kwargs": {"k": "v"},
-        "version": 1,
-    }
+    # tuple here (it serializes to a JSON array on the wire). The codec
+    # serializes this struct on the way out, so ``data`` holds it verbatim.
+    assert req.param.data == TaskData(
+        func="remote_fn", args=(1, 2), kwargs={"k": "v"}, version=1
+    )
 
 
 @pytest.mark.asyncio
@@ -932,12 +930,9 @@ async def test_rpc_no_args_param_is_empty() -> None:
     with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
         await ctx.rpc("remote_fn")
 
-    assert captured[0].param.data == {
-        "func": "remote_fn",
-        "args": (),
-        "kwargs": {},
-        "version": 1,
-    }
+    assert captured[0].param.data == TaskData(
+        func="remote_fn", args=(), kwargs={}, version=1
+    )
 
 
 # =============================================================================
@@ -1524,12 +1519,9 @@ async def test_detached_request_tags_and_param() -> None:
     }
     # Like rpc, detached dispatches a flattened ``TaskData`` (args is the live
     # tuple, serialized to a JSON array on the wire).
-    assert req.param.data == {
-        "func": "remote_fn",
-        "args": (1, 2),
-        "kwargs": {"k": "v"},
-        "version": 1,
-    }
+    assert req.param.data == TaskData(
+        func="remote_fn", args=(1, 2), kwargs={"k": "v"}, version=1
+    )
 
 
 @pytest.mark.asyncio
@@ -1537,12 +1529,9 @@ async def test_detached_no_args_param_is_empty() -> None:
     ctx = _root()
     with _spy_create_promise(ctx) as captured:
         await ctx.detached("remote_fn")
-    assert captured[0].param.data == {
-        "func": "remote_fn",
-        "args": (),
-        "kwargs": {},
-        "version": 1,
-    }
+    assert captured[0].param.data == TaskData(
+        func="remote_fn", args=(), kwargs={}, version=1
+    )
 
 
 @pytest.mark.asyncio
