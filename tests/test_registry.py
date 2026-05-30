@@ -39,8 +39,6 @@ def test_register_and_get() -> None:
 def test_custom_name_is_independent_of_fn_name() -> None:
     r = Registry()
     r.register("custom", leaf)
-    assert r.contains("custom")
-    assert not r.contains("leaf")
     df = r.get("custom")
     assert df is not None
     assert df.name == "leaf"  # the entry still remembers its source name
@@ -48,10 +46,6 @@ def test_custom_name_is_independent_of_fn_name() -> None:
 
 def test_get_unknown_returns_none() -> None:
     assert Registry().get("missing") is None
-
-
-def test_contains_unknown_is_false() -> None:
-    assert not Registry().contains("missing")
 
 
 def test_empty_name_rejected() -> None:
@@ -72,18 +66,6 @@ def test_register_non_callable_rejected() -> None:
         Registry().register("bad", not_callable)
 
 
-def test_names_and_len() -> None:
-    r = Registry()
-    r.register("a", leaf)
-    r.register("b", flow)
-    assert sorted(r.names()) == ["a", "b"]
-    assert len(r) == 2
-
-
-def test_empty_registry_len_is_zero() -> None:
-    assert len(Registry()) == 0
-
-
 # ── Versioning (a Python-only divergence from the Rust/Go reference SDKs, which
 #    key the registry purely on name; see Registry's docstring) ───────────────
 
@@ -91,8 +73,6 @@ def test_empty_registry_len_is_zero() -> None:
 def test_default_version_is_one() -> None:
     r = Registry()
     r.register("leaf", leaf)  # version defaults to 1
-    assert r.contains("leaf")  # version defaults to 1
-    assert r.contains("leaf", 1)
     assert r.get("leaf") is not None
     assert r.get("leaf", 1) is not None
 
@@ -101,7 +81,6 @@ def test_same_name_different_versions_coexist() -> None:
     r = Registry()
     r.register("flow", leaf, 1)
     r.register("flow", flow, 2)
-    assert len(r) == 2
     v1 = r.get("flow", 1)
     v2 = r.get("flow", 2)
     assert v1 is not None
@@ -123,7 +102,6 @@ def test_unknown_version_returns_none() -> None:
     r = Registry()
     r.register("leaf", leaf, 1)
     assert r.get("leaf", 2) is None
-    assert not r.contains("leaf", 2)
 
 
 def test_version_below_one_rejected() -> None:

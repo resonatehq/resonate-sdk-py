@@ -21,11 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 class TaskRef(msgspec.Struct, kw_only=True, frozen=True):
-    """A task reference inside an execute message.
-
-    ``version`` mirrors Rust's ``#[serde(default)]`` (defaults to ``0``).
-    """
-
     id: str
     version: int = msgspec.field(default=0)
 
@@ -37,34 +32,22 @@ class ExecuteData(msgspec.Struct, kw_only=True, frozen=True):
 class ExecuteMsg(
     msgspec.Struct, tag="execute", tag_field="kind", kw_only=True, frozen=True
 ):
-    """Execute message -- server tells this worker to run a task.
-
-    JSON shape: ``{ kind: "execute", data: { task: { id, version } } }``.
-    """
-
     data: ExecuteData
 
     def task_id(self) -> str:
-        """Task ID -- shorthand for ``data.task.id``."""
         return self.data.task.id
 
     def version(self) -> int:
-        """Task version -- shorthand for ``data.task.version``."""
         return self.data.task.version
 
 
 class UnblockData(msgspec.Struct, kw_only=True, frozen=True):
-    promise: Any
+    promise: Any  # TODO
 
 
 class UnblockMsg(
     msgspec.Struct, tag="unblock", tag_field="kind", kw_only=True, frozen=True
 ):
-    """Unblock message -- a promise this worker is waiting on has been settled.
-
-    JSON shape: ``{ kind: "unblock", data: { promise: PromiseRecord } }``.
-    """
-
     data: UnblockData
 
     def promise(self) -> Any:

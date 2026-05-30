@@ -52,12 +52,3 @@ class Registry:
 
     def get(self, name: str, version: int = 1) -> DurableFunction | None:
         return self._by_key.get((name, version))
-
-    def contains(self, name: str, version: int = 1) -> bool:
-        return (name, version) in self._by_key
-
-    def names(self) -> list[str]:
-        return [name for name, _ in self._by_key]
-
-    def __len__(self) -> int:
-        return len(self._by_key)

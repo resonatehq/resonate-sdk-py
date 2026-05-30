@@ -161,15 +161,3 @@ async def test_id_blocks_until_creation_confirmed() -> None:
     assert not id_task.done()
     created.set()
     assert await id_task == "p1"
-
-
-@pytest.mark.asyncio
-async def test_repr_shows_id() -> None:
-    handle = ResonateHandle(
-        "my-id",
-        _ready(PromiseResult(state="pending", value=None)),
-        _codec(),
-        int,
-        _created(),
-    )
-    assert repr(handle) == "ResonateHandle(id='my-id')"

@@ -97,9 +97,6 @@ class ResonateHandle[T]:
         self._type = type_
         self._created = created
 
-    def __repr__(self) -> str:
-        return f"ResonateHandle(id={self._id!r})"
-
     async def id(self) -> str:
         """Return the durable promise id, once its creation is confirmed.
 

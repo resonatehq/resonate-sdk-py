@@ -68,18 +68,6 @@ class AsyncHeartbeat:
         self.active_tasks: dict[str, int] = {}
         self._handle: asyncio.Task[None] | None = None
 
-    def task_count(self) -> int:
-        """Return the number of currently tracked tasks."""
-        return len(self.active_tasks)
-
-    def is_running(self) -> bool:
-        """Return whether the heartbeat loop is currently running."""
-        return self._handle is not None
-
-    def tracked_tasks(self) -> dict[str, int]:
-        """Return a snapshot of the currently tracked tasks (id -> version)."""
-        return dict(self.active_tasks)
-
     def _ensure_loop_running(self) -> None:
         """Spawn the heartbeat loop if not already running."""
         if self._handle is not None:
