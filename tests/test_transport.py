@@ -139,8 +139,8 @@ def test_recv_parses_execute_message() -> None:
     assert len(received) == 1
     msg = received[0]
     assert isinstance(msg, ExecuteMsg)
-    assert msg.task_id() == "t1"
-    assert msg.version() == 3
+    assert msg.task_id == "t1"
+    assert msg.version == 3
 
 
 def test_recv_execute_message_default_version() -> None:
@@ -148,7 +148,7 @@ def test_recv_execute_message_default_version() -> None:
     raw = '{"kind":"execute","data":{"task":{"id":"t1"}}}'
     received = feed(Transport(net), net, raw)
     assert isinstance(received[0], ExecuteMsg)
-    assert received[0].version() == 0
+    assert received[0].version == 0
 
 
 def test_recv_parses_unblock_message() -> None:
@@ -161,7 +161,7 @@ def test_recv_parses_unblock_message() -> None:
     assert len(received) == 1
     msg = received[0]
     assert isinstance(msg, UnblockMsg)
-    assert msg.promise() == PromiseRecord(
+    assert msg.promise == PromiseRecord(
         id="p1",
         state="resolved",
         value=Value(data="dmFs"),

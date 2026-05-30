@@ -49,7 +49,7 @@ def test_get_unknown_returns_none() -> None:
 
 
 def test_empty_name_rejected() -> None:
-    with pytest.raises(ApplicationError, match="name is required"):
+    with pytest.raises(ValueError, match="name is required"):
         Registry().register("", leaf)
 
 
@@ -105,5 +105,5 @@ def test_unknown_version_returns_none() -> None:
 
 
 def test_version_below_one_rejected() -> None:
-    with pytest.raises(ApplicationError, match="version must be >= 1"):
+    with pytest.raises(ValueError, match="version must be >= 1"):
         Registry().register("zero", leaf, 0)

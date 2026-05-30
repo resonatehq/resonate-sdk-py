@@ -46,7 +46,6 @@ from resonate.error import (
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.network import HttpNetwork, LocalNetwork
-from resonate.options import is_url
 from resonate.promises import Promises, Schedules
 from resonate.registry import Registry
 from resonate.send import Sender
@@ -635,8 +634,10 @@ class Resonate:
         :class:`~resonate.context.TargetResolver` handed to :class:`Core`.
         """
         resolved = target if target is not None else self._network.group()
-        if is_url(resolved):
+
+        if "://" in resolved:
             return resolved
+
         return self._network.target_resolver(resolved)
 
     def _safe_ttl_ms(self) -> int:
@@ -817,12 +818,12 @@ class Resonate:
             if not self._stopping:
                 self._spawn(
                     self._bounded_execute(
-                        self._core.on_message(msg.task_id(), msg.version())
+                        self._core.on_message(msg.task_id, msg.version)
                     )
                 )
         elif isinstance(msg, UnblockMsg):
-            promise = msg.promise()
-            sub = self._subs.get(msg.promise().id)
+            promise = msg.promise
+            sub = self._subs.get(msg.promise.id)
             if sub is None:
                 # No one waiting (already settled+cleaned, or a duplicate push).
                 return

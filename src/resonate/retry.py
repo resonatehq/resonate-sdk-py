@@ -17,7 +17,6 @@ class RetryPolicy(Protocol):
 
         A returned delay of ``0`` means "retry immediately, no sleep".
         """
-        ...
 
 
 class Exponential(msgspec.Struct, frozen=True, kw_only=True):

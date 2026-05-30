@@ -41,11 +41,6 @@ def test_decode_base64_str_roundtrip() -> None:
     assert c.decode_base64_str(b64_str, Any) == {"x": 1}
 
 
-def test_decode_base64_str_empty_returns_none() -> None:
-    c = codec()
-    assert c.decode_base64_str("", Any) is None
-
-
 def test_roundtrip_bool() -> None:
     c = codec()
     encoded = c.encode(value=True)
@@ -78,7 +73,7 @@ def test_roundtrip_array() -> None:
 def test_encode_null_produces_empty_data() -> None:
     c = codec()
     encoded = c.encode(None)
-    assert encoded.data == ""
+    assert encoded.data is None
     assert c.decode(encoded, Any) is None
 
 

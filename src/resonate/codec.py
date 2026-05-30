@@ -9,9 +9,7 @@ import msgspec
 from resonate.error import (
     ApplicationError,
     Base64DecodeError,
-    DecodingError,
     SerializationError,
-    Utf8Error,
 )
 from resonate.types import PromiseRecord, Value
 
@@ -46,48 +44,36 @@ class Codec:
 
     def encode(self, value: Any) -> Value:
         """Encode a serializable value into the wire format."""
+        if value is None:
+            return Value(headers=None, data=None)
+
         try:
-            json_val = msgspec.to_builtins(value)
+            json_bytes = msgspec.json.encode(value)
         except (TypeError, ValueError, msgspec.MsgspecError) as exc:
             raise SerializationError(exc) from exc
-        if json_val is None:
-            return Value(headers=None, data="")
-        json_bytes = msgspec.json.encode(json_val)
+
         encrypted = self.encryptor.encrypt(json_bytes)
-        b64 = base64.b64encode(encrypted).decode("ascii")
-        return Value(headers=None, data=b64)
+        return Value(headers=None, data=base64.b64encode(encrypted).decode("ascii"))
 
     def decode[T](self, value: Value, type: type[T]) -> T | None:
         """Decode a wire-format value back into ``type``.
 
         Returns ``None`` for empty or ``null`` ``data``.
         """
-        match value.data:
-            case str() as s if s == "":
-                return None
-            case str() as s:
-                return self.decode_base64_str(s, type)
-            case None:
-                return None
-            case _:
-                msg = "expected string or null data"
-                raise DecodingError(msg)
+        if not value.data:
+            return None
+
+        return self.decode_base64_str(value.data, type)
 
     def decode_base64_str[T](self, s: str, type: type[T]) -> T | None:
         """Decode a base64-encoded, encrypted JSON string directly into ``type``."""
-        if s == "":
-            return None
         try:
             data = base64.b64decode(s, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise Base64DecodeError(exc) from exc
-        decrypted = self.encryptor.decrypt(data)
+
         try:
-            json_str = decrypted.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise Utf8Error(exc) from exc
-        try:
-            return msgspec.json.decode(json_str, type=type)
+            return msgspec.json.decode(self.encryptor.decrypt(data), type=type)
         except msgspec.MsgspecError as exc:
             raise SerializationError(exc) from exc
 
@@ -118,5 +104,7 @@ def deserialize_error(value: Any) -> ApplicationError:
         msg = value.get("message")
         if isinstance(msg, str):
             return ApplicationError(msg)
+
+    # msgspec.json.encode outputs bytes, so .decode() is necessary here to format the string
     rendered = msgspec.json.encode(value).decode("utf-8")
     return ApplicationError(f"unknown error: {rendered}")

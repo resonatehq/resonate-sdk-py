@@ -143,11 +143,9 @@ class ResonateHandle[T]:
 
     def _decode_value(self, value: Any) -> Any:
         """Decode a promise's ``value`` field, which may be base64-encoded."""
-        # Try to decode the value.data field through the codec.
         if isinstance(value, dict) and "data" in value:
             data = value["data"]
             if isinstance(data, str):
-                # Empty string is the wire-encoding for null/unit values.
                 if data == "":
                     return None
                 return self._codec.decode_base64_str(data, Any)

@@ -35,9 +35,11 @@ class ExecuteMsg(
 ):
     data: ExecuteData
 
+    @property
     def task_id(self) -> str:
         return self.data.task.id
 
+    @property
     def version(self) -> int:
         return self.data.task.version
 
@@ -51,6 +53,7 @@ class UnblockMsg(
 ):
     data: UnblockData
 
+    @property
     def promise(self) -> PromiseRecord:
         """Return the settled promise -- shorthand for ``data.promise``."""
         return self.data.promise
@@ -85,24 +88,16 @@ def _nested_str(value: Any, *keys: str) -> str:
 
 
 class Transport:
-    """Wrap a :class:`~resonate.network.Network` with JSON and correlation.
+    """Adds JSON serialization, deserialization, and correlation validation.
 
-    Adds JSON serialization, deserialization, and correlation validation.
     Resonate and its sub-components use the transport -- never the raw network.
-
-    Mirrors Rust's ``Transport``.
     """
 
     def __init__(self, network: Network) -> None:
         self._network = network
 
     async def send(self, kind: str, corr_id: str, body: str) -> Any:
-        """Send an already-serialized request, returning the parsed response.
-
-        Validates that ``response.kind == kind`` and
-        ``response.head.corrId == corr_id``, raising :class:`ServerError`
-        (code 500) on a mismatch and :class:`DecodingError` on invalid JSON.
-        """
+        """Send an already-serialized request, returning the parsed response."""
         logger.debug("transport send_req: %s", body)
 
         resp_str = await self._network.send(body)
@@ -127,11 +122,7 @@ class Transport:
         return response
 
     def recv(self, callback: Callable[[Message], None]) -> None:
-        """Register a callback for incoming messages.
-
-        Parses JSON into a :class:`Message`, discards invalid messages (logging
-        a warning), and forwards valid ones. Mirrors Rust's ``Transport::recv``.
-        """
+        """Register a callback for incoming messages."""
 
         def on_raw(raw: str) -> None:
             try:
