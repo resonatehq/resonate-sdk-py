@@ -373,44 +373,60 @@ async def test_heartbeat_stopped_on_error(fix: CoreFixture) -> None:
     assert fix.hb.stopped == 1  # stopped even after error
 
 
-# ── Panic handling: caught, classified, task released ──────────────────
+# ── Plain exceptions: caught, settle the promise ``rejected`` ──────────
 
 
 @pytest.mark.asyncio
-async def test_plain_panic_yields_application_error_and_releases_task(
+async def test_plain_exception_rejects_promise_and_fulfills_task(
     fix: CoreFixture,
 ) -> None:
+    """A non-Resonate exception is captured as an ``ApplicationError`` rejection.
+
+    Python has no ``return err`` / ``panic()`` split (cf. Go) -- raising an
+    ``Exception`` is the user's way of reporting failure, so we settle the
+    promise ``rejected`` with the original message and the task completes
+    normally (no release, no re-acquire).
+    """
     fix.reg.register("boom", wf_plain_panic)
-    v, promise, preload = await fix.create_root_task("p1-panic", "boom")
+    v, promise, preload = await fix.create_root_task("p1-boom", "boom")
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await fix.core.execute_until_blocked("p1-panic", v, promise, preload)
-    assert "something went wrong" in str(exc_info.value)
+    status = await fix.core.execute_until_blocked("p1-boom", v, promise, preload)
+    assert status == "done"
 
-    result = await fix.sender.task_acquire("p1-panic", 0, "other-pid", 1000)
-    assert result.task.state == "acquired"
+    got = await fix.promise_get("p1-boom")
+    assert got.state == "rejected"
+    assert isinstance(got.value.data, dict)
+    assert "something went wrong" in got.value.data.get("message", "")
+
+    # Task is settled along the fulfill path; another worker cannot acquire it.
+    with pytest.raises(ResonateError):
+        await fix.sender.task_acquire("p1-boom", 0, "other-pid", 1000)
 
 
 @pytest.mark.asyncio
-async def test_panic_mentioning_suspend_still_classified_as_app_error(
+async def test_exception_mentioning_suspend_still_rejects_promise(
     fix: CoreFixture,
 ) -> None:
+    """The error message is opaque -- 'execution suspended' in user text is data, not control flow."""
     fix.reg.register("unwrap", wf_unwrap_suspend)
     v, promise, preload = await fix.create_root_task("p1-unwrap", "unwrap")
 
-    with pytest.raises(ApplicationError):
-        await fix.core.execute_until_blocked("p1-unwrap", v, promise, preload)
+    status = await fix.core.execute_until_blocked("p1-unwrap", v, promise, preload)
+    assert status == "done"
+
+    got = await fix.promise_get("p1-unwrap")
+    assert got.state == "rejected"
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_stopped_after_panic(fix: CoreFixture) -> None:
+async def test_heartbeat_stopped_after_user_exception(fix: CoreFixture) -> None:
     fix.reg.register("boomHb", wf_plain_panic)
-    v, promise, preload = await fix.create_root_task("p1-hb-panic", "boomHb")
+    v, promise, preload = await fix.create_root_task("p1-hb-boom", "boomHb")
 
-    with pytest.raises(ApplicationError):
-        await fix.core.execute_until_blocked("p1-hb-panic", v, promise, preload)
+    status = await fix.core.execute_until_blocked("p1-hb-boom", v, promise, preload)
+    assert status == "done"
     assert fix.hb.started == 1
-    assert fix.hb.stopped == 1  # stopped even after panic
+    assert fix.hb.stopped == 1  # stopped along the normal fulfill path
 
 
 # ── NoopHeartbeat sanity ───────────────────────────────────────────────

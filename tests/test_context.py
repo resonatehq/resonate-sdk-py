@@ -121,6 +121,15 @@ async def failing(ctx: Context) -> int:
     raise ApplicationError(msg)
 
 
+class BookingError(Exception):
+    """A plain domain exception -- deliberately NOT a Resonate error."""
+
+
+async def failing_plain(ctx: Context) -> int:
+    msg = "card declined"
+    raise BookingError(msg)
+
+
 class Point(msgspec.Struct, frozen=True):
     x: int
     y: int
@@ -280,6 +289,24 @@ async def test_run_function_error_propagates_and_settles_rejected() -> None:
     ctx = _root()
     with pytest.raises(ApplicationError, match="denied"):
         await ctx.run(failing)
+    assert ctx.effects.cache["root.1"].state == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_run_plain_exception_wraps_as_application_error_and_settles_rejected() -> (
+    None
+):
+    """A ``ctx.run`` child that raises a plain ``Exception`` settles rejected.
+
+    The Python SDK convention (mirroring :mod:`resonate.core`'s root-task
+    handling): any non-Resonate exception from a local child is wrapped into
+    an :class:`ApplicationError` carrying the original message, the local
+    promise is settled ``rejected``, and the parent observes the failure as
+    an ``ApplicationError`` via ``await ctx.run(...)``.
+    """
+    ctx = _root()
+    with pytest.raises(ApplicationError, match="card declined"):
+        await ctx.run(failing_plain)
     assert ctx.effects.cache["root.1"].state == "rejected"
 
 

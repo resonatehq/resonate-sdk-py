@@ -17,6 +17,14 @@ localhost:8001 first (``resonate dev``), then either of::
     uv run python examples/saga                  # happy path
     uv run python examples/saga --fail charge    # both compensations run
 
+Steps raise *ordinary* Python exceptions (``BookingError`` below) -- there is no
+need to construct a Resonate ``ApplicationError``. A failing step is retried by
+the worker's retry policy (configured on the :class:`Resonate` constructor); the
+``--fail`` step fails deterministically, so you will see it retried a few times
+before the saga gives up and compensates. Across the durability boundary the
+orchestrator observes the failure as an
+:class:`~resonate.error.ApplicationError` carrying the original message.
+
 Note on replay: a durable orchestrator re-executes from the top each time it
 awaits a not-yet-settled future, so any side effect (a ``print``, an external
 call) belongs in a leaf step function -- which settles once and never re-runs
@@ -37,6 +45,23 @@ from resonate.resonate import Resonate
 
 if TYPE_CHECKING:
     from resonate.context import Context
+
+
+class BookingError(Exception):
+    """A plain domain error -- deliberately NOT a Resonate error.
+
+    Demonstrates that step functions can raise any exception; the SDK settles
+    the step's promise ``rejected`` and the orchestrator sees it as an
+    :class:`~resonate.error.ApplicationError` (only the message crosses the
+    durability boundary).
+    """
+
+
+class HotelReservationError(BookingError): ...
+
+
+class ChargeCardError(BookingError): ...
+
 
 # -- Step functions (leaves: each prints once, settles once) ---------------
 
@@ -61,7 +86,7 @@ async def reserve_hotel(
     if fail:
         print(f"  [reserve_hotel] FAILED for {customer} in {city}")
         msg = f"no rooms available in {city}"
-        raise ApplicationError(msg)
+        raise HotelReservationError(msg)
     ref = f"HT-{customer}-{city}"
     print(f"  [reserve_hotel] reserved {ref}")
     return ref
@@ -71,7 +96,7 @@ async def charge_card(ctx: Context, customer: str, amount: int, fail: bool) -> s
     if fail:
         print(f"  [charge_card] FAILED for {customer} (${amount})")
         msg = f"card declined for ${amount}"
-        raise ApplicationError(msg)
+        raise ChargeCardError(msg)
     ref = f"CH-{customer}-{amount}"
     print(f"  [charge_card] charged {ref}")
     return ref
@@ -99,12 +124,12 @@ async def book_trip(
     fail_at: str,
 ) -> tuple[str, str, str]:
     # Step 1: flight
-    flight = await ctx.rpc("reserve_flight", customer=customer, frm=frm, to=to)
+    flight = await ctx.run(reserve_flight, customer=customer, frm=frm, to=to)
 
     # Step 2: hotel (compensate the flight on failure)
     try:
-        hotel = await ctx.rpc(
-            "reserve_hotel",
+        hotel = await ctx.run(
+            reserve_hotel,
             customer=customer,
             city=to,
             fail=fail_at == "hotel",
@@ -115,8 +140,8 @@ async def book_trip(
 
     # Step 3: charge (compensate hotel + flight on failure, reverse order)
     try:
-        charge = await ctx.rpc(
-            "charge_card",
+        charge = await ctx.run(
+            charge_card,
             customer=customer,
             amount=amount,
             fail=fail_at == "charge",
@@ -135,9 +160,9 @@ async def compensate(ctx: Context, hotel_ref: str, flight_ref: str) -> None:
     crash mid-rollback resumes at the first unsettled one.
     """
     if hotel_ref:
-        await ctx.rpc("release_hotel", ref=hotel_ref)
+        await ctx.run(release_hotel, ref=hotel_ref)
     if flight_ref:
-        await ctx.rpc("release_flight", ref=flight_ref)
+        await ctx.run(release_flight, ref=flight_ref)
 
 
 # -- main ------------------------------------------------------------------
@@ -150,15 +175,7 @@ async def main() -> None:
 
     url = os.environ.get("RESONATE_URL", "http://localhost:8001")
     r = Resonate(url=url)
-    for fn in (
-        book_trip,
-        reserve_flight,
-        reserve_hotel,
-        charge_card,
-        release_flight,
-        release_hotel,
-    ):
-        r.register(fn)
+    r.register(book_trip)
 
     try:
         id = f"saga-{time.time_ns()}"

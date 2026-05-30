@@ -12,7 +12,7 @@ import msgspec
 from resonate import now_ms
 from resonate.codec import deserialize_error
 from resonate.durable import DurableFunction
-from resonate.error import ApplicationError, ResonateError, SuspendedError
+from resonate.error import ApplicationError, SuspendedError
 from resonate.info import Info
 from resonate.types import PromiseCreateReq, Status, TaskData, Value
 
@@ -181,7 +181,11 @@ class Context:
         target: str | None = None,
         version: int = 1,
     ) -> Self:
-        self.opts = Opts(timeout=timeout, target=target, version=version)
+        self.opts = Opts(
+            timeout=timeout,
+            target=target,
+            version=version,
+        )
         return self
 
     def get_dependency[T](self, type: type[T]) -> T:
@@ -224,10 +228,10 @@ class Context:
         self.spawned_locals = []
         self.spawned_remote_tasks = []
         for task in locals_:
-            with contextlib.suppress(SuspendedError, ResonateError):
+            with contextlib.suppress(SuspendedError, ApplicationError):
                 await task.handle
         for remote in remotes:
-            with contextlib.suppress(SuspendedError, ResonateError):
+            with contextlib.suppress(SuspendedError, ApplicationError):
                 await remote
 
     def take_remote_todos(self) -> list[str]:
@@ -341,14 +345,26 @@ class Context:
             child = self._child(req.id, df.name, record.timeout_at)
 
             outcome: Status
-            value: Any = None
+            value: Any | ApplicationError
             try:
                 value = await df.invoke(child, payload)
                 outcome = "done"
             except SuspendedError:
                 outcome = "suspended"
-            except ResonateError as exc:
+            except ApplicationError as exc:
+                # A Resonate-typed error (e.g. ``ApplicationError`` deliberately
+                # raised by the child, or one surfaced by ``ctx.rpc`` when an
+                # awaited grandchild rejected) crosses the boundary verbatim.
                 value = exc
+                outcome = "error"
+            except Exception as exc:
+                # Plain Python exception from the local child -- treat as a
+                # rejection (mirrors :mod:`resonate.core`'s convention on the
+                # root task). Without this, the asyncio task would fail,
+                # ``flush_local_work``'s ``contextlib.suppress`` would not catch
+                # it (only ``SuspendedError`` / ``ResonateError`` are
+                # suppressed), and the local promise would never settle.
+                value = ApplicationError(str(exc))
                 outcome = "error"
 
             # Always drain the child's sub-work before deciding: a suspended
@@ -357,20 +373,22 @@ class Context:
             await child.flush_local_work()
             child_remote = child.take_remote_todos()
 
-            # Structured-concurrency: any pending child work forces the parent
-            # to suspend too, so its spawned_remote covers all pending IDs.
-            # Mirrors Go's ``localResult{suspended: true}`` in executeLocal.
-            if outcome == "suspended" or len(child_remote) > 0:
-                self.spawned_remote.extend(child_remote)
-                raise SuspendedError
+            # Structured-concurrency: check suspension states first
+            match (outcome, len(child_remote) > 0):
+                # Matches if outcome is "suspended" OR if child_remote is not empty
+                case ("suspended", _) | (_, True):
+                    self.spawned_remote.extend(child_remote)
+                    raise SuspendedError
 
-            await self.effects.settle_promise(req.id, value)
+                case ("error", _):
+                    await self.effects.settle_promise(req.id, value)
+                    assert isinstance(value, ApplicationError)
+                    raise value
 
-            if outcome == "error":
-                assert isinstance(value, ResonateError)
-                raise value
-            assert not isinstance(value, ResonateError)
-            return value
+                case _:
+                    await self.effects.settle_promise(req.id, value)
+                    assert not isinstance(value, ApplicationError)
+                    return value
 
         task = asyncio.create_task(bg())
         # Register for structured-concurrency flush: a fire-and-forget child

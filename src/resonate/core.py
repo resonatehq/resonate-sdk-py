@@ -303,17 +303,38 @@ class Core:
         )
 
         suspended: bool = False
-        run_err: ResonateError | None = None
+        run_err: ApplicationError | None = None
         try:
             res = await df.invoke(root_ctx, task_data)
         except SuspendedError:
             suspended = True
-        except ResonateError as exc:
+        except ApplicationError as exc:
+            # A Resonate-typed error (e.g. ``ApplicationError`` deliberately
+            # raised by the user, or one surfaced by ``ctx.rpc`` when an
+            # awaited child rejected) crosses the boundary verbatim.
             run_err = exc
         except Exception as exc:
-            logger.exception("core: user function panicked task=%s", root_ctx.id)
-            msg = f"user function panicked: {exc}"
-            raise ApplicationError(msg) from exc
+            # User code raised a plain Python exception (``ValueError``,
+            # ``RuntimeError``, a domain-specific subclass, ...). Python has no
+            # Go-style "returned error vs panic" split -- exceptions are how
+            # user functions report failure -- so wrap into an
+            # :class:`ApplicationError` and settle the promise ``rejected``
+            # with the original message. Awaiters then see an
+            # ``ApplicationError`` via :func:`~resonate.codec.deserialize_error`,
+            # matching the convention documented on ``examples/saga``.
+            #
+            # ``BaseException`` subclasses (``SystemExit``,
+            # ``KeyboardInterrupt``, ``asyncio.CancelledError`` on 3.8+...) are
+            # *not* caught here -- they propagate out so the task is released
+            # and the runtime can shut down.
+            logger.debug(
+                "core: user function raised %s in task=%s: %s",
+                type(exc).__name__,
+                root_ctx.id,
+                exc,
+                exc_info=True,
+            )
+            run_err = ApplicationError(str(exc))
 
         # Flush local work and collect remote todos.
         await root_ctx.flush_local_work()
