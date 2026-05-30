@@ -36,7 +36,7 @@ class Promises:
             PromiseCreateReq(
                 id=id,
                 timeout_at=timeout_at,
-                param=self.codec.encode(param),
+                param=self.codec.encode(param.data),
                 tags=tags,
             )
         )
@@ -61,7 +61,7 @@ class Promises:
         value: Value,
     ) -> PromiseRecord:
         record = await self.sender.promise_settle(
-            PromiseSettleReq(id=id, state=state, value=self.codec.encode(value))
+            PromiseSettleReq(id=id, state=state, value=self.codec.encode(value.data))
         )
         return self.codec.decode_promise(record)
 
@@ -100,7 +100,7 @@ class Schedules:
                 cron=cron,
                 promise_id=promise_id,
                 promise_timeout=promise_timeout,
-                promise_param=self.codec.encode(promise_param),
+                promise_param=self.codec.encode(promise_param.data),
                 promise_tags={},
             )
         )
