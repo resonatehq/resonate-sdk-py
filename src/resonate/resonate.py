@@ -821,28 +821,13 @@ class Resonate:
                     )
                 )
         elif isinstance(msg, UnblockMsg):
-            raw = msg.promise()
-            if not isinstance(raw, dict):
-                return
-            raw_state = raw.get("state")
-            state = raw_state if raw_state in _SETTLED_STATES else "pending"
-
-            if state == "pending":
-                return
-            id = raw.get("id")
-            if not isinstance(id, str):
-                return
-            sub = self._subs.get(id)
+            promise = msg.promise()
+            sub = self._subs.get(msg.promise().id)
             if sub is None:
                 # No one waiting (already settled+cleaned, or a duplicate push).
                 return
 
-            self._settle_and_cleanup(
-                id,
-                sub,
-                state,
-                Value.from_wire(raw.get("value")),
-            )
+            self._settle_and_cleanup(promise.id, sub, promise.state, promise.value)
 
     # ── Background tasks ──────────────────────────────────────────────────────
 

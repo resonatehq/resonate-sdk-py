@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 import msgspec
 
 from resonate.error import DecodingError, ServerError
+from resonate.types import PromiseRecord
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,7 +43,7 @@ class ExecuteMsg(
 
 
 class UnblockData(msgspec.Struct, kw_only=True, frozen=True):
-    promise: Any  # TODO
+    promise: PromiseRecord
 
 
 class UnblockMsg(
@@ -50,7 +51,7 @@ class UnblockMsg(
 ):
     data: UnblockData
 
-    def promise(self) -> Any:
+    def promise(self) -> PromiseRecord:
         """Return the settled promise -- shorthand for ``data.promise``."""
         return self.data.promise
 

@@ -13,6 +13,7 @@ from resonate.transport import (
     Transport,
     UnblockMsg,
 )
+from resonate.types import PromiseRecord, Value
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -152,12 +153,20 @@ def test_recv_execute_message_default_version() -> None:
 
 def test_recv_parses_unblock_message() -> None:
     net = StubNetwork()
-    raw = '{"kind":"unblock","data":{"promise":{"id":"p1","state":"resolved"}}}'
+    raw = (
+        '{"kind":"unblock","data":{"promise":'
+        '{"id":"p1","state":"resolved","value":{"data":"dmFs"},"timeoutAt":123}}}'
+    )
     received = feed(Transport(net), net, raw)
     assert len(received) == 1
     msg = received[0]
     assert isinstance(msg, UnblockMsg)
-    assert msg.promise() == {"id": "p1", "state": "resolved"}
+    assert msg.promise() == PromiseRecord(
+        id="p1",
+        state="resolved",
+        value=Value(data="dmFs"),
+        timeout_at=123,
+    )
 
 
 def test_recv_discards_invalid_json() -> None:

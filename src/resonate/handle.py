@@ -11,10 +11,10 @@ from resonate.error import (
     SerializationError,
     TimeoutError as ResonateTimeoutError,
 )
+from resonate.types import PromiseState
 
 if TYPE_CHECKING:
     from resonate.codec import Codec
-    from resonate.types import PromiseState
 
 
 class PromiseResult(msgspec.Struct, frozen=True, kw_only=True):

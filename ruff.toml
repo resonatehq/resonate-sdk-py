@@ -44,6 +44,9 @@ ignore = [
 combine-as-imports = true
 required-imports = ["from __future__ import annotations"]
 
+[lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["msgspec.Struct"]
+
 [lint.per-file-ignores]
 "tests/**/*.py" = ["SLF001"]
 # Examples are runnable CLI demos: they print to stdout, and their module

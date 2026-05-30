@@ -9,11 +9,11 @@ import msgspec
 
 from resonate import PROTOCOL_VERSION, now_ms
 from resonate.error import DecodingError, ServerError
+from resonate.types import PromiseState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from resonate.types import PromiseState
 
 # =============================================================================
 # CONSTANTS

@@ -6,7 +6,12 @@ import msgspec
 
 from resonate import PROTOCOL_VERSION, now_ms
 from resonate.error import DecodingError, ServerError
-from resonate.types import PromiseRecord, ScheduleRecord, TaskRecord
+from resonate.types import (
+    PromiseRecord,
+    ScheduleRecord,
+    TaskRecord,
+    Value,
+)
 
 if TYPE_CHECKING:
     from resonate.transport import Transport
@@ -14,7 +19,6 @@ if TYPE_CHECKING:
         PromiseCreateReq,
         PromiseRegisterCallbackData,
         PromiseSettleReq,
-        Value,
     )
 
 
