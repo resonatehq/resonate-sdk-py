@@ -7,7 +7,7 @@ from resonate.retry import Constant, Exponential, Linear, Never
 
 class TestExponential:
     def test_default_schedule_and_cutoff(self) -> None:
-        policy = Exponential()
+        policy = Exponential(delay=1, factor=2, max_delay=60, max_retries=5)
 
         assert policy.next(1) == 2
         assert policy.next(2) == 4
@@ -33,7 +33,8 @@ class TestExponential:
     def test_returns_expected_delay_for_attempts_within_limit(
         self, attempt: int, expected: int
     ) -> None:
-        policy = Exponential()
+
+        policy = Exponential(delay=1, factor=2, max_delay=60, max_retries=5)
         assert policy.next(attempt) == expected
 
 

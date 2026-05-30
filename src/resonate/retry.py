@@ -6,7 +6,7 @@ import msgspec
 
 
 class RetryPolicy(Protocol):
-    def next(self, attempt: int) -> float | None:
+    def next(self, attempt: int) -> int | None:
         """Return seconds to sleep before ``attempt``, or ``None`` to stop retrying.
 
         ``attempt`` is the *upcoming* attempt number: the initial execution is
@@ -21,14 +21,15 @@ class RetryPolicy(Protocol):
 
 
 class Exponential(msgspec.Struct, frozen=True, kw_only=True):
-    delay: float = 1
-    factor: float = 2
-    max_delay: float = 60
-    max_retries: int = 5
+    delay: int
+    factor: int
+    max_delay: int
+    max_retries: int
 
-    def next(self, attempt: int) -> float | None:
+    def next(self, attempt: int) -> int | None:
         if attempt > self.max_retries:
             return None
+
         return min(self.delay * self.factor**attempt, self.max_delay)
 
 
@@ -36,7 +37,7 @@ class Linear(msgspec.Struct, frozen=True, kw_only=True):
     max_retries: int
     delay: int
 
-    def next(self, attempt: int) -> float | None:
+    def next(self, attempt: int) -> int | None:
         if attempt > self.max_retries:
             return None
         return self.delay * attempt
@@ -46,7 +47,7 @@ class Constant(msgspec.Struct, frozen=True, kw_only=True):
     max_retries: int
     delay: int
 
-    def next(self, attempt: int) -> float | None:
+    def next(self, attempt: int) -> int | None:
         if attempt > self.max_retries:
             return None
         return self.delay
