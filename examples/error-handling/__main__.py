@@ -23,7 +23,7 @@ only the message survives.
 from __future__ import annotations
 
 import argparse
-import asyncio  # Added missing import for the entry point
+import asyncio
 import os
 import time
 from typing import TYPE_CHECKING, Literal
