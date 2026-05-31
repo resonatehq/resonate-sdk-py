@@ -30,8 +30,9 @@ Two deliberate divergences from Go, both per the porting conventions
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
+
+import msgspec
 
 if TYPE_CHECKING:
     from resonate.types import Status
@@ -58,8 +59,7 @@ NodeType = Literal["int", "ext", "det"]
 NodeKind = Literal["pending", "settled"]
 
 
-@dataclass
-class Node:
+class Node(msgspec.Struct, kw_only=True):
     """One promise in the call graph.
 
     Mutable (``kind`` flips ``pending`` -> ``settled``; ``children`` grows as the
@@ -72,7 +72,7 @@ class Node:
     id: str
     type: NodeType
     kind: NodeKind = "pending"
-    children: list[str] = field(default_factory=list)
+    children: list[str] = msgspec.field(default_factory=list)
 
 
 class Journal:
@@ -146,18 +146,24 @@ class Journal:
         Invariant S4 (``todos subset frontier``) connects the two.
         """
         out: list[str] = []
-        self._frontier_walk(self._root, out)
-        return out
+        stack: list[str] = [self._root]
 
-    def _frontier_walk(self, id: str, out: list[str]) -> None:
-        node = self._nodes[id]
-        if node.type == "det":
-            return
-        if node.type == "ext" and node.kind == "pending":
-            out.append(id)
-            return
-        for child in node.children:
-            self._frontier_walk(child, out)
+        while stack:
+            curr_id = stack.pop()
+            node = self._nodes[curr_id]
+
+            if node.type == "det":
+                continue
+
+            if node.type == "ext" and node.kind == "pending":
+                out.append(curr_id)
+                continue
+
+            # Extend the stack with children in reverse order to
+            # maintain the depth-first walk in child insertion order.
+            stack.extend(reversed(node.children))
+
+        return out
 
     # ── predicates ──────────────────────────────────────────────────
 
@@ -231,10 +237,9 @@ class Journal:
         # U2 -- every node must be reachable from the root.
         reachable: set[str] = set()
         self._reach(self._root, reachable)
-        orphans = sorted(set(self._nodes) - reachable)
 
         assert reachable == set(self._nodes), (
-            f"U2 violated: node(s) not reachable from root: {orphans}"
+            f"U2 violated: node(s) not reachable from root: {sorted(set(self._nodes) - reachable)}"
         )
 
         # U3 -- no dead pending branches.
