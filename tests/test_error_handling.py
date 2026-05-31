@@ -18,13 +18,13 @@ A rejected promise is stored on the server as JSON (see
 and used to **deduplicate** recoveries. The worker that resumes a workflow may
 be a different process, on a different binary, weeks after the rejection was
 recorded -- a user-defined exception class may not exist there. So
-:func:`resonate.codec.deserialize_error` always rebuilds the rejection as a
+:func:`resonate.codec._deserialize_error` always rebuilds the rejection as a
 plain ``ApplicationError``, and both the local (``ctx.run``,
 ``handle.result``) and remote (``ctx.rpc``) paths funnel through it via
-:func:`resonate.context._decode_settled`. The tests below pin that contract
-at three layers:
+:func:`resonate.codec._decode_settled` / :meth:`resonate.codec.Codec.decode_error`.
+The tests below pin that contract at three layers:
 
-1. **Codec** -- :func:`encode_error` + :func:`deserialize_error` collapse
+1. **Codec** -- :func:`_encode_error` + :func:`_deserialize_error` collapse
    every exception class to :class:`ApplicationError` with the message
    preserved verbatim. This is the proof shared by both dispatch paths.
 2. **Local dispatch (``ctx.run`` / ``handle.result``)** -- end-to-end against
@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.codec import deserialize_error, encode_error
+from resonate.codec import _deserialize_error, _encode_error
 from resonate.error import ApplicationError
 from resonate.resonate import Resonate
 
@@ -209,7 +209,7 @@ async def orchestrator_raises_value_error_directly(ctx: Context) -> None:
 
 
 # =============================================================================
-# Codec layer: encode_error + deserialize_error collapse every class to
+# Codec layer: _encode_error + _deserialize_error collapse every class to
 # ApplicationError. This is the single decoder used by both ctx.run and
 # ctx.rpc, so pinning it here proves the "same on either dispatch path"
 # claim once and for all.
@@ -218,7 +218,7 @@ async def orchestrator_raises_value_error_directly(ctx: Context) -> None:
 
 def test_codec_encode_error_drops_class_keeps_message() -> None:
     err = PaymentDeclinedError("card declined for $42")
-    encoded = encode_error(err)
+    encoded = _encode_error(err)
     # On the wire there is no class identity -- just the rendered message.
     assert encoded == {"__type": "error", "message": "card declined for $42"}
     assert "PaymentDeclined" not in encoded["message"]
@@ -228,7 +228,7 @@ def test_codec_deserialize_error_rebuilds_as_application_error() -> None:
     # Whatever class was on the worker, the recovering side always rebuilds
     # an ApplicationError. This is what ``_decode_settled`` calls for both
     # ctx.run and ctx.rpc rejections.
-    rebuilt = deserialize_error({"__type": "error", "message": "card declined"})
+    rebuilt = _deserialize_error({"__type": "error", "message": "card declined"})
     assert isinstance(rebuilt, ApplicationError)
     assert rebuilt.message == "card declined"
 
@@ -246,7 +246,7 @@ def test_codec_deserialize_error_rebuilds_as_application_error() -> None:
 def test_codec_roundtrip_any_class_becomes_application_error(
     exc: Exception,
 ) -> None:
-    rebuilt = deserialize_error(encode_error(exc))
+    rebuilt = _deserialize_error(_encode_error(exc))
     assert isinstance(rebuilt, ApplicationError)
     assert rebuilt.message == str(exc)
 
@@ -254,7 +254,7 @@ def test_codec_roundtrip_any_class_becomes_application_error(
 def test_codec_deserialize_error_unknown_shape_still_yields_application_error() -> None:
     # Defensive: a malformed/legacy payload still rehydrates as
     # ApplicationError so callers never face a non-ApplicationError surface.
-    rebuilt = deserialize_error("just a string")
+    rebuilt = _deserialize_error("just a string")
     assert isinstance(rebuilt, ApplicationError)
     assert "unknown error" in rebuilt.message
 

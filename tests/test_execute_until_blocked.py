@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
 
-from resonate.codec import Codec, NoopEncryptor, encode_error
+from resonate.codec import Codec, NoopEncryptor, _encode_error
 from resonate.core import Core, _ExecFulfilled, _ExecSuspended, identity_target_resolver
 from resonate.error import ApplicationError, ResonateError
 from resonate.registry import Registry
@@ -93,7 +93,7 @@ class MockEffects:
         state: Literal["resolved", "rejected"]
         if isinstance(result, ResonateError):
             state = "rejected"
-            value = Value(data=encode_error(result))
+            value = Value(data=_encode_error(result))
         else:
             state = "resolved"
             value = Value(data=result)
@@ -347,7 +347,7 @@ async def test_sleep_creates_timer_promise_and_replay_fulfills() -> None:
 
     assert describe(effects2.cache) == {"s.1": ("sleep", "resolved")}
     assert isinstance(outcome2, _ExecFulfilled)
-    assert core.codec.decode(outcome2.value, str) == "awake"
+    assert core.codec.decode(outcome2.value) == "awake"
 
 
 @pytest.mark.asyncio
@@ -374,7 +374,7 @@ async def test_promise_creates_external_promise_and_replay_delivers_value() -> N
 
     assert describe(effects2.cache) == {"p.1": ("promise", "resolved")}
     assert isinstance(outcome2, _ExecFulfilled)
-    assert core.codec.decode(outcome2.value, str) == "signal"
+    assert core.codec.decode(outcome2.value) == "signal"
 
 
 @pytest.mark.asyncio
@@ -405,7 +405,7 @@ async def test_detached_child_is_created_but_does_not_block() -> None:
     # The parent did NOT suspend on it.
     assert isinstance(outcome, _ExecFulfilled)
     assert outcome.state == "resolved"
-    assert core.codec.decode(outcome.value, str) == only.id
+    assert core.codec.decode(outcome.value) == only.id
 
 
 # ── Fulfill: everything settles in one pass ──────────────────────────────
@@ -442,7 +442,7 @@ async def test_all_local_tree_fulfills_with_every_node_resolved() -> None:
     assert isinstance(outcome, _ExecFulfilled)
     assert outcome.state == "resolved"
     # The fulfill path encodes the return value through the codec, so decode it.
-    assert core.codec.decode(outcome.value, int) == 2
+    assert core.codec.decode(outcome.value) == 2
 
 
 # ── Rejection: a failed child is recorded rejected in the tree ───────────
@@ -479,7 +479,7 @@ async def test_rejected_child_recorded_and_caught_by_parent() -> None:
     # The parent swallowed the rejection, so the root resolves.
     assert isinstance(outcome, _ExecFulfilled)
     assert outcome.state == "resolved"
-    assert core.codec.decode(outcome.value, str) == "rescued"
+    assert core.codec.decode(outcome.value) == "rescued"
 
 
 @pytest.mark.asyncio

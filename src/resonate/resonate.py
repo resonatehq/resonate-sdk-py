@@ -34,7 +34,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
 from resonate import now_ms
-from resonate.codec import Codec, NoopEncryptor, encode_error
+from resonate.codec import Codec, NoopEncryptor
 from resonate.context import Opts
 from resonate.core import Core
 from resonate.dependencies import DependencyMap
@@ -779,8 +779,7 @@ class Resonate:
         for the rest of the process lifetime -- the user only learns the
         workflow is unrecoverable by hitting Ctrl+C.
         """
-        err = ApplicationError(reason)
-        encoded = self._codec.encode(encode_error(err))
+        encoded = self._codec.encode(ApplicationError(reason))
         self._settle_and_cleanup(id, sub, "rejected", encoded)
 
     def _settle_and_cleanup(
@@ -920,23 +919,32 @@ def _result_type(func: Callable[..., Any]) -> Any:
     The static ``T`` from :meth:`Resonate.run`'s ``[**P, T]`` signature is gone
     at runtime (the reason :class:`ResonateHandle` is handed an explicit type),
     so the durable function's *return annotation* drives coercion of the settled
-    value. A missing or unresolved annotation falls back to ``Any``
-    (passthrough), mirroring :func:`resonate.durable._resolve_annotation`.
+    value.
+
+    Only the **return** annotation is resolved, never the parameters: a durable
+    function's ``ctx: Context`` parameter is typically annotated with a name
+    imported under ``TYPE_CHECKING`` only, so evaluating the whole signature
+    (e.g. via :func:`typing.get_type_hints`) would raise ``NameError`` on every
+    such function. The return annotation alone is carried onto a throwaway holder
+    and resolved by :func:`inspect.get_annotations` against the function's own
+    ``__globals__`` -- which evaluates the forward-ref *string* that
+    ``from __future__ import annotations`` turns the annotation into, safely
+    (``ast.literal_eval`` cannot, as it resolves no names). A missing or
+    unresolvable annotation falls back to ``Any`` (passthrough).
     """
+    ret = getattr(func, "__annotations__", {}).get("return")
+    if ret is None:
+        return Any
+    if not isinstance(ret, str):
+        return ret
+    holder = type("_", (), {"__annotations__": {"return": ret}})
     try:
-        ret = inspect.signature(func).return_annotation
-    except (TypeError, ValueError):
+        resolved = inspect.get_annotations(
+            holder, globals=getattr(func, "__globals__", {}), eval_str=True
+        )
+    except Exception:
         return Any
-    if ret is inspect.Signature.empty:
-        return Any
-    if isinstance(ret, str):
-        globalns = getattr(func, "__globals__", {})
-        holder = type("_", (), {"__annotations__": {"a": ret}})
-        try:
-            return inspect.get_annotations(holder, globals=globalns, eval_str=True)["a"]
-        except (NameError, AttributeError, SyntaxError, TypeError):
-            return Any
-    return ret
+    return resolved["return"]
 
 
 def _select_network(

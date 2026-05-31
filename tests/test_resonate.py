@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest import mock
 
 import msgspec
@@ -43,6 +44,7 @@ from resonate.resonate import (
     HEARTBEAT_INTERVAL_DIVISOR,
     Opts,
     Resonate,
+    _result_type,
 )
 
 if TYPE_CHECKING:
@@ -120,6 +122,16 @@ class Point(msgspec.Struct, frozen=True):
 
 async def make_point(ctx: Context, x: int, y: int) -> Point:
     return Point(x=x, y=y)
+
+
+@dataclasses.dataclass(frozen=True)
+class Vec:
+    dx: int
+    dy: int
+
+
+async def make_vec(ctx: Context, dx: int, dy: int) -> Vec:
+    return Vec(dx=dx, dy=dy)
 
 
 # Deliberately unannotated: annotations are optional in Python, so the SDK must
@@ -336,6 +348,17 @@ async def test_run_decodes_struct_result() -> None:
     async with local() as r:
         r.register(make_point)
         assert await r.run("pt", make_point, 1, 2).result() == Point(x=1, y=2)
+
+
+@pytest.mark.asyncio
+async def test_run_decodes_dataclass_result() -> None:
+    # A ``-> Vec`` (stdlib dataclass) return annotation is resolved end-to-end and
+    # the wire dict is coerced back into a ``Vec`` instance, not left a dict.
+    async with local() as r:
+        r.register(make_vec)
+        result = await r.run("vec", make_vec, 3, 4).result()
+        assert result == Vec(dx=3, dy=4)
+        assert isinstance(result, Vec)
 
 
 @pytest.mark.asyncio
@@ -980,3 +1003,61 @@ async def test_default_concurrency_ceiling_applied() -> None:
     """With no override the semaphore uses :data:`DEFAULT_MAX_CONCURRENT_TASKS`."""
     async with local() as r:
         assert r._execute_sema._value == DEFAULT_MAX_CONCURRENT_TASKS
+
+
+# ── _result_type resolution ─────────────────────────────────────────────────
+#
+# Unit tests for the helper that recovers a registered function's return type so
+# :class:`~resonate.handle.ResonateHandle` can coerce the settled value. This
+# module sets ``from __future__ import annotations``, so every annotation below
+# is a forward-ref *string* -- exactly the shape the helper resolves against the
+# function's ``__globals__``. ``Context`` is imported under ``TYPE_CHECKING``
+# only, so the module-level workflows double as a guard that an unresolvable
+# *parameter* annotation never sabotages return resolution.
+
+
+def test_result_type_builtin_scalar() -> None:
+    assert _result_type(add) is int
+
+
+def test_result_type_builtin_container() -> None:
+    def make_list(ctx: Context) -> list[int]:
+        return [1, 2, 3]
+
+    assert _result_type(make_list) == list[int]
+
+
+def test_result_type_msgspec_struct() -> None:
+    assert _result_type(make_point) is Point
+
+
+def test_result_type_dataclass() -> None:
+    assert _result_type(make_vec) is Vec
+
+
+def test_result_type_no_annotation_is_any() -> None:
+    # ``bare_add`` declares no return annotation -> passthrough (Any).
+    assert _result_type(bare_add) is Any
+
+
+def test_result_type_none_annotation() -> None:
+    # ``-> None`` resolves to the ``None`` singleton, not ``Any``.
+    assert _result_type(noop) is None
+
+
+def test_result_type_ignores_unresolvable_param() -> None:
+    # Regression guard: ``ctx: Context`` is annotated with a TYPE_CHECKING-only
+    # name. Resolving the whole signature would raise NameError; the helper
+    # resolves the return alone, so the struct return still comes back resolved.
+    assert "Context" not in globals()  # the name is genuinely unbound at runtime
+    assert _result_type(make_point) is Point
+
+
+def test_result_type_non_string_annotation_passthrough() -> None:
+    # When annotations are real objects (no ``from __future__`` stringification),
+    # the helper returns them as-is without going through resolution.
+    def already_typed(ctx: Any) -> Any:
+        return None
+
+    already_typed.__annotations__["return"] = dict[str, int]
+    assert _result_type(already_typed) == dict[str, int]

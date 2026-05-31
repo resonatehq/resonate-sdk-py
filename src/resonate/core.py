@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Literal
 
 import msgspec
 
-from resonate.codec import encode_error
 from resonate.context import Context
 from resonate.dependencies import DependencyMap
 from resonate.effects import Effects, ResonateEffects
@@ -30,6 +29,7 @@ from resonate.error import (
     DecodingError,
     FunctionNotFoundError,
     ResonateError,
+    SerializationError,
     SuspendedError,
 )
 from resonate.heartbeat import NoopHeartbeat
@@ -264,8 +264,8 @@ class Core:
         """
         # 1. Decode TaskData from the (already-decoded) promise param.
         try:
-            task_data = msgspec.convert(promise.param.data, TaskData)
-        except (TypeError, ValueError, msgspec.MsgspecError) as exc:
+            task_data = self.codec.convert(promise.param.data, TaskData)
+        except SerializationError as exc:
             msg = f"invalid task data: {exc}"
             raise DecodingError(msg) from exc
 
@@ -320,7 +320,7 @@ class Core:
             # user functions report failure -- so wrap into an
             # :class:`ApplicationError` and settle the promise ``rejected``
             # with the original message. Awaiters then see an
-            # ``ApplicationError`` via :func:`~resonate.codec.deserialize_error`,
+            # ``ApplicationError`` via :func:`~resonate.codec._deserialize_error`,
             # matching the convention documented on ``examples/saga``.
             #
             # ``BaseException`` subclasses (``SystemExit``,
@@ -346,7 +346,7 @@ class Core:
         if not suspended and not todos:
             if run_err is not None:
                 state = "rejected"
-                encoded = self.codec.encode(encode_error(run_err))
+                encoded = self.codec.encode(run_err)
             else:
                 state = "resolved"
                 encoded = self.codec.encode(res)

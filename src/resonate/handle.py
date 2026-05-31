@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import msgspec
 
-from resonate.codec import deserialize_error
 from resonate.error import (
     ApplicationError,
-    SerializationError,
     TimeoutError as ResonateTimeoutError,
 )
 from resonate.types import PromiseState, Value
@@ -133,13 +131,9 @@ class ResonateHandle[T]:
         """
         match result.state:
             case "resolved":
-                decoded = self._codec.decode(result.value, Any)
-                try:
-                    return msgspec.convert(decoded, self._type)
-                except (TypeError, ValueError, msgspec.MsgspecError) as exc:
-                    raise SerializationError(exc) from exc
+                return self._codec.convert(self._codec.decode(result.value), self._type)
             case "rejected":
-                raise deserialize_error(self._codec.decode(result.value, Any))
+                raise self._codec.decode_error(result.value)
             case "rejected_canceled":
                 msg = "Promise canceled"
                 raise ApplicationError(msg)

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
-from resonate.codec import encode_error
-from resonate.error import ResonateError
+from resonate.error import ApplicationError, ResonateError
 from resonate.types import PromiseCreateReq, PromiseSettleReq
 
 if TYPE_CHECKING:
@@ -98,7 +97,7 @@ class ResonateEffects:
         return decoded
 
     async def settle_promise[T](
-        self, id: str, result: T | ResonateError
+        self, id: str, result: T | ApplicationError
     ) -> PromiseRecord:
         """Settle a durable promise with a result.
 
@@ -111,15 +110,9 @@ class ResonateEffects:
             return cached
 
         state: Literal["resolved", "rejected"]
-        value_data: Any
-        if isinstance(result, ResonateError):
-            state = "rejected"
-            value_data = encode_error(result)
-        else:
-            state = "resolved"
-            value_data = result
+        state = "rejected" if isinstance(result, ApplicationError) else "resolved"
 
-        req = PromiseSettleReq(id=id, state=state, value=self.codec.encode(value_data))
+        req = PromiseSettleReq(id=id, state=state, value=self.codec.encode(result))
 
         logger.info("promise_settle_request promise_id=%s state=%s", req.id, req.state)
         record = await self.sender.promise_settle(req)

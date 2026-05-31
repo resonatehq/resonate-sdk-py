@@ -25,7 +25,7 @@ import msgspec
 import pytest
 
 from resonate import now_ms
-from resonate.codec import Codec, NoopEncryptor, encode_error
+from resonate.codec import Codec, NoopEncryptor, _encode_error
 from resonate.context import Context, Opts, _hash_id
 from resonate.dependencies import DependencyMap
 from resonate.effects import ResonateEffects
@@ -90,7 +90,7 @@ def _rejected(id: str, message: str) -> PromiseRecord:
         state="rejected",
         timeout_at=I64_MAX,
         param=Value(),
-        value=_codec().encode(encode_error(ApplicationError(message))),
+        value=_codec().encode(_encode_error(ApplicationError(message))),
         tags={},
         created_at=0,
         settled_at=1,
