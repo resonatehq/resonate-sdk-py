@@ -1,10 +1,10 @@
 """Tests for :class:`resonate.registry.Registry`.
 
 Mirrors Go's ``registry_test.go``: explicit-name registration backed by
-the registered callable. The lookup *name* is supplied by the caller (so it
-stays stable across renames of the Python function); the callable is stored
-as-is and follows the Python SDK convention of accepting a :class:`Context` as
-its first argument (applied at invocation time, not checked at registration).
+reflection-built :class:`~resonate.durable.DurableFunction` entries. The lookup
+*name* is supplied by the caller (so it stays stable across renames of the
+Python function); the registered callable must follow the Python SDK
+convention of accepting a :class:`Context` as its first argument.
 """
 
 from __future__ import annotations
@@ -31,17 +31,18 @@ async def flow(ctx: Context, x: int) -> int:
 def test_register_and_get() -> None:
     r = Registry()
     r.register("leaf", leaf)
-    fn = r.get("leaf")
-    assert fn is leaf  # the callable is stored as-is, unwrapped
+    df = r.get("leaf")
+    assert df is not None
+    assert df.name == "leaf"  # wrapped in a DurableFunction that remembers the name
 
 
 def test_custom_name_is_independent_of_fn_name() -> None:
     r = Registry()
     r.register("custom", leaf)
-    fn = r.get("custom")
-    # The lookup name is the registry key; the stored callable keeps its own name.
-    assert fn is leaf
-    assert fn.__name__ == "leaf"
+    df = r.get("custom")
+    # The lookup name is the registry key; the entry still remembers its source name.
+    assert df is not None
+    assert df.name == "leaf"
 
 
 def test_get_unknown_returns_none() -> None:

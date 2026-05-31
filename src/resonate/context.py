@@ -6,14 +6,15 @@ import inspect
 from collections.abc import Awaitable, Callable, Generator
 from datetime import timedelta
 from hashlib import blake2b
-from typing import TYPE_CHECKING, Any, Concatenate, Self, TypeGuard, overload
+from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
 import msgspec
 
 from resonate import now_ms
 from resonate.codec import decode_settled
+from resonate.durable import DurableFunction
 from resonate.error import ApplicationError, SuspendedError
-from resonate.types import Args, Info, PromiseCreateReq, Status, TaskData, Value
+from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
 
 if TYPE_CHECKING:
     from resonate.dependencies import DependencyMap
@@ -227,22 +228,6 @@ class Context:
         timeout = requested if requested is not None else timedelta(days=1)
         return min(now + int(timeout.total_seconds() * 1000), self.timeout_at)
 
-    async def invoke[**P, T](
-        self,
-        fn: Callable[Concatenate[Context, P], T | Awaitable[T]],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> T:
-
-        def _(value: T | Awaitable[T]) -> TypeGuard[Awaitable[T]]:
-            return inspect.isawaitable(value)
-
-        result = fn(self, *args, **kwargs)
-        if _(result):
-            result = await result
-        assert not inspect.isawaitable(result)
-        return result
-
     def info(self) -> Info:
         return Info(
             id=self.id,
@@ -314,8 +299,11 @@ class Context:
         prev_created, created = self._advance_promise_chain()
 
         # Build id/req synchronously so child-id ordering matches call order
-        # without relying on asyncio's task-start scheduling being FIFO.
-        payload = Args(args=args, kwargs=kwargs)
+        # without relying on asyncio's task-start scheduling being FIFO. The
+        # DurableFunction owns the symmetric (de)serialization of this child's
+        # arguments and return value across the durability boundary.
+        df = DurableFunction(fn)
+        payload = df.pack_args(*args, **kwargs)
 
         req = PromiseCreateReq(
             id=self._next_id(),
@@ -333,20 +321,23 @@ class Context:
             record = await self._create_promise_in_chain(req, prev_created, created)
 
             # Idempotent recovery: an already-settled promise short-circuits
-            # execution
+            # execution. The settled value comes back as JSON builtins, so coerce
+            # it to the function's declared return type -- yielding the same
+            # in-memory object the live path below produces, which also runs the
+            # return through ``df.coerce_result`` (symmetric with the top-level
+            # ResonateHandle's convert, and with argument coercion in ``invoke``).
             if record.state != "pending":
-                return decode_settled(record)
+                return df.coerce_result(decode_settled(record))
 
             # Pending: execute the child locally on its own Context, which is
             # what every durable function receives as its first argument.
-            child = self._child(
-                req.id, getattr(fn, "__name__", "unknown"), record.timeout_at
-            )
+            child = self._child(req.id, df.name, record.timeout_at)
 
             outcome: Status
             value: Any | ApplicationError
             try:
-                value = await child.invoke(fn, *payload.args, **payload.kwargs)
+                value = await df.invoke(child, payload)
+                assert not inspect.isawaitable(value)
                 outcome = "done"
             except SuspendedError:
                 outcome = "suspended"
@@ -373,22 +364,33 @@ class Context:
             child_remote = child.take_remote_todos()
 
             # Structured-concurrency: check suspension states first
-            match (outcome, len(child_remote) > 0):
-                # Matches if outcome is "suspended" OR if child_remote is not empty
-                case ("suspended", _) | (_, True):
-                    self.spawned_remote.extend(child_remote)
-                    raise SuspendedError
+            if outcome == "suspended" or child_remote:
+                self.spawned_remote.extend(child_remote)
+                raise SuspendedError
 
-                case ("error", _):
-                    assert isinstance(value, ApplicationError)
-                    await self.effects.settle_promise(req.id, value)
-                    raise value
-
-                case _:
-                    assert not isinstance(value, ApplicationError)
-                    assert not inspect.isawaitable(value)
-                    await self.effects.settle_promise(req.id, value)
-                    return value
+            # Settle, then read the outcome back through the *settled
+            # record* -- uniformly for both a resolved and a rejected
+            # value, exactly as the recovery short-circuit above does.
+            # ``settle_promise`` encodes ``value`` (rejecting when it is
+            # an ApplicationError, resolving otherwise) and returns the
+            # decoded record; ``decode_settled`` then either returns the
+            # JSON builtins a replay would see -- which ``coerce_result``
+            # reshapes to the declared return type -- or, for a rejected
+            # record, reconstructs the ApplicationError from its stored
+            # message and raises it before ``coerce_result`` is reached.
+            #
+            # Routing both outcomes through encode -> decode ->
+            # (coerce | raise) -- rather than coercing the raw in-memory
+            # object or re-raising the original exception -- makes the
+            # live and recovery paths identical: a return that survives
+            # only via its annotation (e.g. a ``datetime`` / ``set``)
+            # yields the same object on every run, and a rejection
+            # surfaces the same reconstructed error a replay would (the
+            # original exception's ``__cause__`` / notes / subclass are
+            # never persisted by the codec, so a recovery could not
+            # reproduce them either).
+            record = await self.effects.settle_promise(req.id, value)
+            return df.coerce_result(decode_settled(record))
 
         task = asyncio.create_task(bg())
         # Register for structured-concurrency flush: a fire-and-forget child
@@ -556,6 +558,11 @@ class Context:
         record = await self._create_promise_in_chain(req, prev_created, created)
 
         if record.state != "pending":
+            # Remote results are returned as raw decoded builtins -- there is no
+            # local ``DurableFunction`` to coerce against (rpc dispatches by name,
+            # sleep/promise have no function at all), so unlike ``ctx.run`` this
+            # path does not run ``coerce_result``. Untyped by design, matching the
+            # top-level ``rpc``/``get``.
             return decode_settled(record)
 
         self.spawned_remote.append(req.id)

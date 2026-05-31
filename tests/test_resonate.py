@@ -29,6 +29,7 @@ from unittest import mock
 import msgspec
 import pytest
 
+from resonate.durable import DurableFunction
 from resonate.error import (
     AlreadyRegisteredError,
     ApplicationError,
@@ -44,7 +45,6 @@ from resonate.resonate import (
     HEARTBEAT_INTERVAL_DIVISOR,
     Opts,
     Resonate,
-    _result_type,
 )
 
 if TYPE_CHECKING:
@@ -1005,59 +1005,63 @@ async def test_default_concurrency_ceiling_applied() -> None:
         assert r._execute_sema._value == DEFAULT_MAX_CONCURRENT_TASKS
 
 
-# ── _result_type resolution ─────────────────────────────────────────────────
+# ── DurableFunction.return_type resolution ──────────────────────────────────
 #
-# Unit tests for the helper that recovers a registered function's return type so
-# :class:`~resonate.handle.ResonateHandle` can coerce the settled value. This
-# module sets ``from __future__ import annotations``, so every annotation below
-# is a forward-ref *string* -- exactly the shape the helper resolves against the
-# function's ``__globals__``. ``Context`` is imported under ``TYPE_CHECKING``
-# only, so the module-level workflows double as a guard that an unresolvable
-# *parameter* annotation never sabotages return resolution.
+# The top-level :meth:`Resonate.run` decodes a settled value against
+# ``DurableFunction.return_type`` -- the type-shaped view of the resolved return
+# annotation, owned by the same ``DurableFunction`` that packs the arguments
+# (no separate re-resolution). This module sets ``from __future__ import
+# annotations``, so every annotation below is a forward-ref *string* -- the shape
+# the resolver handles. ``Context`` is imported under ``TYPE_CHECKING`` only, so
+# the module-level workflows double as a guard that an unresolvable *parameter*
+# annotation never sabotages return resolution.
 
 
-def test_result_type_builtin_scalar() -> None:
-    assert _result_type(add) is int
+def test_return_type_builtin_scalar() -> None:
+    assert DurableFunction(add).return_type is int
 
 
-def test_result_type_builtin_container() -> None:
+def test_return_type_builtin_container() -> None:
     def make_list(ctx: Context) -> list[int]:
         return [1, 2, 3]
 
-    assert _result_type(make_list) == list[int]
+    assert DurableFunction(make_list).return_type == list[int]
 
 
-def test_result_type_msgspec_struct() -> None:
-    assert _result_type(make_point) is Point
+def test_return_type_msgspec_struct() -> None:
+    assert DurableFunction(make_point).return_type is Point
 
 
-def test_result_type_dataclass() -> None:
-    assert _result_type(make_vec) is Vec
+def test_return_type_dataclass() -> None:
+    assert DurableFunction(make_vec).return_type is Vec
 
 
-def test_result_type_no_annotation_is_any() -> None:
+def test_return_type_no_annotation_is_any() -> None:
     # ``bare_add`` declares no return annotation -> passthrough (Any).
-    assert _result_type(bare_add) is Any
+    assert DurableFunction(bare_add).return_type is Any
 
 
-def test_result_type_none_annotation() -> None:
-    # ``-> None`` resolves to the ``None`` singleton, not ``Any``.
-    assert _result_type(noop) is None
+def test_return_type_none_annotation_is_any() -> None:
+    # ``-> None`` is a pass-through annotation, so it collapses to ``Any`` --
+    # ``convert(None, Any)`` and ``convert(None, None)`` both yield ``None``, and
+    # ``Any`` keeps the top-level decode consistent with ``coerce_result``, which
+    # treats ``-> None`` as pass-through.
+    assert DurableFunction(noop).return_type is Any
 
 
-def test_result_type_ignores_unresolvable_param() -> None:
+def test_return_type_ignores_unresolvable_param() -> None:
     # Regression guard: ``ctx: Context`` is annotated with a TYPE_CHECKING-only
-    # name. Resolving the whole signature would raise NameError; the helper
-    # resolves the return alone, so the struct return still comes back resolved.
+    # name. Resolving the whole signature would raise NameError; only the user
+    # params and the return are resolved, so the struct return still resolves.
     assert "Context" not in globals()  # the name is genuinely unbound at runtime
-    assert _result_type(make_point) is Point
+    assert DurableFunction(make_point).return_type is Point
 
 
-def test_result_type_non_string_annotation_passthrough() -> None:
-    # When annotations are real objects (no ``from __future__`` stringification),
-    # the helper returns them as-is without going through resolution.
+def test_return_type_non_string_annotation_passthrough() -> None:
+    # When the return annotation is a real object (no ``from __future__``
+    # stringification), it is used as-is without going through resolution.
     def already_typed(ctx: Any) -> Any:
         return None
 
     already_typed.__annotations__["return"] = dict[str, int]
-    assert _result_type(already_typed) == dict[str, int]
+    assert DurableFunction(already_typed).return_type == dict[str, int]

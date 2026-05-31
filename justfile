@@ -21,3 +21,4 @@ examples:
     uv run python examples/versioning
     uv run python examples/human-in-the-loop --decision approve
     uv run python examples/human-in-the-loop --decision reject
+    uv run python examples/recovery

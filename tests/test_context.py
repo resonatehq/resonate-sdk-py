@@ -366,6 +366,94 @@ async def test_run_replay_does_not_reinvoke() -> None:
     assert calls == 1
 
 
+class _RecoveredPoint(msgspec.Struct, frozen=True):
+    x: int
+    y: int
+
+
+async def _make_point(ctx: Context, x: int, y: int) -> _RecoveredPoint:
+    return _RecoveredPoint(x=x, y=y)
+
+
+async def _make_pair(ctx: Context, a: int, b: int) -> tuple[int, str]:
+    return a, str(b)
+
+
+@pytest.mark.asyncio
+async def test_run_recovery_coerces_return_to_declared_struct() -> None:
+    # The settled child value was stored as plain builtins (a dict). On recovery
+    # ctx.run coerces it back to the declared return type, so the parent observes
+    # the same in-memory object the live path would have produced -- not a dict.
+    ctx = _root([_resolved("root.1", _RecoveredPoint(x=3, y=4))])
+    result = await ctx.run(_make_point, 3, 4)
+    assert result == _RecoveredPoint(x=3, y=4)
+    assert isinstance(result, _RecoveredPoint)
+
+
+@pytest.mark.asyncio
+async def test_run_recovery_coerces_return_to_tuple() -> None:
+    # JSON has no tuple, so the settled value round-trips as a list; the return
+    # annotation (tuple[int, str]) drives coercion back to a real tuple, matching
+    # the live path (which would have returned a tuple).
+    ctx = _root([_resolved("root.1", (5, "6"))])
+    result = await ctx.run(_make_pair, 5, 6)
+    assert result == (5, "6")
+    assert isinstance(result, tuple)
+
+
+# =============================================================================
+# run: the LIVE path coerces the return too (symmetric with recovery)
+#
+# Return coercion is the mirror of argument coercion, which runs on every
+# invocation (live and replay). The live (first-run) path of ``ctx.run`` must
+# therefore coerce its return to the declared type just as the recovery
+# short-circuit does -- otherwise a function whose return msgspec reshapes
+# (``-> float`` returning an ``int``) hands back the raw object on the first run
+# and the coerced object on replay, diverging silently.
+# =============================================================================
+
+
+async def _make_float(ctx: Context, x: int) -> float:
+    # Returns an int, but the annotation declares float -- msgspec widens it.
+    return x
+
+
+@pytest.mark.asyncio
+async def test_run_live_path_coerces_return_to_declared_type() -> None:
+    ctx = _root()
+    result = await ctx.run(_make_float, 3)
+    # The parent observes a float, not the raw int the function returned.
+    assert result == 3.0
+    assert isinstance(result, float)
+    # The promise stores the raw return (an int); coercion is applied only at the
+    # return boundary, matching the top-level run (which stores raw and coerces
+    # at the handle).
+    assert ctx.effects.cache["root.1"].value.data == 3
+
+
+@pytest.mark.asyncio
+async def test_run_live_and_recovery_returns_are_identical() -> None:
+    # Full parity: the same function run live vs recovered from a settled record
+    # holding the raw value the live path stored (int 3) hands back an equal,
+    # same-typed object on both paths.
+    live = await _root().run(_make_float, 3)
+    recovered = await _root([_resolved("root.1", 3)]).run(_make_float, 3)
+    assert live == recovered == 3.0
+    assert isinstance(live, float)
+    assert isinstance(recovered, float)
+
+
+@pytest.mark.asyncio
+async def test_run_live_path_coerces_return_to_struct() -> None:
+    # A struct return: the live path already returns the struct, but it is still
+    # routed through coerce_result, so it stays the declared type -- the exact
+    # object the recovery path rebuilds from the stored dict.
+    ctx = _root()
+    result = await ctx.run(_make_point, 3, 4)
+    assert result == _RecoveredPoint(x=3, y=4)
+    assert isinstance(result, _RecoveredPoint)
+
+
 # =============================================================================
 # run: nested workflow (structured concurrency, happy path)
 # =============================================================================

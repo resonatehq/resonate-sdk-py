@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import logging
 import os
 from datetime import timedelta
@@ -395,15 +394,15 @@ class Resonate:
         else:
             name, version = getattr(func, "__name__", ""), 1
 
-        fn = self._registry.get(name, version)
-        if fn is None:
+        df = self._registry.get(name, version)
+        if df is None:
             raise FunctionNotFoundError(name, version)
 
         prefixed_id = self._prefix_id(id)
         req = self._build_root_promise_create_req(
             prefixed_id,
             name,
-            Args(args=args, kwargs=kwargs),
+            df.pack_args(*args, **kwargs),
             version,
             opts.timeout,
             opts.target,
@@ -449,9 +448,11 @@ class Resonate:
                 await self._register_and_settle(req.id, sub)
 
         self._spawn(_())
-        return ResonateHandle(
-            prefixed_id, sub, self._codec, _result_type(func), created
-        )
+        # The return type comes from the same ``DurableFunction`` that packed the
+        # arguments above -- the sole owner of this function's serde -- so the
+        # top-level decode resolves the annotation identically to the ``ctx.run``
+        # recovery decode (``df.coerce_result``), including for callable instances.
+        return ResonateHandle(prefixed_id, sub, self._codec, df.return_type, created)
 
     def rpc(self, id: str, fn: str, *args: Any, **kwargs: Any) -> ResonateHandle[Any]:
         """Dispatch a function remotely.
@@ -465,6 +466,10 @@ class Resonate:
         """
         opts = self._consume_opts()
         prefixed_id = self._prefix_id(id)
+        # Unlike :meth:`run`, there is no local ``DurableFunction`` to pack/validate
+        # against -- ``fn`` is a name dispatched to whatever worker owns the target,
+        # which need not be this process -- so the args are packed raw into ``Args``
+        # and the result stays untyped (``Any``), exactly like :meth:`get`.
         req = self._build_root_promise_create_req(
             prefixed_id,
             fn,
@@ -908,40 +913,6 @@ class Resonate:
 
 def _timeout_ms(timeout: timedelta) -> int:
     return int(timeout.total_seconds() * 1000)
-
-
-def _result_type(func: Callable[Concatenate[Context, ...], Any]) -> Any:
-    """Resolve a registered function's return type for decoding the result.
-
-    The static ``T`` from :meth:`Resonate.run`'s ``[**P, T]`` signature is gone
-    at runtime (the reason :class:`ResonateHandle` is handed an explicit type),
-    so the durable function's *return annotation* drives coercion of the settled
-    value.
-
-    Only the **return** annotation is resolved, never the parameters: a durable
-    function's ``ctx: Context`` parameter is typically annotated with a name
-    imported under ``TYPE_CHECKING`` only, so evaluating the whole signature
-    (e.g. via :func:`typing.get_type_hints`) would raise ``NameError`` on every
-    such function. The return annotation alone is carried onto a throwaway holder
-    and resolved by :func:`inspect.get_annotations` against the function's own
-    ``__globals__`` -- which evaluates the forward-ref *string* that
-    ``from __future__ import annotations`` turns the annotation into, safely
-    (``ast.literal_eval`` cannot, as it resolves no names). A missing or
-    unresolvable annotation falls back to ``Any`` (passthrough).
-    """
-    ret = getattr(func, "__annotations__", {}).get("return")
-    if ret is None:
-        return Any
-    if not isinstance(ret, str):
-        return ret
-    holder = type("_", (), {"__annotations__": {"return": ret}})
-    try:
-        resolved = inspect.get_annotations(
-            holder, globals=getattr(func, "__globals__", {}), eval_str=True
-        )
-    except Exception:
-        return Any
-    return resolved["return"]
 
 
 def _select_network(
