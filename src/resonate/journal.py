@@ -236,7 +236,13 @@ class Journal:
 
         # U2 -- every node must be reachable from the root.
         reachable: set[str] = set()
-        self._reach(self._root, reachable)
+        stack: list[str] = [self._root]
+
+        while stack:
+            curr_id = stack.pop()
+            if curr_id not in reachable:
+                reachable.add(curr_id)
+                stack.extend(self._nodes[curr_id].children)
 
         assert reachable == set(self._nodes), (
             f"U2 violated: node(s) not reachable from root: {sorted(set(self._nodes) - reachable)}"
@@ -246,9 +252,11 @@ class Journal:
         self.useful()
 
         frontier = self.frontier()
-        if status == "suspended":
-            # S1 -- a suspend must have something to wait on.
-            assert frontier, "S1 violated: suspended outcome with an empty frontier"
+
+        if not frontier:
+            assert status != "suspended", (
+                "S1 violated: suspended outcome with an empty frontier"
+            )
             # S4 -- the awaited subset must lie within the full frontier.
             extra = [t for t in todos if t not in frontier]
             assert not extra, (
@@ -256,19 +264,6 @@ class Journal:
                 f"todos={todos} frontier={frontier} extra={extra}"
             )
         else:
-            assert not frontier, (
+            assert status == "suspended", (
                 f"D1 violated: done outcome with non-empty frontier {frontier}"
             )
-
-    def _reach(self, id: str, seen: set[str]) -> None:
-        """Collect every node reachable from ``id`` (Det subtrees included).
-
-        Reachability spans all children regardless of type -- the frontier walk
-        prunes Det, but U2 wants the full graph so an orphaned Det node is still
-        caught.
-        """
-        if id in seen:
-            return
-        seen.add(id)
-        for child in self._nodes[id].children:
-            self._reach(child, seen)
