@@ -21,8 +21,6 @@ if TYPE_CHECKING:
     from resonate.types import PromiseRecord
 
 
-DEFAULT_TIMEOUT = timedelta(days=1)
-
 TargetResolver = Callable[[str | None], str]
 
 
@@ -226,7 +224,7 @@ class Context:
 
     def _child_timeout(self, requested: timedelta | None) -> int:
         now = now_ms()
-        timeout = requested if requested is not None else DEFAULT_TIMEOUT
+        timeout = requested if requested is not None else timedelta(days=1)
         return min(now + int(timeout.total_seconds() * 1000), self.timeout_at)
 
     async def invoke[**P, T](

@@ -95,11 +95,6 @@ HEARTBEAT_INTERVAL_DIVISOR = 2
 #: still-pending subscriptions, defending against a dropped SSE connection.
 _SUBSCRIPTION_REFRESH_SECS = 60
 
-#: Settled promise states (anything else folds to ``"pending"``).
-_SETTLED_STATES = frozenset(
-    {"resolved", "rejected", "rejected_canceled", "rejected_timedout"}
-)
-
 
 class ResonateSchedule:
     """Handle to a created schedule. Mirrors Rust's ``ResonateSchedule``."""
@@ -196,7 +191,9 @@ class Resonate:
         #: it was given. A ``fn`` registered at version 2 is dispatched at version
         #: 2 -- the object itself carries the version, so :meth:`with_opts` does
         #: not. Falls back to ``(__name__, 1)`` for an unrecorded callable.
-        self._names: dict[Callable[..., Any], tuple[str, int]] = {}
+        self._names: dict[
+            Callable[Concatenate[Context, ...], Any], tuple[str, int]
+        ] = {}
         #: Live fire-and-forget tasks (network start, promise creation, workflow
         #: execution), retained both so the event loop does not collect them
         #: mid-flight and so :meth:`stop` can join them.
@@ -311,7 +308,7 @@ class Resonate:
     ]: ...
     def register(
         self,
-        fn: Callable[..., Any] | None = None,
+        fn: Callable[Concatenate[Context, ...], Any] | None = None,
         *,
         name: str | None = None,
         version: int = 1,
@@ -356,7 +353,7 @@ class Resonate:
     def run[T](
         self,
         id: str,
-        func: Callable[..., Any],
+        func: Callable[Concatenate[Context, ...], Any],
         *args: Any,
         **kwargs: Any,
     ) -> ResonateHandle[T]:
@@ -913,7 +910,7 @@ def _timeout_ms(timeout: timedelta) -> int:
     return int(timeout.total_seconds() * 1000)
 
 
-def _result_type(func: Callable[..., Any]) -> Any:
+def _result_type(func: Callable[Concatenate[Context, ...], Any]) -> Any:
     """Resolve a registered function's return type for decoding the result.
 
     The static ``T`` from :meth:`Resonate.run`'s ``[**P, T]`` signature is gone
