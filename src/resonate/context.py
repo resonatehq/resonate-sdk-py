@@ -14,6 +14,7 @@ from resonate import now_ms
 from resonate.codec import decode_settled
 from resonate.durable import DurableFunction
 from resonate.error import ApplicationError, SuspendedError
+from resonate.journal import Journal
 from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
 
 if TYPE_CHECKING:
@@ -69,6 +70,7 @@ class Context:
         spawned_locals: list[SpawnedLocal],
         deps: DependencyMap,
         opts: Opts,
+        journal: Journal,
     ) -> None:
         self.id = id
         self.origin_id = origin_id
@@ -76,6 +78,12 @@ class Context:
         self.parent_id = parent_id
 
         self.func_name = func_name
+
+        # The execution tree for this workflow attempt. Shared by reference
+        # across the root context and every ``_child`` it spawns, so each spawn
+        # records itself under the right parent. Assertion-only -- see
+        # ``journal.py`` and ``tree.md``; the runtime never reads it.
+        self.journal = journal
 
         self.timeout_at = timeout_at
         self.seq = seq
@@ -127,6 +135,10 @@ class Context:
             spawned_remote=[],
             deps=deps,
             opts=Opts(),
+            # The root owns the tree; ``_child`` copies the reference. The root
+            # node is ``(int, pending)`` -- settled by ``task.fulfill`` in the
+            # outer, never the inner (invariant U1).
+            journal=Journal(id),
         )
 
     def _child(self, id: str, func_name: str, timeout_at: int) -> Context:
@@ -147,6 +159,9 @@ class Context:
             spawned_remote=[],
             deps=self.deps,
             opts=Opts(),
+            # Share the parent's tree by reference: this child's own spawns
+            # record themselves under ``id`` in the same per-attempt journal.
+            journal=self.journal,
         )
 
     def _consume_opts(self) -> Opts:
@@ -317,6 +332,14 @@ class Context:
             },
         )
 
+        # Record the local child in the execution tree before its promise is
+        # created. ``ctx.run`` children are Int -- this worker settles them under
+        # our task lease when ``bg`` returns. Added synchronously at the call
+        # site (not inside ``bg``) so siblings appear in call order, giving the
+        # deterministic children-as-prefix shape replay relies on. Idempotent, so
+        # a replay re-walking the same body does not duplicate the node.
+        self.journal.add_child(self.id, req.id, "int")
+
         async def bg() -> T:
             record = await self._create_promise_in_chain(req, prev_created, created)
 
@@ -326,7 +349,12 @@ class Context:
             # in-memory object the live path below produces, which also runs the
             # return through ``df.coerce_result`` (symmetric with the top-level
             # ResonateHandle's convert, and with argument coercion in ``invoke``).
+            #
+            # Tree pruning (``tree.md`` §6): the local body never executes, so any
+            # children it would have spawned are never added -- mark the node
+            # Settled and stop here.
             if record.state != "pending":
+                self.journal.settle(req.id)
                 return df.coerce_result(decode_settled(record))
 
             # Pending: execute the child locally on its own Context, which is
@@ -390,6 +418,11 @@ class Context:
             # never persisted by the codec, so a recovery could not
             # reproduce them either).
             record = await self.effects.settle_promise(req.id, value)
+            # The local executor completed (resolved or rejected): mark the Int
+            # node Settled. Reached only on the done/error path -- a suspended
+            # child raised above with its node left Pending, which is the
+            # suspended-local case U3 keeps alive via its Ext-pending descendant.
+            self.journal.settle(req.id)
             return df.coerce_result(decode_settled(record))
 
         task = asyncio.create_task(bg())
@@ -448,6 +481,12 @@ class Context:
             target=self.target_resolver(opts.target),
         )
 
+        # Record the detached child as a Det node. Det subtrees are outside this
+        # workflow's contract -- exempt from every well-formedness rule and
+        # skipped by the frontier walk -- so a pending detached child never holds
+        # the parent in the frontier.
+        self.journal.add_child(self.id, req.id, "det")
+
         async def bg() -> str:
             """Background body for :meth:`detached`.
 
@@ -459,7 +498,11 @@ class Context:
             record returned by ``CreatePromise``. ``created.set()`` lives in
             ``finally`` so a failing create never deadlocks the chain's successors.
             """
-            await self._create_promise_in_chain(req, prev_created, created)
+            record = await self._create_promise_in_chain(req, prev_created, created)
+            # Det nodes are exempt from the contract, but track settlement anyway
+            # so :meth:`Journal.print` and ``get`` reflect reality.
+            if record.state != "pending":
+                self.journal.settle(req.id)
             return req.id
 
         return ResonateFuture(
@@ -507,6 +550,13 @@ class Context:
         body is the :meth:`_await_remote` task spawned via
         :meth:`_spawn_remote_await`.
         """
+        # Record the remote child in the execution tree. All three callers are
+        # Ext -- settled by something we await (another worker, the server timer,
+        # an external ``promise.settle``), so a pending Ext node sits in the
+        # suspension frontier. Added here at the (synchronous) call site so the
+        # frontier is a superset of ``spawned_remote`` even for a future the body
+        # created but never awaited -- the bridge for invariant S4.
+        self.journal.add_child(self.id, req.id, "ext")
         return ResonateFuture(
             _id=req.id,
             _task=self._spawn_remote_await(req, prev_created, created),
@@ -558,12 +608,17 @@ class Context:
         record = await self._create_promise_in_chain(req, prev_created, created)
 
         if record.state != "pending":
-            # Remote results are returned as raw decoded builtins -- there is no
-            # local ``DurableFunction`` to coerce against (rpc dispatches by name,
-            # sleep/promise have no function at all), so unlike ``ctx.run`` this
-            # path does not run ``coerce_result``. Untyped by design, matching the
-            # top-level ``rpc``/``get``.
+            # Already settled: mark the Ext node Settled so it leaves the
+            # frontier. Remote results are returned as raw decoded builtins --
+            # there is no local ``DurableFunction`` to coerce against (rpc
+            # dispatches by name, sleep/promise have no function at all), so
+            # unlike ``ctx.run`` this path does not run ``coerce_result``. Untyped
+            # by design, matching the top-level ``rpc``/``get``.
+            self.journal.settle(req.id)
             return decode_settled(record)
 
+        # Still pending: the node stays Pending, keeping it in the frontier. The
+        # awaited subset (``spawned_remote``) is what the outer registers
+        # callbacks for; the tree's full frontier is its superset (S4).
         self.spawned_remote.append(req.id)
         raise SuspendedError
