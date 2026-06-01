@@ -126,7 +126,6 @@ def _core(reg: Registry) -> Core:
         codec=Codec(NoopEncryptor()),
         registry=reg,
         resolver=identity_target_resolver,
-        heartbeat=None,
         pid="tree-test",
         ttl=TTL,
     )

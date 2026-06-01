@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING, Literal
 
 import msgspec
 
-from resonate.context import Context
+from resonate.codec import Codec
+from resonate.context import Context, TargetResolver
 from resonate.dependencies import DependencyMap
 from resonate.effects import Effects, ResonateEffects
 from resonate.error import (
@@ -32,8 +33,9 @@ from resonate.error import (
     SerializationError,
     SuspendedError,
 )
-from resonate.heartbeat import NoopHeartbeat
-from resonate.send import Redirect
+from resonate.heartbeat import Heartbeat, NoopHeartbeat
+from resonate.registry import Registry
+from resonate.send import Redirect, Sender
 from resonate.types import (
     PromiseRegisterCallbackData,
     PromiseSettleReq,
@@ -42,11 +44,6 @@ from resonate.types import (
 )
 
 if TYPE_CHECKING:
-    from resonate.codec import Codec
-    from resonate.context import TargetResolver
-    from resonate.heartbeat import Heartbeat
-    from resonate.registry import Registry
-    from resonate.send import Sender
     from resonate.types import PromiseRecord, Status
 
 logger = logging.getLogger(__name__)
@@ -97,7 +94,7 @@ class _ExecSuspended(msgspec.Struct, frozen=True, kw_only=True):
 _ExecOutcome = _ExecFulfilled | _ExecSuspended
 
 
-class Core:
+class Core(msgspec.Struct, kw_only=True):
     """Orchestrates acquire/execute/fulfill-suspend-release for one task.
 
     Mirrors Go's ``Core``. ``resolver`` may be ``None`` -- it falls back to
@@ -109,32 +106,14 @@ class Core:
     explicit :class:`~resonate.DependencyMap` into the root context.
     """
 
-    def __init__(
-        self,
-        sender: Sender | None,
-        codec: Codec,
-        registry: Registry,
-        resolver: TargetResolver | None,
-        heartbeat: Heartbeat | None,
-        pid: str,
-        ttl: int,
-        deps: DependencyMap | None = None,
-    ) -> None:
-        if resolver is None:
-            resolver = identity_target_resolver
-        if heartbeat is None:
-            heartbeat = NoopHeartbeat()
-        if deps is None:
-            deps = DependencyMap()
-
-        self.sender = sender
-        self.codec = codec
-        self.registry = registry
-        self.resolver = resolver
-        self.heartbeat = heartbeat
-        self.pid = pid
-        self.ttl = ttl
-        self.deps = deps
+    sender: Sender | None
+    codec: Codec
+    registry: Registry
+    resolver: TargetResolver = msgspec.field(default=identity_target_resolver)
+    heartbeat: Heartbeat = msgspec.field(default_factory=NoopHeartbeat)
+    pid: str
+    ttl: int
+    deps: DependencyMap = msgspec.field(default_factory=DependencyMap)
 
     # ═══════════════════════════════════════════════════════════════
     #  Path 1: on_message -- acquire then execute

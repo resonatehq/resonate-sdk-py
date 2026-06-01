@@ -162,14 +162,14 @@ class Resonate:
             self._heartbeat = AsyncHeartbeat(self._pid, interval_ms, self._sender)
 
         self._core = Core(
-            self._sender,
-            self._codec,
-            self._registry,
-            self._resolve_target,
-            self._heartbeat,
-            self._pid,
-            self._safe_ttl_ms(),
-            self._deps,
+            sender=self._sender,
+            codec=self._codec,
+            registry=self._registry,
+            resolver=self._resolve_target,
+            heartbeat=self._heartbeat,
+            pid=self._pid,
+            ttl=self._safe_ttl_ms(),
+            deps=self._deps,
         )
 
         self.promises = Promises(self._sender, self._codec)

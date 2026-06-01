@@ -89,13 +89,13 @@ class CoreFixture:
         self.reg = Registry()
         self.hb = TrackingHeartbeat()
         self.core = Core(
-            self.sender,
-            self.codec,
-            self.reg,
-            identity_target_resolver,
-            self.hb,
-            self.pid,
-            TTL,
+            sender=self.sender,
+            codec=self.codec,
+            registry=self.reg,
+            resolver=identity_target_resolver,
+            heartbeat=self.hb,
+            pid=self.pid,
+            ttl=TTL,
         )
 
     async def create_root_task(
@@ -441,7 +441,13 @@ async def test_noop_heartbeat_does_not_interfere() -> None:
     reg = Registry()
     reg.register("seven3", wf_return_seven)
     # heartbeat=None -> NoopHeartbeat.
-    core = Core(sender, codec, reg, identity_target_resolver, None, pid, TTL)
+    core = Core(
+        sender=sender,
+        codec=codec,
+        registry=reg,
+        pid=pid,
+        ttl=TTL,
+    )
 
     param = codec.encode(TaskData(func="seven3", args=(), kwargs={}, version=1))
     res = await sender.task_create(
