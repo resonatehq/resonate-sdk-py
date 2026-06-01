@@ -70,7 +70,7 @@ class Context:
         spawned_locals: list[SpawnedLocal],
         deps: DependencyMap,
         opts: Opts,
-        journal: Tree,
+        tree: Tree,
     ) -> None:
         self.id = id
         self.origin_id = origin_id
@@ -82,8 +82,8 @@ class Context:
         # The execution tree for this workflow attempt. Shared by reference
         # across the root context and every ``_child`` it spawns, so each spawn
         # records itself under the right parent. Assertion-only -- see
-        # ``journal.py`` and ``tree.md``; the runtime never reads it.
-        self.journal = journal
+        # ``tree.py`` and ``tree.md``; the runtime never reads it.
+        self.tree = tree
 
         self.timeout_at = timeout_at
         self.seq = seq
@@ -138,7 +138,7 @@ class Context:
             # The root owns the tree; ``_child`` copies the reference. The root
             # node is ``(int, pending)`` -- settled by ``task.fulfill`` in the
             # outer, never the inner (invariant U1).
-            journal=Tree(id),
+            tree=Tree(id),
         )
 
     def _child(self, id: str, func_name: str, timeout_at: int) -> Context:
@@ -160,8 +160,8 @@ class Context:
             deps=self.deps,
             opts=Opts(),
             # Share the parent's tree by reference: this child's own spawns
-            # record themselves under ``id`` in the same per-attempt journal.
-            journal=self.journal,
+            # record themselves under ``id`` in the same per-attempt tree.
+            tree=self.tree,
         )
 
     def _consume_opts(self) -> Opts:
@@ -338,7 +338,7 @@ class Context:
         # site (not inside ``bg``) so siblings appear in call order, giving the
         # deterministic children-as-prefix shape replay relies on. Idempotent, so
         # a replay re-walking the same body does not duplicate the node.
-        self.journal.add_child(self.id, req.id, "int")
+        self.tree.add_child(self.id, req.id, "int")
 
         async def bg() -> T:
             record = await self._create_promise_in_chain(req, prev_created, created)
@@ -354,7 +354,7 @@ class Context:
             # children it would have spawned are never added -- mark the node
             # Settled and stop here.
             if record.state != "pending":
-                self.journal.settle(req.id)
+                self.tree.settle(req.id)
                 return df.coerce_result(decode_settled(record))
 
             # Pending: execute the child locally on its own Context, which is
@@ -422,7 +422,12 @@ class Context:
             # node Settled. Reached only on the done/error path -- a suspended
             # child raised above with its node left Pending, which is the
             # suspended-local case U3 keeps alive via its Ext-pending descendant.
-            self.journal.settle(req.id)
+            # Also re-affirm ``durable`` per the spec ("return from
+            # promisecreate / promisesettle"): idempotent here since
+            # ``_create_promise_in_chain`` already flipped it on the live path
+            # above, but the explicit call mirrors the contract one-to-one.
+            self.tree.settle(req.id)
+            self.tree.durable(req.id)
             return df.coerce_result(decode_settled(record))
 
         task = asyncio.create_task(bg())
@@ -485,7 +490,7 @@ class Context:
         # workflow's contract -- exempt from every well-formedness rule and
         # skipped by the frontier walk -- so a pending detached child never holds
         # the parent in the frontier.
-        self.journal.add_child(self.id, req.id, "det")
+        self.tree.add_child(self.id, req.id, "det")
 
         async def bg() -> str:
             """Background body for :meth:`detached`.
@@ -500,9 +505,9 @@ class Context:
             """
             record = await self._create_promise_in_chain(req, prev_created, created)
             # Det nodes are exempt from the contract, but track settlement anyway
-            # so :meth:`Journal.print` and ``get`` reflect reality.
+            # so :meth:`tree.print` and ``get`` reflect reality.
             if record.state != "pending":
-                self.journal.settle(req.id)
+                self.tree.settle(req.id)
             return req.id
 
         return ResonateFuture(
@@ -534,7 +539,16 @@ class Context:
         try:
             if prev_created is not None:
                 await prev_created.wait()
-            return await self.effects.create_promise(req)
+            record = await self.effects.create_promise(req)
+            # ``create_promise`` returned: the server has acknowledged this id's
+            # durable record. Promote the tree node out of ``ephemeral``. Done
+            # *before* releasing the next chain link so the successor sees this
+            # node already durable -- the structural shadow of the same
+            # serialization the chain enforces (U4 in :meth:`Tree.well_formed`).
+            # If ``create_promise`` raised, we skip this and the node stays
+            # ephemeral, which is correct: no durable record exists.
+            self.tree.durable(req.id)
+            return record
         finally:
             created.set()
 
@@ -556,7 +570,7 @@ class Context:
         # suspension frontier. Added here at the (synchronous) call site so the
         # frontier is a superset of ``spawned_remote`` even for a future the body
         # created but never awaited -- the bridge for invariant S4.
-        self.journal.add_child(self.id, req.id, "ext")
+        self.tree.add_child(self.id, req.id, "ext")
         return ResonateFuture(
             _id=req.id,
             _task=self._spawn_remote_await(req, prev_created, created),
@@ -614,7 +628,7 @@ class Context:
             # dispatches by name, sleep/promise have no function at all), so
             # unlike ``ctx.run`` this path does not run ``coerce_result``. Untyped
             # by design, matching the top-level ``rpc``/``get``.
-            self.journal.settle(req.id)
+            self.tree.settle(req.id)
             return decode_settled(record)
 
         # Still pending: the node stays Pending, keeping it in the frontier. The

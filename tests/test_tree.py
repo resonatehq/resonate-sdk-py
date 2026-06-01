@@ -34,34 +34,24 @@ from resonate.tree import Node, Tree
 
 
 def test_new_tree_root_is_int_pending() -> None:
-    """A fresh tree is just the root, classified (int, pending) -- U1's shape."""
+    """A fresh tree is just the root, classified (int, pending) -- U1's shape.
+
+    The root is born ``durable`` because its promise record exists before the
+    inner runs (the task message points to it); the workflow never awaits a
+    ``create_promise`` for the root from inside itself.
+    """
     t = Tree("root")
     assert t.root() == "root"
     root = t.get("root")
     assert root is not None
     assert root.type == "int"
     assert root.kind == "pending"
+    assert root.state == "durable"
     assert root.children == []
 
 
 def test_get_unknown_returns_none() -> None:
     assert Tree("root").get("nope") is None
-
-
-def test_get_returns_defensive_copy() -> None:
-    """Mutating the handle must not leak back into tree state (Go's value copy)."""
-    t = Tree("root")
-    t.add_child("root", "root.1", "ext")
-
-    handle = t.get("root")
-    assert handle is not None
-    handle.kind = "settled"
-    handle.children.append("forged")
-
-    fresh = t.get("root")
-    assert fresh is not None
-    assert fresh.kind == "pending"
-    assert fresh.children == ["root.1"]
 
 
 def test_add_child_inserts_and_links_parent() -> None:
@@ -72,6 +62,8 @@ def test_add_child_inserts_and_links_parent() -> None:
     assert child is not None
     assert child.type == "ext"
     assert child.kind == "pending"
+    # Child is born ephemeral -- ``create_promise`` has not yet returned.
+    assert child.state == "ephemeral"
 
     root = t.get("root")
     assert root is not None
@@ -129,30 +121,49 @@ def test_settle_is_monotonic_and_idempotent() -> None:
     assert child.kind == "settled"
 
 
-def test_settle_unknown_is_noop() -> None:
+# ── durable() -- ephemeral -> durable flip ───────────────────────────────────
+
+
+def test_durable_flips_ephemeral_to_durable() -> None:
+    """A child becomes durable once ``create_promise`` returns for it."""
     t = Tree("root")
-    t.settle("nope")  # must not raise
-    assert t.get("nope") is None
+    t.add_child("root", "root.1", "ext")
+    handle = t.get("root.1")
+    assert handle
+    assert handle.state == "ephemeral"  # type: ignore[union-attr]
+    t.durable("root.1")
+    assert handle.state == "durable"  # type: ignore[union-attr]
+
+
+def test_durable_is_monotonic_and_idempotent() -> None:
+    """Re-flipping a durable node is a no-op (covers the settle-after-create case)."""
+    t = Tree("root")
+    t.add_child("root", "root.1", "int")
+    t.durable("root.1")
+    t.durable("root.1")
+    handle = t.get("root.1")
+    assert handle
+    assert handle.state == "durable"  # type: ignore[union-attr]
 
 
 # ── frontier ───────────────────────────────────────────────────────────────
 
 
 def test_frontier_empty_for_bare_root() -> None:
-    assert Tree("root").frontier() == []
+    assert Tree("root")._frontier() == []
 
 
 def test_frontier_collects_pending_ext_leaf() -> None:
     t = Tree("root")
     t.add_child("root", "root.1", "ext")
-    assert t.frontier() == ["root.1"]
+    assert t._frontier() == ["root.1"]
 
 
 def test_frontier_skips_settled_ext() -> None:
     t = Tree("root")
     t.add_child("root", "root.1", "ext")
     t.settle("root.1")
-    assert t.frontier() == []
+    assert t._frontier() == []
 
 
 def test_frontier_is_depth_first_in_insertion_order() -> None:
@@ -160,7 +171,7 @@ def test_frontier_is_depth_first_in_insertion_order() -> None:
     t = Tree("root")
     for i in (1, 2, 3):
         t.add_child("root", f"root.{i}", "ext")
-    assert t.frontier() == ["root.1", "root.2", "root.3"]
+    assert t._frontier() == ["root.1", "root.2", "root.3"]
 
 
 def test_frontier_descends_through_int_parent() -> None:
@@ -168,7 +179,7 @@ def test_frontier_descends_through_int_parent() -> None:
     t = Tree("root")
     t.add_child("root", "root.1", "int")  # ctx.run child, still in flight
     t.add_child("root.1", "root.1.1", "ext")  # the rpc it awaits
-    assert t.frontier() == ["root.1.1"]
+    assert t._frontier() == ["root.1.1"]
 
 
 def test_frontier_prunes_det_subtree() -> None:
@@ -176,7 +187,7 @@ def test_frontier_prunes_det_subtree() -> None:
     t = Tree("root")
     t.add_child("root", "d", "det")
     t.add_child("d", "d.1", "ext")  # would be a frontier leaf if not under Det
-    assert t.frontier() == []
+    assert t._frontier() == []
 
 
 def test_frontier_pending_ext_prunes_own_subtree() -> None:
@@ -184,7 +195,7 @@ def test_frontier_pending_ext_prunes_own_subtree() -> None:
     t = Tree("root")
     t.add_child("root", "root.1", "ext")
     t.add_child("root.1", "root.1.1", "ext")  # below a pending Ext -> not reached
-    assert t.frontier() == ["root.1"]
+    assert t._frontier() == ["root.1"]
 
 
 # ── useful() / U3 ────────────────────────────────────────────────────────────
@@ -195,7 +206,7 @@ def test_useful_passes_when_all_settled() -> None:
     t = Tree("root")
     t.add_child("root", "root.1", "ext")
     t.settle("root.1")
-    t.useful()  # no raise
+    t._useful()  # no raise
 
 
 def test_useful_passes_with_pending_ext_descendant() -> None:
@@ -203,7 +214,7 @@ def test_useful_passes_with_pending_ext_descendant() -> None:
     t = Tree("root")
     t.add_child("root", "root.1", "int")
     t.add_child("root.1", "root.1.1", "ext")
-    t.useful()  # no raise
+    t._useful()  # no raise
 
 
 def test_useful_flags_dead_int_pending_leaf() -> None:
@@ -211,7 +222,7 @@ def test_useful_flags_dead_int_pending_leaf() -> None:
     t = Tree("root")
     t.add_child("root", "root.1", "int")  # never settled, no children
     with pytest.raises(AssertionError):
-        t.useful()
+        t._useful()
 
 
 def test_useful_flags_int_pending_with_only_det_descendant() -> None:
@@ -220,7 +231,7 @@ def test_useful_flags_int_pending_with_only_det_descendant() -> None:
     t.add_child("root", "root.1", "int")
     t.add_child("root.1", "root.1.d", "det")
     with pytest.raises(AssertionError):
-        t.useful()
+        t._useful()
 
 
 def test_useful_names_every_dead_branch() -> None:
@@ -228,13 +239,13 @@ def test_useful_names_every_dead_branch() -> None:
     t.add_child("root", "root.1", "int")
     t.add_child("root", "root.2", "int")
     with pytest.raises(AssertionError) as exc:
-        t.useful()
+        t._useful()
     msg = str(exc.value)
     assert "root.1" in msg
     assert "root.2" in msg
 
 
-# ── well_formed: universal rules (U1/U2/U3) ──────────────────────────────────
+# ── well_formed: universal rules (U1/U2/U3/U4) ───────────────────────────────
 
 
 def test_well_formed_u1_root_must_be_int() -> None:
@@ -264,6 +275,67 @@ def test_well_formed_u3_flags_dead_branch() -> None:
     t.add_child("root", "root.1", "int")  # dead pending Int leaf
     with pytest.raises(AssertionError):
         t.well_formed("suspended", [])
+
+
+# ── well_formed: U4 -- creation-chain ordering ────────────────────────────────
+
+
+def test_well_formed_u4_valid_when_all_siblings_durable() -> None:
+    """After ``flush_local_work`` all non-det creates have returned.
+
+    This is the canonical valid shape: durables only. The in-flight case is
+    impossible at well_formed time, by construction.
+    """
+    t = Tree("root")
+    for i in (1, 2, 3):
+        t.add_child("root", f"root.{i}", "ext")
+        t.durable(f"root.{i}")
+    t.well_formed("suspended", ["root.1"])  # no raise
+
+
+def test_well_formed_u4_valid_with_trailing_ephemeral() -> None:
+    """Durables form a prefix: a single trailing ephemeral child is allowed.
+
+    (At well_formed time after ``flush_local_work`` this shouldn't actually
+    occur for non-det children -- but U4 is the structural rule, not a flush
+    invariant, so this shape is well-formed in isolation.)
+    """
+    t = Tree("root")
+    t.add_child("root", "root.1", "ext")
+    t.durable("root.1")
+    t.add_child("root", "root.2", "ext")  # left ephemeral
+    t.well_formed("suspended", ["root.1"])  # no raise
+
+
+def test_well_formed_u4_flags_durable_after_ephemeral() -> None:
+    """A durable child following an ephemeral sibling contradicts the chain.
+
+    create_promise calls are issued in insertion order, so the later one
+    cannot have returned before the earlier one's.
+    """
+    t = Tree("root")
+    t.add_child("root", "root.1", "ext")  # left ephemeral
+    t.add_child("root", "root.2", "ext")
+    t.durable("root.2")
+    with pytest.raises(AssertionError) as exc:
+        t.well_formed("suspended", ["root.2"])
+    msg = str(exc.value)
+    assert "U4" in msg
+    assert "root.1" in msg
+    assert "root.2" in msg
+
+
+def test_well_formed_u4_skips_det_siblings() -> None:
+    """Det children are exempt from U4 ordering checks.
+
+    Their bg() is never joined, so their state at well_formed time is
+    incidental and must not participate in the ordering.
+    """
+    t = Tree("root")
+    t.add_child("root", "root.d", "det")  # left ephemeral, sandwiched between Ext
+    t.add_child("root", "root.1", "ext")
+    t.durable("root.1")
+    t.well_formed("suspended", ["root.1"])  # no raise -- det doesn't block U4
 
 
 # ── well_formed: done state (D1) ─────────────────────────────────────────────
@@ -342,7 +414,7 @@ def test_phased_workflow_replay_sequence() -> None:
     # Iteration 0 -- cache empty: body creates root.1, awaits it, suspends.
     t0 = Tree("root")
     t0.add_child("root", "root.1", "ext")
-    assert t0.frontier() == ["root.1"]
+    assert t0._frontier() == ["root.1"]
     t0.well_formed("suspended", ["root.1"])
 
     # External settles root.1. Iteration 1 -- a returns, b and c spawn, await b.
@@ -351,7 +423,7 @@ def test_phased_workflow_replay_sequence() -> None:
     t1.settle("root.1")
     t1.add_child("root", "root.2", "ext")
     t1.add_child("root", "root.3", "ext")
-    assert t1.frontier() == ["root.2", "root.3"]
+    assert t1._frontier() == ["root.2", "root.3"]
     t1.well_formed("suspended", ["root.2"])  # only b is awaited
 
     # External settles root.3. Iteration 2 -- still blocked on b.
@@ -361,7 +433,7 @@ def test_phased_workflow_replay_sequence() -> None:
     t2.add_child("root", "root.2", "ext")
     t2.add_child("root", "root.3", "ext")
     t2.settle("root.3")
-    assert t2.frontier() == ["root.2"]
+    assert t2._frontier() == ["root.2"]
     t2.well_formed("suspended", ["root.2"])
 
     # External settles root.2. Iteration 3 -- body runs to completion, done.
@@ -371,5 +443,5 @@ def test_phased_workflow_replay_sequence() -> None:
     t3.add_child("root", "root.3", "ext")
     for leaf in ("root.1", "root.2", "root.3"):
         t3.settle(leaf)
-    assert t3.frontier() == []
+    assert t3._frontier() == []
     t3.well_formed("done", [])

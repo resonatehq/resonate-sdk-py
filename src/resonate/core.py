@@ -345,10 +345,10 @@ class Core:
         state: SettleState
         if not suspended and not todos:
             # ASSERT the tree matches a Done outcome (U1/U2/U3/D1) before
-            # fulfilling. The journal is a parallel assertion-only view --
+            # fulfilling. The tree is a parallel assertion-only view --
             # ``well_formed`` never feeds the decision below, it only verifies it
-            # (see ``tree.md`` / ``journal.py``).
-            root_ctx.journal.well_formed("done", todos)
+            # (see ``tree.md`` / ``tree.py``).
+            root_ctx.tree.well_formed("done", todos)
             if run_err is not None:
                 state = "rejected"
                 encoded = self.codec.encode(run_err)
@@ -372,5 +372,5 @@ class Core:
 
         # ASSERT the tree matches a Suspended outcome (U1/U2/U3/S1/S4): the
         # frontier is non-empty and the awaited ``todos`` are a subset of it.
-        root_ctx.journal.well_formed("suspended", todos)
+        root_ctx.tree.well_formed("suspended", todos)
         return _ExecSuspended(todos=todos)

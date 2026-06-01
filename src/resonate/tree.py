@@ -58,20 +58,39 @@ NodeType = Literal["int", "ext", "det"]
 #: only (``tree.md`` Kind, §2).
 NodeKind = Literal["pending", "settled"]
 
+#: Whether the server has acknowledged this node's durable record. Orthogonal to
+#: ``NodeKind`` -- ``kind`` says "has the promise *terminated*", ``state`` says
+#: "have we *heard back* from create_promise / settle_promise on this node".
+#:
+#: * ``"ephemeral"`` -- node was inserted by ``add_child`` at the call site, but
+#:   no server round-trip has returned for it yet. The local body believes the
+#:   promise exists; the server has not yet confirmed.
+#: * ``"durable"`` -- ``create_promise`` (or ``settle_promise``) has returned
+#:   successfully for this id. The durable record is observable on the server.
+#:
+#: Transitions monotonically: ``ephemeral`` -> ``durable`` only. The root starts
+#: ``durable`` because its record exists before the inner runs (the task message
+#: points to it). The chain in :mod:`resonate.context` (``_tail`` events serialize
+#: ``create_promise`` calls in call order) ensures durability flips happen in
+#: child-insertion order -- the structural fact U4 codifies.
+NodeState = Literal["ephemeral", "durable"]
+
 
 class Node(msgspec.Struct, kw_only=True):
     """One promise in the call graph.
 
-    Mutable (``kind`` flips ``pending`` -> ``settled``; ``children`` grows as the
-    body spawns), so a plain ``@dataclass`` rather than a frozen ``msgspec.Struct``
-    -- msgspec is reserved for immutable / wire types. ``children`` holds child
-    IDs in insertion (== call) order, which is what makes the children-as-prefix
+    Mutable (``kind`` flips ``pending`` -> ``settled``, ``state`` flips
+    ``ephemeral`` -> ``durable``; ``children`` grows as the body spawns), so a
+    plain ``@dataclass`` rather than a frozen ``msgspec.Struct`` -- msgspec is
+    reserved for immutable / wire types. ``children`` holds child IDs in
+    insertion (== call) order, which is what makes the children-as-prefix
     replay property and :meth:`Journal.print` deterministic.
     """
 
     id: str
     type: NodeType
     kind: NodeKind = "pending"
+    state: NodeState = "ephemeral"
     children: list[str] = msgspec.field(default_factory=list)
 
 
@@ -86,7 +105,12 @@ class Tree:
 
     def __init__(self, root_id: str) -> None:
         self._root = root_id
-        self._nodes: dict[str, Node] = {root_id: Node(id=root_id, type="int")}
+        # Root is born ``durable``: its promise record exists before the inner
+        # runs (the task message points to it), so we never await a
+        # ``create_promise`` for it from inside the workflow.
+        self._nodes: dict[str, Node] = {
+            root_id: Node(id=root_id, type="int", state="durable")
+        }
 
     # ── inspection ──────────────────────────────────────────────────
 
@@ -104,9 +128,7 @@ class Tree:
         node = self._nodes.get(id)
         if node is None:
             return None
-        return Node(
-            id=node.id, type=node.type, kind=node.kind, children=list(node.children)
-        )
+        return node
 
     def add_child(self, parent: str, id: str, type: NodeType) -> bool:
         """Attach a child of ``type`` under ``parent``. Idempotent on ``id``.
@@ -126,12 +148,24 @@ class Tree:
     def settle(self, id: str) -> None:
         """Mark ``id`` settled. Monotonic; a no-op if unknown or already settled."""
         node = self._nodes.get(id)
-        if node is not None:
-            node.kind = "settled"
+        assert node, "node must exists to settle it"
+        node.kind = "settled"
+
+    def durable(self, id: str) -> None:
+        """Mark ``id`` durable. Monotonic; a no-op if unknown or already durable.
+
+        Called after ``create_promise`` (or ``settle_promise``) returns
+        successfully for ``id`` -- the server has acknowledged the record so the
+        local view can be promoted out of ``ephemeral``. Idempotent: a replay or
+        a redundant settle-after-create flip simply re-asserts the durable bit.
+        """
+        node = self._nodes.get(id)
+        assert node, "node must exists to mark it as durable"
+        node.state = "durable"
 
     # ── frontier ────────────────────────────────────────────────────
 
-    def frontier(self) -> list[str]:
+    def _frontier(self) -> list[str]:
         """Return the ``(ext, pending)`` node IDs, skipping Det subtrees (§3).
 
         These are the workflow's live remote dependencies -- the promises whose
@@ -167,7 +201,7 @@ class Tree:
 
     # ── predicates ──────────────────────────────────────────────────
 
-    def useful(self) -> None:
+    def _useful(self) -> None:
         """Assert U3: no dead pending branches (``tree.md`` §4).
 
         Every non-root, non-Det node must be either ``settled`` OR have at least
@@ -219,6 +253,12 @@ class Tree:
         * **U1** root is ``(int, pending)``.
         * **U2** every node reachable from the root.
         * **U3** no dead pending branches (:meth:`useful`).
+        * **U4** in every parent's children list, for any non-det child ``N``,
+          every preceding non-det sibling is ``durable``. The creation chain in
+          :mod:`resonate.context` serializes ``create_promise`` calls in
+          insertion order, so by the time the inner returns (after
+          ``flush_local_work``) the durable flips have happened in the same
+          order -- this is the assertable shadow of that fact.
         * **D1** (done) frontier empty.
         * **S1** (suspended) frontier non-empty; **S4** ``todos subset frontier``.
 
@@ -249,9 +289,37 @@ class Tree:
         )
 
         # U3 -- no dead pending branches.
-        self.useful()
+        self._useful()
 
-        frontier = self.frontier()
+        # U4 -- non-det durability respects child-insertion order. Walk each
+        # parent's children left to right; once we have seen an ``ephemeral``
+        # non-det child, no later non-det sibling may be ``durable``. Det
+        # children are skipped: their bg() task is never joined by
+        # ``flush_local_work`` (fire-and-forget), so their state at this point
+        # is incidental, and Det subtrees are exempt from the contract anyway.
+        u4_violations: list[tuple[str, str, str]] = []
+        for parent in self._nodes.values():
+            pending_predecessor: str | None = None
+            for child_id in parent.children:
+                child = self._nodes[child_id]
+                if child.type == "det":
+                    continue
+                if pending_predecessor is not None and child.state == "durable":
+                    u4_violations.append((parent.id, pending_predecessor, child_id))
+                if child.state == "ephemeral":
+                    pending_predecessor = child_id
+
+        lines = "\n".join(
+            f"  - under {parent!r}: {later!r} is durable but earlier sibling "
+            f"{earlier!r} is still ephemeral"
+            for parent, earlier, later in u4_violations
+        )
+        assert not u4_violations, (
+            "U4 violated: durable child(ren) follow an ephemeral sibling, "
+            "contradicting the creation-chain ordering:\n" + lines
+        )
+
+        frontier = self._frontier()
 
         # S1 / D1 -- the status-specific rule pins the frontier. Keyed on the
         # reported status, not on emptiness, so S4 below sees the suspended
