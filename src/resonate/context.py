@@ -431,12 +431,7 @@ class Context:
             # node Settled. Reached only on the done/error path -- a suspended
             # child raised above with its node left Pending, which is the
             # suspended-local case U3 keeps alive via its Ext-pending descendant.
-            # Also re-affirm ``durable`` per the spec ("return from
-            # promisecreate / promisesettle"): idempotent here since
-            # ``_create_promise_in_chain`` already flipped it on the live path
-            # above, but the explicit call mirrors the contract one-to-one.
             self.tree.settle(req.id)
-            self.tree.durable(req.id)
             return df.coerce_result(decode_settled(record))
 
         task = asyncio.create_task(bg())
@@ -514,7 +509,7 @@ class Context:
             """
             record = await self._create_promise_in_chain(req, prev_created, created)
             # Det nodes are exempt from the contract, but track settlement anyway
-            # so :meth:`tree.print` and ``get`` reflect reality.
+            # so :meth:`Tree.print` and :meth:`Tree.get` reflect reality.
             if record.state != "pending":
                 self.tree.settle(req.id)
             return req.id
@@ -548,16 +543,7 @@ class Context:
         try:
             if prev_created is not None:
                 await prev_created.wait()
-            record = await self.effects.create_promise(req)
-            # ``create_promise`` returned: the server has acknowledged this id's
-            # durable record. Promote the tree node out of ``ephemeral``. Done
-            # *before* releasing the next chain link so the successor sees this
-            # node already durable -- the structural shadow of the same
-            # serialization the chain enforces (U4 in :meth:`Tree.well_formed`).
-            # If ``create_promise`` raised, we skip this and the node stays
-            # ephemeral, which is correct: no durable record exists.
-            self.tree.durable(req.id)
-            return record
+            return await self.effects.create_promise(req)
         finally:
             created.set()
 
