@@ -454,6 +454,68 @@ async def test_detached_id_stays_bounded_across_recursive_re_root() -> None:
     assert child.tags["resonate:origin"] == "top"
 
 
+@pytest.mark.asyncio
+async def test_recursive_multi_detached_keeps_ids_bounded_through_core() -> None:
+    """Multiple recursive detached do not grow the id -- proven end-to-end.
+
+    Fan out FANOUT detached per workflow, DEPTH levels deep, re-rooting each
+    child by feeding its created promise back through ``_execute_until_blocked_
+    inner`` exactly as a worker would. The origin is resolved the production way
+    (core reads ``resonate:origin`` from the promise), so this exercises the
+    real fix -- not a hand-rolled re-root. ``blake2b`` flattens the ever-growing
+    seqid to a constant 16 hex and the origin stays pinned to the top, so every
+    detached id is ``{top}.{16hex}`` regardless of depth or fan-out.
+    """
+    top, fanout, depth = "top", 3, 4
+
+    async def fires(ctx: Context) -> str:
+        for _ in range(fanout):
+            await ctx.detached("fires")
+        return "done"
+
+    reg = Registry()
+    reg.register("fires", fires)
+    core = _core(reg)
+    effects = MockEffects()  # one shared store across every level
+
+    # Seed the genuine top-level root: origin tag equals its own id.
+    root = PromiseRecord(
+        id=top,
+        state="pending",
+        param=Value(data={"func": "fires", "args": [], "kwargs": {}, "version": 1}),
+        timeout_at=FAR_FUTURE,
+        tags={"resonate:origin": top},
+    )
+
+    frontier = [root]
+    seen = {top}
+    lengths: set[int] = set()
+    ids: set[str] = set()
+    origins: set[str] = set()
+
+    for _level in range(depth):
+        next_frontier: list[PromiseRecord] = []
+        for promise in frontier:
+            await core._execute_until_blocked_inner(promise, effects)
+            # Newly created detached children become the next level's roots --
+            # core re-roots each one off its own resonate:origin tag.
+            for rec in effects.cache.values():
+                if rec.id not in seen and kind(rec) == "detached":
+                    seen.add(rec.id)
+                    lengths.add(len(rec.id))
+                    ids.add(rec.id)
+                    origins.add(rec.tags["resonate:origin"])
+                    next_frontier.append(rec)
+        frontier = next_frontier
+
+    # Bounded: a single length across all depths, exactly ``{top}.{16hex}``.
+    assert lengths == {len(top) + 1 + 16}
+    # Origin stays pinned to the top at every level -- the mechanism that bounds it.
+    assert origins == {top}
+    # No collisions: every node in the tree got a distinct id.
+    assert len(ids) == (fanout ** (depth + 1) - fanout) // (fanout - 1)
+
+
 # ── Fulfill: everything settles in one pass ──────────────────────────────
 
 

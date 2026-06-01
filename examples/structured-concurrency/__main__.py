@@ -86,7 +86,9 @@ async def main() -> None:
             )
             print(f"[child] {child_id} resolved {child_out} -- the runtime awaited it")
 
-        print("[ok] both never-awaited children completed: structured concurrency holds")
+        print(
+            "[ok] both never-awaited children completed: structured concurrency holds"
+        )
     finally:
         await r.stop()
 
