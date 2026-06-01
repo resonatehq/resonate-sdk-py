@@ -324,12 +324,13 @@ class Tree:
         # S1 / D1 -- the status-specific rule pins the frontier. Keyed on the
         # reported status, not on emptiness, so S4 below sees the suspended
         # (non-empty) frontier too.
-        if status == "suspended":
-            assert frontier, "S1 violated: suspended outcome with an empty frontier"
-        else:
-            assert not frontier, (
-                f"D1 violated: done outcome with non-empty frontier {frontier}"
-            )
+        match status:
+            case "suspended":
+                assert frontier, "S1 violated: suspended outcome with an empty frontier"
+            case "done" | "error":
+                assert not frontier, (
+                    f"D1 violated: done outcome with non-empty frontier {frontier}"
+                )
 
         # S4 -- the awaited subset must lie within the full frontier. Holds in
         # both states: when done the frontier is empty, so this also pins todos
