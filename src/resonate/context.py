@@ -14,7 +14,7 @@ from resonate import now_ms
 from resonate.codec import decode_settled
 from resonate.durable import DurableFunction
 from resonate.error import ApplicationError, SuspendedError
-from resonate.journal import Journal
+from resonate.tree import Tree
 from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
 
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ class Context:
         spawned_locals: list[SpawnedLocal],
         deps: DependencyMap,
         opts: Opts,
-        journal: Journal,
+        journal: Tree,
     ) -> None:
         self.id = id
         self.origin_id = origin_id
@@ -138,7 +138,7 @@ class Context:
             # The root owns the tree; ``_child`` copies the reference. The root
             # node is ``(int, pending)`` -- settled by ``task.fulfill`` in the
             # outer, never the inner (invariant U1).
-            journal=Journal(id),
+            journal=Tree(id),
         )
 
     def _child(self, id: str, func_name: str, timeout_at: int) -> Context:

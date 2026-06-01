@@ -75,7 +75,7 @@ class Node(msgspec.Struct, kw_only=True):
     children: list[str] = msgspec.field(default_factory=list)
 
 
-class Journal:
+class Tree:
     """The execution tree for one workflow attempt.
 
     Built incrementally as the body runs (``add_child`` per spawn, ``settle`` as
