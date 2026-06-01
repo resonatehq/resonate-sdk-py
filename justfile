@@ -24,3 +24,4 @@ examples:
     uv run python examples/recovery
     uv run python examples/detached
     uv run python examples/polling
+    uv run python examples/structured-concurrency
