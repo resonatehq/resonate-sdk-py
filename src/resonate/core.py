@@ -274,6 +274,14 @@ class Core(msgspec.Struct, kw_only=True):
         # 4. EXECUTE the workflow.
         root_ctx = Context.root(
             id=promise.id,
+            # Take the lineage origin from the promise's ``resonate:origin`` tag,
+            # which the dispatcher (top-level run / rpc / detached) set to its
+            # own origin. Falling back to ``promise.id`` when absent keeps a
+            # genuine top-level root (whose tag equals its id anyway) and any
+            # tag-less promise correct. This is what bounds recursive
+            # ``detached`` ids: every level shares the original origin instead of
+            # re-rooting to its own grown id.
+            origin_id=promise.tags.get("resonate:origin", promise.id),
             timeout_at=promise.timeout_at,
             func_name=task_data.func,
             effects=effects,

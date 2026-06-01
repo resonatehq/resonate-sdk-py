@@ -115,15 +115,24 @@ class Context:
     def root(
         cls,
         id: str,
+        origin_id: str,
         timeout_at: int,
         func_name: str,
         effects: Effects,
         target_resolver: TargetResolver,
         deps: DependencyMap,
     ) -> Self:
+        # ``origin_id`` is the top of the execution lineage, carried through the
+        # ``resonate:origin`` tag from whoever dispatched this workflow
+        # (top-level run, ``rpc``, or ``detached``). For a genuine top-level root
+        # it equals ``id``; for a remotely-dispatched workflow it is the
+        # *original* origin, NOT ``id`` -- which is what keeps ``detached`` ids
+        # bounded (``{origin}.{16hex}``) under recursion. The caller resolves it
+        # (see ``core.py``); a re-root must never silently fall back to ``id``,
+        # so it is required rather than defaulted.
         return cls(
             id=id,
-            origin_id=id,
+            origin_id=origin_id,
             branch_id=id,
             parent_id="",
             func_name=func_name,

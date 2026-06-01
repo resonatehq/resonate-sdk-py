@@ -407,6 +407,53 @@ async def test_detached_child_is_created_but_does_not_block() -> None:
     assert core.codec.decode(outcome.value) == only.id
 
 
+@pytest.mark.asyncio
+async def test_detached_id_stays_bounded_across_recursive_re_root() -> None:
+    """Recursive ``detached`` ids stay bounded via the ``resonate:origin`` tag.
+
+    A re-rooted workflow takes its lineage origin from the tag, not its own
+    (grown) id. A detached workflow runs as its own root. Were its origin
+    re-rooted to its
+    own id, every recursion level would prepend a longer prefix and the detached
+    id would grow ``+17`` chars per level without bound. Reading the origin from
+    the tag the dispatcher set means each level shares the *original* top origin,
+    so the id is always ``{top_origin}.{16hex}`` -- exactly one segment past the
+    dotless origin, regardless of depth.
+    """
+
+    async def fires(ctx: Context) -> str:
+        return await ctx.detached("fires")
+
+    reg = Registry()
+    reg.register("fires", fires)
+    core = _core(reg)
+    effects = MockEffects()
+
+    # Simulate a workflow already several detached levels deep: its OWN id has
+    # grown a hashed segment, but the lineage origin (the tag) is still the top.
+    grown_id = "top.deadbeefdeadbeef"
+    promise = PromiseRecord(
+        id=grown_id,
+        state="pending",
+        param=Value(data={"func": "fires", "args": [], "kwargs": {}, "version": 1}),
+        timeout_at=FAR_FUTURE,
+        tags={"resonate:origin": "top"},
+    )
+
+    await core._execute_until_blocked_inner(promise, effects)
+
+    (child,) = effects.cache.values()
+    # Bounded shape: rooted at the ORIGINAL origin, one segment past a dotless
+    # top -- NOT the grown id (which would yield two dots and grow each level).
+    origin, dot, suffix = child.id.partition(".")
+    assert (origin, dot) == ("top", ".")
+    assert child.id.count(".") == 1
+    assert len(suffix) == 16
+    assert all(c in "0123456789abcdef" for c in suffix)
+    # The original origin is carried forward, keeping the next level bounded too.
+    assert child.tags["resonate:origin"] == "top"
+
+
 # ── Fulfill: everything settles in one pass ──────────────────────────────
 
 

@@ -49,6 +49,7 @@ def _context() -> Context:
     effects = ResonateEffects(sender, Codec(NoopEncryptor()), [])
     return Context.root(
         id="root",
+        origin_id="root",
         timeout_at=I64_MAX,
         func_name="root",
         effects=effects,

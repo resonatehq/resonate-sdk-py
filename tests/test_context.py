@@ -61,6 +61,7 @@ def _root(
     effects = ResonateEffects(sender, _codec(), preload or [])
     return Context.root(
         id="root",
+        origin_id="root",
         timeout_at=timeout_at,
         func_name="root",
         effects=effects,
