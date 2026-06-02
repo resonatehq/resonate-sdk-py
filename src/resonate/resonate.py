@@ -711,6 +711,9 @@ class Resonate:
             ),
             tags={
                 "resonate:origin": prefixed_id,
+                # A genuine top-level root is its own lineage origin and its own
+                # id-generation prefix, so prefix == origin == id here.
+                "resonate:prefix": prefixed_id,
                 "resonate:branch": prefixed_id,
                 "resonate:parent": prefixed_id,
                 "resonate:scope": "global",

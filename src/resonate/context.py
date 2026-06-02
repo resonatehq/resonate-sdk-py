@@ -67,6 +67,7 @@ class Context:
         self,
         id: str,
         origin_id: str,
+        prefix_id: str,
         branch_id: str,
         parent_id: str,
         func_name: str,
@@ -83,6 +84,18 @@ class Context:
     ) -> None:
         self.id = id
         self.origin_id = origin_id
+
+        # The id-generation prefix, carried through the ``resonate:prefix`` tag.
+        # Distinct from ``origin_id``: ``origin_id`` is the lineage origin (which
+        # ``detached`` resets to the child's own id, starting a new lineage),
+        # while ``prefix_id`` is propagated *unchanged* across ``detached``
+        # re-roots. That is what keeps recursive ``detached`` ids bounded --
+        # every level mints ``{prefix}.{16hex}`` off the same fixed prefix rather
+        # than off its own grown id (see :meth:`detached`). For any non-detached
+        # context the two are equal (see ``resonate:prefix == resonate:origin``
+        # on every promise except a detached child's).
+        self.prefix_id = prefix_id
+
         self.branch_id = branch_id
         self.parent_id = parent_id
 
@@ -141,6 +154,7 @@ class Context:
         cls,
         id: str,
         origin_id: str,
+        prefix_id: str,
         timeout_at: int,
         func_name: str,
         effects: Effects,
@@ -151,14 +165,23 @@ class Context:
         # ``origin_id`` is the top of the execution lineage, carried through the
         # ``resonate:origin`` tag from whoever dispatched this workflow
         # (top-level run, ``rpc``, or ``detached``). For a genuine top-level root
-        # it equals ``id``; for a remotely-dispatched workflow it is the
-        # *original* origin, NOT ``id`` -- which is what keeps ``detached`` ids
-        # bounded (``{origin}.{16hex}``) under recursion. The caller resolves it
-        # (see ``core.py``); a re-root must never silently fall back to ``id``,
-        # so it is required rather than defaulted.
+        # it equals ``id``; a ``detached`` child resets it to its *own* id,
+        # starting a fresh lineage (so ``resonate:origin == id`` there).
+        #
+        # ``prefix_id`` is the id-generation prefix, carried through the
+        # ``resonate:prefix`` tag. Unlike the lineage origin it is propagated
+        # *unchanged* across ``detached`` re-roots -- which is what keeps
+        # recursive ``detached`` ids bounded (``{prefix}.{16hex}``, one segment
+        # past the fixed prefix) rather than growing a segment per level. For a
+        # genuine top-level root it equals ``id`` (and ``origin_id``).
+        #
+        # The caller resolves both from the dispatching promise's tags (see
+        # ``core.py``); a re-root must never silently fall back to ``id``, so
+        # both are required rather than defaulted.
         return cls(
             id=id,
             origin_id=origin_id,
+            prefix_id=prefix_id,
             branch_id=id,
             parent_id="",
             func_name=func_name,
@@ -187,6 +210,7 @@ class Context:
         return Context(
             id=id,
             origin_id=self.origin_id,
+            prefix_id=self.prefix_id,
             branch_id=id,
             parent_id=self.id,
             func_name=func_name,
@@ -358,6 +382,7 @@ class Context:
         data: TaskData | None = None,
         target: str | None = None,
         timer: bool = False,
+        origin: str | None = None,
     ) -> PromiseCreateReq:
         """Build a global-scope promise request.
 
@@ -368,13 +393,22 @@ class Context:
         dispatch; ``timer`` adds the ``resonate:timer`` tag that distinguishes a
         sleep from a bare promise. Tags are inserted in a fixed order so the
         serialized form matches across SDKs.
+
+        ``resonate:prefix`` is *always* this context's :attr:`prefix_id` -- the
+        prefix is set once at the top (``resonate.run``/``rpc``) and propagates
+        down unchanged forever, including across ``detached`` re-roots, so it
+        never tracks the (possibly diverging) lineage origin. ``origin`` defaults
+        to ``origin_id``; only :meth:`detached` overrides it, setting origin to
+        the child's own id to start a fresh lineage.
         """
+        resolved_origin = origin if origin is not None else self.origin_id
         tags = {"resonate:scope": "global"}
         if target is not None:
             tags["resonate:target"] = target
         tags["resonate:branch"] = id
         tags["resonate:parent"] = self.id
-        tags["resonate:origin"] = self.origin_id
+        tags["resonate:origin"] = resolved_origin
+        tags["resonate:prefix"] = self.prefix_id
         if timer:
             tags["resonate:timer"] = "true"
         return PromiseCreateReq(
@@ -425,6 +459,8 @@ class Context:
                 "resonate:branch": self.branch_id,
                 "resonate:parent": self.id,
                 "resonate:origin": self.origin_id,
+                # Prefix is set at the top and propagates down unchanged forever.
+                "resonate:prefix": self.prefix_id,
             },
         )
 
@@ -578,11 +614,20 @@ class Context:
         opts = self._consume_opts()
         prev_created, created = self._advance_promise_chain()
 
+        # Mint the id off ``prefix_id`` -- set at the top and propagated unchanged
+        # forever -- as ``{prefix}.d{16hex}``, so recursion stays bounded at one
+        # segment past the prefix instead of growing a segment per level. The
+        # ``d`` marks the segment as a detached child (vs an rpc child's numeric
+        # ``.{seq}``). ``resonate:origin`` is the child's own id (a fresh lineage
+        # root: ``origin == id == branch``); ``resonate:prefix`` (set in
+        # ``_global_req``) carries the same prefix forward to the next level.
+        child_id = f"{self.prefix_id}.d{_hash_id(self._next_id())}"
         req = self._global_req(
-            f"{self.origin_id}.{_hash_id(self._next_id())}",
+            child_id,
             opts.timeout,
             data=TaskData(func=fn, args=args, kwargs=kwargs, version=opts.version),
             target=self.target_resolver(opts.target),
+            origin=child_id,
         )
 
         # Record the detached child as a Det node. Det subtrees are outside this

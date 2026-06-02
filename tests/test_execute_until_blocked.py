@@ -409,16 +409,15 @@ async def test_detached_child_is_created_but_does_not_block() -> None:
 
 @pytest.mark.asyncio
 async def test_detached_id_stays_bounded_across_recursive_re_root() -> None:
-    """Recursive ``detached`` ids stay bounded via the ``resonate:origin`` tag.
+    """Recursive ``detached`` ids stay bounded via the ``resonate:prefix`` tag.
 
-    A re-rooted workflow takes its lineage origin from the tag, not its own
-    (grown) id. A detached workflow runs as its own root. Were its origin
-    re-rooted to its
-    own id, every recursion level would prepend a longer prefix and the detached
-    id would grow ``+17`` chars per level without bound. Reading the origin from
-    the tag the dispatcher set means each level shares the *original* top origin,
-    so the id is always ``{top_origin}.{16hex}`` -- exactly one segment past the
-    dotless origin, regardless of depth.
+    A detached workflow runs as its own root, with ``resonate:origin`` reset to
+    its own (grown) id -- a fresh lineage. If id generation used that origin,
+    every recursion level would prepend a longer prefix and the detached id
+    would grow ``+17`` chars per level without bound. Instead detached mints its
+    child off ``resonate:prefix``, which is propagated *unchanged* across
+    re-roots, so the id is always ``{prefix}.{16hex}`` -- exactly one segment
+    past the dotless prefix, regardless of depth.
     """
 
     async def fires(ctx: Context) -> str:
@@ -429,29 +428,34 @@ async def test_detached_id_stays_bounded_across_recursive_re_root() -> None:
     core = _core(reg)
     effects = MockEffects()
 
-    # Simulate a workflow already several detached levels deep: its OWN id has
-    # grown a hashed segment, but the lineage origin (the tag) is still the top.
+    # Simulate a workflow already several detached levels deep: its OWN id (and
+    # lineage origin) has grown a hashed segment, but the id-generation prefix
+    # (``resonate:prefix``) is still pinned to the top.
     grown_id = "top.deadbeefdeadbeef"
     promise = PromiseRecord(
         id=grown_id,
         state="pending",
         param=Value(data={"func": "fires", "args": [], "kwargs": {}, "version": 1}),
         timeout_at=FAR_FUTURE,
-        tags={"resonate:origin": "top"},
+        tags={"resonate:origin": grown_id, "resonate:prefix": "top"},
     )
 
     await core._execute_until_blocked_inner(promise, effects)
 
     (child,) = effects.cache.values()
-    # Bounded shape: rooted at the ORIGINAL origin, one segment past a dotless
+    # Bounded shape: rooted at the pinned PREFIX, one segment past a dotless
     # top -- NOT the grown id (which would yield two dots and grow each level).
-    origin, dot, suffix = child.id.partition(".")
-    assert (origin, dot) == ("top", ".")
+    prefix, dot, suffix = child.id.partition(".")
+    assert (prefix, dot) == ("top", ".")
     assert child.id.count(".") == 1
-    assert len(suffix) == 16
-    assert all(c in "0123456789abcdef" for c in suffix)
-    # The original origin is carried forward, keeping the next level bounded too.
-    assert child.tags["resonate:origin"] == "top"
+    # ``d`` marker + 16 hex; one segment past the dotless prefix.
+    assert suffix[0] == "d"
+    assert len(suffix) == 17
+    assert all(c in "0123456789abcdef" for c in suffix[1:])
+    # The prefix is carried forward unchanged, keeping the next level bounded;
+    # the new child's lineage origin is its OWN id (a fresh lineage root).
+    assert child.tags["resonate:prefix"] == "top"
+    assert child.tags["resonate:origin"] == child.id
 
 
 @pytest.mark.asyncio
@@ -460,10 +464,10 @@ async def test_recursive_multi_detached_keeps_ids_bounded_through_core() -> None
 
     Fan out FANOUT detached per workflow, DEPTH levels deep, re-rooting each
     child by feeding its created promise back through ``_execute_until_blocked_
-    inner`` exactly as a worker would. The origin is resolved the production way
-    (core reads ``resonate:origin`` from the promise), so this exercises the
+    inner`` exactly as a worker would. The prefix is resolved the production way
+    (core reads ``resonate:prefix`` from the promise), so this exercises the
     real fix -- not a hand-rolled re-root. ``blake2b`` flattens the ever-growing
-    seqid to a constant 16 hex and the origin stays pinned to the top, so every
+    seqid to a constant 16 hex and the prefix stays pinned to the top, so every
     detached id is ``{top}.{16hex}`` regardless of depth or fan-out.
     """
     top, fanout, depth = "top", 3, 4
@@ -478,40 +482,40 @@ async def test_recursive_multi_detached_keeps_ids_bounded_through_core() -> None
     core = _core(reg)
     effects = MockEffects()  # one shared store across every level
 
-    # Seed the genuine top-level root: origin tag equals its own id.
+    # Seed the genuine top-level root: origin and prefix tags both equal its id.
     root = PromiseRecord(
         id=top,
         state="pending",
         param=Value(data={"func": "fires", "args": [], "kwargs": {}, "version": 1}),
         timeout_at=FAR_FUTURE,
-        tags={"resonate:origin": top},
+        tags={"resonate:origin": top, "resonate:prefix": top},
     )
 
     frontier = [root]
     seen = {top}
     lengths: set[int] = set()
     ids: set[str] = set()
-    origins: set[str] = set()
+    prefixes: set[str] = set()
 
     for _level in range(depth):
         next_frontier: list[PromiseRecord] = []
         for promise in frontier:
             await core._execute_until_blocked_inner(promise, effects)
             # Newly created detached children become the next level's roots --
-            # core re-roots each one off its own resonate:origin tag.
+            # core re-roots each one off its own resonate:prefix tag.
             for rec in effects.cache.values():
                 if rec.id not in seen and kind(rec) == "detached":
                     seen.add(rec.id)
                     lengths.add(len(rec.id))
                     ids.add(rec.id)
-                    origins.add(rec.tags["resonate:origin"])
+                    prefixes.add(rec.tags["resonate:prefix"])
                     next_frontier.append(rec)
         frontier = next_frontier
 
-    # Bounded: a single length across all depths, exactly ``{top}.{16hex}``.
-    assert lengths == {len(top) + 1 + 16}
-    # Origin stays pinned to the top at every level -- the mechanism that bounds it.
-    assert origins == {top}
+    # Bounded: a single length across all depths, exactly ``{top}.d{16hex}``.
+    assert lengths == {len(top) + len(".d") + 16}
+    # Prefix stays pinned to the top at every level -- the mechanism that bounds it.
+    assert prefixes == {top}
     # No collisions: every node in the tree got a distinct id.
     assert len(ids) == (fanout ** (depth + 1) - fanout) // (fanout - 1)
 

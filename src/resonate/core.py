@@ -287,13 +287,19 @@ class Core(msgspec.Struct, kw_only=True):
         root_ctx = Context.root(
             id=promise.id,
             # Take the lineage origin from the promise's ``resonate:origin`` tag,
-            # which the dispatcher (top-level run / rpc / detached) set to its
-            # own origin. Falling back to ``promise.id`` when absent keeps a
-            # genuine top-level root (whose tag equals its id anyway) and any
-            # tag-less promise correct. This is what bounds recursive
-            # ``detached`` ids: every level shares the original origin instead of
-            # re-rooting to its own grown id.
+            # which the dispatcher set: a top-level run / rpc propagates its own
+            # origin, while ``detached`` resets it to the child's own id (a new
+            # lineage). Falling back to ``promise.id`` when absent keeps a genuine
+            # top-level root (whose tag equals its id anyway) and any tag-less
+            # promise correct.
             origin_id=promise.tags.get("resonate:origin", promise.id),
+            # The id-generation prefix from ``resonate:prefix``. Unlike origin it
+            # is propagated *unchanged* across ``detached`` re-roots, so every
+            # recursion level mints ``{prefix}.{16hex}`` off the same fixed prefix
+            # instead of off its own grown id -- this is what bounds recursive
+            # detached ids. Falls back to ``promise.id`` when absent (genuine
+            # top-level root / tag-less promise), matching the origin fallback.
+            prefix_id=promise.tags.get("resonate:prefix", promise.id),
             timeout_at=promise.timeout_at,
             func_name=task_data.func,
             effects=effects,

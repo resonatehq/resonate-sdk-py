@@ -72,6 +72,7 @@ def _root(
     return Context.root(
         id="root",
         origin_id="root",
+        prefix_id="root",
         timeout_at=timeout_at,
         func_name="root",
         effects=effects,
@@ -194,6 +195,7 @@ def test_child_parent_is_current_id() -> None:
     child = ctx._child("root.1", "fn", I64_MAX)
     assert child.parent_id == "root"
     assert child.origin_id == "root"
+    assert child.prefix_id == "root"
     assert child.branch_id == "root.1"
 
 
@@ -1015,6 +1017,8 @@ async def test_rpc_request_tags_and_param() -> None:
         "resonate:branch": "root.1",
         "resonate:parent": "root",
         "resonate:origin": "root",
+        # Non-detached: prefix mirrors origin.
+        "resonate:prefix": "root",
     }
     # ``TaskData`` flattens func + args + kwargs + version; ``args`` is the live
     # tuple here (it serializes to a JSON array on the wire). The codec
@@ -1223,6 +1227,7 @@ async def test_sleep_request_tags_and_timer_flag() -> None:
         "resonate:branch": "root.1",
         "resonate:parent": "root",
         "resonate:origin": "root",
+        "resonate:prefix": "root",
         "resonate:timer": "true",
     }
     # A timer promise carries no param payload (unlike rpc's func envelope).
@@ -1412,6 +1417,7 @@ async def test_promise_request_tags_and_empty_param() -> None:
         "resonate:branch": "root.1",
         "resonate:parent": "root",
         "resonate:origin": "root",
+        "resonate:prefix": "root",
     }
     assert "resonate:timer" not in req.tags
     assert "resonate:target" not in req.tags
@@ -1550,15 +1556,15 @@ async def test_promise_releases_event_when_create_promise_raises() -> None:
 # but is fire-and-forget: it is NOT registered in ``spawned_remote``, the
 # workflow never suspends on it, and the returned future resolves to the child
 # *id* rather than a remote result. The id lives outside the structured
-# ``{id}.{seq}`` namespace -- it is ``{origin}.{FNV-1a 64 hex of the raw seq}``
-# -- so it is deterministic across replay yet distinct from awaited children.
-# Mirrors Go's ``Context.Detached``.
+# ``{id}.{seq}`` namespace -- it is ``{prefix}.d{blake2b 16 hex of the raw seq}``
+# (the ``d`` marks it a detached segment) -- so it is deterministic across replay
+# yet distinct from awaited children. Mirrors Go's ``Context.Detached``.
 # =============================================================================
 
 
-def _detached_id(origin: str, raw: str) -> str:
-    """Return the id ``detached`` derives for raw seq id ``raw`` under ``origin``."""
-    return f"{origin}.{_hash_id(raw)}"
+def _detached_id(prefix: str, raw: str) -> str:
+    """Return the id ``detached`` derives for raw seq id ``raw`` under ``prefix``."""
+    return f"{prefix}.d{_hash_id(raw)}"
 
 
 @pytest.mark.asyncio
@@ -1576,17 +1582,18 @@ async def test_detached_returns_id_without_suspending() -> None:
 
 
 @pytest.mark.asyncio
-async def test_detached_id_is_origin_rooted_hash() -> None:
-    # The id is ``{origin}.{16-hex}`` -- origin-rooted, not parent-rooted, and
+async def test_detached_id_is_prefix_rooted_hash() -> None:
+    # The id is ``{prefix}.d{16-hex}`` -- prefix-rooted, not parent-rooted, and
     # outside the ``root.1`` structured namespace.
     ctx = _root()
     child_id = await ctx.detached("remote_fn")
     assert child_id == _detached_id("root", "root.1")
     assert child_id != "root.1"
-    # 16 lowercase hex chars after the origin segment.
+    # A ``d`` marker plus 16 lowercase hex chars after the prefix segment.
     _, _, suffix = child_id.partition(".")
-    assert len(suffix) == 16
-    assert all(c in "0123456789abcdef" for c in suffix)
+    assert suffix[0] == "d"
+    assert len(suffix) == 17
+    assert all(c in "0123456789abcdef" for c in suffix[1:])
 
 
 @pytest.mark.asyncio
@@ -1610,14 +1617,18 @@ async def test_detached_request_tags_and_param() -> None:
 
     [req] = captured
     assert req.id == child_id
-    # A detached promise carries the remote (rpc-style) tag set: global scope,
-    # a resolved target, and -- like every child -- branch == its own id.
+    # A detached promise carries the remote (rpc-style) tag set: global scope, a
+    # resolved target, and -- like every child -- branch == its own id. Unlike
+    # every other creator, detached starts a fresh lineage: ``resonate:origin``
+    # is its OWN id (== branch), while ``resonate:prefix`` keeps the parent's
+    # propagated prefix ("root") so recursive detached ids stay bounded.
     assert req.tags == {
         "resonate:scope": "global",
         "resonate:target": "",
         "resonate:branch": child_id,
         "resonate:parent": "root",
-        "resonate:origin": "root",
+        "resonate:origin": child_id,
+        "resonate:prefix": "root",
     }
     # Like rpc, detached dispatches a flattened ``TaskData`` (args is the live
     # tuple, serialized to a JSON array on the wire).
