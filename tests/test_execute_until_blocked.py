@@ -579,10 +579,12 @@ async def test_rejected_child_recorded_and_caught_by_parent() -> None:
     outcome = await core._execute_until_blocked_inner(_root("parent", id="e"), effects)
 
     assert describe(effects.cache) == {"e.1": ("run", "rejected")}
-    assert effects.cache["e.1"].value.data == {
-        "__type": "error",
-        "message": "kaboom",
-    }
+    data = effects.cache["e.1"].value.data
+    assert data is not None
+    assert data["__type"] == "error"
+    assert data["message"] == "kaboom"
+    # Best-effort pickle of the original exception rides alongside the message.
+    assert "__py_pickle" in data
 
     # The parent swallowed the rejection, so the root resolves.
     assert isinstance(outcome, _ExecFulfilled)

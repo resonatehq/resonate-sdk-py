@@ -1,7 +1,7 @@
 """Error handling across the Resonate durability boundary.
 
-This example shows why durable functions catch :class:`ApplicationError`
-rather than the original exception type a function raised.
+This example shows how a failure raised in a durable function reaches whoever
+awaits it.
 
 When a durable function like ``bar`` fails, its exception does not propagate
 in-process the way a normal Python call would. Resonate **encodes the failure,
@@ -10,14 +10,14 @@ result. That awaiter may be the same process, a different worker (via
 ``ctx.rpc``), or a process that recovered after a crash and never saw the
 original exception at all.
 
-A live Python exception cannot survive that round trip: its class, traceback,
-and custom attributes can't be serialized to JSON and reconstructed on the
-other side (the awaiting process may not even import the class). So Resonate
-flattens every user failure to a single transport-safe shape -- its message
-string -- and reconstructs it on the receiving side as an
-:class:`ApplicationError`. By the time the error reaches the ``except`` block
-in ``foo``, the original ``UsernameTakenError`` / ``ValueError`` type is gone;
-only the message survives.
+The wire form carries two things: a transport-safe ``message`` string every
+SDK can read, and a best-effort pickle of the original exception. So a Python
+awaiter that shares the runtime and can import the class gets the **original
+type and attributes back** -- ``foo`` below catches ``UsernameTakenError`` and
+``ValueError`` directly. When the pickle cannot round-trip (a non-Python
+producer, an unimportable class, an unpicklable payload), the awaiter falls
+back to a plain :class:`ApplicationError` carrying the message -- which is why
+``foo`` keeps an ``ApplicationError`` arm as the cross-boundary fallback.
 """
 
 from __future__ import annotations
@@ -36,8 +36,15 @@ if TYPE_CHECKING:
 
 
 class UsernameTakenError(Exception):
-    def __init__(self, msg: str) -> None:
-        super().__init__(f"USERNAME_TAKEN: {msg}")
+    """Raised when a username is already registered.
+
+    Kept as a plain ``Exception`` subclass so it round-trips through the codec's
+    pickle cleanly. An exception whose ``__init__`` *reformats* its argument
+    (e.g. ``super().__init__(f"PREFIX: {msg}")``) would double-format on
+    unpickle -- pickle reconstructs via ``cls(*self.args)``, and ``args`` here
+    already holds the formatted string. Discriminating by *type* (below) makes
+    such message munging unnecessary anyway.
+    """
 
 
 def bar(ctx: Context, username: str, age: int) -> str:
@@ -64,12 +71,18 @@ async def foo(
             else ctx.rpc("bar", username, age)
         )
         print(f"🎉 Success: {v}")
+    except UsernameTakenError as e:
+        # The original domain type is reconstructed across the boundary, so we
+        # can catch it directly instead of parsing a message prefix.
+        print(f"⚠️ Business Rule Error: {e}")
+        print("💡 Suggestion: Please try adding numbers to your username.")
+    except ValueError as e:
+        print(f"💥 Validation Error: {e}")
     except ApplicationError as e:
-        if e.message.startswith("USERNAME_TAKEN"):
-            print(f"⚠️ Business Rule Error: {e}")
-            print("💡 Suggestion: Please try adding numbers to your username.")
-        else:
-            print(f"💥 Critical Unknown Error: {e}")
+        msg = """ApplicationError is a fallback error.
+        Used when the raised error cannot be deserialized by pickle.
+        Not applicable in this example."""
+        raise AssertionError(msg) from e
 
 
 async def main() -> None:

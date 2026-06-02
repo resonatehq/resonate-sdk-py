@@ -427,7 +427,12 @@ def test_convert_missing_field_raises() -> None:
 def test_encode_application_error_produces_envelope() -> None:
     c = codec()
     encoded = c.encode(ApplicationError("boom"))
-    assert c.decode(encoded) == {"__type": "error", "message": "boom"}
+    decoded = c.decode(encoded)
+    assert decoded["__type"] == "error"
+    assert decoded["message"] == "boom"
+    # The original exception is also pickled best-effort so a Python awaiter
+    # can recover its exact type (see codec._encode_error).
+    assert "__py_pickle" in decoded
 
 
 def test_decode_error_roundtrips_application_error() -> None:
@@ -522,7 +527,7 @@ def test_decode_settled_rejected_states_raise_error(state: PromiseState) -> None
 
 
 def test_decode_settled_pending_raises_unexpected_state() -> None:
-    with pytest.raises(ApplicationError, match="unexpected state"):
+    with pytest.raises(AssertionError):
         decode_settled(_settled("pending", None))
 
 

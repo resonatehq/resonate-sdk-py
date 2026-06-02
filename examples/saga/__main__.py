@@ -21,9 +21,13 @@ Steps raise *ordinary* Python exceptions (``BookingError`` below) -- there is no
 need to construct a Resonate ``ApplicationError``. A failing step is retried by
 the worker's retry policy (configured on the :class:`Resonate` constructor); the
 ``--fail`` step fails deterministically, so you will see it retried a few times
-before the saga gives up and compensates. Across the durability boundary the
-orchestrator observes the failure as an
-:class:`~resonate.error.ApplicationError` carrying the original message.
+before the saga gives up and compensates. The orchestrator catches the domain
+exception by its real type -- the SDK pickles it across the durability boundary
+and reconstructs it when the awaiting worker can import the class -- with
+:class:`~resonate.error.ApplicationError` as the fallback for when it cannot
+round-trip (a non-Python producer, an unimportable class). Note the catch is
+deliberately *not* a bare ``except Exception``: that would also swallow the
+internal ``SuspendedError`` the durable replay machinery relies on.
 
 Note on replay: a durable orchestrator re-executes from the top each time it
 awaits a not-yet-settled future, so any side effect (a ``print``, an external
@@ -40,7 +44,6 @@ import os
 import time
 from typing import TYPE_CHECKING
 
-from resonate.error import ApplicationError
 from resonate.resonate import Resonate
 
 if TYPE_CHECKING:
@@ -51,9 +54,10 @@ class BookingError(Exception):
     """A plain domain error -- deliberately NOT a Resonate error.
 
     Demonstrates that step functions can raise any exception; the SDK settles
-    the step's promise ``rejected`` and the orchestrator sees it as an
-    :class:`~resonate.error.ApplicationError` (only the message crosses the
-    durability boundary).
+    the step's promise ``rejected`` and reconstructs the original type for the
+    orchestrator when it can round-trip across the durability boundary (same
+    runtime, importable class), falling back to
+    :class:`~resonate.error.ApplicationError` otherwise.
     """
 
 
@@ -134,7 +138,7 @@ async def book_trip(
             city=to,
             fail=fail_at == "hotel",
         )
-    except ApplicationError:
+    except BookingError:
         await compensate(ctx, "", flight)
         raise
 
@@ -146,7 +150,7 @@ async def book_trip(
             amount=amount,
             fail=fail_at == "charge",
         )
-    except ApplicationError:
+    except BookingError:
         await compensate(ctx, hotel, flight)
         raise
 
@@ -183,8 +187,8 @@ async def main() -> None:
         handle = r.run(id, book_trip, "alice", "SFO", "JFK", 850, args.fail)
         try:
             flight_ref, hotel_ref, charge_ref = await handle.result()
-        except ApplicationError as exc:
-            print(f"[book_trip] FAILED: {exc}")
+        except BookingError as exc:
+            print(f"[book_trip] FAILED: {type(exc).__name__}: {exc}")
             return
         print(
             f"[book_trip] OK: flight={flight_ref} hotel={hotel_ref} charge={charge_ref}"

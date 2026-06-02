@@ -92,17 +92,6 @@ async def test_result_pending_raises() -> None:
 
 
 @pytest.mark.asyncio
-async def test_result_channel_closed_raises() -> None:
-    # A subscription woken without a settled result (the analogue of tokio's
-    # "all senders dropped") surfaces as "promise channel closed".
-    sub = Subscription()
-    sub._done.set()
-    handle: ResonateHandle[int] = ResonateHandle("p1", sub, _codec(), int, _created())
-    with pytest.raises(ApplicationError, match="promise channel closed"):
-        await handle.result()
-
-
-@pytest.mark.asyncio
 async def test_result_empty_data_decodes_to_none() -> None:
     result = PromiseResult(state="resolved", value=Value(data=""))
     handle: ResonateHandle[Any] = ResonateHandle(

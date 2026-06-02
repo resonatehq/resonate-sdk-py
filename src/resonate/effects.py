@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from resonate.error import ApplicationError, ResonateError
+from resonate.error import ResonateError
 from resonate.types import PromiseCreateReq, PromiseSettleReq
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ class Effects(Protocol):
 
     async def create_promise(self, req: PromiseCreateReq) -> PromiseRecord: ...
     async def settle_promise[T](
-        self, id: str, result: T | ResonateError
+        self, id: str, result: T | Exception
     ) -> PromiseRecord: ...
 
 
@@ -96,21 +96,20 @@ class ResonateEffects:
         )
         return decoded
 
-    async def settle_promise[T](
-        self, id: str, result: T | ApplicationError
-    ) -> PromiseRecord:
+    async def settle_promise[T](self, id: str, result: T | Exception) -> PromiseRecord:
         """Settle a durable promise with a result.
 
         Idempotent: a cached non-pending record is returned without touching the
         network. ``result`` is the ``Result[T]`` to settle with -- a plain value
-        resolves the promise, a :class:`ResonateError` rejects it.
+        resolves the promise, any ``Exception`` rejects it (the codec flattens it
+        to the error shape, pickling the original where it can).
         """
         cached = self.cache.get(id)
         if cached is not None and cached.state != "pending":
             return cached
 
         state: Literal["resolved", "rejected"]
-        state = "rejected" if isinstance(result, ApplicationError) else "resolved"
+        state = "rejected" if isinstance(result, Exception) else "resolved"
 
         req = PromiseSettleReq(id=id, state=state, value=self.codec.encode(result))
 

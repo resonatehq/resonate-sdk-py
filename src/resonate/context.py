@@ -13,7 +13,7 @@ import msgspec
 from resonate import now_ms
 from resonate.codec import decode_settled
 from resonate.durable import DurableFunction
-from resonate.error import ApplicationError, SuspendedError
+from resonate.error import SuspendedError
 from resonate.tree import Tree
 from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
 
@@ -220,22 +220,27 @@ class Context:
         merged before the parent decides to suspend, otherwise the suspend would
         register a partial awaited list.
 
-        Per-task ``SuspendedError`` / ``ResonateError`` are swallowed: by the
-        time a task ends, it has either merged its todos into our
-        ``spawned_remote`` (suspended) or settled its own promise (errored).
-        Either way, the error belongs to whoever holds the future. This
-        matches Go's ``wg.Wait`` + channel-based result delivery and Rust's
-        ``Outcome::{Done, Suspended}`` handling in ``flush_local_work``.
+        Per-task exceptions are swallowed: by the time a task ends, it has
+        either merged its todos into our ``spawned_remote`` (suspended via
+        ``SuspendedError``) or settled its own promise (errored). Either way,
+        the error belongs to whoever holds the future -- the asyncio task
+        delivers the same exception to the real awaiter, so dropping it here is
+        not losing it. ``Exception`` (rather than the narrower
+        ``SuspendedError``/``ApplicationError``) is suppressed because a child
+        now rejects with its *original* exception type, which the codec
+        round-trips on the awaiter side. This matches Go's ``wg.Wait`` +
+        channel-based result delivery and Rust's ``Outcome::{Done, Suspended}``
+        handling in ``flush_local_work``.
         """
         locals_ = self.spawned_locals
         remotes = self.spawned_remote_tasks
         self.spawned_locals = []
         self.spawned_remote_tasks = []
         for task in locals_:
-            with contextlib.suppress(SuspendedError, ApplicationError):
+            with contextlib.suppress(Exception):
                 await task.handle
         for remote in remotes:
-            with contextlib.suppress(SuspendedError, ApplicationError):
+            with contextlib.suppress(Exception):
                 await remote
 
     def take_remote_todos(self) -> list[str]:
@@ -371,27 +376,23 @@ class Context:
             child = self._child(req.id, df.name, record.timeout_at)
 
             outcome: Status
-            value: Any | ApplicationError
+            value: Any | Exception
             try:
                 value = await df.invoke(child, payload)
                 assert not inspect.isawaitable(value)
                 outcome = "done"
             except SuspendedError:
                 outcome = "suspended"
-            except ApplicationError as exc:
-                # A Resonate-typed error (e.g. ``ApplicationError`` deliberately
-                # raised by the child, or one surfaced by ``ctx.rpc`` when an
-                # awaited grandchild rejected) crosses the boundary verbatim.
-                value = exc
-                outcome = "error"
             except Exception as exc:
-                # Plain Python exception from the local child -- treat as a
-                # rejection (mirrors :mod:`resonate.core`'s convention on the
-                # root task). Without this, the asyncio task would fail,
-                # ``flush_local_work``'s ``contextlib.suppress`` would not catch
-                # it (only ``SuspendedError`` / ``ResonateError`` are
-                # suppressed), and the local promise would never settle.
-                value = ApplicationError(str(exc))
+                # Any exception from the local child -- a deliberately raised
+                # ``ApplicationError``, a grandchild rejection surfaced by
+                # ``ctx.rpc``, or a plain domain exception -- is a rejection.
+                # The original object crosses the boundary verbatim; the codec
+                # flattens it to the wire error shape (pickling it where it
+                # can) when ``settle_promise`` encodes it below. ``BaseException``
+                # (``KeyboardInterrupt``, ``SystemExit``, ``CancelledError``) is
+                # deliberately not caught -- it propagates so the task unwinds.
+                value = exc
                 outcome = "error"
 
             # Always drain the child's sub-work before deciding: a suspended
@@ -408,24 +409,25 @@ class Context:
             # Settle, then read the outcome back through the *settled
             # record* -- uniformly for both a resolved and a rejected
             # value, exactly as the recovery short-circuit above does.
-            # ``settle_promise`` encodes ``value`` (rejecting when it is
-            # an ApplicationError, resolving otherwise) and returns the
-            # decoded record; ``decode_settled`` then either returns the
-            # JSON builtins a replay would see -- which ``coerce_result``
-            # reshapes to the declared return type -- or, for a rejected
-            # record, reconstructs the ApplicationError from its stored
-            # message and raises it before ``coerce_result`` is reached.
+            # ``settle_promise`` encodes ``value`` (rejecting any ``Exception``,
+            # resolving otherwise) and returns the decoded record;
+            # ``decode_settled`` then either returns the JSON builtins a replay
+            # would see -- which ``coerce_result`` reshapes to the declared
+            # return type -- or, for a rejected record, reconstructs the error
+            # from its stored payload and raises it before ``coerce_result`` is
+            # reached.
             #
             # Routing both outcomes through encode -> decode ->
-            # (coerce | raise) -- rather than coercing the raw in-memory
-            # object or re-raising the original exception -- makes the
-            # live and recovery paths identical: a return that survives
-            # only via its annotation (e.g. a ``datetime`` / ``set``)
-            # yields the same object on every run, and a rejection
-            # surfaces the same reconstructed error a replay would (the
-            # original exception's ``__cause__`` / notes / subclass are
-            # never persisted by the codec, so a recovery could not
-            # reproduce them either).
+            # (coerce | raise) -- rather than coercing the raw in-memory object
+            # or re-raising the original exception -- makes the live and
+            # recovery paths identical: a return that survives only via its
+            # annotation (e.g. a ``datetime`` / ``set``) yields the same object
+            # on every run, and a rejection surfaces the same reconstructed
+            # error a replay would. The codec's best-effort ``__py_pickle``
+            # recovers the original exception's type and attributes when it can
+            # round-trip; what it cannot persist (a live traceback, ``__cause__``
+            # chain, or an unpicklable class) is therefore identical on the live
+            # and recovery paths -- both fall back to the same ``ApplicationError``.
             record = await self.effects.settle_promise(req.id, value)
             # The local executor completed (resolved or rejected): mark the Int
             # node Settled. Reached only on the done/error path -- a suspended

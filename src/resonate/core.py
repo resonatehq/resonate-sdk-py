@@ -26,7 +26,6 @@ from resonate.context import Context, TargetResolver
 from resonate.dependencies import DependencyMap
 from resonate.effects import Effects, ResonateEffects
 from resonate.error import (
-    ApplicationError,
     DecodingError,
     FunctionNotFoundError,
     ResonateError,
@@ -290,25 +289,21 @@ class Core(msgspec.Struct, kw_only=True):
         )
 
         suspended: bool = False
-        run_err: ApplicationError | None = None
+        run_err: Exception | None = None
         try:
             res = await df.invoke(root_ctx, task_data)
         except SuspendedError:
             suspended = True
-        except ApplicationError as exc:
-            # A Resonate-typed error (e.g. ``ApplicationError`` deliberately
-            # raised by the user, or one surfaced by ``ctx.rpc`` when an
-            # awaited child rejected) crosses the boundary verbatim.
-            run_err = exc
         except Exception as exc:
-            # User code raised a plain Python exception (``ValueError``,
-            # ``RuntimeError``, a domain-specific subclass, ...). Python has no
-            # Go-style "returned error vs panic" split -- exceptions are how
-            # user functions report failure -- so wrap into an
-            # :class:`ApplicationError` and settle the promise ``rejected``
-            # with the original message. Awaiters then see an
-            # ``ApplicationError`` via :func:`~resonate.codec._deserialize_error`,
-            # matching the convention documented on ``examples/saga``.
+            # User code reported failure by raising -- Python has no Go-style
+            # "returned error vs panic" split, so any ``Exception`` (a
+            # deliberately raised ``ApplicationError``, a child rejection
+            # surfaced by ``ctx.rpc``, or a plain ``ValueError`` /
+            # domain-specific subclass) settles the promise ``rejected``. The
+            # original object crosses the boundary verbatim; the codec flattens
+            # it to the wire error shape and pickles it best-effort, so an
+            # awaiter recovers the original type when it can and an
+            # ``ApplicationError`` otherwise (see ``codec._deserialize_error``).
             #
             # ``BaseException`` subclasses (``SystemExit``,
             # ``KeyboardInterrupt``, ``asyncio.CancelledError`` on 3.8+...) are
@@ -321,7 +316,7 @@ class Core(msgspec.Struct, kw_only=True):
                 exc,
                 exc_info=True,
             )
-            run_err = ApplicationError(str(exc))
+            run_err = exc
 
         # Flush local work and collect remote todos.
         await root_ctx.flush_local_work()

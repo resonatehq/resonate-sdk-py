@@ -60,9 +60,7 @@ class Subscription:
         settled result".
         """
         await self._done.wait()
-        if self._result is None:
-            msg = "promise channel closed"
-            raise ApplicationError(msg)
+        assert self._result
         return self._result
 
 

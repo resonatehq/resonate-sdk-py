@@ -297,19 +297,18 @@ async def test_run_function_error_propagates_and_settles_rejected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_plain_exception_wraps_as_application_error_and_settles_rejected() -> (
-    None
-):
+async def test_run_plain_exception_preserves_type_and_settles_rejected() -> None:
     """A ``ctx.run`` child that raises a plain ``Exception`` settles rejected.
 
-    The Python SDK convention (mirroring :mod:`resonate.core`'s root-task
-    handling): any non-Resonate exception from a local child is wrapped into
-    an :class:`ApplicationError` carrying the original message, the local
-    promise is settled ``rejected``, and the parent observes the failure as
-    an ``ApplicationError`` via ``await ctx.run(...)``.
+    The original exception type crosses the boundary: the codec pickles it
+    best-effort, so a picklable, importable class (``BookingError`` here) is
+    reconstructed verbatim on the awaiting side. The local promise still
+    settles ``rejected`` and the parent observes the failure via
+    ``await ctx.run(...)`` -- now as the original ``BookingError`` rather than a
+    flattened ``ApplicationError``.
     """
     ctx = _root()
-    with pytest.raises(ApplicationError, match="card declined"):
+    with pytest.raises(BookingError, match="card declined"):
         await ctx.run(failing_plain)
     assert ctx.effects.cache["root.1"].state == "rejected"
 

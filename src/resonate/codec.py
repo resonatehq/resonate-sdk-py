@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import contextlib
+import pickle
 from typing import Any, Protocol
 
 import msgspec
@@ -42,14 +44,23 @@ class Codec:
     def __init__(self, encryptor: Encryptor) -> None:
         self.encryptor = encryptor
 
-    def encode(self, value: Any | ApplicationError) -> Value:
-        """Encode a serializable value into the wire format."""
+    def encode(self, value: Any | Exception) -> Value:
+        """Encode a serializable value into the wire format.
+
+        An ``Exception`` payload is a rejection: it is flattened to the error
+        shape by :func:`_encode_error` (a transport-safe ``message`` every SDK
+        reads, plus a best-effort ``__py_pickle`` for Python awaiters). Every
+        rejection site (``core``, ``context``, ``effects.settle_promise``)
+        already decided error-ness structurally before calling here, so an
+        ``Exception`` reaching ``encode`` is always a rejection -- a resolved
+        value is never an exception object.
+        """
         if value is None:
             return Value(headers=None, data=None)
 
         try:
             json_bytes = msgspec.json.encode(
-                _encode_error(value) if isinstance(value, ApplicationError) else value
+                _encode_error(value) if isinstance(value, Exception) else value
             )
         except (TypeError, ValueError, msgspec.MsgspecError) as exc:
             raise SerializationError(exc) from exc
@@ -92,11 +103,13 @@ class Codec:
         except (TypeError, ValueError, msgspec.MsgspecError) as exc:
             raise SerializationError(exc) from exc
 
-    def decode_error(self, value: Value) -> ApplicationError:
+    def decode_error(self, value: Value) -> BaseException:
         """Decode a rejected promise's wire ``value`` into its originating error.
 
         Keeps the ``decode`` + error-reconstruction pair behind the codec so the
-        durability boundary owns the whole rejected-value path.
+        durability boundary owns the whole rejected-value path. Returns the
+        original exception when its ``__py_pickle`` payload round-trips (same
+        Python process / importable class), otherwise an :class:`ApplicationError`.
         """
         return _deserialize_error(self.decode(value))
 
@@ -118,14 +131,50 @@ class Codec:
         )
 
 
+_PICKLE_KEY = "__py_pickle"
+
+
 def _encode_error(err: Exception) -> dict[str, str]:
-    """Encode an error for durable storage."""
-    return {"__type": "error", "message": str(err)}
+    """Encode an error for durable storage.
+
+    ``message`` is the transport-safe shape every SDK (Go/Rust/TS) reads and
+    is always present. ``__py_pickle`` is an additive, best-effort field -- a
+    base64 pickle of the original exception so a Python awaiter can recover its
+    exact type and attributes. Pickling can fail (unpicklable closures, locks,
+    file handles, ...); on failure the field is simply omitted and the awaiter
+    falls back to ``message``.
+    """
+    encoded = {"__type": "error", "message": str(err)}
+    # Best-effort: any pickling failure (unpicklable closures, locks, ...)
+    # leaves only ``message``, and the awaiter falls back to ApplicationError.
+    with contextlib.suppress(Exception):
+        encoded[_PICKLE_KEY] = base64.b64encode(pickle.dumps(err)).decode("ascii")
+    return encoded
 
 
-def _deserialize_error(value: Any) -> ApplicationError:
-    """Deserialize an error value from a rejected promise."""
+def _deserialize_error(value: Any) -> BaseException:
+    """Deserialize an error value from a rejected promise.
+
+    Prefers the original exception via ``__py_pickle`` when it round-trips
+    (same Python runtime, importable class, intact payload); otherwise -- a
+    non-Python producer, an unimportable class, a corrupt or absent payload --
+    falls back to :class:`ApplicationError` carrying ``message``. The unpickled
+    object is type-checked: a payload that does not deserialize to a
+    ``BaseException`` is treated as a failure, not raised verbatim.
+
+    Note: ``pickle.loads`` executes arbitrary code from the promise value;
+    this trusts the Resonate server and peer workers as the payload source.
+    """
     if isinstance(value, dict):
+        pickled = value.get(_PICKLE_KEY)
+        if isinstance(pickled, str):
+            try:
+                obj = pickle.loads(base64.b64decode(pickled, validate=True))  # noqa: S301
+            except Exception:  # best-effort; fall back to message
+                obj = None
+            if isinstance(obj, BaseException):
+                return obj
+
         msg = value.get("message")
         if isinstance(msg, str):
             return ApplicationError(msg)
@@ -146,11 +195,9 @@ def decode_settled(record: PromiseRecord) -> Any:
     leading underscore marks it codec-internal -- ``context`` is its one
     cross-module caller (idempotent recovery of an already-settled promise).
     """
+    assert record.state != "pending"
     match record.state:
         case "resolved":
             return record.value.data
         case "rejected" | "rejected_canceled" | "rejected_timedout":
             raise _deserialize_error(record.value.data)
-        case _:
-            msg = f"future {record.id} has unexpected state {record.state!r}"
-            raise ApplicationError(msg)
