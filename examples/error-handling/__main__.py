@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Literal
 
 from resonate.error import ApplicationError
 from resonate.resonate import Resonate
+from resonate.retry import Never
 
 if TYPE_CHECKING:
     from resonate.context import Context
@@ -104,7 +105,7 @@ async def main() -> None:
         username, age = "alice", 25  # Successful path
 
     url = os.environ.get("RESONATE_URL", "http://localhost:8001")
-    r = Resonate(url=url)
+    r = Resonate(url=url, retry_policy=Never())
 
     # Registering both tasks so RPC coordination works flawlessly
     r.register(foo)

@@ -46,6 +46,7 @@ from resonate.resonate import (
     Opts,
     Resonate,
 )
+from resonate.retry import Never
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -69,6 +70,10 @@ async def local(
     max_concurrent_tasks: int | None = None,
 ) -> AsyncIterator[Resonate]:
     """Yield a local-mode Resonate, stopping it (and its refresh task) on exit."""
+    # Pin ``Never`` so a failing pure leaf settles immediately: the SDK default
+    # is now an effectively-unbounded Exponential, which would retry such a leaf
+    # forever and hang these tests. Tests asserting retry behavior live in
+    # ``test_context.py`` with explicit policies.
     r = Resonate.local(
         group=group,
         pid=pid,
@@ -76,6 +81,7 @@ async def local(
         encryptor=encryptor,
         prefix=prefix,
         max_concurrent_tasks=max_concurrent_tasks,
+        retry_policy=Never(),
     )
     try:
         yield r

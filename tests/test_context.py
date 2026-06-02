@@ -28,15 +28,19 @@ from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor, _encode_error
 from resonate.context import Context, Opts, _hash_id
 from resonate.dependencies import DependencyMap
+from resonate.durable import DurableFunction
 from resonate.effects import ResonateEffects
 from resonate.error import ApplicationError, SuspendedError
 from resonate.network import LocalNetwork
+from resonate.retry import Constant, Never
 from resonate.send import Sender
 from resonate.transport import Transport
 from resonate.types import PromiseRecord, TaskData, Value
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from resonate.retry import RetryPolicy
 
 I64_MAX = 2**63 - 1
 
@@ -55,8 +59,14 @@ def _root(
     *,
     timeout_at: int = I64_MAX,
     deps: DependencyMap | None = None,
+    retry_policy: RetryPolicy | None = None,
 ) -> Context:
-    """Build a root ``Context`` over a fresh ``LocalNetwork``."""
+    """Build a root ``Context`` over a fresh ``LocalNetwork``.
+
+    ``retry_policy`` defaults to ``None`` -> ``Never`` (the engine-layer default),
+    so a failing pure leaf settles on the first attempt; pass a policy to exercise
+    the inherited-default path that ``ctx.run`` children resolve against.
+    """
     sender = Sender(Transport(LocalNetwork()), None)
     effects = ResonateEffects(sender, _codec(), preload or [])
     return Context.root(
@@ -67,6 +77,7 @@ def _root(
         effects=effects,
         target_resolver=lambda target: target or "",
         deps=deps or DependencyMap(),
+        retry_policy=retry_policy,
     )
 
 
@@ -1849,3 +1860,170 @@ async def test_mixed_run_rpc_sleep_promise_create_in_call_order() -> None:
         assert await f1 == 2
 
     assert seen == ["root.1", "root.2", "root.3", "root.4"]
+
+
+# =============================================================================
+# Context.invoke_with_retry -- retry only pure-function failures
+# =============================================================================
+#
+# The rule under test: a body that performs any durable op (run/rpc/sleep/
+# promise/detached, all of which flip ``_workflow`` via ``_consume_opts``) is a
+# workflow and settles its failure on the first attempt; only a pure leaf -- no
+# durable footprint -- is retried, up to what the policy allows. ``delay=0`` keeps
+# the in-process ``asyncio.sleep`` between attempts instant.
+
+
+@pytest.mark.asyncio
+async def test_invoke_with_retry_returns_on_first_success() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def leaf(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return 7
+
+    df = DurableFunction(leaf)
+    out = await ctx.invoke_with_retry(
+        df, df.pack_args(), Constant(max_retries=3, delay=0)
+    )
+    assert out == 7
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_invoke_with_retry_retries_pure_leaf_until_success() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def flaky(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            msg = "transient"
+            raise RuntimeError(msg)
+        return 42
+
+    df = DurableFunction(flaky)
+    out = await ctx.invoke_with_retry(
+        df, df.pack_args(), Constant(max_retries=5, delay=0)
+    )
+    assert out == 42
+    assert calls == 3  # failed twice, succeeded on the third attempt
+
+
+@pytest.mark.asyncio
+async def test_invoke_with_retry_exhausts_then_raises() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def always_fails(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        msg = "denied"
+        raise RuntimeError(msg)
+
+    df = DurableFunction(always_fails)
+    with pytest.raises(RuntimeError, match="denied"):
+        await ctx.invoke_with_retry(
+            df, df.pack_args(), Constant(max_retries=2, delay=0)
+        )
+    # attempt 0 (initial) + attempts 1, 2 (the two allowed retries) = 3 calls.
+    assert calls == 3
+
+
+@pytest.mark.asyncio
+async def test_invoke_with_retry_never_policy_does_not_retry() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def always_fails(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        msg = "denied"
+        raise RuntimeError(msg)
+
+    df = DurableFunction(always_fails)
+    with pytest.raises(RuntimeError, match="denied"):
+        await ctx.invoke_with_retry(df, df.pack_args(), Never())
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_invoke_with_retry_workflow_never_retries() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def workflow(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        # Touch a durable op -- ``_consume_opts`` is the chokepoint every
+        # run/rpc/sleep/promise/detached shares, so this is exactly what flips
+        # the ``_workflow`` flag -- then fail. A generous policy must NOT retry.
+        ctx._consume_opts()
+        msg = "boom after durable op"
+        raise RuntimeError(msg)
+
+    df = DurableFunction(workflow)
+    with pytest.raises(RuntimeError, match="boom after durable op"):
+        await ctx.invoke_with_retry(
+            df, df.pack_args(), Constant(max_retries=9, delay=0)
+        )
+    assert ctx._workflow is True
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_invoke_with_retry_propagates_suspended_without_retry() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def suspends(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        raise SuspendedError
+
+    df = DurableFunction(suspends)
+    with pytest.raises(SuspendedError):
+        await ctx.invoke_with_retry(
+            df, df.pack_args(), Constant(max_retries=9, delay=0)
+        )
+    assert calls == 1
+
+
+# ── ctx.run inherits / overrides the context's default policy ────────────────
+
+
+@pytest.mark.asyncio
+async def test_ctx_run_child_inherits_context_default_retry_policy() -> None:
+    """A failing leaf is retried per the context's inherited default policy."""
+    calls = 0
+
+    async def flaky(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        msg = "boom"
+        raise ApplicationError(msg)
+
+    ctx = _root(retry_policy=Constant(max_retries=2, delay=0))
+    with pytest.raises(ApplicationError, match="boom"):
+        await ctx.run(flaky)
+    assert calls == 3  # initial + 2 inherited retries, then settled
+
+
+@pytest.mark.asyncio
+async def test_ctx_run_with_opts_retry_policy_overrides_context_default() -> None:
+    """``with_opts(retry_policy=...)`` wins over the inherited default."""
+    calls = 0
+
+    async def flaky(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        msg = "boom"
+        raise ApplicationError(msg)
+
+    # Generous inherited default, but the per-call override is Never.
+    ctx = _root(retry_policy=Constant(max_retries=9, delay=0))
+    with pytest.raises(ApplicationError, match="boom"):
+        await ctx.with_opts(retry_policy=Never()).run(flaky)
+    assert calls == 1  # override Never -> no retry

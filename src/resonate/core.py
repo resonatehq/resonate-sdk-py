@@ -34,6 +34,7 @@ from resonate.error import (
 )
 from resonate.heartbeat import Heartbeat, NoopHeartbeat
 from resonate.registry import Registry
+from resonate.retry import Never, RetryPolicy
 from resonate.send import Redirect, Sender
 from resonate.types import (
     PromiseRegisterCallbackData,
@@ -113,6 +114,10 @@ class Core(msgspec.Struct, kw_only=True):
     pid: str
     ttl: int
     deps: DependencyMap = msgspec.field(default_factory=DependencyMap)
+    #: SDK-wide default retry policy for a root function with no per-function
+    #: override registered. Threaded in from :class:`~resonate.Resonate`; defaults
+    #: to ``Never`` so a directly-constructed :class:`Core` (tests) does not retry.
+    retry_policy: RetryPolicy = msgspec.field(default_factory=Never)
 
     # ═══════════════════════════════════════════════════════════════
     #  Path 1: on_message -- acquire then execute
@@ -254,6 +259,14 @@ class Core(msgspec.Struct, kw_only=True):
         if df is None:
             raise FunctionNotFoundError(task_data.func, task_data.version)
 
+        # Retry policy for this root function. A remote dispatch carries no
+        # policy on the wire, so resolve it here: the per-function override
+        # registered with the function wins, else the SDK-wide default. Only a
+        # pure-leaf root honors it -- a workflow root touches ``ctx``, marking
+        # it a workflow that never retries (see ``Context.invoke_with_retry``).
+        registered = self.registry.get_policy(task_data.func, task_data.version)
+        policy = registered if registered is not None else self.retry_policy
+
         # 3. SHORT-CIRCUIT: if the root promise is already settled, report a
         #    fulfill outcome without invoking the function.
         if promise.state != "pending":
@@ -286,12 +299,17 @@ class Core(msgspec.Struct, kw_only=True):
             effects=effects,
             target_resolver=self.resolver,
             deps=self.deps,
+            # The root's OWN retry uses ``policy`` (resolved above) via
+            # ``invoke_with_retry``; this default is what ``ctx.run`` *children*
+            # inherit when they don't override -- the SDK-wide default, not the
+            # root function's per-function override.
+            retry_policy=self.retry_policy,
         )
 
         suspended: bool = False
         run_err: Exception | None = None
         try:
-            res = await df.invoke(root_ctx, task_data)
+            res = await root_ctx.invoke_with_retry(df, task_data, policy)
         except SuspendedError:
             suspended = True
         except Exception as exc:

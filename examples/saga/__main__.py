@@ -45,6 +45,7 @@ import time
 from typing import TYPE_CHECKING
 
 from resonate.resonate import Resonate
+from resonate.retry import Never
 
 if TYPE_CHECKING:
     from resonate.context import Context
@@ -178,7 +179,7 @@ async def main() -> None:
     args = parser.parse_args()
 
     url = os.environ.get("RESONATE_URL", "http://localhost:8001")
-    r = Resonate(url=url)
+    r = Resonate(url=url, retry_policy=Never())
     r.register(book_trip)
 
     try:

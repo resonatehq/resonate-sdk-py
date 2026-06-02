@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from resonate.retry import Constant, Exponential, Linear, Never
+from resonate.retry import (
+    Constant,
+    Exponential,
+    Linear,
+    Never,
+)
 
 
 class TestExponential:

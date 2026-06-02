@@ -48,6 +48,7 @@ from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.network import HttpNetwork, LocalNetwork
 from resonate.promises import Promises, Schedules
 from resonate.registry import Registry
+from resonate.retry import Exponential
 from resonate.send import Sender
 from resonate.transport import ExecuteMsg, Transport, UnblockMsg
 from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
     from resonate.context import Context
     from resonate.heartbeat import Heartbeat
     from resonate.network import Network
+    from resonate.retry import RetryPolicy
     from resonate.transport import Message
 
 logger = logging.getLogger(__name__)
@@ -134,8 +136,20 @@ class Resonate:
         heartbeat: Heartbeat | None = None,
         prefix: str | None = None,
         max_concurrent_tasks: int | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> None:
         self._ttl = ttl if ttl is not None else DEFAULT_TTL
+
+        #: SDK-wide default retry policy, applied to a pure-leaf failure when a
+        #: function has no per-call (:meth:`~resonate.context.Context.with_opts`)
+        #: or per-function (:meth:`register`) override. Defaults to
+        #: :data:`~resonate.retry.DEFAULT_RETRY_POLICY` (Exponential); pass
+        #: ``retry_policy=Never()`` to disable retries process-wide (e.g. tests).
+        self._retry_policy = (
+            retry_policy
+            if retry_policy is not None
+            else Exponential(delay=1, max_delay=(1 << 63) - 1, factor=2, max_retries=30)
+        )
 
         resolved_prefix = (
             prefix if prefix is not None else os.environ.get("RESONATE_PREFIX")
@@ -170,6 +184,7 @@ class Resonate:
             pid=self._pid,
             ttl=self._safe_ttl_ms(),
             deps=self._deps,
+            retry_policy=self._retry_policy,
         )
 
         self.promises = Promises(self._sender, self._codec)
@@ -235,6 +250,7 @@ class Resonate:
         encryptor: Encryptor | None = None,
         prefix: str | None = None,
         max_concurrent_tasks: int | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> Resonate:
         """Local-only mode backed by an in-process :class:`LocalNetwork`.
 
@@ -251,6 +267,7 @@ class Resonate:
             encryptor=encryptor,
             max_concurrent_tasks=max_concurrent_tasks,
             prefix=prefix,
+            retry_policy=retry_policy,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -294,6 +311,7 @@ class Resonate:
         *,
         name: str | None = None,
         version: int = 1,
+        retry_policy: RetryPolicy | None = None,
     ) -> Callable[Concatenate[Context, P], T]: ...
     @overload
     def register[**P, T](
@@ -302,6 +320,7 @@ class Resonate:
         *,
         name: str | None = None,
         version: int = 1,
+        retry_policy: RetryPolicy | None = None,
     ) -> Callable[
         [Callable[Concatenate[Context, P], T]], Callable[Concatenate[Context, P], T]
     ]: ...
@@ -311,6 +330,7 @@ class Resonate:
         *,
         name: str | None = None,
         version: int = 1,
+        retry_policy: RetryPolicy | None = None,
     ) -> Any:
         """Register a durable function. Usable as a decorator.
 
@@ -322,14 +342,23 @@ class Resonate:
         stays usable from a workflow via ``ctx.run(fn, ...)``. The
         identity -> ``(name, version)`` map lets :meth:`run` recover both for the
         exact ``fn`` object it is later given.
+
+        ``retry_policy`` overrides the SDK-wide default for this function when it
+        runs as a root task; it only takes effect for a *pure-leaf* failure (a
+        body that performs any durable op is a workflow and never retries).
+        ``None`` (the default) keeps the SDK-wide default set on the
+        :class:`Resonate` constructor. A per-call override for a ``ctx.run`` child
+        is set via :meth:`~resonate.context.Context.with_opts` instead.
         """
         if fn is None:
-            return lambda f: self.register(f, name=name, version=version)
+            return lambda f: self.register(
+                f, name=name, version=version, retry_policy=retry_policy
+            )
         reg_name = name if name is not None else getattr(fn, "__name__", "")
         if not reg_name:
             msg = "register: a name is required for an anonymous function"
             raise ApplicationError(msg)
-        self._registry.register(reg_name, fn, version)
+        self._registry.register(reg_name, fn, version, retry_policy)
         self._names[fn] = (reg_name, version)
         return fn
 

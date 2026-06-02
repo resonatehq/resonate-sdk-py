@@ -51,6 +51,7 @@ import pytest
 from resonate.codec import _deserialize_error, _encode_error
 from resonate.error import ApplicationError, ServerError
 from resonate.resonate import Resonate
+from resonate.retry import Never
 from resonate.types import Value
 
 if TYPE_CHECKING:
@@ -66,7 +67,9 @@ if TYPE_CHECKING:
 @contextlib.asynccontextmanager
 async def local() -> AsyncIterator[Resonate]:
     """Yield a local-mode Resonate, stopping it on exit."""
-    r = Resonate.local()
+    # Pin ``Never``: these orchestrators run failing pure-leaf steps via
+    # ``ctx.run``, which the SDK-default Exponential would retry forever.
+    r = Resonate.local(retry_policy=Never())
     try:
         yield r
     finally:

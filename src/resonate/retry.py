@@ -20,10 +20,15 @@ class RetryPolicy(Protocol):
 
 
 class Exponential(msgspec.Struct, frozen=True, kw_only=True):
+    # Defaults define the SDK-wide default policy (``DEFAULT_RETRY_POLICY``):
+    # 1s base, doubling, capped at 30s, effectively unbounded retries. Fields are
+    # ``float`` so ``factor ** attempt`` saturates to ``inf`` (then clamps to
+    # ``max_delay``) instead of building an ever-larger ``int`` as ``attempt``
+    # grows toward ``max_retries``.
     delay: int
+    max_retries: int
     factor: int
     max_delay: int
-    max_retries: int
 
     def next(self, attempt: int) -> int | None:
         if attempt > self.max_retries:
@@ -53,5 +58,5 @@ class Constant(msgspec.Struct, frozen=True, kw_only=True):
 
 
 class Never(msgspec.Struct, frozen=True, kw_only=True):
-    def next(self, _: int) -> float | None:
+    def next(self, attempt: int) -> int | None:
         return None

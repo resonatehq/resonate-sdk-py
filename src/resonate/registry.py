@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from resonate.context import Context
+    from resonate.retry import RetryPolicy
 
 
 class Registry:
@@ -28,11 +29,27 @@ class Registry:
 
     def __init__(self) -> None:
         self._by_key: dict[tuple[str, int], DurableFunction] = {}
+        #: Per-function retry policy *override*, parallel to ``_by_key``. Read by
+        #: Core when it dispatches a root task -- a remote dispatch carries no
+        #: policy on the wire, so the worker resolves it here by ``(name,
+        #: version)``. ``None`` (or absent) means "no override" -- Core falls back
+        #: to its SDK-wide default.
+        self._policy_by_key: dict[tuple[str, int], RetryPolicy | None] = {}
 
     def register(
-        self, name: str, fn: Callable[Concatenate[Context, ...], Any], version: int = 1
+        self,
+        name: str,
+        fn: Callable[Concatenate[Context, ...], Any],
+        version: int = 1,
+        retry_policy: RetryPolicy | None = None,
     ) -> None:
-        """Validate ``fn`` and store it under ``(name, version)``."""
+        """Validate ``fn`` and store it under ``(name, version)``.
+
+        ``retry_policy`` is a per-function *override*, applied to a *pure-leaf*
+        failure when this function runs as a root task. ``None`` (the default)
+        means no override -- Core falls back to its SDK-wide default. A workflow
+        body never retries regardless of the policy.
+        """
         if not name:
             msg = "name is required"
             raise ValueError(msg)
@@ -43,6 +60,11 @@ class Registry:
         if key in self._by_key:
             raise AlreadyRegisteredError(name, version)
         self._by_key[key] = DurableFunction(fn)
+        self._policy_by_key[key] = retry_policy
 
     def get(self, name: str, version: int = 1) -> DurableFunction | None:
         return self._by_key.get((name, version))
+
+    def get_policy(self, name: str, version: int = 1) -> RetryPolicy | None:
+        """Return the per-function policy override, or ``None`` if there is none."""
+        return self._policy_by_key.get((name, version))

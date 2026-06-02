@@ -14,6 +14,7 @@ from resonate import now_ms
 from resonate.codec import decode_settled
 from resonate.durable import DurableFunction
 from resonate.error import SuspendedError
+from resonate.retry import Never, RetryPolicy
 from resonate.tree import Tree
 from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
 
@@ -35,6 +36,13 @@ class Opts(msgspec.Struct, frozen=True, kw_only=True):
     timeout: timedelta | None = None
     target: str | None = None
     version: int = 1
+    # Per-call retry policy override for ``ctx.run``'s child, set via
+    # ``with_opts(retry_policy=...)``. ``None`` means "inherit the context's
+    # default" (which traces back to the SDK-wide default). Only honored for a
+    # pure leaf -- a body that performs any durable op is a workflow and never
+    # retries (see :meth:`Context.invoke_with_retry`). Opts is a runtime config
+    # object, never serialized, so holding a ``RetryPolicy`` is fine.
+    retry_policy: RetryPolicy | None = None
 
 
 class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
@@ -71,6 +79,7 @@ class Context:
         deps: DependencyMap,
         opts: Opts,
         tree: Tree,
+        retry_policy: RetryPolicy,
     ) -> None:
         self.id = id
         self.origin_id = origin_id
@@ -97,10 +106,26 @@ class Context:
         self.deps = deps
         self.opts = opts
 
+        # Default retry policy for this context's executions, inherited
+        # root -> child by reference. A ``ctx.run`` child uses it unless the call
+        # overrides via ``with_opts(retry_policy=...)``. Traces back to the
+        # SDK-wide default the root was built with (``Core.retry_policy``); the
+        # engine-layer default (direct ``Context.root`` construction in tests) is
+        # ``Never`` -- no retries.
+        self.retry_policy = retry_policy
+
         # Tail of the create-promise chain. Each ctx.run() captures this as
         # its prev-link and installs a fresh event as the new tail, so bg
         # tasks issue create_promise in ctx.run call order under concurrency.
         self._tail: asyncio.Event | None = None
+
+        # Whether this context has performed any durable operation
+        # (run/rpc/sleep/promise/detached) -- i.e. is a workflow rather than a
+        # pure leaf function. Flipped by ``_consume_opts`` -- the one method all
+        # five share -- and never reset. Once True the execution has a durable
+        # footprint and must never be re-run, so ``invoke_with_retry`` refuses to
+        # retry it (see that method).
+        self._workflow: bool = False
 
         # Background tasks spawned by rpc/sleep/promise (see
         # ``_spawn_remote_await``). Tracked so ``flush_local_work`` can join
@@ -121,6 +146,7 @@ class Context:
         effects: Effects,
         target_resolver: TargetResolver,
         deps: DependencyMap,
+        retry_policy: RetryPolicy | None = None,
     ) -> Self:
         # ``origin_id`` is the top of the execution lineage, carried through the
         # ``resonate:origin`` tag from whoever dispatched this workflow
@@ -148,6 +174,10 @@ class Context:
             # node is ``(int, pending)`` -- settled by ``task.fulfill`` in the
             # outer, never the inner (invariant U1).
             tree=Tree(id),
+            # The SDK-wide default flows in here from ``Core.retry_policy``. A
+            # direct construction (tests) that passes none gets the engine-layer
+            # default ``Never`` -- no retries unless asked.
+            retry_policy=retry_policy if retry_policy is not None else Never(),
         )
 
     def _child(self, id: str, func_name: str, timeout_at: int) -> Context:
@@ -171,12 +201,59 @@ class Context:
             # Share the parent's tree by reference: this child's own spawns
             # record themselves under ``id`` in the same per-attempt tree.
             tree=self.tree,
+            # Inherit the parent's default policy; a child's own ``ctx.run``
+            # calls fall back to it when not overridden via ``with_opts``.
+            retry_policy=self.retry_policy,
         )
 
     def _consume_opts(self) -> Opts:
+        # Called by exactly the five durable ops (run/rpc/sleep/promise/detached)
+        # and nothing else -- ``with_opts`` does not -- so it is the single
+        # chokepoint that marks this context a workflow. The flag is monotonic;
+        # once set it stays, and ``invoke_with_retry`` never retries it.
+        self._workflow = True
         opts = self.opts
         self.opts = Opts()
         return opts
+
+    async def invoke_with_retry(
+        self, df: DurableFunction, payload: Any, policy: RetryPolicy
+    ) -> Any:
+        """Execute ``df`` on this context, retrying a *pure-function* failure.
+
+        Retry is gated on the ``_workflow`` flag. The moment this context performs
+        a durable operation (run/rpc/sleep/promise/detached -- all of which flip
+        ``_workflow`` via :meth:`_consume_opts`) the execution is a workflow with a
+        durable footprint and must never be re-run: a second attempt would mint
+        fresh child-promise ids off :meth:`_next_id` and corrupt durability. So a
+        body that touched any durable op settles its failure on the first attempt;
+        only a pure leaf function -- zero durable footprint -- is retried, as far
+        as ``policy`` allows, before the failure is settled.
+
+        This is why retrying is *safe*: the only executions ever re-run are those
+        with no durable side effects, so re-running is deterministic. The first
+        attempt that touches a durable op either suspends or settles -- it is
+        always the last attempt.
+
+        ``SuspendedError`` is a durable suspension, not a failure, so it is
+        re-raised untouched ahead of the generic ``Exception`` arm (it *is* an
+        ``Exception``). Mirrors the awaited-result handling in ``invoke``.
+        """
+        attempt = 0
+        while True:
+            try:
+                return await df.invoke(self, payload)
+            except SuspendedError:
+                raise
+            except Exception:
+                # ``next(attempt + 1)`` consults the policy for the *upcoming*
+                # retry; ``None`` means stop (workflow, or retries exhausted),
+                # so the failure propagates and the caller settles it.
+                delay = None if self._workflow else policy.next(attempt + 1)
+                if delay is None:
+                    raise
+                await asyncio.sleep(delay)
+                attempt += 1
 
     def with_opts(
         self,
@@ -184,11 +261,16 @@ class Context:
         timeout: timedelta | None = None,
         target: str | None = None,
         version: int = 1,
+        retry_policy: RetryPolicy | None = None,
     ) -> Self:
+        # ``retry_policy=None`` (the default) means "inherit the context's
+        # default policy"; pass an explicit policy to override it for the next
+        # ``ctx.run`` only.
         self.opts = Opts(
             timeout=timeout,
             target=target,
             version=version,
+            retry_policy=retry_policy,
         )
         return self
 
@@ -378,7 +460,18 @@ class Context:
             outcome: Status
             value: Any | Exception
             try:
-                value = await df.invoke(child, payload)
+                # Retry a pure-leaf failure per the call's policy; a child that
+                # touches a durable op is a workflow and settles on the first
+                # failure (see ``invoke_with_retry``). The override from
+                # ``with_opts`` wins; otherwise inherit this context's default.
+                # ``opts`` is captured from the enclosing ``run`` call, so the
+                # policy is fixed at dispatch.
+                policy = (
+                    opts.retry_policy
+                    if opts.retry_policy is not None
+                    else self.retry_policy
+                )
+                value = await child.invoke_with_retry(df, payload, policy)
                 assert not inspect.isawaitable(value)
                 outcome = "done"
             except SuspendedError:
