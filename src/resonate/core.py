@@ -36,6 +36,7 @@ from resonate.heartbeat import Heartbeat, NoopHeartbeat
 from resonate.registry import Registry
 from resonate.retry import Never, RetryPolicy
 from resonate.send import Redirect, Sender
+from resonate.tree import Tree
 from resonate.types import (
     PromiseRegisterCallbackData,
     PromiseSettleReq,
@@ -78,6 +79,7 @@ class _ExecFulfilled(msgspec.Struct, frozen=True, kw_only=True):
 
     state: SettleState
     value: Value
+    tree: Tree
 
 
 class _ExecSuspended(msgspec.Struct, frozen=True, kw_only=True):
@@ -87,6 +89,7 @@ class _ExecSuspended(msgspec.Struct, frozen=True, kw_only=True):
     """
 
     todos: list[str]
+    tree: Tree
 
 
 #: Outcome reported by :meth:`Core._execute_until_blocked_inner`. Mirrors Go's
@@ -134,7 +137,7 @@ class Core(msgspec.Struct, kw_only=True):
         logger.debug("core: task acquired task_id=%s", task_id)
 
         promise = self.codec.decode_promise(res.promise)
-        return await self.execute_until_blocked(
+        return await self.execute_until_blocked_outer(
             task_id, res.task.version, promise, res.preload
         )
 
@@ -142,7 +145,7 @@ class Core(msgspec.Struct, kw_only=True):
     #  Path 2: execute_until_blocked -- task already acquired
     # ═══════════════════════════════════════════════════════════════
 
-    async def execute_until_blocked(
+    async def execute_until_blocked_outer(
         self,
         task_id: str,
         task_version: int,
@@ -171,7 +174,7 @@ class Core(msgspec.Struct, kw_only=True):
                 current_preload = preload
                 while True:
                     effects = ResonateEffects(self.sender, self.codec, current_preload)
-                    outcome = await self._execute_until_blocked_inner(promise, effects)
+                    outcome = await self.execute_until_blocked_inner(promise, effects)
 
                     match outcome:
                         case _ExecFulfilled(state=state, value=value):
@@ -235,7 +238,7 @@ class Core(msgspec.Struct, kw_only=True):
         finally:
             self.heartbeat.stop(task_id)
 
-    async def _execute_until_blocked_inner(
+    async def execute_until_blocked_inner(
         self, promise: PromiseRecord, effects: Effects
     ) -> _ExecOutcome:
         """Run the workflow body once and report the outcome.
@@ -276,11 +279,14 @@ class Core(msgspec.Struct, kw_only=True):
                 promise.id,
                 promise.state,
             )
+            tree = Tree(root_id=promise.id)
+            tree.settle(promise.id)
             return _ExecFulfilled(
                 state="rejected"
                 if promise.state == "rejected_timedout"
                 else promise.state,
                 value=self.codec.encode(promise.value.data),
+                tree=tree,
             )
 
         # 4. EXECUTE the workflow.
@@ -361,7 +367,7 @@ class Core(msgspec.Struct, kw_only=True):
             else:
                 state = "resolved"
                 encoded = self.codec.encode(res)
-            return _ExecFulfilled(state=state, value=encoded)
+            return _ExecFulfilled(state=state, value=encoded, tree=root_ctx.tree)
 
         # If the function returned done but there are pending todos, treat as
         # suspended (structured-concurrency rule; covers the fire-and-forget
@@ -379,4 +385,4 @@ class Core(msgspec.Struct, kw_only=True):
         # ASSERT the tree matches a Suspended outcome (U1/U2/U3/S1/S4): the
         # frontier is non-empty and the awaited ``todos`` are a subset of it.
         root_ctx.tree.well_formed("suspended", todos)
-        return _ExecSuspended(todos=todos)
+        return _ExecSuspended(todos=todos, tree=root_ctx.tree)

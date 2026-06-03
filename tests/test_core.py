@@ -207,7 +207,7 @@ async def test_fulfill_resolved_via_execute_until_blocked(fix: CoreFixture) -> N
     fix.reg.register("add", wf_add)
     v, promise, preload = await fix.create_root_task("p1-add", "add", a=3, b=4)
 
-    status = await fix.core.execute_until_blocked("p1-add", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer("p1-add", v, promise, preload)
     assert status == "done"
 
     got = await fix.promise_get("p1-add")
@@ -220,7 +220,7 @@ async def test_fulfill_rejected_via_execute_until_blocked(fix: CoreFixture) -> N
     fix.reg.register("fail", wf_fail)
     v, promise, preload = await fix.create_root_task("p1-fail", "fail")
 
-    status = await fix.core.execute_until_blocked("p1-fail", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer("p1-fail", v, promise, preload)
     assert status == "done"
 
     got = await fix.promise_get("p1-fail")
@@ -232,7 +232,7 @@ async def test_fulfill_object_value_round_trips_codec(fix: CoreFixture) -> None:
     fix.reg.register("obj", wf_return_obj)
     v, promise, preload = await fix.create_root_task("p1-obj", "obj", 1)
 
-    await fix.core.execute_until_blocked("p1-obj", v, promise, preload)
+    await fix.core.execute_until_blocked_outer("p1-obj", v, promise, preload)
 
     got = await fix.promise_get("p1-obj")
     assert got.value.data == {"x": 1}
@@ -246,7 +246,7 @@ async def test_suspends_on_pending_remote(fix: CoreFixture) -> None:
     fix.reg.register("waitOne", wf_suspend_on_pending)
     v, promise, preload = await fix.create_root_task("p1-wait", "waitOne")
 
-    status = await fix.core.execute_until_blocked("p1-wait", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer("p1-wait", v, promise, preload)
     assert status == "suspended"
 
     child = await fix.promise_get_raw("p1-wait.1")
@@ -258,7 +258,7 @@ async def test_suspends_registers_all_awaiteds(fix: CoreFixture) -> None:
     fix.reg.register("waitTwo", wf_suspend_on_two)
     v, promise, preload = await fix.create_root_task("p1-two", "waitTwo", 2)
 
-    status = await fix.core.execute_until_blocked("p1-two", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer("p1-two", v, promise, preload)
     assert status == "suspended"
 
 
@@ -319,7 +319,7 @@ async def test_execute_until_blocked_with_preload(fix: CoreFixture) -> None:
     pre = await fix.sender.promise_get("p1-pre.1")
     preload = [pre]
 
-    status = await fix.core.execute_until_blocked("p1-pre", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer("p1-pre", v, promise, preload)
     assert status == "done"
 
     got = await fix.promise_get("p1-pre")
@@ -343,7 +343,7 @@ async def test_releases_task_on_function_not_found(fix: CoreFixture) -> None:
     v, promise, preload = await fix.create_root_task("p1-nofn", "missing")
 
     with pytest.raises(FunctionNotFoundError):
-        await fix.core.execute_until_blocked("p1-nofn", v, promise, preload)
+        await fix.core.execute_until_blocked_outer("p1-nofn", v, promise, preload)
 
     # Task should be releasable: a fresh acquire under a different pid succeeds.
     result = await fix.sender.task_acquire("p1-nofn", 0, "other-pid", 1000)
@@ -358,7 +358,7 @@ async def test_heartbeat_started_and_stopped_on_success(fix: CoreFixture) -> Non
     fix.reg.register("seven2", wf_return_seven)
     v, promise, preload = await fix.create_root_task("p1-hb-ok", "seven2")
 
-    await fix.core.execute_until_blocked("p1-hb-ok", v, promise, preload)
+    await fix.core.execute_until_blocked_outer("p1-hb-ok", v, promise, preload)
     assert fix.hb.started == 1
     assert fix.hb.stopped == 1
 
@@ -368,7 +368,7 @@ async def test_heartbeat_stopped_on_error(fix: CoreFixture) -> None:
     v, promise, preload = await fix.create_root_task("p1-hb-err", "missing")
 
     with pytest.raises(FunctionNotFoundError):
-        await fix.core.execute_until_blocked("p1-hb-err", v, promise, preload)
+        await fix.core.execute_until_blocked_outer("p1-hb-err", v, promise, preload)
     assert fix.hb.started == 1
     assert fix.hb.stopped == 1  # stopped even after error
 
@@ -390,7 +390,7 @@ async def test_plain_exception_rejects_promise_and_fulfills_task(
     fix.reg.register("boom", wf_plain_panic)
     v, promise, preload = await fix.create_root_task("p1-boom", "boom")
 
-    status = await fix.core.execute_until_blocked("p1-boom", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer("p1-boom", v, promise, preload)
     assert status == "done"
 
     got = await fix.promise_get("p1-boom")
@@ -411,7 +411,9 @@ async def test_exception_mentioning_suspend_still_rejects_promise(
     fix.reg.register("unwrap", wf_unwrap_suspend)
     v, promise, preload = await fix.create_root_task("p1-unwrap", "unwrap")
 
-    status = await fix.core.execute_until_blocked("p1-unwrap", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer(
+        "p1-unwrap", v, promise, preload
+    )
     assert status == "done"
 
     got = await fix.promise_get("p1-unwrap")
@@ -423,7 +425,9 @@ async def test_heartbeat_stopped_after_user_exception(fix: CoreFixture) -> None:
     fix.reg.register("boomHb", wf_plain_panic)
     v, promise, preload = await fix.create_root_task("p1-hb-boom", "boomHb")
 
-    status = await fix.core.execute_until_blocked("p1-hb-boom", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer(
+        "p1-hb-boom", v, promise, preload
+    )
     assert status == "done"
     assert fix.hb.started == 1
     assert fix.hb.stopped == 1  # stopped along the normal fulfill path
@@ -461,7 +465,7 @@ async def test_noop_heartbeat_does_not_interfere() -> None:
         ),
     )
     decoded = codec.decode_promise(res.promise)
-    status = await core.execute_until_blocked(
+    status = await core.execute_until_blocked_outer(
         "p1-noophb", res.task.version, decoded, res.preload
     )
     assert status == "done"
@@ -478,7 +482,7 @@ async def test_done_on_return(fix: CoreFixture) -> None:
     fix.reg.register("done", done)
     v, promise, preload = await fix.create_root_task("p1-done", "done")
 
-    status = await fix.core.execute_until_blocked("p1-done", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer("p1-done", v, promise, preload)
     assert status == "done"
 
     got = await fix.promise_get("p1-done")
@@ -498,7 +502,9 @@ async def test_swallowed_suspend_still_suspends(fix: CoreFixture) -> None:
     fix.reg.register("swallow", swallow)
     v, promise, preload = await fix.create_root_task("p1-swallow", "swallow")
 
-    status = await fix.core.execute_until_blocked("p1-swallow", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer(
+        "p1-swallow", v, promise, preload
+    )
     assert status == "suspended"
 
 
@@ -517,7 +523,7 @@ async def test_fire_and_forget_local_suspension(fix: CoreFixture) -> None:
     fix.reg.register("ffparent", parent)
     v, promise, preload = await fix.create_root_task("p1-ff", "ffparent")
 
-    status = await fix.core.execute_until_blocked("p1-ff", v, promise, preload)
+    status = await fix.core.execute_until_blocked_outer("p1-ff", v, promise, preload)
     assert status == "suspended"
 
 

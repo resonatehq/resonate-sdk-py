@@ -464,7 +464,7 @@ class Resonate:
                 decoded = self._codec.decode_promise(outcome.promise)
                 self._spawn(
                     self._bounded_execute(
-                        self._core.execute_until_blocked(
+                        self._core.execute_until_blocked_outer(
                             outcome.task.id,
                             outcome.task.version,
                             decoded,

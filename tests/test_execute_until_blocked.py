@@ -264,7 +264,7 @@ async def test_nested_tree_blocks_on_rpc_leaves() -> None:
     reg.register("foo", foo)
     effects = MockEffects()
 
-    outcome = await _core(reg)._execute_until_blocked_inner(_root("foo"), effects)
+    outcome = await _core(reg).execute_until_blocked_inner(_root("foo"), effects)
 
     assert describe(effects.cache) == {
         "foo.1.1": ("run", "pending"),
@@ -302,7 +302,7 @@ async def test_single_level_suspends_on_rpc_between_settled_leaves() -> None:
     reg.register("mixed", mixed)
     effects = MockEffects()
 
-    outcome = await _core(reg)._execute_until_blocked_inner(
+    outcome = await _core(reg).execute_until_blocked_inner(
         _root("mixed", id="m"), effects
     )
 
@@ -333,7 +333,7 @@ async def test_sleep_creates_timer_promise_and_replay_fulfills() -> None:
     core = _core(reg)
     effects = MockEffects()
 
-    outcome = await core._execute_until_blocked_inner(_root("naps", id="s"), effects)
+    outcome = await core.execute_until_blocked_inner(_root("naps", id="s"), effects)
 
     # Blocked on a single timer promise.
     assert describe(effects.cache) == {"s.1": ("sleep", "pending")}
@@ -342,7 +342,7 @@ async def test_sleep_creates_timer_promise_and_replay_fulfills() -> None:
 
     # Replay after the server fired the timer (timers resolve with null).
     effects2 = MockEffects(_replayed(effects.cache, {"s.1": None}))
-    outcome2 = await core._execute_until_blocked_inner(_root("naps", id="s"), effects2)
+    outcome2 = await core.execute_until_blocked_inner(_root("naps", id="s"), effects2)
 
     assert describe(effects2.cache) == {"s.1": ("sleep", "resolved")}
     assert isinstance(outcome2, _ExecFulfilled)
@@ -361,7 +361,7 @@ async def test_promise_creates_external_promise_and_replay_delivers_value() -> N
     core = _core(reg)
     effects = MockEffects()
 
-    outcome = await core._execute_until_blocked_inner(_root("waits", id="p"), effects)
+    outcome = await core.execute_until_blocked_inner(_root("waits", id="p"), effects)
 
     assert describe(effects.cache) == {"p.1": ("promise", "pending")}
     assert isinstance(outcome, _ExecSuspended)
@@ -369,7 +369,7 @@ async def test_promise_creates_external_promise_and_replay_delivers_value() -> N
 
     # Replay after something external resolved the promise with a payload.
     effects2 = MockEffects(_replayed(effects.cache, {"p.1": "signal"}))
-    outcome2 = await core._execute_until_blocked_inner(_root("waits", id="p"), effects2)
+    outcome2 = await core.execute_until_blocked_inner(_root("waits", id="p"), effects2)
 
     assert describe(effects2.cache) == {"p.1": ("promise", "resolved")}
     assert isinstance(outcome2, _ExecFulfilled)
@@ -393,7 +393,7 @@ async def test_detached_child_is_created_but_does_not_block() -> None:
     core = _core(reg)
     effects = MockEffects()
 
-    outcome = await core._execute_until_blocked_inner(_root("fires", id="d"), effects)
+    outcome = await core.execute_until_blocked_inner(_root("fires", id="d"), effects)
 
     # Exactly one node: a pending, detached promise -- created but not awaited-on.
     assert len(effects.cache) == 1
@@ -440,7 +440,7 @@ async def test_detached_id_stays_bounded_across_recursive_re_root() -> None:
         tags={"resonate:origin": grown_id, "resonate:prefix": "top"},
     )
 
-    await core._execute_until_blocked_inner(promise, effects)
+    await core.execute_until_blocked_inner(promise, effects)
 
     (child,) = effects.cache.values()
     # Bounded shape: rooted at the pinned PREFIX, one segment past a dotless
@@ -500,7 +500,7 @@ async def test_recursive_multi_detached_keeps_ids_bounded_through_core() -> None
     for _level in range(depth):
         next_frontier: list[PromiseRecord] = []
         for promise in frontier:
-            await core._execute_until_blocked_inner(promise, effects)
+            await core.execute_until_blocked_inner(promise, effects)
             # Newly created detached children become the next level's roots --
             # core re-roots each one off its own resonate:prefix tag.
             for rec in effects.cache.values():
@@ -540,9 +540,7 @@ async def test_all_local_tree_fulfills_with_every_node_resolved() -> None:
     core = _core(reg)
     effects = MockEffects()
 
-    outcome = await core._execute_until_blocked_inner(
-        _root("allLocal", id="g"), effects
-    )
+    outcome = await core.execute_until_blocked_inner(_root("allLocal", id="g"), effects)
 
     assert describe(effects.cache) == {
         "g.1": ("run", "resolved"),
@@ -580,7 +578,7 @@ async def test_rejected_child_recorded_and_caught_by_parent() -> None:
     core = _core(reg)
     effects = MockEffects()
 
-    outcome = await core._execute_until_blocked_inner(_root("parent", id="e"), effects)
+    outcome = await core.execute_until_blocked_inner(_root("parent", id="e"), effects)
 
     assert describe(effects.cache) == {"e.1": ("run", "rejected")}
     data = effects.cache["e.1"].value.data
@@ -613,9 +611,7 @@ async def test_uncaught_rejection_propagates_to_root() -> None:
     core = _core(reg)
     effects = MockEffects()
 
-    outcome = await core._execute_until_blocked_inner(
-        _root("explodes", id="x"), effects
-    )
+    outcome = await core.execute_until_blocked_inner(_root("explodes", id="x"), effects)
 
     assert describe(effects.cache) == {"x.1": ("run", "rejected")}
     assert isinstance(outcome, _ExecFulfilled)
@@ -661,14 +657,14 @@ async def test_replay_settles_remotes_and_fulfills_without_reexecuting_leaves() 
 
     # Run 1: suspend on both rpc leaves.
     effects1 = MockEffects()
-    outcome1 = await core._execute_until_blocked_inner(_root("foo"), effects1)
+    outcome1 = await core.execute_until_blocked_inner(_root("foo"), effects1)
     assert isinstance(outcome1, _ExecSuspended)
     assert calls == {"foo": 1, "bar": 2, "baz": 4}
 
     # Run 2: the server settled both rpcs; replay over that preload.
     preload = _replayed(effects1.cache, {"foo.1.1.2": 11, "foo.1.2.2": 22})
     effects2 = MockEffects(preload)
-    outcome2 = await core._execute_until_blocked_inner(_root("foo"), effects2)
+    outcome2 = await core.execute_until_blocked_inner(_root("foo"), effects2)
 
     # Whole tree resolved now.
     assert describe(effects2.cache) == {
@@ -718,12 +714,12 @@ async def test_replay_partial_settle_still_suspends_on_remaining() -> None:
     core = _core(reg)
 
     effects1 = MockEffects()
-    await core._execute_until_blocked_inner(_root("foo"), effects1)
+    await core.execute_until_blocked_inner(_root("foo"), effects1)
 
     # Settle only bar #1's rpc; bar #2's rpc is still pending.
     preload = _replayed(effects1.cache, {"foo.1.1.2": 11})
     effects2 = MockEffects(preload)
-    outcome2 = await core._execute_until_blocked_inner(_root("foo"), effects2)
+    outcome2 = await core.execute_until_blocked_inner(_root("foo"), effects2)
 
     assert describe(effects2.cache) == {
         # bar #1 completed: its promise and rpc are resolved.
