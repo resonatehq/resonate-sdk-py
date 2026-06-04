@@ -24,7 +24,6 @@ only once the first has settled (the node that "extends" the tree).
 
 from __future__ import annotations
 
-import random
 from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
@@ -37,7 +36,6 @@ from resonate.types import PromiseCreateReq, PromiseRecord, Value
 
 if TYPE_CHECKING:
     from resonate.context import Context
-    from resonate.tree import Tree
 
 # Far-future deadline, matching tests.test_core (Go's ``int64(1) << 50``).
 FAR_FUTURE = 1 << 50
@@ -99,12 +97,17 @@ class MockEffects:
         return record
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────
+# ── Shared setup ─────────────────────────────────────────────────────────────
 
 
-def _core(reg: Registry) -> Core:
-    """Build a Core whose inner never touches the network (sender/heartbeat unused)."""
-    return Core(
+def _setup(reg: Registry) -> tuple[Core, MockEffects, PromiseRecord]:
+    """Build the pieces every test drives the inner with.
+
+    A Core whose inner never touches the network (sender/heartbeat unused), a
+    fresh ``MockEffects`` (one shared cache across every iteration *within* a
+    test), and a pending root promise whose param carries a ``TaskData``.
+    """
+    core = Core(
         sender=None,
         codec=Codec(NoopEncryptor()),
         registry=reg,
@@ -112,91 +115,14 @@ def _core(reg: Registry) -> Core:
         pid="tree-replay-test",
         ttl=TTL,
     )
-
-
-def _root(func: str, *, id: str) -> PromiseRecord:
-    """Build a pending root promise whose param carries a ``TaskData``."""
-    return PromiseRecord(
-        id=id,
+    effects = MockEffects()
+    root = PromiseRecord(
+        id="f",
         state="pending",
-        param=Value(data={"func": func, "args": [], "kwargs": {}, "version": 1}),
+        param=Value(data={"func": "func", "args": [], "kwargs": {}, "version": 1}),
         timeout_at=FAR_FUTURE,
     )
-
-
-async def _tree(core: Core, func: str, effects: MockEffects, *, id: str) -> Tree:
-    """Run the inner once over ``effects`` and hand back the tree it produced.
-
-    The outcome carries the tree on both arms (``_ExecFulfilled.tree`` /
-    ``_ExecSuspended.tree``), so one inner call yields one ``Tree`` snapshot.
-    """
-    outcome = await core.execute_until_blocked_inner(_root(func, id=id), effects)
-    return outcome.tree
-
-
-def _is_pending_rpc(rec: PromiseRecord) -> bool:
-    """Classify a cache record as a still-pending rpc, mirroring ``Context``'s tags.
-
-    An rpc is global-scope, not a timer, carries a (non-null) call param, and ends
-    in a numeric segment -- distinguishing it from ``ctx.promise`` (null param)
-    and ``ctx.detached`` (hashed segment).
-    """
-    tags = rec.tags
-    return (
-        rec.state == "pending"
-        and tags.get("resonate:scope") == "global"
-        and tags.get("resonate:timer") != "true"
-        and rec.param.data is not None
-        and rec.id.rsplit(".", 1)[-1].isdigit()
-    )
-
-
-def randomly_settle_rpc(cache: dict[str, PromiseRecord], rng: random.Random) -> str:
-    """Settle one randomly-chosen pending rpc in the cache (resolved, null value).
-
-    Models the server (or a remote worker) settling a promise the suspended task
-    was blocked on, in place in the shared cache, so the next inner replay sees
-    it terminal and can progress past the await. Returns the settled id.
-    """
-    pending = sorted(r.id for r in cache.values() if _is_pending_rpc(r))
-    assert pending, "no pending rpc in the cache to settle"
-    chosen = rng.choice(pending)
-    rec = cache[chosen]
-    cache[chosen] = PromiseRecord(
-        id=rec.id,
-        state="resolved",
-        param=rec.param,
-        value=Value(data=None),
-        tags=rec.tags,
-        timeout_at=rec.timeout_at,
-    )
-    return chosen
-
-
-# ── The shared workflow ──────────────────────────────────────────────────
-
-
-def _register_func(reg: Registry) -> None:
-    """Register ``func``, the workflow both tests drive.
-
-    It completes a local child-with-grandchild (a settled Int subtree), then
-    awaits two rpcs *in sequence* -- so the second rpc node appears only once the
-    first has settled.
-    """
-
-    def grandchild(ctx: Context) -> int:
-        return 1
-
-    async def child(ctx: Context) -> int:
-        await ctx.run(grandchild)
-        return 2
-
-    async def func(ctx: Context) -> None:
-        await ctx.run(child)
-        await ctx.rpc("a")
-        await ctx.rpc("b")
-
-    reg.register("func", func)
+    return core, effects, root
 
 
 # ── Test 1: unchanged cache -- prune to a fixed point ────────────────────────
@@ -218,20 +144,37 @@ async def test_replay_over_unchanged_cache_prunes_then_stabilizes() -> None:
     (iteration 2) has nothing left to prune, so it equals ``tree2`` -- the §7
     fixed point ``inner(inner(X)) = inner(X)``.
     """
-    reg = Registry()
-    _register_func(reg)
-    core = _core(reg)
-    effects = MockEffects()  # one shared cache across every iteration
 
-    tree1 = await _tree(core, "func", effects, id="f")
+    def grandchild(ctx: Context) -> int:
+        return 1
+
+    async def child(ctx: Context) -> int:
+        await ctx.run(grandchild)
+        return 2
+
+    async def func(ctx: Context) -> None:
+        await ctx.run(child)
+        await ctx.rpc("a")
+        await ctx.rpc("b")
+
+    reg = Registry()
+    reg.register("func", func)
+    core, effects, root = _setup(reg)
+
+    # The outcome carries the tree on both arms (``_ExecFulfilled.tree`` /
+    # ``_ExecSuspended.tree``), so one inner call yields one ``Tree`` snapshot.
+    outcome1 = await core.execute_until_blocked_inner(root, effects)
+    tree1 = outcome1.tree
     assert sorted(tree1.ids()) == ["f", "f.1", "f.1.1", "f.2"]
 
-    tree2 = await _tree(core, "func", effects, id="f")
+    outcome2 = await core.execute_until_blocked_inner(root, effects)
+    tree2 = outcome2.tree
     assert tree2.is_prune_of(tree1)
     assert not tree2.is_equal(tree1)  # strictly fewer nodes -- the grandchild
     assert sorted(tree2.ids()) == ["f", "f.1", "f.2"]
 
-    tree3 = await _tree(core, "func", effects, id="f")
+    outcome3 = await core.execute_until_blocked_inner(root, effects)
+    tree3 = outcome3.tree
     assert tree3.is_equal(tree2)
 
 
@@ -253,17 +196,44 @@ async def test_replay_after_settling_rpc_prunes_and_extends() -> None:
     Neither node set contains the other, so ``is_prune_of`` no longer applies;
     ``is_prune_and_extension_of`` is the general §6/§8 replay relation that does.
     """
-    reg = Registry()
-    _register_func(reg)
-    core = _core(reg)
-    effects = MockEffects()
 
-    tree1 = await _tree(core, "func", effects, id="f")
+    def grandchild(ctx: Context) -> int:
+        return 1
+
+    async def child(ctx: Context) -> int:
+        await ctx.run(grandchild)
+        return 2
+
+    async def func(ctx: Context) -> None:
+        await ctx.run(child)
+        await ctx.rpc("a")
+        await ctx.rpc("b")
+
+    reg = Registry()
+    reg.register("func", func)
+    core, effects, root = _setup(reg)
+
+    outcome1 = await core.execute_until_blocked_inner(root, effects)
+    tree1 = outcome1.tree
     assert sorted(tree1.ids()) == ["f", "f.1", "f.1.1", "f.2"]
 
-    randomly_settle_rpc(effects.cache, random.Random())
+    # Settle rpc "a" (``f.2``) in place in the shared cache -- modeling the
+    # server (or a remote worker) settling the promise the suspended task was
+    # blocked on -- so the next inner replay sees it terminal and progresses
+    # past the await.
+    rec = effects.cache["f.2"]
+    assert rec.state == "pending"
+    effects.cache["f.2"] = PromiseRecord(
+        id=rec.id,
+        state="resolved",
+        param=rec.param,
+        value=Value(data=None),
+        tags=rec.tags,
+        timeout_at=rec.timeout_at,
+    )
 
-    tree2 = await _tree(core, "func", effects, id="f")
+    outcome2 = await core.execute_until_blocked_inner(root, effects)
+    tree2 = outcome2.tree
     assert tree2.is_prune_and_extension_of(tree1)
     # Prune (f.1.1 gone) AND extend (f.3 is new) -- neither contains the other.
     assert sorted(tree2.ids()) == ["f", "f.1", "f.2", "f.3"]
