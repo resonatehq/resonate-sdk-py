@@ -297,6 +297,116 @@ class Tree:
             f"todos={todos} frontier={frontier} extra={extra}"
         )
 
+    # ── replay comparison ───────────────────────────────────────────
+
+    def is_equal(self, other: Tree) -> bool:
+        """Whether ``self`` and ``other`` are structurally identical.
+
+        Same root, same id set, and for every id the same ``type``, ``kind``,
+        and ``children`` list (order included -- children-as-prefix degenerates
+        to equality). This is the fixed-point check of ``tree.md`` §7: once a
+        replay has pruned, a further replay over the same unchanged cache
+        reproduces the *exact* shape, so ``tree_{n+1}.is_equal(tree_n)`` holds
+        from iteration 1 onward (``inner(inner(X)) = inner(X)``).
+        """
+        if self._root != other._root:
+            return False
+        if self._nodes.keys() != other._nodes.keys():
+            return False
+        return all(
+            (node.type, node.kind, node.children) == (o.type, o.kind, o.children)
+            for id, node in self._nodes.items()
+            for o in (other._nodes[id],)
+        )
+
+    def is_prune_of(self, other: Tree) -> bool:
+        """Whether ``self`` is a valid replay-pruning of ``other`` (``tree.md`` §6).
+
+        Codifies the ``IsReplayOf`` predicate (``tree.md`` §14) for the
+        no-new-external-settlement direction: ``self`` is a *later* replay of
+        the same body over the same (unchanged) cache as ``other``. It can
+        therefore differ from ``other`` only by having Int subtrees that
+        completed in ``other`` collapsed to their settled root -- ``ctx.run``
+        short-circuits an already-settled promise and never re-spawns its
+        children (context.py / §6 pruning rule), so the descendants those
+        children would have created are absent from ``self``.
+
+        Returns ``True`` iff all four replay invariants hold:
+
+        * **Root** -- same root id.
+        * **Containment** -- ``self``'s nodes are a subset of ``other``'s. With
+          an unchanged cache a replay creates no node it did not create before;
+          it only prunes. (Growth -- new Ext spawns past a freshly-settled await
+          -- is the *other* direction, ``tree.md`` §8, not pruning.)
+        * **Type stability** -- every shared id keeps its ``type``.
+        * **Kind monotonicity** -- a node settled in ``other`` stays settled in
+          ``self``; the durable lattice only advances (``tree.md`` §6).
+        * **Children-as-prefix** -- for every shared id, ``self``'s child list
+          is a prefix of ``other``'s. A node that became a pruning boundary (a
+          settled Int whose body was skipped) drops its *whole* child list
+          (``[]`` is a prefix of anything); every node above the boundary keeps
+          its children verbatim. Pruning is all-or-nothing per node, never a
+          middle drop -- so prefix is exactly the right shape, and together with
+          containment it pins the pruned set to whole Int subtrees.
+
+        ``is_equal`` implies ``is_prune_of`` (a tree is a trivial pruning of
+        itself), so the fixed point ``tree2.is_prune_of(tree1)`` holds even when
+        no settled Int node had descendants to prune.
+        """
+        if self._root != other._root:
+            return False
+        if not (self._nodes.keys() <= other._nodes.keys()):
+            return False
+        for id, node in self._nodes.items():
+            o = other._nodes[id]
+            if node.type != o.type:
+                return False
+            if o.kind == "settled" and node.kind != "settled":
+                return False
+            if node.children != o.children[: len(node.children)]:
+                return False
+        return True
+
+    def is_prune_and_extension_of(self, other: Tree) -> bool:
+        """Whether ``self`` is a prune-and-extension replay of ``other`` (``tree.md`` §6/§8).
+
+        The general replay relation when the cache *advanced* between the two
+        runs: an Ext promise ``other`` was blocked on has since settled, so on
+        this pass the body both **prunes** -- completed Int subtrees collapse to
+        their settled root, exactly as in :meth:`is_prune_of` -- and **extends**
+        -- it runs past the now-unblocked await and spawns new nodes ``other``
+        never had (``tree.md`` §8 frontier evolution). Neither node set contains
+        the other, so containment is dropped; what survives is the
+        per-shared-node contract:
+
+        * **Root** -- same root id.
+        * **Type stability** -- every shared id keeps its ``type``.
+        * **Kind monotonicity** -- a node settled in ``other`` stays settled in
+          ``self`` (including the Ext promise that settled between the runs).
+        * **Children-as-prefix (either direction)** -- for every shared id the
+          shorter child list is a prefix of the longer. A pruning boundary drops
+          its child-list tail (``self`` shorter); an extending node appends new
+          children (``self`` longer). Neither reorders or drops a *middle*
+          child, so any divergence within the shared prefix is a violation.
+
+        Reduces to :meth:`is_prune_of` when nothing settled (no extension), and
+        to :meth:`is_equal` when nothing settled and nothing had a subtree to
+        prune -- the §7 fixed point.
+        """
+        if self._root != other._root:
+            return False
+        for id in self._nodes.keys() & other._nodes.keys():
+            node = self._nodes[id]
+            o = other._nodes[id]
+            if node.type != o.type:
+                return False
+            if o.kind == "settled" and node.kind != "settled":
+                return False
+            shared = min(len(node.children), len(o.children))
+            if node.children[:shared] != o.children[:shared]:
+                return False
+        return True
+
     # ── display ─────────────────────────────────────────────────────
 
     def print(self) -> str:
