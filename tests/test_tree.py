@@ -382,6 +382,225 @@ def test_well_formed_done_s4_rejects_any_todo() -> None:
         t.well_formed("done", ["root.1"])  # frontier empty, so any todo violates
 
 
+# ── replay comparison: is_equal / is_prune_of / is_prune_and_extension_of ────
+#
+# The three relations form a chain -- is_equal implies is_prune_of implies
+# is_prune_and_extension_of -- checked here on the canonical replay shapes of
+# tests.test_tree_replay (tree.md §13): a completed Int subtree (f.1 with
+# grandchild f.1.1) followed by sequential rpcs f.2 / f.3.
+
+
+def _full_tree() -> Tree:
+    """Build iteration 0: the full tree, suspended on rpc ``f.2``.
+
+    ::
+
+        f (int, pending)
+        ├── f.1   (int, settled)     child -- ran to completion
+        │   └── f.1.1 (int, settled) grandchild
+        └── f.2   (ext, pending)     rpc "a" -- the live dependency
+    """
+    t = Tree("f")
+    t.add_child("f", "f.1", "int")
+    t.add_child("f.1", "f.1.1", "int")
+    t.settle("f.1.1")
+    t.settle("f.1")
+    t.add_child("f", "f.2", "ext")
+    return t
+
+
+def _pruned_tree() -> Tree:
+    """Build iteration 1 over an unchanged cache: ``f.1`` short-circuits, ``f.1.1`` gone."""
+    t = Tree("f")
+    t.add_child("f", "f.1", "int")
+    t.settle("f.1")
+    t.add_child("f", "f.2", "ext")
+    return t
+
+
+def _pruned_and_extended_tree() -> Tree:
+    """Build iteration 1 after rpc ``f.2`` settled: prunes ``f.1.1`` AND spawns ``f.3``."""
+    t = Tree("f")
+    t.add_child("f", "f.1", "int")
+    t.settle("f.1")
+    t.add_child("f", "f.2", "ext")
+    t.settle("f.2")
+    t.add_child("f", "f.3", "ext")
+    return t
+
+
+# ── is_equal ──
+
+
+def test_is_equal_on_identically_built_trees() -> None:
+    """Same build sequence -> structurally identical, symmetrically."""
+    a, b = _full_tree(), _full_tree()
+    assert a.is_equal(b)
+    assert b.is_equal(a)
+
+
+def test_is_equal_false_on_different_root() -> None:
+    assert not Tree("a").is_equal(Tree("b"))
+
+
+def test_is_equal_false_on_different_node_set() -> None:
+    """A strict prune is not equality -- the grandchild is missing."""
+    assert not _pruned_tree().is_equal(_full_tree())
+    assert not _full_tree().is_equal(_pruned_tree())
+
+
+def test_is_equal_false_on_type_mismatch() -> None:
+    a = Tree("f")
+    a.add_child("f", "f.1", "ext")
+    b = Tree("f")
+    b.add_child("f", "f.1", "int")
+    assert not a.is_equal(b)
+
+
+def test_is_equal_false_on_kind_mismatch() -> None:
+    a, b = _full_tree(), _full_tree()
+    b.settle("f.2")  # same shape, one node further along the lattice
+    assert not a.is_equal(b)
+
+
+def test_is_equal_false_on_children_order() -> None:
+    """Child order is call order -- a reorder is a different tree (§6 determinism)."""
+    a = Tree("f")
+    a.add_child("f", "f.1", "ext")
+    a.add_child("f", "f.2", "ext")
+    b = Tree("f")
+    b.add_child("f", "f.2", "ext")
+    b.add_child("f", "f.1", "ext")
+    assert not a.is_equal(b)
+
+
+# ── is_prune_of ──
+
+
+def test_is_prune_of_holds_for_equal_trees() -> None:
+    """is_equal implies is_prune_of -- a tree is a trivial pruning of itself."""
+    a, b = _full_tree(), _full_tree()
+    assert a.is_equal(b)
+    assert a.is_prune_of(b)
+
+
+def test_is_prune_of_strict_prune() -> None:
+    """The §7 replay shape: the settled Int subtree collapsed to its root.
+
+    Strict (not equal), and directional -- the full tree is *not* a pruning of
+    the pruned one (containment fails the other way).
+    """
+    full, pruned = _full_tree(), _pruned_tree()
+    assert pruned.is_prune_of(full)
+    assert not pruned.is_equal(full)
+    assert not full.is_prune_of(pruned)
+
+
+def test_is_prune_of_false_on_new_node() -> None:
+    """Growth is the §8 direction, not pruning -- containment must hold."""
+    grown = _full_tree()
+    grown.add_child("f", "f.3", "ext")
+    assert not grown.is_prune_of(_full_tree())
+
+
+def test_is_prune_of_false_on_type_change() -> None:
+    a = _full_tree()
+    b = _full_tree()
+    b._nodes["f.2"].type = "int"  # only an SDK bug could reclassify a node
+    assert not a.is_prune_of(b)
+
+
+def test_is_prune_of_false_on_kind_regression() -> None:
+    """Settled in ``other``, pending in ``self`` -- the lattice never retreats."""
+    regressed = _full_tree()
+    regressed._nodes["f.1"].kind = "pending"
+    assert not regressed.is_prune_of(_full_tree())
+
+
+def test_is_prune_of_allows_kind_advance() -> None:
+    """Pending in ``other``, settled in ``self`` is fine -- monotonic progress."""
+    advanced = _pruned_tree()
+    advanced.settle("f.2")
+    assert advanced.is_prune_of(_full_tree())
+
+
+def test_is_prune_of_false_on_middle_drop() -> None:
+    """Pruning drops a whole child-list *tail*, never a middle child."""
+    other = Tree("f")
+    other.add_child("f", "f.1", "ext")
+    other.settle("f.1")
+    other.add_child("f", "f.2", "ext")
+    dropped = Tree("f")
+    dropped.add_child(
+        "f", "f.2", "ext"
+    )  # f.1 missing -> [f.2] not a prefix of [f.1, f.2]
+    assert not dropped.is_prune_of(other)
+
+
+# ── is_prune_and_extension_of ──
+
+
+def test_prune_and_extension_holds_for_equal_trees() -> None:
+    """The full chain bottoms out here: equal -> prune -> prune-and-extension."""
+    a, b = _full_tree(), _full_tree()
+    assert a.is_prune_and_extension_of(b)
+
+
+def test_prune_and_extension_holds_for_pure_prune() -> None:
+    """No extension: reduces to is_prune_of (the §7 unchanged-cache case)."""
+    full, pruned = _full_tree(), _pruned_tree()
+    assert pruned.is_prune_of(full)
+    assert pruned.is_prune_and_extension_of(full)
+
+
+def test_prune_and_extension_holds_for_pure_extension() -> None:
+    """No prune: the body just ran further and appended children."""
+    extended = _full_tree()
+    extended.settle("f.2")
+    extended.add_child("f", "f.3", "ext")
+    assert extended.is_prune_and_extension_of(_full_tree())
+    assert not extended.is_prune_of(_full_tree())  # f.3 breaks containment
+
+
+def test_prune_and_extension_holds_for_prune_and_extend() -> None:
+    """The canonical §6/§8 shape: f.1.1 pruned AND f.3 new.
+
+    Neither node set contains the other, so only the general relation applies.
+    """
+    full, evolved = _full_tree(), _pruned_and_extended_tree()
+    assert evolved.is_prune_and_extension_of(full)
+    assert not evolved.is_prune_of(full)
+    assert not evolved.is_equal(full)
+
+
+def test_prune_and_extension_false_on_different_root() -> None:
+    assert not Tree("a").is_prune_and_extension_of(Tree("b"))
+
+
+def test_prune_and_extension_false_on_type_change() -> None:
+    a = _pruned_and_extended_tree()
+    b = _full_tree()
+    b._nodes["f.2"].type = "int"
+    assert not a.is_prune_and_extension_of(b)
+
+
+def test_prune_and_extension_false_on_kind_regression() -> None:
+    regressed = _pruned_and_extended_tree()
+    regressed._nodes["f.1"].kind = "pending"  # settled in other, pending here
+    assert not regressed.is_prune_and_extension_of(_full_tree())
+
+
+def test_prune_and_extension_false_on_shared_prefix_divergence() -> None:
+    """Within the shared prefix the child lists must agree exactly -- no swap."""
+    a = Tree("f")
+    a.add_child("f", "f.1", "ext")
+    a.add_child("f", "f.2", "ext")
+    b = Tree("f")
+    b.add_child("f", "f.1", "ext")
+    b.add_child("f", "f.3", "ext")  # diverges at index 1, not an append
+    assert not a.is_prune_and_extension_of(b)
+
+
 # ── print() -- deterministic ASCII diagram ───────────────────────────────────
 
 
