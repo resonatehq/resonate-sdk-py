@@ -33,9 +33,9 @@ The invariants, grouped by the section of ``tree.md`` they formalize:
   and the cache from iteration 1 (``test_cache_stable_after_first_run``), so the
   frontier reaches its fixed point one step ahead of the tree.
 
-* **§8 -- frontier evolution.** Settling the promises a run is blocked on and
-  replaying yields a tree that *extends* the unchanged-cache replay
-  (``is_extension_of``) -- **R2**. Every step obeys the strongest
+* **§8 -- frontier evolution.** Settling each successive frontier and replaying
+  yields a tree that *extends* the unchanged-cache replay (``is_extension_of``),
+  all the way down the settle-to-done walk -- **R2**. Every step obeys the strongest
   cross-iteration invariant,
   ``frontier_{n+1} ⊆ (frontier_n - resolved_n) | new_ext_spawns_n``
   (``test_frontier_evolution_rule_holds``).
@@ -72,6 +72,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from resonate.context import Context
+    from resonate.tree import Tree
 
 # Far-future deadline, matching tests.test_core (Go's ``int64(1) << 50``).
 FAR_FUTURE = 1 << 50
@@ -430,19 +431,33 @@ CORPUS = [
 async def test_idempotent_replay_holds(
     func: Callable[Concatenate[Context, ...], Any],
 ) -> None:
-    """R1: replay over an unchanged cache prunes to a fixed point, for any body."""
+    """R1: replay over an unchanged cache prunes to a fixed point, for any body.
+
+    Recursive form. Replay repeatedly over the *same* untouched cache for up to
+    ``MAX_ROUNDS`` rounds and assert the fixed-point contract at every iteration:
+    each replay is a prune of the one before (unchanged cache: only pruning is
+    possible), and from iteration 1 onward the tree is *equal* to the iteration-1
+    tree -- the fixed point reached after the first replay, held forever after
+    (``inner(inner(X)) = inner(X)``, ``tree.md`` §7).
+    """
     reg = Registry()
     reg.register("func", func)
     core, effects, root = _setup(reg)
 
     # The outcome carries the tree on both arms (fulfilled / suspended), so one
     # inner call yields one ``Tree`` snapshot.
-    tree0 = (await core.execute_until_blocked_inner(root, effects)).tree
-    tree1 = (await core.execute_until_blocked_inner(root, effects)).tree
-    tree2 = (await core.execute_until_blocked_inner(root, effects)).tree
-
-    assert tree1.is_prune_of(tree0)  # unchanged cache: only pruning is possible
-    assert tree2.is_equal(tree1)  # fixed point reached after the first replay
+    tree_prev = (await core.execute_until_blocked_inner(root, effects)).tree
+    fixed: Tree | None = (
+        None  # the iteration-1 tree: the fixed point every later replay equals
+    )
+    for _ in range(MAX_ROUNDS):
+        tree = (await core.execute_until_blocked_inner(root, effects)).tree
+        assert tree.is_prune_of(tree_prev)  # unchanged cache: only pruning
+        if fixed is None:
+            fixed = tree  # iteration 1 reaches the fixed point
+        else:
+            assert tree.is_equal(fixed)  # and stays there forever after
+        tree_prev = tree
 
 
 @pytest.mark.asyncio
@@ -450,7 +465,19 @@ async def test_idempotent_replay_holds(
 async def test_settling_frontier_extends(
     func: Callable[Concatenate[Context, ...], Any],
 ) -> None:
-    """R2: settling the frontier and replaying extends the baseline, for any body."""
+    """R2: settling each successive frontier and replaying extends the baseline.
+
+    Recursive form. Rather than settling only the iteration-0 frontier, advance
+    through *successive* frontiers: drain the current frontier one promise at a
+    time, and from each replay read the *new* frontier -- which may hold ids the
+    previous one never had (an rpc chain's second link, the ``b``/``c`` a phased
+    body spawns once ``a`` settles). Every replay along this settle-to-done walk
+    extends the *same* baseline: extension tolerates both the growth past each
+    freshly-unblocked await and the pruning of completed subtrees, so the
+    unchanged-cache replay stays the floor no matter how far the frontier
+    advances (``tree.md`` §8). Bounded by ``MAX_ROUNDS``; a body that has not
+    converged simply stops, having had R2 checked at every state.
+    """
     reg = Registry()
     reg.register("func", func)
     core, effects, root = _setup(reg)
@@ -460,11 +487,19 @@ async def test_settling_frontier_extends(
     baseline = (await core.execute_until_blocked_inner(root, effects)).tree
     assert baseline.is_prune_of(tree0)
 
-    # Settle each blocking remote in turn; every replay extends the baseline.
-    for blocking in tree0.frontier():
-        _settle_external(effects, blocking)
-        tree = (await core.execute_until_blocked_inner(root, effects)).tree
-        assert tree.is_extension_of(baseline)
+    # Advance through successive frontiers. Each round drains the *current*
+    # frontier one blocking remote at a time -- asserting extension after every
+    # replay -- then reads the next frontier from the latest tree, settling ids
+    # the earlier frontiers never held until the body converges.
+    tree = baseline
+    for _ in range(MAX_ROUNDS):
+        frontier = tree.frontier()
+        if not frontier:
+            break
+        for blocking in frontier:
+            _settle_external(effects, blocking)
+            tree = (await core.execute_until_blocked_inner(root, effects)).tree
+            assert tree.is_extension_of(baseline)
 
 
 @pytest.mark.asyncio
@@ -573,16 +608,20 @@ async def test_frontier_stable_under_unchanged_cache(
     first* iteration -- even while the **tree** is still pruning a completed Int
     subtree on iteration 1 (R1). The frontier reaches its fixed point one step
     ahead of the tree (``tree.md`` §7 stability table).
+
+    Recursive form: replay over the unchanged cache for up to ``MAX_ROUNDS``
+    rounds and assert every frontier equals the iteration-0 one.
     """
     reg = Registry()
     reg.register("func", func)
     core, effects, root = _setup(reg)
 
     frontier0 = (await core.execute_until_blocked_inner(root, effects)).tree.frontier()
-    frontier1 = (await core.execute_until_blocked_inner(root, effects)).tree.frontier()
-    frontier2 = (await core.execute_until_blocked_inner(root, effects)).tree.frontier()
-
-    assert frontier0 == frontier1 == frontier2
+    for _ in range(MAX_ROUNDS):
+        frontier = (
+            await core.execute_until_blocked_inner(root, effects)
+        ).tree.frontier()
+        assert frontier == frontier0
 
 
 @pytest.mark.asyncio
@@ -597,7 +636,10 @@ async def test_cache_stable_after_first_run(
     replays find them all via idempotent server creates -- adding no record and
     advancing no state on their own (only the external world does that, which
     this test withholds). Snapshot the cache (ids and states) after the first
-    run; a second run over the unchanged cache leaves it identical.
+    run; every further run over the unchanged cache leaves it identical.
+
+    Recursive form: replay for up to ``MAX_ROUNDS`` rounds and assert the cache
+    equals the post-first-run snapshot at every iteration.
     """
     reg = Registry()
     reg.register("func", func)
@@ -606,10 +648,10 @@ async def test_cache_stable_after_first_run(
     await core.execute_until_blocked_inner(root, effects)
     snapshot = {id: rec.state for id, rec in effects.cache.items()}
 
-    await core.execute_until_blocked_inner(root, effects)
-    after = {id: rec.state for id, rec in effects.cache.items()}
-
-    assert after == snapshot
+    for _ in range(MAX_ROUNDS):
+        await core.execute_until_blocked_inner(root, effects)
+        after = {id: rec.state for id, rec in effects.cache.items()}
+        assert after == snapshot
 
 
 @pytest.mark.asyncio
