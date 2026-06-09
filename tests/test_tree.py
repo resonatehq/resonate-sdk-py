@@ -385,9 +385,12 @@ def test_well_formed_done_s4_rejects_any_todo() -> None:
 # ── replay comparison: is_equal / is_prune_of / is_extension_of ──────────────
 #
 # is_equal implies both is_prune_of and is_extension_of (a tree trivially prunes
-# and extends itself); the two directional atoms are otherwise duals. A replay
-# that both prunes and extends is not a third relation -- it factors into a
-# prune then an extension (see test_mixed_replay_factors_into_prune_then_extension).
+# and extends itself); the two atoms assert complementary facets of one replay.
+# Each is projection-tolerant: is_prune_of drops the children self spawned past a
+# settled await before checking the prune shape, and is_extension_of drops the
+# children other pruned away before checking the growth shape. So a replay that
+# both prunes and extends satisfies *both* atoms directly -- it is not a third
+# relation (see test_mixed_replay_satisfies_both_atoms).
 # Checked here on the canonical replay shapes of tests.test_tree_replay
 # (tree.md §13): a completed Int subtree (f.1 with grandchild f.1.1) followed by
 # sequential rpcs f.2 / f.3.
@@ -488,22 +491,28 @@ def test_is_prune_of_holds_for_equal_trees() -> None:
 
 
 def test_is_prune_of_strict_prune() -> None:
-    """The §7 replay shape: the settled Int subtree collapsed to its root.
+    """The §6 replay shape: the settled Int subtree collapsed to its root.
 
-    Strict (not equal), and directional -- the full tree is *not* a pruning of
-    the pruned one (containment fails the other way).
+    Strict (not equal). Projection-tolerant: ``full.is_prune_of(pruned)`` also
+    holds because the extra grandchild ``f.1.1`` is projected out as if it were
+    extension -- this atom no longer enforces a containment direction; kind
+    monotonicity and the middle-drop check carry the bug-catching weight.
     """
     full, pruned = _full_tree(), _pruned_tree()
     assert pruned.is_prune_of(full)
     assert not pruned.is_equal(full)
-    assert not full.is_prune_of(pruned)
+    assert full.is_prune_of(pruned)  # f.1.1 projected out as extension
 
 
-def test_is_prune_of_false_on_new_node() -> None:
-    """Growth is the §8 direction, not pruning -- containment must hold."""
+def test_is_prune_of_tolerates_pure_extension() -> None:
+    """A pure §8 extension still satisfies the §6 atom -- growth is projected out.
+
+    ``grown`` appends ``f.3`` and prunes nothing; ``is_prune_of`` drops the
+    self-only child before the prefix check, leaving an exact match.
+    """
     grown = _full_tree()
     grown.add_child("f", "f.3", "ext")
-    assert not grown.is_prune_of(_full_tree())
+    assert grown.is_prune_of(_full_tree())
 
 
 def test_is_prune_of_false_on_type_change() -> None:
@@ -553,21 +562,27 @@ def test_is_extension_of_holds_for_equal_trees() -> None:
 def test_is_extension_of_strict_extension() -> None:
     """The §8 growth shape: the body ran past a settled await and appended a node.
 
-    Strict (not equal), and directional -- the shorter tree is *not* an
-    extension of the longer one (containment fails the other way).
+    Strict (not equal). The reverse fails not on containment (projection
+    tolerates that) but on kind monotonicity: ``extended`` settled ``f.2``, so
+    the older tree is *less* settled and cannot be the later replay.
     """
     extended = _full_tree()
     extended.settle("f.2")
     extended.add_child("f", "f.3", "ext")
     assert extended.is_extension_of(_full_tree())
     assert not extended.is_equal(_full_tree())
-    assert not _full_tree().is_extension_of(extended)
+    assert not _full_tree().is_extension_of(extended)  # f.2 regressed settled->pending
 
 
-def test_is_extension_of_false_on_missing_node() -> None:
-    """Pruning is the §6 direction, not extension -- containment must hold the other way."""
+def test_is_extension_of_tolerates_pure_prune() -> None:
+    """A pure §6 prune still satisfies the §8 atom -- the prune is projected out.
+
+    ``pruned`` dropped ``f.1.1`` and added nothing; ``is_extension_of`` projects
+    that missing child out of ``full``'s child lists before the prefix check,
+    leaving an exact match.
+    """
     pruned = _pruned_tree()
-    assert not pruned.is_extension_of(_full_tree())  # f.1.1 in other, absent here
+    assert pruned.is_extension_of(_full_tree())  # f.1.1 projected out as prune
 
 
 def test_is_extension_of_false_on_type_change() -> None:
@@ -605,26 +620,26 @@ def test_is_extension_of_false_on_middle_divergence() -> None:
     assert not grown.is_extension_of(other)
 
 
-# ── mixed replay = prune then extend ──
+# ── mixed replay = prune and extend at once ──
 
 
-def test_mixed_replay_factors_into_prune_then_extension() -> None:
-    """A replay that both prunes and extends factors into the two atoms.
+def test_mixed_replay_satisfies_both_atoms() -> None:
+    """A replay that both prunes and extends satisfies both atoms directly.
 
-    The canonical §6/§8 shape: ``f.1.1`` pruned AND ``f.3`` new. Neither node
-    set contains the other, so neither atom holds between ``_full_tree`` and
-    ``_pruned_and_extended_tree`` directly. But pruning the full tree's
-    completed subtree yields the intermediate ``_pruned_tree``, which the
-    evolved tree then purely extends: full --prune--> pruned --extend--> evolved.
+    The canonical §6/§8 shape: ``f.1.1`` pruned AND ``f.3`` new, so neither node
+    set contains the other. Each atom is projection-tolerant -- ``is_prune_of``
+    drops the new ``f.3`` and checks the prune shape, ``is_extension_of`` drops
+    the pruned ``f.1.1`` and checks the growth shape -- so *both* hold between
+    ``_full_tree`` and ``_pruned_and_extended_tree`` directly.
     """
     full = _full_tree()
     pruned = _pruned_tree()
     evolved = _pruned_and_extended_tree()
-    # Directly, neither atom applies -- f.1.1 only in full, f.3 only in evolved.
-    assert not evolved.is_prune_of(full)
-    assert not evolved.is_extension_of(full)
+    # Both atoms hold directly -- each projects out the other's delta.
+    assert evolved.is_prune_of(full)
+    assert evolved.is_extension_of(full)
     assert not evolved.is_equal(full)
-    # But it factors through the pruned intermediate.
+    # The pruned intermediate still sits between the two ends.
     assert pruned.is_prune_of(full)
     assert evolved.is_extension_of(pruned)
 

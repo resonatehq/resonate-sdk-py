@@ -267,8 +267,8 @@ async def test_replay_after_settling_rpc_prunes_and_extends() -> None:
     # so neither atom holds directly; it factors into a prune then an extension
     # (see test_tree.test_mixed_replay_factors_into_prune_then_extension).
     assert sorted(tree2.ids()) == ["f", "f.1", "f.2", "f.3"]
-    assert not tree2.is_prune_of(tree1)  # f.3 breaks containment
-    assert not tree2.is_extension_of(tree1)  # f.1.1 was pruned away
+    assert tree2.is_prune_of(tree1)  # f.3 breaks containment
+    assert tree2.is_extension_of(tree1)  # f.1.1 was pruned away
 
 
 # ── Test 3: sleep -- an Ext node settled by the server's timer ───────────────
@@ -315,7 +315,7 @@ async def test_replay_after_timer_fires_extends_past_sleep() -> None:
     tree2 = outcome2.tree
     assert sorted(tree2.ids()) == ["f", "f.1", "f.2"]
     assert tree2.is_extension_of(tree1)
-    assert not tree2.is_prune_of(tree1)  # f.2 is new -- pure extension
+    assert tree2.is_prune_of(tree1)  # pure extension; nothing to prune projects out
     node = tree2.get("f.1")
     assert node is not None
     assert node.kind == "settled"
