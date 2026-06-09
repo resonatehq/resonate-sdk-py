@@ -447,9 +447,7 @@ async def test_idempotent_replay_holds(
     # The outcome carries the tree on both arms (fulfilled / suspended), so one
     # inner call yields one ``Tree`` snapshot.
     tree_prev = (await core.execute_until_blocked_inner(root, effects)).tree
-    fixed: Tree | None = (
-        None  # the iteration-1 tree: the fixed point every later replay equals
-    )
+    fixed: Tree | None = None
     for _ in range(MAX_ROUNDS):
         tree = (await core.execute_until_blocked_inner(root, effects)).tree
         assert tree.is_prune_of(tree_prev)  # unchanged cache: only pruning
@@ -494,8 +492,10 @@ async def test_settling_frontier_extends(
     tree = baseline
     for _ in range(MAX_ROUNDS):
         frontier = tree.frontier()
+
         if not frontier:
             break
+
         for blocking in frontier:
             _settle_external(effects, blocking)
             tree = (await core.execute_until_blocked_inner(root, effects)).tree
@@ -579,6 +579,7 @@ async def test_type_stable_and_kind_monotone_across_replay(
     for _ in range(MAX_ROUNDS):
         for blocking in tree_prev.frontier():
             _settle_external(effects, blocking)
+
         tree_next = (await core.execute_until_blocked_inner(root, effects)).tree
 
         for id in set(tree_prev.ids()) & set(tree_next.ids()):
@@ -592,6 +593,7 @@ async def test_type_stable_and_kind_monotone_across_replay(
 
         if not tree_next.frontier():
             break
+
         tree_prev = tree_next
 
 
@@ -618,10 +620,9 @@ async def test_frontier_stable_under_unchanged_cache(
 
     frontier0 = (await core.execute_until_blocked_inner(root, effects)).tree.frontier()
     for _ in range(MAX_ROUNDS):
-        frontier = (
+        assert (
             await core.execute_until_blocked_inner(root, effects)
-        ).tree.frontier()
-        assert frontier == frontier0
+        ).tree.frontier() == frontier0
 
 
 @pytest.mark.asyncio
@@ -646,12 +647,11 @@ async def test_cache_stable_after_first_run(
     core, effects, root = _setup(reg)
 
     await core.execute_until_blocked_inner(root, effects)
-    snapshot = {id: rec.state for id, rec in effects.cache.items()}
+    snapshot = effects.cache.items()
 
     for _ in range(MAX_ROUNDS):
         await core.execute_until_blocked_inner(root, effects)
-        after = {id: rec.state for id, rec in effects.cache.items()}
-        assert after == snapshot
+        assert effects.cache.items() == snapshot
 
 
 @pytest.mark.asyncio
