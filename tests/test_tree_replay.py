@@ -9,8 +9,9 @@ across consecutive runs of the same body -- the Python port of Go's
 * **Replay relations over a shared cache** -- consecutive
   ``execute_until_blocked_inner`` calls over one ``MockEffects``. An unchanged
   cache prunes to the §7 fixed point (``is_prune_of`` then ``is_equal``); a
-  cache the external world advanced between runs both prunes *and* extends --
-  ``is_prune_and_extension_of``, the general §6/§8 relation.
+  cache the external world advanced between runs extends past the settled await
+  (``is_extension_of``, §8). A run that does both at once satisfies neither atom
+  directly -- it factors into a prune followed by an extension.
 * **Per-op replay semantics** -- what each durable ``Context`` op contributes
   to the tree across replays: ``run`` (Int: settles under our lease, prunes
   once settled), ``rpc`` / ``sleep`` / ``promise`` (Ext: the frontier, settled
@@ -229,8 +230,9 @@ async def test_replay_after_settling_rpc_prunes_and_extends() -> None:
     * **extends** with ``f.3`` -- the body runs past ``await a`` and spawns
       rpc ``b``, a node ``tree1`` never had.
 
-    Neither node set contains the other, so ``is_prune_of`` no longer applies;
-    ``is_prune_and_extension_of`` is the general §6/§8 replay relation that does.
+    Neither node set contains the other, so neither ``is_prune_of`` nor
+    ``is_extension_of`` holds directly -- the replay factors into a prune of
+    ``tree1`` followed by an extension (``tree.md`` §6/§8).
     """
 
     def grandchild(ctx: Context) -> int:
@@ -261,10 +263,12 @@ async def test_replay_after_settling_rpc_prunes_and_extends() -> None:
 
     outcome2 = await core.execute_until_blocked_inner(root, effects)
     tree2 = outcome2.tree
-    assert tree2.is_prune_and_extension_of(tree1)
-    # Prune (f.1.1 gone) AND extend (f.3 is new) -- neither contains the other.
+    # Prune (f.1.1 gone) AND extend (f.3 is new) -- neither contains the other,
+    # so neither atom holds directly; it factors into a prune then an extension
+    # (see test_tree.test_mixed_replay_factors_into_prune_then_extension).
     assert sorted(tree2.ids()) == ["f", "f.1", "f.2", "f.3"]
     assert not tree2.is_prune_of(tree1)  # f.3 breaks containment
+    assert not tree2.is_extension_of(tree1)  # f.1.1 was pruned away
 
 
 # ── Test 3: sleep -- an Ext node settled by the server's timer ───────────────
@@ -278,8 +282,8 @@ async def test_replay_after_timer_fires_extends_past_sleep() -> None:
     ``resonate:timer`` tag, which is what tells the server to *resolve* it at
     its timeout rather than reject it (the §2 "settled by something we await"
     column, timer row). The test plays the timer firing by settling ``f.1``;
-    the replay then extends past the sleep and suspends on the rpc -- the
-    §6/§8 prune-and-extend relation with nothing to prune.
+    the replay then extends past the sleep and suspends on the rpc -- a pure
+    §8 extension with nothing to prune.
     """
 
     async def func(ctx: Context) -> None:
@@ -310,7 +314,7 @@ async def test_replay_after_timer_fires_extends_past_sleep() -> None:
     assert isinstance(outcome2, _ExecSuspended)
     tree2 = outcome2.tree
     assert sorted(tree2.ids()) == ["f", "f.1", "f.2"]
-    assert tree2.is_prune_and_extension_of(tree1)
+    assert tree2.is_extension_of(tree1)
     assert not tree2.is_prune_of(tree1)  # f.2 is new -- pure extension
     node = tree2.get("f.1")
     assert node is not None
@@ -599,7 +603,7 @@ async def test_phased_settlements_follow_frontier_evolution_rule() -> None:
     frontier1 = tree1.frontier()
     assert sorted(tree1.ids()) == ["f", "f.1", "f.2", "f.3"]
     assert frontier1 == ["f.2", "f.3"]
-    assert tree1.is_prune_and_extension_of(tree0)
+    assert tree1.is_extension_of(tree0)  # f.2, f.3 spawned past the settled await
     new_ext0 = set(tree1.ids()) - set(tree0.ids())
     assert set(frontier1) <= (set(frontier0) - {"f.1"}) | new_ext0  # §8
 
@@ -611,7 +615,7 @@ async def test_phased_settlements_follow_frontier_evolution_rule() -> None:
     tree2 = outcome2.tree
     frontier2 = tree2.frontier()
     assert frontier2 == ["f.2"]
-    assert tree2.is_prune_and_extension_of(tree1)
+    assert tree2.is_prune_of(tree1)  # equal node set, f.3's kind advanced
     new_ext1 = set(tree2.ids()) - set(tree1.ids())
     assert new_ext1 == set()
     assert set(frontier2) <= (set(frontier1) - {"f.3"}) | new_ext1  # §8
@@ -623,7 +627,7 @@ async def test_phased_settlements_follow_frontier_evolution_rule() -> None:
     assert outcome3.state == "resolved"
     tree3 = outcome3.tree
     assert tree3.frontier() == []  # D1 -- and §8 trivially holds
-    assert tree3.is_prune_and_extension_of(tree2)
+    assert tree3.is_prune_of(tree2)  # equal node set, f.2's kind advanced
     # §9's closing diagram, verbatim. The root stays pending -- it is settled
     # by ``task.fulfill`` in the outer, never the inner (U1).
     assert tree3.print() == (
