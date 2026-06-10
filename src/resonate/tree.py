@@ -301,35 +301,16 @@ class Tree:
 
     # ── replay comparison ───────────────────────────────────────────
 
-    def is_equal(self, other: Tree) -> bool:
-        """Whether ``self`` and ``other`` are structurally identical.
-
-        Same root, same id set, and for every id the same ``type``, ``kind``,
-        and ``children`` list (order included -- children-as-prefix degenerates
-        to equality). This is the fixed-point check of ``tree.md`` §7: once a
-        replay has pruned, a further replay over the same unchanged cache
-        reproduces the *exact* shape, so ``tree_{n+1}.is_equal(tree_n)`` holds
-        from iteration 1 onward (``inner(inner(X)) = inner(X)``).
-        """
-        if self._root != other._root:
-            return False
-        if self._nodes.keys() != other._nodes.keys():
-            return False
-        return all(
-            (node.type, node.kind, node.children) == (o.type, o.kind, o.children)
-            for id, node in self._nodes.items()
-            for o in (other._nodes[id],)
-        )
-
     def _shared_type_stable(self, other: Tree) -> bool:
         """Whether the trees share a root and every shared id keeps its ``type`` (``tree.md`` §6).
 
         The direction-agnostic half of the replay contract: a node's settler is
         fixed at its call site and never changes, so a reclassified shared node
-        is an SDK bug regardless of which tree is the later replay. Both
-        :meth:`is_prune_of` and :meth:`is_extension_of` start here. Says nothing
-        about containment -- a mixed replay's node sets need not nest, so the
-        check ranges over the intersection only.
+        is an SDK bug regardless of which tree is the later replay. All three of
+        :meth:`is_prune_of`, :meth:`is_extension_of`, and
+        :meth:`is_prune_and_extension_of` start here. Says nothing about
+        containment -- a mixed replay's node sets need not nest, so the check
+        ranges over the intersection only.
         """
         if self._root != other._root:
             return False
@@ -344,8 +325,8 @@ class Tree:
         Kind monotonicity (``tree.md`` §6): the durable lattice only advances,
         so a later replay is never *less* settled than an earlier one. This is
         the one part of the replay contract whose direction is fixed rather than
-        containment-symmetric -- ``self`` is always the later replay, so both
-        :meth:`is_prune_of` and :meth:`is_extension_of` call it the same way.
+        containment-symmetric -- ``self`` is always the later replay, so all
+        three replay predicates call it the same way.
         """
         for id in self._nodes.keys() & earlier._nodes.keys():
             if (
@@ -356,30 +337,108 @@ class Tree:
         return True
 
     def is_prune_of(self, other: Tree) -> bool:
-        """Whether ``self`` replays ``other`` with its pruning consistent (``tree.md`` §6).
+        """Whether ``self`` is a *pruning* of ``other`` (``tree.md`` §6).
 
-        ``self`` is a *later* replay of the same body than ``other``; this atom
-        checks the **pruning** facet -- that everything ``self`` retained from
-        ``other`` is consistent with ``ctx.run`` short-circuiting completed Int
-        subtrees (context.py / §6). It is tolerant of extension: nodes ``self``
-        spawned past a freshly-settled await are projected out before the check,
-        so the relation still holds for a mixed replay that both prunes and
-        extends (its dual :meth:`is_extension_of` checks the other facet).
+        ``self`` is a *later* replay of the same body than ``other`` that
+        **added nothing** -- it may have **dropped** nodes (a completed Int
+        subtree short-circuited, so the children its body would have spawned
+        were never re-added -- context.py / §6) or dropped nothing at all (a
+        structurally unchanged replay, or a settle-only kind advance). This is
+        the no-extension specialization of :meth:`is_prune_and_extension_of`:
+        the gate is one-sided (``added == ∅``), so it is *not* exclusive with
+        :meth:`is_extension_of` -- an unchanged replay (both deltas empty)
+        satisfies both, and the unchanged/settle-only cell is exactly their
+        overlap. A replay that *grows* (adds a node ``other`` never had) is an
+        extension only, never this.
 
-        * **Root + type stability** (:meth:`_shared_type_stable`) over the
-          shared nodes.
-        * **Kind monotonicity** (:meth:`_is_at_least_as_settled_as`) -- the
-          later replay is never less settled.
-        * **Retained-as-prefix** -- for every shared id, drop the children
-          ``self`` holds that ``other`` never had (those are extension, not
-          this atom's concern); the surviving ``self`` children must be a prefix
-          of ``other``'s child list. A pruning boundary (a settled Int whose
-          body was skipped) drops its *whole* child list (``[]`` is a prefix of
-          anything); every node above it keeps its children verbatim. Pruning is
-          all-or-nothing per node, never a middle drop, so prefix is exactly the
-          right shape.
+        * **Added nothing** -- ``self`` has *no* node ``other`` lacks
+          (``added == ∅``); ``self`` may drop nodes or none.
+        * **Root + type stability** (:meth:`_shared_type_stable`) and **kind
+          monotonicity** (:meth:`_is_at_least_as_settled_as`) -- the later
+          replay is never less settled.
+        * **Pruned-as-prefix** -- for every (shared) node, ``self``'s child list
+          must be a prefix of ``other``'s. A pruning boundary (a settled Int
+          whose body was skipped) collapses its *whole* child list to ``[]``
+          (a prefix of anything); every node above it keeps its children
+          verbatim. Pruning is all-or-nothing per node, never a middle drop, so
+          prefix is exactly the right shape.
+        """
+        added = self._nodes.keys() - other._nodes.keys()
+        if added:
+            return False
+        if not self._shared_type_stable(other):
+            return False
+        if not self._is_at_least_as_settled_as(other):
+            return False
+        # added is empty, so every self node is shared with other.
+        for id, node in self._nodes.items():
+            if node.children != other._nodes[id].children[: len(node.children)]:
+                return False
+        return True
 
-        ``is_equal`` implies ``is_prune_of`` (a tree trivially prunes itself).
+    def is_extension_of(self, other: Tree) -> bool:
+        """Whether ``self`` is an *extension* of ``other`` (``tree.md`` §6/§8).
+
+        ``self`` is the *later* replay after the cache advanced and **dropped
+        nothing**: it may have run past a now-unblocked await and **appended**
+        nodes ``other`` never had (§8 growth), or merely advanced a shared
+        node's kind (a frontier dependency settled, no new spawn -- ``tree.md``
+        §9 iter 1->2), or be structurally unchanged. This is the no-prune
+        specialization of :meth:`is_prune_and_extension_of`: the gate is
+        one-sided (``removed == ∅``), so it is *not* exclusive with
+        :meth:`is_prune_of` -- an unchanged replay (both deltas empty) satisfies
+        both, and the unchanged/settle-only cell is exactly their overlap. A
+        replay that *also* prunes (drops a node ``other`` had) is a prune only,
+        never this.
+
+        * **Dropped nothing** -- ``other`` has *no* node ``self`` lacks
+          (``removed == ∅``). ``self`` may add new nodes or none.
+        * **Root + type stability** (:meth:`_shared_type_stable`) and **kind
+          monotonicity** (:meth:`_is_at_least_as_settled_as`) -- ``self`` is the
+          later replay, so kind monotonicity always runs ``other`` -> ``self``
+          and is not a flipped ``other.is_prune_of(self)``.
+        * **Original-as-prefix** -- for every (shared) node, ``other``'s child
+          list must be a prefix of ``self``'s. Extension only appends to the
+          tail, so the original order is preserved and a prefix relation is
+          exactly what growth (and the no-growth degenerate case) allows.
+        """
+        removed = other._nodes.keys() - self._nodes.keys()
+        if removed:
+            return False
+        if not self._shared_type_stable(other):
+            return False
+        if not self._is_at_least_as_settled_as(other):
+            return False
+        # removed is empty, so every other node is shared with self.
+        for id, node in other._nodes.items():
+            if node.children != self._nodes[id].children[: len(node.children)]:
+                return False
+        return True
+
+    def is_prune_and_extension_of(self, other: Tree) -> bool:
+        """Whether ``self`` is a *valid replay* of ``other`` (``tree.md`` §6/§8).
+
+        The general replay relation -- ``self`` may have **pruned** completed
+        Int subtrees, **extended** past freshly-unblocked awaits, done **both**
+        at once (the common step: settling a frontier dependency completes one
+        subtree while unblocking another), or neither (an unchanged or
+        settle-only replay). It places *no* gate on the ``(added, removed)``
+        node-set delta, so it is the union under which :meth:`is_prune_of`
+        (``added == ∅``) and :meth:`is_extension_of` (``removed == ∅``) are the
+        one-sided specializations: every prune and every extension is also a
+        valid replay, and this predicate holds across the whole settle-to-done
+        walk regardless of which facets a given step exercises.
+
+        * **No node-set gate** -- ``self`` may add nodes, drop nodes, both, or
+          neither.
+        * **Root + type stability** and **kind monotonicity** -- as in the
+          specializations.
+        * **Survivors-as-prefix, both directions** -- over the shared nodes,
+          projecting out each side's delta: ``self``'s children that ``other``
+          also had must be a prefix of ``other``'s list (the prune facet), and
+          ``other``'s children that ``self`` still has must be a prefix of
+          ``self``'s list (the extension facet). A node touched by both facets
+          satisfies each under its own projection.
         """
         if not self._shared_type_stable(other):
             return False
@@ -389,40 +448,6 @@ class Tree:
             retained = [c for c in self._nodes[id].children if c in other._nodes]
             if retained != other._nodes[id].children[: len(retained)]:
                 return False
-        return True
-
-    def is_extension_of(self, other: Tree) -> bool:
-        """Whether ``self`` replays ``other`` with its growth consistent (``tree.md`` §8).
-
-        The dual of :meth:`is_prune_of`. ``self`` is the *later* replay after
-        the cache advanced: an Ext promise ``other`` was blocked on has settled,
-        so the body ran past the now-unblocked await and spawned nodes ``other``
-        never had (§8 frontier evolution). This atom checks the **extension**
-        facet and is tolerant of pruning: children of ``other`` that ``self`` no
-        longer has (the pruned subtrees) are projected out before the check, so
-        the relation also holds for a mixed replay.
-
-        * **Root + type stability** (:meth:`_shared_type_stable`) and **kind
-          monotonicity** (:meth:`_is_at_least_as_settled_as`) -- identical to
-          :meth:`is_prune_of`; ``self`` is the later replay in both, so kind
-          monotonicity always runs ``other`` -> ``self`` and is not a flipped
-          ``other.is_prune_of(self)``.
-        * **Survivors-as-prefix** -- for every shared id, drop the children
-          ``other`` had that ``self`` pruned away; the survivors must be a prefix
-          of ``self``'s (now-extended) child list. Extension only appends to the
-          tail, so the surviving order is preserved and a prefix relation is
-          exactly what growth allows.
-
-        A mixed replay that both prunes a completed subtree and extends past a
-        freshly-settled await satisfies *both* atoms: each tolerates the other's
-        delta. The two are no longer mutually exclusive -- they assert
-        complementary facets of one replay (``tree.md`` §6/§8).
-        """
-        if not self._shared_type_stable(other):
-            return False
-        if not self._is_at_least_as_settled_as(other):
-            return False
-        for id in self._nodes.keys() & other._nodes.keys():
             survivors = [c for c in other._nodes[id].children if c in self._nodes]
             if survivors != self._nodes[id].children[: len(survivors)]:
                 return False

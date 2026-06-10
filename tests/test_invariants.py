@@ -27,9 +27,10 @@ The invariants, grouped by the section of ``tree.md`` they formalize:
   (``test_type_stable_and_kind_monotone_across_replay``).
 
 * **§7 -- fixed point under an unchanging world.** Replaying over an
-  **unchanged** cache only prunes (``is_prune_of``) and converges to a fixed
-  point after the first replay (``is_equal`` from iteration 1 on:
-  ``inner(inner(X)) = inner(X)``) -- **R1**. Two sharper §7 facts: the frontier
+  **unchanged** cache only prunes (``is_prune_of``; or, once nothing remains to
+  prune, a structurally unchanged tree, which ``is_extension_of`` covers) and
+  converges to a fixed point after the first replay
+  (``inner(inner(X)) = inner(X)``) -- **R1**. Two sharper §7 facts: the frontier
   is stable from iteration 0 (``test_frontier_stable_under_unchanged_cache``)
   and the cache from iteration 1 (``test_cache_stable_after_first_run``), so the
   frontier reaches its fixed point one step ahead of the tree.
@@ -439,10 +440,11 @@ async def test_idempotent_replay_holds(
 
     Recursive form. Replay repeatedly over the *same* untouched cache for up to
     ``MAX_ROUNDS`` rounds and assert the fixed-point contract at every iteration:
-    each replay is a prune of the one before (unchanged cache: only pruning is
-    possible), and from iteration 1 onward the tree is *equal* to the iteration-1
-    tree -- the fixed point reached after the first replay, held forever after
-    (``inner(inner(X)) = inner(X)``, ``tree.md`` §7).
+    each replay is a prune of the one before -- or *equal*, once there is nothing
+    left to prune (unchanged cache: only pruning is possible, and a body with no
+    completed Int subtree prunes nothing). From iteration 1 onward the tree is
+    equal to the iteration-1 tree -- the fixed point reached after the first
+    replay, held forever after (``inner(inner(X)) = inner(X)``, ``tree.md`` §7).
     """
     reg = Registry()
     reg.register("func", func)
@@ -467,14 +469,15 @@ async def test_settling_frontier_extends(
 
     Recursive form. Rather than settling the frontier in a single batch,
     branch on *each* frontier promise individually: fork the effects, settle
-    exactly one promise, replay, and assert the new tree extends the previous
-    one -- then recurse from the new state, whose frontier may hold ids the
-    previous one never had (an rpc chain's second link, the ``b``/``c`` a
+    exactly one promise, replay, and assert the new tree is a *valid replay* of
+    the previous one -- then recurse from the new state, whose frontier may hold
+    ids the previous one never had (an rpc chain's second link, the ``b``/``c`` a
     phased body spawns once ``a`` settles). Every replay along every
-    settle-to-done path extends its predecessor: extension tolerates both the
-    growth past each freshly-unblocked await and the pruning of completed
-    subtrees (``tree.md`` §8). Bounded by ``MAX_ROUNDS``; a path that has not
-    converged simply stops, having had R2 checked at every state.
+    settle-to-done path is one of the three mutually-exclusive replay relations:
+    a pure extension (growth past a freshly-unblocked await, or a settle-only
+    kind flip), a pure prune (a completed Int subtree at the terminal step), or
+    both at once (``tree.md`` §6/§8). Bounded by ``MAX_ROUNDS``; a path that has
+    not converged simply stops, having had R2 checked at every state.
     """
     reg = Registry()
     reg.register("func", func)
@@ -496,7 +499,7 @@ async def test_settling_frontier_extends(
                 _settle_external(forked, blocking)
 
             new_run = await core.execute_until_blocked_inner(root, forked)
-            assert new_run.tree.is_extension_of(run.tree)
+            assert new_run.tree.is_prune_and_extension_of(run.tree)
 
             await walk(new_run, forked, depth + 1)
 

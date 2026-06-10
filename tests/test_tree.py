@@ -382,15 +382,22 @@ def test_well_formed_done_s4_rejects_any_todo() -> None:
         t.well_formed("done", ["root.1"])  # frontier empty, so any todo violates
 
 
-# ── replay comparison: is_equal / is_prune_of / is_extension_of ──────────────
+# ── replay comparison: is_prune_of / is_extension_of / is_prune_and_extension_of
 #
-# is_equal implies both is_prune_of and is_extension_of (a tree trivially prunes
-# and extends itself); the two atoms assert complementary facets of one replay.
-# Each is projection-tolerant: is_prune_of drops the children self spawned past a
-# settled await before checking the prune shape, and is_extension_of drops the
-# children other pruned away before checking the growth shape. So a replay that
-# both prunes and extends satisfies *both* atoms directly -- it is not a third
-# relation (see test_mixed_replay_satisfies_both_atoms).
+# is_prune_and_extension_of is the GENERAL valid-replay relation (no gate on the
+# (added, removed) node-set delta, where self is the later replay); the other two
+# are its one-sided specializations:
+#
+#   added ∅   -> is_prune_of                (pure prune, settle-only, or unchanged)
+#   removed ∅ -> is_extension_of            (growth, settle-only, or unchanged)
+#   any delta -> is_prune_and_extension_of  (every valid replay)
+#
+# They are NOT mutually exclusive: an unchanged replay (both deltas ∅) and a
+# settle-only kind flip (same nodes, tree.md §9) satisfy all three -- that cell
+# is the overlap of prune and extension. A pure prune satisfies is_prune_of and
+# is_prune_and_extension_of; a pure extension satisfies is_extension_of and
+# is_prune_and_extension_of; a mixed replay (both deltas ≠ ∅) satisfies ONLY
+# is_prune_and_extension_of (see test_mixed_replay_is_prune_and_extension).
 # Checked here on the canonical replay shapes of tests.test_tree_replay
 # (tree.md §13): a completed Int subtree (f.1 with grandchild f.1.1) followed by
 # sequential rpcs f.2 / f.3.
@@ -435,97 +442,56 @@ def _pruned_and_extended_tree() -> Tree:
     return t
 
 
-# ── is_equal ──
-
-
-def test_is_equal_on_identically_built_trees() -> None:
-    """Same build sequence -> structurally identical, symmetrically."""
-    a, b = _full_tree(), _full_tree()
-    assert a.is_equal(b)
-    assert b.is_equal(a)
-
-
-def test_is_equal_false_on_different_root() -> None:
-    assert not Tree("a").is_equal(Tree("b"))
-
-
-def test_is_equal_false_on_different_node_set() -> None:
-    """A strict prune is not equality -- the grandchild is missing."""
-    assert not _pruned_tree().is_equal(_full_tree())
-    assert not _full_tree().is_equal(_pruned_tree())
-
-
-def test_is_equal_false_on_type_mismatch() -> None:
-    a = Tree("f")
-    a.add_child("f", "f.1", "ext")
-    b = Tree("f")
-    b.add_child("f", "f.1", "int")
-    assert not a.is_equal(b)
-
-
-def test_is_equal_false_on_kind_mismatch() -> None:
-    a, b = _full_tree(), _full_tree()
-    b.settle("f.2")  # same shape, one node further along the lattice
-    assert not a.is_equal(b)
-
-
-def test_is_equal_false_on_children_order() -> None:
-    """Child order is call order -- a reorder is a different tree (§6 determinism)."""
-    a = Tree("f")
-    a.add_child("f", "f.1", "ext")
-    a.add_child("f", "f.2", "ext")
-    b = Tree("f")
-    b.add_child("f", "f.2", "ext")
-    b.add_child("f", "f.1", "ext")
-    assert not a.is_equal(b)
-
-
-# ── is_prune_of ──
+# ── is_prune_of ── (added ∅: pure prune, settle-only, or unchanged)
 
 
 def test_is_prune_of_holds_for_equal_trees() -> None:
-    """is_equal implies is_prune_of -- a tree is a trivial pruning of itself."""
+    """Equal is a prune -- it added nothing, the one-sided gate (added ∅).
+
+    A structurally identical replay sits in the prune/extension overlap: it
+    satisfies both, since neither dropped nor added anything.
+    """
     a, b = _full_tree(), _full_tree()
-    assert a.is_equal(b)
-    assert a.is_prune_of(b)
+    assert a.is_prune_of(b)  # added ∅ -> a prune (dropped nothing is allowed)
+    assert a.is_extension_of(b)
 
 
 def test_is_prune_of_strict_prune() -> None:
     """The §6 replay shape: the settled Int subtree collapsed to its root.
 
-    Strict (not equal). Projection-tolerant: ``full.is_prune_of(pruned)`` also
-    holds because the extra grandchild ``f.1.1`` is projected out as if it were
-    extension -- this atom no longer enforces a containment direction; kind
-    monotonicity and the middle-drop check carry the bug-catching weight.
+    Exclusive: ``full.is_prune_of(pruned)`` is FALSE because ``full`` *adds*
+    ``f.1.1`` relative to ``pruned`` -- that is extension, not pruning. The
+    node-set gate (added must be empty) carries the distinction.
     """
     full, pruned = _full_tree(), _pruned_tree()
-    assert pruned.is_prune_of(full)
-    assert not pruned.is_equal(full)
-    assert full.is_prune_of(pruned)  # f.1.1 projected out as extension
+    assert pruned.is_prune_of(full)  # dropped f.1.1, added nothing
+    assert not full.is_prune_of(pruned)  # f.1.1 is an addition, not a prune
 
 
-def test_is_prune_of_tolerates_pure_extension() -> None:
-    """A pure §8 extension still satisfies the §6 atom -- growth is projected out.
-
-    ``grown`` appends ``f.3`` and prunes nothing; ``is_prune_of`` drops the
-    self-only child before the prefix check, leaving an exact match.
-    """
+def test_is_prune_of_false_on_pure_extension() -> None:
+    """A pure §8 extension is not a prune -- ``self`` added a node, dropped none."""
     grown = _full_tree()
     grown.add_child("f", "f.3", "ext")
-    assert grown.is_prune_of(_full_tree())
+    assert not grown.is_prune_of(_full_tree())  # removed ∅ -> not a prune
+
+
+def test_is_prune_of_false_on_mixed() -> None:
+    """A mixed prune+extend is not a pure prune -- ``self`` also added a node."""
+    assert not _pruned_and_extended_tree().is_prune_of(_full_tree())
 
 
 def test_is_prune_of_false_on_type_change() -> None:
-    a = _full_tree()
-    b = _full_tree()
-    b._nodes["f.2"].type = "int"  # only an SDK bug could reclassify a node
-    assert not a.is_prune_of(b)
+    """Type stability over the shared nodes, asserted on a genuine prune."""
+    full = _full_tree()
+    pruned = _pruned_tree()
+    full._nodes["f.2"].type = "int"  # only an SDK bug could reclassify a node
+    assert not pruned.is_prune_of(full)
 
 
 def test_is_prune_of_false_on_kind_regression() -> None:
     """Settled in ``other``, pending in ``self`` -- the lattice never retreats."""
-    regressed = _full_tree()
-    regressed._nodes["f.1"].kind = "pending"
+    regressed = _pruned_tree()
+    regressed._nodes["f.1"].kind = "pending"  # settled in full, pending here
     assert not regressed.is_prune_of(_full_tree())
 
 
@@ -537,7 +503,7 @@ def test_is_prune_of_allows_kind_advance() -> None:
 
 
 def test_is_prune_of_false_on_middle_drop() -> None:
-    """Pruning drops a whole child-list *tail*, never a middle child."""
+    """Pruning collapses a node's *whole* child list, never a middle child."""
     other = Tree("f")
     other.add_child("f", "f.1", "ext")
     other.settle("f.1")
@@ -545,47 +511,60 @@ def test_is_prune_of_false_on_middle_drop() -> None:
     dropped = Tree("f")
     dropped.add_child(
         "f", "f.2", "ext"
-    )  # f.1 missing -> [f.2] not a prefix of [f.1, f.2]
+    )  # f.1 removed -> [f.2] not a prefix of [f.1, f.2]
     assert not dropped.is_prune_of(other)
 
 
-# ── is_extension_of ── (the dual of is_prune_of)
+# ── is_extension_of ── (removed ∅: pure extension, settle-only, or unchanged)
 
 
-def test_is_extension_of_holds_for_equal_trees() -> None:
-    """is_equal implies is_extension_of -- a tree trivially extends itself."""
+def test_is_extension_of_holds_for_structurally_equal_trees() -> None:
+    """A structurally identical replay is an extension -- it drops nothing."""
     a, b = _full_tree(), _full_tree()
-    assert a.is_equal(b)
-    assert a.is_extension_of(b)
+    assert a.is_extension_of(b)  # removed ∅ -> extension owns the unchanged cell
+    assert b.is_extension_of(a)
+
+
+def test_is_extension_of_settle_only() -> None:
+    """A settle-only step (same nodes, a kind flip) is an extension (``tree.md`` §9).
+
+    ``advanced`` settles ``f.2`` and adds nothing -- ``added ∅`` and
+    ``removed ∅`` -- but drops nothing, which extension owns. The reverse is not
+    an extension: it would regress ``f.2`` settled -> pending (kind monotonicity).
+    """
+    advanced = _full_tree()
+    advanced.settle("f.2")
+    assert advanced.is_extension_of(_full_tree())
+    assert not _full_tree().is_extension_of(advanced)  # kind regression
 
 
 def test_is_extension_of_strict_extension() -> None:
     """The §8 growth shape: the body ran past a settled await and appended a node.
 
-    Strict (not equal). The reverse fails not on containment (projection
-    tolerates that) but on kind monotonicity: ``extended`` settled ``f.2``, so
-    the older tree is *less* settled and cannot be the later replay.
+    Exclusive: the reverse fails because ``extended`` adds ``f.3``, so ``full``
+    is *missing* a node ``extended`` has (``removed ≠ ∅``) -- a prune, not an
+    extension.
     """
     extended = _full_tree()
     extended.settle("f.2")
     extended.add_child("f", "f.3", "ext")
     assert extended.is_extension_of(_full_tree())
-    assert not extended.is_equal(_full_tree())
-    assert not _full_tree().is_extension_of(extended)  # f.2 regressed settled->pending
+    assert not _full_tree().is_extension_of(extended)  # missing f.3 -> not extension
 
 
-def test_is_extension_of_tolerates_pure_prune() -> None:
-    """A pure §6 prune still satisfies the §8 atom -- the prune is projected out.
-
-    ``pruned`` dropped ``f.1.1`` and added nothing; ``is_extension_of`` projects
-    that missing child out of ``full``'s child lists before the prefix check,
-    leaving an exact match.
-    """
+def test_is_extension_of_false_on_pure_prune() -> None:
+    """A pure §6 prune is not an extension -- ``self`` dropped a node, added none."""
     pruned = _pruned_tree()
-    assert pruned.is_extension_of(_full_tree())  # f.1.1 projected out as prune
+    assert not pruned.is_extension_of(_full_tree())  # removed ≠ ∅ -> not extension
+
+
+def test_is_extension_of_false_on_mixed() -> None:
+    """A mixed prune+extend is not a pure extension -- ``self`` also dropped a node."""
+    assert not _pruned_and_extended_tree().is_extension_of(_full_tree())
 
 
 def test_is_extension_of_false_on_type_change() -> None:
+    """Type stability over the shared nodes, asserted on a genuine extension."""
     a = _full_tree()
     a.add_child("f", "f.3", "ext")
     b = _full_tree()
@@ -620,28 +599,59 @@ def test_is_extension_of_false_on_middle_divergence() -> None:
     assert not grown.is_extension_of(other)
 
 
-# ── mixed replay = prune and extend at once ──
+# ── is_prune_and_extension_of ── (general valid replay: any (added, removed) delta)
 
 
-def test_mixed_replay_satisfies_both_atoms() -> None:
-    """A replay that both prunes and extends satisfies both atoms directly.
+def test_mixed_replay_is_prune_and_extension() -> None:
+    """The canonical §6/§8 mixed replay satisfies ONLY the mixed predicate.
 
-    The canonical §6/§8 shape: ``f.1.1`` pruned AND ``f.3`` new, so neither node
-    set contains the other. Each atom is projection-tolerant -- ``is_prune_of``
-    drops the new ``f.3`` and checks the prune shape, ``is_extension_of`` drops
-    the pruned ``f.1.1`` and checks the growth shape -- so *both* hold between
-    ``_full_tree`` and ``_pruned_and_extended_tree`` directly.
+    ``f.1.1`` pruned AND ``f.3`` new, so neither node set contains the other.
+    The two pure atoms both reject it on their node-set gate; the mixed
+    predicate projects out each side's delta and holds.
+    """
+    full = _full_tree()
+    evolved = _pruned_and_extended_tree()
+    assert evolved.is_prune_and_extension_of(full)
+    assert not evolved.is_prune_of(full)  # also extends -> not pure prune
+    assert not evolved.is_extension_of(full)  # also prunes -> not pure extension
+
+
+def test_mixed_replay_decomposes_through_intermediate() -> None:
+    """The mixed step factors as a pure prune then a pure extension.
+
+    ``full`` --(prune f.1.1)--> ``pruned`` --(extend f.3, settle f.2)-->
+    ``evolved``: the intermediate ``pruned`` is a pure prune of ``full`` and
+    ``evolved`` is a pure extension of ``pruned``.
     """
     full = _full_tree()
     pruned = _pruned_tree()
     evolved = _pruned_and_extended_tree()
-    # Both atoms hold directly -- each projects out the other's delta.
-    assert evolved.is_prune_of(full)
-    assert evolved.is_extension_of(full)
-    assert not evolved.is_equal(full)
-    # The pruned intermediate still sits between the two ends.
     assert pruned.is_prune_of(full)
     assert evolved.is_extension_of(pruned)
+
+
+def test_is_prune_and_extension_holds_on_pure_prune() -> None:
+    """A pure prune is a valid replay -- the general relation has no node-set gate."""
+    assert _pruned_tree().is_prune_and_extension_of(_full_tree())
+
+
+def test_is_prune_and_extension_holds_on_pure_extension() -> None:
+    """A pure extension is a valid replay -- the general relation has no node-set gate."""
+    grown = _full_tree()
+    grown.add_child("f", "f.3", "ext")
+    assert grown.is_prune_and_extension_of(_full_tree())
+
+
+def test_is_prune_and_extension_holds_for_equal_trees() -> None:
+    """Equal is a valid replay -- it neither added nor dropped a node."""
+    assert _full_tree().is_prune_and_extension_of(_full_tree())
+
+
+def test_is_prune_and_extension_false_on_kind_regression() -> None:
+    """Kind monotonicity holds for the mixed predicate too."""
+    evolved = _pruned_and_extended_tree()
+    evolved._nodes["f.1"].kind = "pending"  # settled in full, pending here
+    assert not evolved.is_prune_and_extension_of(_full_tree())
 
 
 # ── print() -- deterministic ASCII diagram ───────────────────────────────────
