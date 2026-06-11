@@ -46,9 +46,10 @@ from resonate.error import (
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.network import HttpNetwork, LocalNetwork
-from resonate.promises import Promises, Schedules
+from resonate.promises import Promises
 from resonate.registry import Registry
 from resonate.retry import Exponential
+from resonate.schedules import Schedules
 from resonate.send import Sender
 from resonate.transport import ExecuteMsg, Transport, UnblockMsg
 from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
