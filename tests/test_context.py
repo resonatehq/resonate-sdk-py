@@ -785,9 +785,9 @@ async def test_run_durable_promise_visible_in_cache_before_task_resolves() -> No
 @pytest.mark.asyncio
 async def test_run_releases_event_when_create_promise_raises() -> None:
     # If ``create_promise`` raises, the body re-raises through the
-    # ``except Exception:`` branch and the event is still set -- otherwise the
-    # outer ``wait_for_signal`` would hang forever waiting on a signal that
-    # never comes. The Task must surface the original error promptly.
+    # ``except Exception:`` branch after rejecting the chain link
+    # (``created.set_exception``) -- so the Task surfaces the original error
+    # promptly and a chained successor inherits the failure rather than hanging.
     ctx = _root()
 
     failing = AsyncMock(side_effect=RuntimeError("network down"))
@@ -912,7 +912,7 @@ async def test_run_promise_creation_order_under_concurrency() -> None:
 async def test_run_chain_blocks_second_create_until_first_returns() -> None:
     # Stronger than the recorder-style test above: gate the first
     # ``create_promise`` and assert the second has NOT entered ``create_promise``
-    # at all. This proves the chain parks bg #2 at ``await prev_created.wait()``
+    # at all. This proves the chain parks bg #2 at ``await prev_created``
     # rather than just happening to win a scheduling race.
     ctx = _root()
     gate = asyncio.Event()
@@ -944,6 +944,154 @@ async def test_run_chain_blocks_second_create_until_first_returns() -> None:
         assert await f2 == 4
 
     assert seen == ["root.1", "root.2"]
+
+
+# =============================================================================
+# run/rpc: a failing create propagates down the chain (the chain fails as a unit)
+#
+# ``_created``/``_tail`` are ``asyncio.Future`` (not ``asyncio.Event``): a link
+# resolves its future with ``set_result`` on a successful create and
+# ``set_exception`` on a failed one. A successor parks on ``await prev_created``,
+# so a predecessor that failed propagates its exception forward -- the successor
+# re-raises the SAME upstream error and never issues its own ``create_promise``,
+# rather than (as the old Event-in-``finally`` design did) being released to
+# create on top of an inconsistent prefix.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_run_chain_failure_propagates_to_successor() -> None:
+    ctx = _root()
+    boom = RuntimeError("network down")
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        if req.id == "root.1":
+            raise boom
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.run(double, 1)
+        f2 = ctx.run(double, 2)
+        with pytest.raises(RuntimeError, match="network down") as ei1:
+            await f1
+        with pytest.raises(RuntimeError, match="network down") as ei2:
+            await f2
+
+    # The successor re-raises the *same* upstream exception, not a fresh one.
+    assert ei1.value is boom
+    assert ei2.value is boom
+    # Only the first link ever attempted a create: the successor parked on the
+    # failed predecessor and unwound without issuing its own create_promise.
+    assert seen == ["root.1"]
+    assert "root.1" not in ctx.effects.cache
+    assert "root.2" not in ctx.effects.cache
+
+
+@pytest.mark.asyncio
+async def test_rpc_chain_failure_propagates_to_successor() -> None:
+    # Parity with the run path: rpc/sleep/promise share ``_await_remote``, which
+    # routes through the same chain, so a failed predecessor likewise propagates
+    # to its successor and the successor never creates its own promise.
+    ctx = _root()
+    boom = RuntimeError("network down")
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        if req.id == "root.1":
+            raise boom
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.rpc("fn")
+        f2 = ctx.rpc("fn")
+        with pytest.raises(RuntimeError, match="network down") as ei1:
+            await f1
+        with pytest.raises(RuntimeError, match="network down") as ei2:
+            await f2
+
+    assert ei1.value is boom
+    assert ei2.value is boom
+    assert seen == ["root.1"]
+    assert "root.1" not in ctx.effects.cache
+    assert "root.2" not in ctx.effects.cache
+    # A failed create never registered a remote todo.
+    assert ctx.spawned_remote == []
+
+
+@pytest.mark.asyncio
+async def test_run_chain_failure_poisons_every_later_link() -> None:
+    # The failure propagates the length of the chain, not just to the immediate
+    # successor: ``_tail`` keeps pointing at the rejected future, so EVERY later
+    # link awaits it and re-raises the same upstream error -- and none of them
+    # issues its own create. A failed ``create_promise`` tears the workflow task
+    # down, so a permanently-poisoned chain is the intended "fails as a unit".
+    ctx = _root()
+    boom = RuntimeError("network down")
+    seen: list[str] = []
+    original = ctx.effects.create_promise
+
+    async def recorder(req: Any) -> Any:
+        seen.append(req.id)
+        if req.id == "root.1":
+            raise boom
+        return await original(req)
+
+    with patch.object(
+        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+    ):
+        f1 = ctx.run(double, 1)  # fails
+        f2 = ctx.run(double, 2)  # inherits f1's failure
+        f3 = ctx.run(double, 3)  # inherits f2's failure (same chain)
+        for f in (f1, f2, f3):
+            with pytest.raises(RuntimeError, match="network down") as ei:
+                await f
+            assert ei.value is boom
+
+    # Only the first link reached create_promise; the rest unwound on the chain.
+    assert seen == ["root.1"]
+    assert not any(id in ctx.effects.cache for id in ("root.1", "root.2", "root.3"))
+
+
+# =============================================================================
+# ResonateFuture.id(): a Future-backed ``_created`` surfaces create failures
+#
+# ``id()`` awaits ``_created``. Now that ``_created`` is an ``asyncio.Future``,
+# a successful create resolves it (``id()`` returns the id) and a failed create
+# rejects it (``id()`` raises the create error) -- the old ``asyncio.Event``
+# only ever fired, so ``id()`` could hand back an id for a promise that was
+# never created.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_future_id_returns_id_after_create() -> None:
+    ctx = _root()
+    fut = ctx.run(double, 21)
+    assert await fut.id() == "root.1"
+    # And the body still runs through to its value.
+    assert await fut == 42
+
+
+@pytest.mark.asyncio
+async def test_future_id_raises_when_create_fails() -> None:
+    ctx = _root()
+    failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
+    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+        fut = ctx.run(double, 1)
+        with pytest.raises(RuntimeError, match="network down"):
+            await fut.id()
+        # The task itself surfaces the same failure (retrieved so no warning).
+        with pytest.raises(RuntimeError, match="network down"):
+            await fut
 
 
 # =============================================================================
@@ -1157,9 +1305,10 @@ async def test_rpc_task_pending_while_create_promise_blocked() -> None:
 
 @pytest.mark.asyncio
 async def test_rpc_releases_event_when_create_promise_raises() -> None:
-    # If ``create_promise`` raises, the chain event still fires (the ``finally``
-    # in bg) and the Task surfaces the original error -- otherwise a chained
-    # successor would hang forever.
+    # If ``create_promise`` raises, the chain link is rejected
+    # (``created.set_exception`` in ``_create_promise_in_chain``) and the Task
+    # surfaces the original error -- a chained successor inherits the failure
+    # rather than hanging.
     ctx = _root()
 
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
@@ -1335,9 +1484,10 @@ async def test_sleep_promise_creation_order_under_concurrency() -> None:
 
 @pytest.mark.asyncio
 async def test_sleep_releases_event_when_create_promise_raises() -> None:
-    # If ``create_promise`` raises, the shared ``_await_remote`` body still sets
-    # the chain event in its ``finally`` and the Task surfaces the original
-    # error -- otherwise a chained successor would hang forever.
+    # If ``create_promise`` raises, the shared ``_await_remote`` body rejects
+    # the chain link (``created.set_exception``) and the Task surfaces the
+    # original error -- a chained successor inherits the failure rather than
+    # hanging.
     ctx = _root()
 
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
@@ -1533,9 +1683,10 @@ async def test_promise_creation_order_under_concurrency() -> None:
 
 @pytest.mark.asyncio
 async def test_promise_releases_event_when_create_promise_raises() -> None:
-    # If ``create_promise`` raises, the shared ``_await_remote`` body still sets
-    # the chain event in its ``finally`` and the Task surfaces the original
-    # error -- otherwise a chained successor would hang forever.
+    # If ``create_promise`` raises, the shared ``_await_remote`` body rejects
+    # the chain link (``created.set_exception``) and the Task surfaces the
+    # original error -- a chained successor inherits the failure rather than
+    # hanging.
     ctx = _root()
 
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
@@ -1721,9 +1872,10 @@ async def test_detached_creation_order_under_concurrency() -> None:
 
 @pytest.mark.asyncio
 async def test_detached_releases_event_when_create_promise_raises() -> None:
-    # If ``create_promise`` raises, the chain event still fires (the ``finally``
-    # in ``_create_detached``) and the Task surfaces the original error --
-    # otherwise a chained successor would hang forever.
+    # If ``create_promise`` raises, the chain link is rejected
+    # (``created.set_exception`` in ``_create_promise_in_chain``) and the Task
+    # surfaces the original error -- a chained successor inherits the failure
+    # rather than hanging.
     ctx = _root()
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
     with patch.object(ctx.effects, "create_promise", new=failing_mock):
