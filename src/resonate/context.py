@@ -342,10 +342,12 @@ class Context:
         ``SuspendedError``) or settled its own promise (errored). Either way,
         the error belongs to whoever holds the future -- the asyncio task
         delivers the same exception to the real awaiter, so dropping it here is
-        not losing it. ``Exception`` (rather than the narrower
-        ``SuspendedError``/``ApplicationError``) is suppressed because a child
-        now rejects with its *original* exception type, which the codec
-        round-trips on the awaiter side. This matches Go's ``wg.Wait`` +
+        not losing it. Both ``Exception`` (a child rejects with its *original*
+        exception type, which the codec round-trips on the awaiter side) and
+        ``SuspendedError`` are suppressed; the latter is listed explicitly
+        because it extends ``BaseException``, so ``suppress(Exception)`` alone
+        would let a suspended child's signal escape here. This matches Go's
+        ``wg.Wait`` +
         channel-based result delivery and Rust's ``Outcome::{Done, Suspended}``
         handling in ``flush_local_work``.
         """
@@ -354,10 +356,10 @@ class Context:
         self.spawned_locals = []
         self.spawned_remote_tasks = []
         for task in locals_:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(Exception, SuspendedError):
                 await task.handle
         for remote in remotes:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(Exception, SuspendedError):
                 await remote
 
     def take_remote_todos(self) -> list[str]:
