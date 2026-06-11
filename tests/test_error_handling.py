@@ -69,7 +69,7 @@ async def local() -> AsyncIterator[Resonate]:
     """Yield a local-mode Resonate, stopping it on exit."""
     # Pin ``Never``: these orchestrators run failing pure-leaf steps via
     # ``ctx.run``, which the SDK-default Exponential would retry forever.
-    r = Resonate.local(retry_policy=Never())
+    r = Resonate(retry_policy=Never())
     try:
         yield r
     finally:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import uuid
 from typing import TYPE_CHECKING, Any, Literal
 
 import msgspec
@@ -1074,7 +1073,7 @@ class LocalNetwork:
     def __init__(self, pid: str | None = None, group: str | None = None) -> None:
         self.state = ServerState()
 
-        self._pid = pid if pid is not None else uuid.uuid4().hex
+        self._pid = pid if pid is not None else "default"
         self._group = group if group is not None else "default"
         self._unicast = f"local://uni@{self._group}/{self._pid}"
         self._anycast = f"local://any@{self._group}/{self._pid}"

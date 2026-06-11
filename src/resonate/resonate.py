@@ -169,7 +169,7 @@ class Resonate:
 
         if heartbeat is not None:
             self._heartbeat = heartbeat
-        elif isinstance(network, LocalNetwork):
+        elif isinstance(self._network, LocalNetwork):
             self._heartbeat = NoopHeartbeat()
         else:
             interval_ms = max(self._safe_ttl_ms() // HEARTBEAT_INTERVAL_DIVISOR, 1)
@@ -231,38 +231,6 @@ class Resonate:
         self._spawn(self._network.start())
         self._refresh_handle: asyncio.Task[None] | None = asyncio.create_task(
             self._run_refresh()
-        )
-
-    # ── Constructors ────────────────────────────────────────────────────────
-
-    @classmethod
-    def local(
-        cls,
-        *,
-        group: str | None = None,
-        pid: str | None = None,
-        ttl: timedelta | None = None,
-        encryptor: Encryptor | None = None,
-        prefix: str | None = None,
-        max_concurrent_tasks: int | None = None,
-        retry_policy: RetryPolicy | None = None,
-    ) -> Resonate:
-        """Local-only mode backed by an in-process :class:`LocalNetwork`.
-
-        Always uses the in-process network regardless of ``RESONATE_URL`` --
-        local must mean local. ``pid`` and ``group`` default to ``"default"``.
-        """
-        resolved_pid = pid if pid is not None else "default"
-        resolved_group = group if group is not None else "default"
-        return cls(
-            network=LocalNetwork(pid=resolved_pid, group=resolved_group),
-            group=resolved_group,
-            pid=resolved_pid,
-            ttl=ttl,
-            encryptor=encryptor,
-            max_concurrent_tasks=max_concurrent_tasks,
-            prefix=prefix,
-            retry_policy=retry_policy,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────

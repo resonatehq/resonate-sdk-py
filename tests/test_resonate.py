@@ -74,7 +74,7 @@ async def local(
     # is now an effectively-unbounded Exponential, which would retry such a leaf
     # forever and hang these tests. Tests asserting retry behavior live in
     # ``test_context.py`` with explicit policies.
-    r = Resonate.local(
+    r = Resonate(
         group=group,
         pid=pid,
         ttl=ttl,
@@ -823,14 +823,14 @@ async def test_schedule_creates_and_deletes() -> None:
 
 @pytest.mark.asyncio
 async def test_stop_is_clean_and_idempotent() -> None:
-    r = Resonate.local()
+    r = Resonate()
     await r.stop()
     await r.stop()  # second stop is a no-op
 
 
 @pytest.mark.asyncio
 async def test_stop_cancels_refresh_task() -> None:
-    r = Resonate.local()
+    r = Resonate()
     handle = r._refresh_handle
     assert handle is not None
     assert not handle.done()
