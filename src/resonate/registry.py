@@ -35,6 +35,15 @@ class Registry:
         #: version)``. ``None`` (or absent) means "no override" -- Core falls back
         #: to its SDK-wide default.
         self._policy_by_key: dict[tuple[str, int], RetryPolicy | None] = {}
+        #: Reverse of ``_by_key``: function identity -> its registered
+        #: ``(name, version)``. Lets a caller holding the function *object*
+        #: recover what to dispatch by -- the name for a by-object ``rpc`` and the
+        #: version for a by-object ``run`` (both at the top level and on
+        #: ``Context``). The same object registered under several keys keeps the
+        #: last, matching last-writer semantics for a given identity.
+        self._by_fn: dict[
+            Callable[Concatenate[Context, ...], Any], tuple[str, int]
+        ] = {}
 
     def register(
         self,
@@ -61,9 +70,22 @@ class Registry:
             raise AlreadyRegisteredError(name, version)
         self._by_key[key] = DurableFunction(fn)
         self._policy_by_key[key] = retry_policy
+        self._by_fn[fn] = (name, version)
 
     def get(self, name: str, version: int = 1) -> DurableFunction | None:
         return self._by_key.get((name, version))
+
+    def reverse(
+        self, fn: Callable[Concatenate[Context, ...], Any]
+    ) -> tuple[str, int] | None:
+        """Return the ``(name, version)`` ``fn`` was registered under, or ``None``.
+
+        The inverse of :meth:`get`: a caller holding the function *object* rather
+        than its name (a by-object ``rpc`` dispatch, a by-object ``run``) uses
+        this to recover what to dispatch by. ``None`` means the object was never
+        registered, leaving the caller to fall back (e.g. to ``__name__``).
+        """
+        return self._by_fn.get(fn)
 
     def get_policy(self, name: str, version: int = 1) -> RetryPolicy | None:
         """Return the per-function policy override, or ``None`` if there is none."""

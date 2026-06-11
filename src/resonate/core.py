@@ -316,6 +316,9 @@ class Core(msgspec.Struct, kw_only=True):
             # inherit when they don't override -- the SDK-wide default, not the
             # root function's per-function override.
             retry_policy=self.retry_policy,
+            # Share Core's registry so by-name ``ctx.run`` / by-object ``ctx.rpc``
+            # resolve against the same functions this worker registered.
+            registry=self.registry,
         )
 
         suspended: bool = False

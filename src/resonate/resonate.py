@@ -196,14 +196,6 @@ class Resonate:
         #: id -> settle-once subscription. A single subscription is shared by
         #: every handle to that id, so one settle wakes them all.
         self._subs: dict[str, Subscription] = {}
-        #: Registered-function identity -> ``(name, version)``, so :meth:`run` can
-        #: resolve both the registry name and version for the exact ``fn`` object
-        #: it was given. A ``fn`` registered at version 2 is dispatched at version
-        #: 2 -- the object itself carries the version, so :meth:`with_opts` does
-        #: not. Falls back to ``(__name__, 1)`` for an unrecorded callable.
-        self._names: dict[
-            Callable[Concatenate[Context, ...], Any], tuple[str, int]
-        ] = {}
         #: Live fire-and-forget tasks (network start, promise creation, workflow
         #: execution), retained both so the event loop does not collect them
         #: mid-flight and so :meth:`stop` can join them.
@@ -260,10 +252,11 @@ class Resonate:
         (``run``/``rpc`` are synchronous), so the value is captured the moment
         the call is made, not when its handle is awaited.
 
-        ``version`` applies to :meth:`rpc` (which dispatches by name and so must
-        be told which version to target). It does **not** apply to :meth:`run`:
-        ``run`` takes a function *object* whose registered version is recovered
-        by identity, so the version is implied by the object itself.
+        ``version`` applies to the **by-name** form of :meth:`run` / :meth:`rpc`
+        (a name carries no version, so it must be told which to target). It is
+        ignored for the **by-object** form: a function object's registered
+        version is recovered by identity, so the version is implied by the object
+        itself.
         """
         self._opts = Opts(timeout=timeout, target=target, version=version)
         return self
@@ -304,8 +297,8 @@ class Resonate:
         so it can be used bare (``@resonate.register``) or parameterized
         (``@resonate.register(name="...", version=2)``) -- and so the same object
         stays usable from a workflow via ``ctx.run(fn, ...)``. The
-        identity -> ``(name, version)`` map lets :meth:`run` recover both for the
-        exact ``fn`` object it is later given.
+        registry's reverse map lets :meth:`run` recover both for the exact ``fn``
+        object it is later given (and :meth:`rpc` recover the dispatch name).
 
         ``retry_policy`` overrides the SDK-wide default for this function when it
         runs as a root task; it only takes effect for a *pure-leaf* failure (a
@@ -323,7 +316,6 @@ class Resonate:
             msg = "register: a name is required for an anonymous function"
             raise ApplicationError(msg)
         self._registry.register(reg_name, fn, version, retry_policy)
-        self._names[fn] = (reg_name, version)
         return fn
 
     @overload
@@ -342,10 +334,14 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> ResonateHandle[T]: ...
+    @overload
+    def run(
+        self, id: str, func: str, *args: Any, **kwargs: Any
+    ) -> ResonateHandle[Any]: ...
     def run[T](
         self,
         id: str,
-        func: Callable[Concatenate[Context, ...], Any],
+        func: str | Callable[Concatenate[Context, ...], Any],
         *args: Any,
         **kwargs: Any,
     ) -> ResonateHandle[T]:
@@ -353,10 +349,16 @@ class Resonate:
 
         The ``func``/``*args``/``**kwargs`` shape mirrors
         :meth:`~resonate.context.Context.run` exactly, with the top-level ``id``
-        prepended: ``func`` is the registered **function object** (not a name --
-        running purely by name is :meth:`rpc`'s job). Its registered name is
-        recovered by identity, falling back to ``func.__name__`` for a callable
-        that was never registered (which then fails fast as not-found).
+        prepended. ``func`` is either the registered **function object** -- whose
+        name and version are recovered by identity -- or the registered **name**
+        as a string, dispatched at :meth:`options`'s ``version``. Either way the
+        function must be registered locally, since ``run`` executes here
+        (dispatching purely to a remote worker by name is :meth:`rpc`'s job): an
+        unregistered name, or a function object that was never registered, raises
+        :class:`~resonate.error.FunctionNotFoundError`. A function object is
+        dispatched by its registered name, not its Python ``__name__`` (which need
+        not match), so an unregistered object is refused rather than guessed --
+        the same rule :meth:`rpc` follows.
 
         Returns immediately with a handle; the task is created -- and, if this
         process wins the create-and-acquire race, executed -- in the background,
@@ -376,15 +378,17 @@ class Resonate:
         """
         opts = self._consume_opts()
 
-        # The function object carries its own version: recover both name and
-        # version by identity so the exact registered implementation is
-        # dispatched (opts.version applies to rpc, not run). An unrecorded
-        # callable falls back to (__name__, 1), which then fails fast below.
-        recorded = self._names.get(func)
-        if recorded is not None:
-            name, version = recorded
+        if isinstance(func, str):
+            # By-name: a string carries no identity, so it is dispatched at
+            # ``opts.version`` (mirroring rpc). Must be registered locally -- run
+            # executes here -- else it fails fast as not-found below.
+            name, version = func, opts.version
         else:
-            name, version = getattr(func, "__name__", ""), 1
+            # By-object: recover name and version by identity (opts.version
+            # applies to the by-name form, not this one). An unregistered object
+            # raises rather than falling back to its ``__name__`` -- the same rule
+            # ``rpc`` follows (see :meth:`_registered_key`).
+            name, version = self._registered_key(func)
 
         df = self._registry.get(name, version)
         if df is None:
@@ -448,27 +452,79 @@ class Resonate:
         # recovery decode (``df.coerce_result``), including for callable instances.
         return ResonateHandle(prefixed_id, sub, self._codec, df.return_type, created)
 
-    def rpc(self, id: str, fn: str, *args: Any, **kwargs: Any) -> ResonateHandle[Any]:
+    @overload
+    def rpc(
+        self, id: str, fn: str, *args: Any, **kwargs: Any
+    ) -> ResonateHandle[Any]: ...
+    @overload
+    def rpc[**P, T](
+        self,
+        id: str,
+        fn: Callable[Concatenate[Context, P], Awaitable[T]],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> ResonateHandle[T]: ...
+    @overload
+    def rpc[**P, T](
+        self,
+        id: str,
+        fn: Callable[Concatenate[Context, P], T],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> ResonateHandle[T]: ...
+    def rpc(
+        self,
+        id: str,
+        fn: str | Callable[Concatenate[Context, ...], Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> ResonateHandle[Any]:
         """Dispatch a function remotely.
 
         Returns immediately with a handle; the durable promise is created in the
         background. The ``fn``/``*args``/``**kwargs`` shape mirrors
         :meth:`~resonate.context.Context.rpc`; ``id`` is the (required) top-level
-        promise id. Does not require local registration of the target function --
-        some worker subscribed to the target runs it. The result is untyped (use
-        :meth:`with_opts` for routing).
+        promise id. The by-name form does not require local registration of the
+        target -- some worker subscribed to the target runs it.
+
+        ``fn`` is either the registered **name** as a string -- dispatched at
+        :meth:`options`'s ``version``, with an untyped (``Any``) result, since
+        there is no local function to read a return annotation from -- or the
+        registered **function object**, whose name and version are recovered by
+        identity (reverse lookup) and whose result is decoded against the declared
+        return type, exactly like :meth:`run`. A function object that was never
+        registered raises :class:`~resonate.error.FunctionNotFoundError`: its
+        registry name is not its Python ``__name__`` (which need not match any
+        registered name), so the dispatch target cannot be guessed -- pass the
+        name as a string to dispatch an unregistered target.
         """
         opts = self._consume_opts()
         prefixed_id = self._prefix_id(id)
-        # Unlike :meth:`run`, there is no local ``DurableFunction`` to pack/validate
-        # against -- ``fn`` is a name dispatched to whatever worker owns the target,
-        # which need not be this process -- so the args are packed raw into ``Args``
-        # and the result stays untyped (``Any``), exactly like :meth:`get`.
+
+        # Unlike :meth:`run`, the dispatched function may not run in this process,
+        # so the args are always packed raw into ``Args`` (no local pack/validate).
+        # By-name dispatch stays untyped, exactly like :meth:`get`; by-object
+        # dispatch recovers the name/version by identity -- which implies local
+        # registration, so it decodes the result against the declared return type
+        # (the same assumption :meth:`run` makes) and refuses to guess a name for
+        # an unregistered object.
+        if isinstance(fn, str):
+            name, version, return_type = fn, opts.version, Any
+        else:
+            # By-object: recover the registered key by identity (raising for an
+            # unregistered object, see :meth:`_registered_key`). The reverse hit
+            # guarantees a forward one -- both maps are populated together at
+            # register time -- so decode the result against the declared return
+            # type, exactly like :meth:`run`.
+            name, version = self._registered_key(fn)
+            df = self._registry.get(name, version)
+            return_type = df.return_type if df is not None else Any
+
         req = self._build_root_promise_create_req(
             prefixed_id,
-            fn,
+            name,
             Args(args=args, kwargs=kwargs),
-            opts.version,
+            version,
             opts.timeout,
             opts.target,
         )
@@ -495,7 +551,7 @@ class Resonate:
                 await self._register_and_settle(req.id, sub)
 
         self._spawn(_())
-        return ResonateHandle(prefixed_id, sub, self._codec, Any, created)
+        return ResonateHandle(prefixed_id, sub, self._codec, return_type, created)
 
     async def get(self, id: str) -> ResonateHandle[Any]:
         """Return a handle for an existing promise.
@@ -628,6 +684,25 @@ class Resonate:
 
     def _prefix_id(self, id: str) -> str:
         return f"{self._id_prefix}{id}" if self._id_prefix else id
+
+    def _registered_key(
+        self, fn: Callable[Concatenate[Context, ...], Any]
+    ) -> tuple[str, int]:
+        """Recover the ``(name, version)`` a function *object* was registered under.
+
+        Shared by the by-object form of :meth:`run` and :meth:`rpc` so the two
+        resolve identically. A function object is dispatched by its registered
+        key, not its Python ``__name__`` (which need not match any registered
+        name), so an object that was never registered raises
+        :class:`~resonate.error.FunctionNotFoundError` rather than letting a
+        guessed name dispatch the wrong target -- pass the name as a string to
+        dispatch an unregistered target. The version comes from the registration,
+        so :meth:`options`'s ``version`` does not apply to the by-object form.
+        """
+        recorded = self._registry.reverse(fn)
+        if recorded is None:
+            raise FunctionNotFoundError(getattr(fn, "__name__", "<anonymous>"))
+        return recorded
 
     def _resolve_target(self, target: str | None) -> str:
         """Resolve a routing target.

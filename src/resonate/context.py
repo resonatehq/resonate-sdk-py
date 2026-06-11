@@ -13,7 +13,8 @@ import msgspec
 from resonate import now_ms
 from resonate.codec import decode_settled
 from resonate.durable import DurableFunction
-from resonate.error import SuspendedError
+from resonate.error import FunctionNotFoundError, SuspendedError
+from resonate.registry import Registry
 from resonate.retry import Never, RetryPolicy
 from resonate.tree import Tree
 from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
@@ -81,6 +82,7 @@ class Context:
         opts: Opts,
         tree: Tree,
         retry_policy: RetryPolicy,
+        registry: Registry,
     ) -> None:
         self.id = id
         self.origin_id = origin_id
@@ -118,6 +120,15 @@ class Context:
 
         self.deps = deps
         self.opts = opts
+
+        # The function registry, threaded in from ``Core`` and shared by
+        # reference root -> child. Backs the by-name forms of the durable ops:
+        # ``run("name")`` resolves a local ``DurableFunction`` to execute, and
+        # ``rpc(fn_object)`` recovers the registered name to dispatch by
+        # (reverse lookup). A by-object ``run`` never consults it. Defaults to an
+        # empty registry for a directly-constructed context (tests), where the
+        # by-name forms then resolve to not-found.
+        self.registry = registry
 
         # Default retry policy for this context's executions, inherited
         # root -> child by reference. A ``ctx.run`` child uses it unless the call
@@ -161,6 +172,7 @@ class Context:
         target_resolver: TargetResolver,
         deps: DependencyMap,
         retry_policy: RetryPolicy | None = None,
+        registry: Registry | None = None,
     ) -> Self:
         # ``origin_id`` is the top of the execution lineage, carried through the
         # ``resonate:origin`` tag from whoever dispatched this workflow
@@ -201,6 +213,10 @@ class Context:
             # direct construction (tests) that passes none gets the engine-layer
             # default ``Never`` -- no retries unless asked.
             retry_policy=retry_policy if retry_policy is not None else Never(),
+            # Threaded in from ``Core``; a direct construction (tests) that passes
+            # none gets an empty registry, so the by-name durable ops resolve to
+            # not-found rather than crashing on a missing attribute.
+            registry=registry if registry is not None else Registry(),
         )
 
     def _child(self, id: str, func_name: str, timeout_at: int) -> Context:
@@ -228,6 +244,9 @@ class Context:
             # Inherit the parent's default policy; a child's own ``ctx.run``
             # calls fall back to it when not overridden via ``with_opts``.
             retry_policy=self.retry_policy,
+            # Share the parent's registry by reference: by-name run / by-object
+            # rpc resolve against the same functions at every depth.
+            registry=self.registry,
         )
 
     def _consume_opts(self) -> Opts:
@@ -451,12 +470,14 @@ class Context:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> ResonateFuture[T]: ...
-    def run[**P, T](
+    @overload
+    def run(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture[Any]: ...
+    def run(
         self,
-        fn: Callable[Concatenate[Context, P], T | Awaitable[T]],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> ResonateFuture[T]:
+        fn: str | Callable[Concatenate[Context, ...], Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> ResonateFuture[Any]:
         opts = self._consume_opts()
         # Chain promise creation: capture the previous tail
         # and install ours as the new tail.
@@ -473,7 +494,19 @@ class Context:
         # ``detached`` (whose param a different worker must decode), nothing ever
         # reads a local child's param back. The return value still round-trips
         # (see ``settle_promise`` / ``coerce_result`` below).
-        df = DurableFunction(fn)
+        #
+        # Resolve the function: a name is a registry lookup (the function must be
+        # registered locally -- a local child executes here, in process),
+        # versioned by ``opts.version`` since a name carries none, mirroring rpc;
+        # a callable is wrapped directly, as before, carrying its own identity so
+        # it needs no registry round-trip.
+        if isinstance(fn, str):
+            resolved = self.registry.get(fn, opts.version)
+            if resolved is None:
+                raise FunctionNotFoundError(fn, opts.version)
+            df = resolved
+        else:
+            df = DurableFunction(fn)
         payload = df.pack_args(*args, **kwargs)
 
         req = PromiseCreateReq(
@@ -498,7 +531,7 @@ class Context:
         # a replay re-walking the same body does not duplicate the node.
         self.tree.add_child(self.id, req.id, "int")
 
-        async def bg() -> T:
+        async def bg() -> Any:
             record = await self._create_promise_in_chain(req, prev_created, created)
 
             # Idempotent recovery: an already-settled promise short-circuits
@@ -611,19 +644,61 @@ class Context:
             _created=created,
         )
 
-    def rpc(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture:
+    @overload
+    def rpc(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture[Any]: ...
+    @overload
+    def rpc[**P, T](
+        self,
+        fn: Callable[Concatenate[Context, P], Awaitable[T]],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> ResonateFuture[T]: ...
+    @overload
+    def rpc[**P, T](
+        self,
+        fn: Callable[Concatenate[Context, P], T],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> ResonateFuture[T]: ...
+    def rpc(
+        self,
+        fn: str | Callable[Concatenate[Context, ...], Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> ResonateFuture:
         opts = self._consume_opts()
 
         prev_created, created = self._advance_promise_chain()
 
+        # A function object is dispatched by the name it was registered under
+        # (reverse lookup), carrying its own registered version. Because that
+        # implies local registration we also recover its ``DurableFunction`` and
+        # thread it through, so the settled remote result is coerced to the
+        # declared return type -- making the by-object future genuinely typed,
+        # symmetric with ``ctx.run`` and the top-level ``rpc``. A bare string is
+        # dispatched as-is at ``opts.version`` with no local function, so its
+        # result stays raw builtins (untyped, like ``get``). An unregistered
+        # object raises: its registry name is not its ``__name__``, so the target
+        # cannot be guessed (pass the name as a string for an unregistered one).
+        if isinstance(fn, str):
+            name, version, df = fn, opts.version, None
+        else:
+            recorded = self.registry.reverse(fn)
+            if recorded is None:
+                raise FunctionNotFoundError(getattr(fn, "__name__", "<anonymous>"))
+            name, version = recorded
+            # Present by construction: the reverse and forward maps are populated
+            # together at register time, so a reverse hit guarantees a forward one.
+            df = self.registry.get(name, version)
+
         req = self._global_req(
             self._next_id(),
             opts.timeout,
-            data=TaskData(func=fn, args=args, kwargs=kwargs, version=opts.version),
+            data=TaskData(func=name, args=args, kwargs=kwargs, version=version),
             target=self.target_resolver(opts.target),
         )
 
-        return self._remote_future(req, prev_created, created)
+        return self._remote_future(req, prev_created, created, df)
 
     def sleep(self, duration: timedelta) -> ResonateFuture[None]:
         _ = self._consume_opts()
@@ -742,12 +817,18 @@ class Context:
         req: PromiseCreateReq,
         prev_created: asyncio.Future[None] | None,
         created: asyncio.Future[None],
+        df: DurableFunction | None = None,
     ) -> ResonateFuture:
         """Wrap a remote ``req`` in a future backed by a deferred-create task.
 
         Shared by :meth:`rpc`, :meth:`sleep`, and :meth:`promise`: the future's
         body is the :meth:`_await_remote` task spawned via
         :meth:`_spawn_remote_await`.
+
+        ``df`` is the by-object ``rpc`` target's :class:`DurableFunction`, used to
+        coerce a settled remote result to its declared return type; ``None`` for
+        by-name ``rpc`` and for :meth:`sleep` / :meth:`promise` (no function),
+        leaving the result as raw builtins.
         """
         # Record the remote child in the execution tree. All three callers are
         # Ext -- settled by something we await (another worker, the server timer,
@@ -758,7 +839,7 @@ class Context:
         self.tree.add_child(self.id, req.id, "ext")
         return ResonateFuture(
             _id=req.id,
-            _task=self._spawn_remote_await(req, prev_created, created),
+            _task=self._spawn_remote_await(req, prev_created, created, df),
             _created=created,
         )
 
@@ -767,6 +848,7 @@ class Context:
         req: PromiseCreateReq,
         prev_created: asyncio.Future[None] | None,
         created: asyncio.Future[None],
+        df: DurableFunction | None = None,
     ) -> asyncio.Task[Any]:
         """Spawn the :meth:`_await_remote` task for rpc/sleep/promise.
 
@@ -777,9 +859,10 @@ class Context:
         ``spawned_remote`` append has happened before the caller drains todos.
         Awaiting the returned future still raises ``SuspendedError`` as before;
         an asyncio task delivers its result to every awaiter, so the flush join
-        and the future await do not conflict.
+        and the future await do not conflict. ``df`` is forwarded to
+        :meth:`_await_remote` for return-type coercion (by-object ``rpc`` only).
         """
-        task = asyncio.create_task(self._await_remote(req, prev_created, created))
+        task = asyncio.create_task(self._await_remote(req, prev_created, created, df))
         self.spawned_remote_tasks.append(task)
         return task
 
@@ -788,6 +871,7 @@ class Context:
         req: PromiseCreateReq,
         prev_created: asyncio.Future[None] | None,
         created: asyncio.Future[None],
+        df: DurableFunction | None = None,
     ) -> Any:
         """Background body shared by :meth:`rpc`, :meth:`sleep`, and :meth:`promise`.
 
@@ -809,13 +893,17 @@ class Context:
 
         if record.state != "pending":
             # Already settled: mark the Ext node Settled so it leaves the
-            # frontier. Remote results are returned as raw decoded builtins --
-            # there is no local ``DurableFunction`` to coerce against (rpc
-            # dispatches by name, sleep/promise have no function at all), so
-            # unlike ``ctx.run`` this path does not run ``coerce_result``. Untyped
-            # by design, matching the top-level ``rpc``/``get``.
+            # frontier. A by-object ``rpc`` carries the target's
+            # ``DurableFunction`` (``df``), so the settled builtins are coerced to
+            # its declared return type -- symmetric with ``ctx.run``'s recovery
+            # short-circuit, which is what makes the by-object future genuinely
+            # typed. By-name ``rpc`` / ``sleep`` / ``promise`` pass ``df=None`` and
+            # so leave the result as raw builtins (untyped, like top-level
+            # ``rpc``/``get``). A rejected record raises inside ``decode_settled``,
+            # before any coercion, exactly as in ``ctx.run``.
             self.tree.settle(req.id)
-            return decode_settled(record)
+            settled = decode_settled(record)
+            return df.coerce_result(settled) if df is not None else settled
 
         # Still pending: the node stays Pending, keeping it in the frontier. The
         # awaited subset (``spawned_remote``) is what the outer registers

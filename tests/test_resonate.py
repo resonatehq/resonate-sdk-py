@@ -391,10 +391,28 @@ async def test_run_unregistered_raises_synchronously() -> None:
             return None
 
         # Raised at the call site (not from an awaited coroutine): an
-        # unregistered callable resolves to its __name__, which the registry
-        # lookup rejects.
+        # unregistered function object is refused outright -- its registry name
+        # is not its __name__, so the dispatch target cannot be guessed (the same
+        # rule rpc follows).
         with pytest.raises(FunctionNotFoundError):
             r.run("x", unregistered)
+
+
+@pytest.mark.asyncio
+async def test_run_by_object_unregistered_does_not_dispatch_name_collision() -> None:
+    # By-object resolution is by identity, not by ``__name__``: an unregistered
+    # object whose ``__name__`` collides with a *different* registered function
+    # must be refused, never silently dispatched to that function. (Under a
+    # ``__name__`` fallback this would have wrongly run ``add``.)
+    async def impostor(ctx: Context) -> int:
+        return -1
+
+    impostor.__name__ = "add"  # collide with the registered ``add``
+
+    async with local() as r:
+        r.register(add)
+        with pytest.raises(FunctionNotFoundError):
+            r.run("x", impostor)
 
 
 @pytest.mark.asyncio
@@ -469,6 +487,51 @@ async def test_run_default_target_uses_network_resolver() -> None:
         record = await r.promises.get("rt")
         assert record.tags["resonate:target"] == "local://any@default"
         assert record.tags["resonate:scope"] == "global"
+
+
+# ── run by name (registry lookup) ────────────────────────────────────────────
+#    ``run`` also accepts the registered *name*. The function must still be
+#    registered locally (run executes here); a name carries no version, so it is
+#    dispatched at ``options``'s version.
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_resolves_from_registry() -> None:
+    async with local() as r:
+        r.register(add)
+        assert await r.run("a", "add", 2, 3).result() == 5
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_decodes_struct_result() -> None:
+    async with local() as r:
+        r.register(make_point)
+        # A by-name run still resolves a local DurableFunction, so its return is
+        # coerced to the declared type, exactly like the by-object form.
+        assert await r.run("pt", "make_point", 1, 2).result() == Point(x=1, y=2)
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_uses_opts_version() -> None:
+    async def v1(ctx: Context) -> str:
+        return "one"
+
+    async def v2(ctx: Context) -> str:
+        return "two"
+
+    async with local() as r:
+        r.register(v1, name="impl", version=1)
+        r.register(v2, name="impl", version=2)
+        assert await r.run("x1", "impl").result() == "one"  # default version 1
+        assert await r.options(version=2).run("x2", "impl").result() == "two"
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_unregistered_raises_synchronously() -> None:
+    async with local() as r:
+        # By-name resolution happens in the synchronous body of ``run``.
+        with pytest.raises(FunctionNotFoundError, match="ghost"):
+            r.run("x", "ghost")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -566,6 +629,68 @@ async def test_rpc_handle_id_resolves() -> None:
         h = r.rpc("rpc-id", "remote")
         assert await h.id() == "rpc-id"
         assert h.done() is False
+
+
+# ── rpc by object (reverse registry lookup) ──────────────────────────────────
+#    ``rpc`` also accepts the function *object*: its registered name is recovered
+#    by identity and dispatched over the wire, carrying its own registered
+#    version. The object form is locally registered by definition, so -- unlike
+#    by-name rpc -- its result is decoded against the declared return type.
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_dispatches_registered_name() -> None:
+    async with local() as r:
+        r.register(add, name="sum", version=1)
+        r.rpc("rpc-obj", add, 1, 2)
+        record = await wait_for_promise(r, "rpc-obj")
+        # Dispatched by the registered name, not ``add.__name__``.
+        assert record.param.data
+        assert record.param.data["func"] == "sum"
+        assert record.param.data["version"] == 1
+        assert record.param.data["args"] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_version_from_identity() -> None:
+    async def impl(ctx: Context) -> None: ...
+
+    async with local() as r:
+        r.register(impl, name="impl", version=4)
+        # The object carries its own version, so ``options(version=9)`` is ignored.
+        r.options(version=9).rpc("rpc-ver", impl)
+        record = await wait_for_promise(r, "rpc-ver")
+        assert record.param.data
+        assert record.param.data["func"] == "impl"
+        assert record.param.data["version"] == 4
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_unregistered_raises() -> None:
+    async def stranger(ctx: Context) -> None: ...
+
+    async with local() as r:
+        # A function object's registry name is not its ``__name__``, so an
+        # unregistered object cannot be dispatched: refuse rather than guess.
+        # Raised synchronously at the call site, so no promise is created.
+        with pytest.raises(FunctionNotFoundError, match="stranger"):
+            r.rpc("rpc-stranger", stranger)
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_handle_is_typed_by_name_is_any() -> None:
+    async with local() as r:
+        r.register(make_point)
+        # A remote rpc promise never settles in local mode, so this asserts the
+        # handle's decode type directly (white-box). A by-object dispatch carries
+        # the registered function's return annotation, exactly like ``run``; a
+        # by-name dispatch has no local function to read one from, so it is ``Any``.
+        typed = r.rpc("rpc-typed", make_point, 1, 2)
+        untyped = r.rpc("rpc-untyped", "make_point", 1, 2)
+        await wait_for_promise(r, "rpc-typed")
+        await wait_for_promise(r, "rpc-untyped")
+        assert typed._type is Point
+        assert untyped._type is Any
 
 
 # ═══════════════════════════════════════════════════════════════════════════

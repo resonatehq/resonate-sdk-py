@@ -102,3 +102,31 @@ def test_unknown_version_returns_none() -> None:
 def test_version_below_one_rejected() -> None:
     with pytest.raises(ValueError, match="version must be >= 1"):
         Registry().register("zero", leaf, 0)
+
+
+# ── Reverse lookup (function object -> its registered key) ────────────────────
+#    Backs the by-object forms of the durable ops: a ``run`` recovers the version
+#    and an ``rpc`` recovers the dispatch name for the exact object it was given.
+
+
+def test_reverse_returns_registered_key() -> None:
+    r = Registry()
+    r.register("custom", leaf, 2)
+    # The inverse of get: the object recovers the (name, version) it was filed
+    # under -- even when the registry name differs from the Python ``__name__``.
+    assert r.reverse(leaf) == ("custom", 2)
+
+
+def test_reverse_unknown_returns_none() -> None:
+    r = Registry()
+    r.register("leaf", leaf)
+    assert r.reverse(flow) is None  # never registered -> caller falls back
+
+
+def test_reverse_same_object_keeps_last_key() -> None:
+    r = Registry()
+    r.register("a", leaf, 1)
+    r.register("b", leaf, 2)
+    # One object filed under two keys keeps the last, matching last-writer
+    # semantics for a given identity (the forward map keeps both).
+    assert r.reverse(leaf) == ("b", 2)

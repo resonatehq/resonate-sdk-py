@@ -31,8 +31,14 @@ from resonate.context import Context, Opts, _hash_id
 from resonate.dependencies import DependencyMap
 from resonate.durable import DurableFunction
 from resonate.effects import ResonateEffects
-from resonate.error import ApplicationError, SerializationError, SuspendedError
+from resonate.error import (
+    ApplicationError,
+    FunctionNotFoundError,
+    SerializationError,
+    SuspendedError,
+)
 from resonate.network import LocalNetwork
+from resonate.registry import Registry
 from resonate.retry import Constant, Never
 from resonate.send import Sender
 from resonate.transport import Transport
@@ -61,12 +67,17 @@ def _root(
     timeout_at: int = I64_MAX,
     deps: DependencyMap | None = None,
     retry_policy: RetryPolicy | None = None,
+    registry: Registry | None = None,
 ) -> Context:
     """Build a root ``Context`` over a fresh ``LocalNetwork``.
 
     ``retry_policy`` defaults to ``None`` -> ``Never`` (the engine-layer default),
     so a failing pure leaf settles on the first attempt; pass a policy to exercise
     the inherited-default path that ``ctx.run`` children resolve against.
+
+    ``registry`` defaults to ``None`` -> an empty registry, so the by-name
+    durable ops resolve to not-found; pass one (with functions registered) to
+    exercise by-name ``run`` / by-object ``rpc`` resolution.
     """
     sender = Sender(Transport(LocalNetwork()), None)
     effects = ResonateEffects(sender, _codec(), preload or [])
@@ -80,6 +91,7 @@ def _root(
         target_resolver=lambda target: target or "",
         deps=deps or DependencyMap(),
         retry_policy=retry_policy,
+        registry=registry,
     )
 
 
@@ -2261,3 +2273,134 @@ async def test_ctx_run_with_opts_retry_policy_overrides_context_default() -> Non
     with pytest.raises(ApplicationError, match="boom"):
         await ctx.options(retry_policy=Never()).run(flaky)
     assert calls == 1  # override Never -> no retry
+
+
+# =============================================================================
+# run: by-name dispatch (registry lookup)
+#
+# ``run`` also accepts a registered *name*. Unlike the by-object form (which
+# wraps the object directly), a name is resolved to a local ``DurableFunction``
+# via the context's registry and executed here as an ordinary local child --
+# versioned by ``opts.version`` since a name carries none.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_resolves_and_executes_from_registry() -> None:
+    registry = Registry()
+    registry.register("double", double)
+    ctx = _root(registry=registry)
+    # Same local-child semantics as ``ctx.run(double, 21)``, reached by name.
+    assert await ctx.run("double", 21) == 42
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_dispatches_opts_version() -> None:
+    async def v1(ctx: Context) -> str:
+        return "one"
+
+    async def v2(ctx: Context) -> str:
+        return "two"
+
+    registry = Registry()
+    registry.register("impl", v1, 1)
+    registry.register("impl", v2, 2)
+    ctx = _root(registry=registry)
+    # A name carries no version, so the call's ``opts.version`` selects the impl.
+    assert await ctx.run("impl") == "one"  # default version 1
+    assert await ctx.options(version=2).run("impl") == "two"
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_unregistered_raises_function_not_found() -> None:
+    # Resolution happens in the synchronous body of ``run``, so an unknown name
+    # fails fast at the call site -- before any background task is spawned.
+    ctx = _root()  # empty registry
+    with pytest.raises(FunctionNotFoundError, match="missing"):
+        ctx.run("missing")
+
+
+# =============================================================================
+# rpc: by-object dispatch (reverse registry lookup)
+#
+# ``rpc`` also accepts the function *object*: its registered name is recovered
+# by identity (reverse lookup) and dispatched over the wire, carrying its own
+# registered version. An unregistered object raises -- its registry name is not
+# its ``__name__``, so the dispatch target cannot be guessed.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_dispatches_registered_name_and_version() -> None:
+    registry = Registry()
+    registry.register("remote_impl", double, 3)
+    ctx = _root(registry=registry)
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.rpc(double, 5)
+
+    [req] = captured
+    # Dispatched by the registered name (not ``double.__name__``) and the
+    # registered version -- not ``opts.version``.
+    assert req.param.data == TaskData(
+        func="remote_impl", args=(5,), kwargs={}, version=3
+    )
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_version_from_identity_not_opts() -> None:
+    registry = Registry()
+    registry.register("remote_impl", double, 2)
+    ctx = _root(registry=registry)
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.options(version=9).rpc(double, 5)
+
+    # The object carries its own version, so ``opts.version`` (9) is ignored.
+    assert captured[0].param.data.version == 2
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_unregistered_raises() -> None:
+    async def stranger(ctx: Context) -> None: ...
+
+    # No reverse entry: refuse to guess a dispatch name from ``__name__``. Raised
+    # synchronously at the call site, before any promise is created.
+    ctx = _root()  # empty registry
+    with (
+        _spy_create_promise(ctx) as captured,
+        pytest.raises(FunctionNotFoundError, match="stranger"),
+    ):
+        ctx.rpc(stranger)
+    assert captured == []  # nothing dispatched
+
+
+# =============================================================================
+# rpc: by-object dispatch is typed -- the settled remote result is coerced to
+# the registered function's declared return type (symmetric with ``ctx.run``).
+# A by-name dispatch has no local function, so its result stays raw builtins.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_recovery_coerces_return_to_declared_struct() -> None:
+    # The settled remote value was stored as plain builtins (a dict). Because the
+    # object dispatch recovers the target's DurableFunction, the settled record is
+    # coerced back to the declared return type -- the parent observes a
+    # ``_RecoveredPoint``, not a dict (genuine type safety, not just a static
+    # annotation).
+    registry = Registry()
+    registry.register("make_point", _make_point, 1)
+    ctx = _root([_resolved("root.1", _RecoveredPoint(x=3, y=4))], registry=registry)
+    result = await ctx.rpc(_make_point, 3, 4)
+    assert isinstance(result, _RecoveredPoint)
+    assert result == _RecoveredPoint(x=3, y=4)
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_name_recovery_stays_raw_builtins() -> None:
+    # The contrast case: a by-name dispatch has no local function to coerce
+    # against, so the settled value passes through as raw builtins (a dict),
+    # untyped by design -- matching the top-level ``rpc``/``get``.
+    ctx = _root([_resolved("root.1", _RecoveredPoint(x=3, y=4))])
+    result = await ctx.rpc("make_point", 3, 4)
+    assert isinstance(result, dict)
+    assert result == {"x": 3, "y": 4}
