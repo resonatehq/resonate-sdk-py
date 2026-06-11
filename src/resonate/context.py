@@ -287,6 +287,12 @@ class Context:
                 delay = None if self._workflow else policy.next(attempt + 1)
                 if delay is None:
                     raise
+                # Only a pure leaf reaches here -- a durable op would have set
+                # ``_workflow`` and stopped the retry above. A pure leaf never
+                # calls ``_next_id`` (the five durable ops do), so it cannot have
+                # advanced ``seq``: it must still be 0, leaving the next attempt
+                # to re-run from a clean id-generation state.
+                assert self.seq == 0, "retried pure-leaf must not have advanced seq"
                 await asyncio.sleep(delay)
                 attempt += 1
 
