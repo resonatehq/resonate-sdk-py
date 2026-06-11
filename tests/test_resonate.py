@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
     from resonate.codec import Encryptor
     from resonate.context import Context
-    from resonate.types import PromiseCreateReq, PromiseRecord
+    from resonate.types import PromiseRecord
 
 
 # ── Harness ──────────────────────────────────────────────────────────────
@@ -692,45 +692,6 @@ async def test_with_opts_applies_to_run_target() -> None:
         await r.with_opts(target="my-target").run("rt2", noop).result()
         record = await r.promises.get("rt2")
         assert record.tags["resonate:target"] == "local://any@my-target"
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Promise-creation chain (ordering under concurrency)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-@pytest.mark.asyncio
-async def test_chain_serializes_create_order() -> None:
-    async with local() as r:
-        started: list[str] = []
-        finished: list[str] = []
-        original = r._sender.promise_create
-
-        async def traced(req: PromiseCreateReq) -> PromiseRecord:
-            started.append(req.id)
-            if req.id == "c0":
-                # Slow the first create; the chain must hold back the rest.
-                await asyncio.sleep(0.05)
-            record = await original(req)
-            finished.append(req.id)
-            return record
-
-        with mock.patch.object(r._sender, "promise_create", side_effect=traced):
-            # Fire three back-to-back with no await between them.
-            r.rpc("c0", "f")
-            r.rpc("c1", "f")
-            r.rpc("c2", "f")
-
-            # Real sleeps so the 0.05s delay on c0 can actually elapse.
-            for _ in range(400):
-                if finished == ["c0", "c1", "c2"]:
-                    break
-                await asyncio.sleep(0.005)
-
-        # c1/c2 must not have started their create until c0 (the slow one)
-        # finished -- proof the chain serialized them in call order.
-        assert started == ["c0", "c1", "c2"]
-        assert finished == ["c0", "c1", "c2"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════

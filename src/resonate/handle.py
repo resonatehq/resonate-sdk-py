@@ -75,9 +75,13 @@ class ResonateHandle[T]:
     The promise id is not exposed synchronously. For ``run``/``rpc`` the durable
     promise is created in the background, so the id is only meaningful once that
     creation round-trip has confirmed; :meth:`id` awaits ``created`` before
-    handing it back, mirroring :class:`~resonate.context.ResonateFuture.id`. The
-    ``get`` path passes an already-set event, since it only builds a handle after
-    the promise has been confirmed to exist.
+    handing it back, mirroring :class:`~resonate.context.ResonateFuture.id`.
+    ``created`` is a :class:`asyncio.Future` carrying the creation *outcome*: it
+    resolves to ``None`` once the durable promise exists and is rejected with the
+    creation error if the round-trip failed, so :meth:`id` never hands back an id
+    for a promise that was never created. The ``get`` path passes an
+    already-resolved future, since it only builds a handle after the promise has
+    been confirmed to exist.
     """
 
     def __init__(
@@ -86,7 +90,7 @@ class ResonateHandle[T]:
         sub: Subscription,
         codec: Codec,
         type_: type[T],
-        created: asyncio.Event,
+        created: asyncio.Future[None],
     ) -> None:
         self._id = id
         self._sub = sub
@@ -97,11 +101,12 @@ class ResonateHandle[T]:
     async def id(self) -> str:
         """Return the durable promise id, once its creation is confirmed.
 
-        Waits on the creation event so a caller never observes an id before the
-        backing durable promise is known to exist. Mirrors
+        Awaits the creation future so a caller never observes an id before the
+        backing durable promise is known to exist; if creation failed, the
+        future's exception is raised here. Mirrors
         :meth:`~resonate.context.ResonateFuture.id`.
         """
-        await self._created.wait()
+        await self._created
         return self._id
 
     async def result(self) -> T:

@@ -192,11 +192,6 @@ class Resonate:
 
         #: Transient options for the next run/rpc, set via :meth:`with_opts`.
         self._opts = Opts()
-        #: Tail of the durable-promise-creation chain. Each run/rpc captures this
-        #: as its prev-link and installs a fresh event as the new tail, so the
-        #: background tasks issue ``promise.create``/``task.create`` in call order
-        #: under concurrency. Mirrors ``Context._tail``.
-        self._tail: asyncio.Event | None = None
         #: id -> settle-once subscription. A single subscription is shared by
         #: every handle to that id, so one settle wakes them all.
         self._subs: dict[str, Subscription] = {}
@@ -402,9 +397,8 @@ class Resonate:
         promise.
 
         Everything that must follow call order -- consuming the
-        :meth:`with_opts` options, assigning the id, and advancing the
-        durable-promise-creation chain -- happens synchronously here; only the
-        network round-trips are deferred to the background task.
+        :meth:`with_opts` options and assigning the id -- happens synchronously
+        here; only the network round-trips are deferred to the background task.
 
         A ParamSpec signature must end in ``*args: P.args, **kwargs: P.kwargs``
         with nothing following, so the function's own arguments own the keyword
@@ -437,28 +431,30 @@ class Resonate:
             opts.target,
         )
 
-        prev_created, created = self._advance_promise_chain()
+        created: asyncio.Future[None] = asyncio.Future()
         sub, is_new = self._subscribe(prefixed_id)
 
         async def _() -> None:
-            """Background body for :meth:`run`: create the task in chain order, run it.
+            """Background body for :meth:`run`: create the task, then run it.
 
-            Waits for the previous chain link before issuing ``task.create`` so the
-            creates fire in call order, then releases the next link via
-            ``created.set()`` (in ``finally``, so a failed create never deadlocks its
-            successors). If this process won the create-and-acquire race, the
+            Resolves ``created`` to ``None`` once ``task.create`` returns, or
+            rejects it with the creation error -- mirroring
+            ``Context._create_promise_in_chain`` -- so a failed create never
+            hands an id back through :meth:`ResonateHandle.id` for a promise that
+            does not exist. If this process won the create-and-acquire race, the
             workflow is executed in its own background task.
             """
             try:
-                if prev_created is not None:
-                    await prev_created.wait()
                 outcome = await self._sender.task_create_or_conflict(
                     self._pid,
                     self._safe_ttl_ms(),
                     self._encode_create_req(req),
                 )
-            finally:
-                created.set()
+            except Exception as exc:
+                created.set_exception(exc)
+                raise
+
+            created.set_result(None)
 
             if outcome != "conflict" and outcome.task.state == "acquired":
                 decoded = self._codec.decode_promise(outcome.promise)
@@ -508,17 +504,23 @@ class Resonate:
             opts.target,
         )
 
-        prev_created, created = self._advance_promise_chain()
+        created: asyncio.Future[None] = asyncio.Future()
         sub, is_new = self._subscribe(prefixed_id)
 
         async def _() -> None:
-            """Background body for :meth:`rpc`: create the promise in chain order."""
+            """Background body for :meth:`rpc`: create the promise.
+
+            Resolves ``created`` to ``None`` once ``promise.create`` returns, or
+            rejects it with the creation error -- mirroring
+            ``Context._create_promise_in_chain`` -- so a failed create never
+            hands an id back through :meth:`ResonateHandle.id`.
+            """
             try:
-                if prev_created is not None:
-                    await prev_created.wait()
                 await self._sender.promise_create(self._encode_create_req(req))
-            finally:
-                created.set()
+            except Exception as exc:
+                created.set_exception(exc)
+                raise
+            created.set_result(None)
 
             if is_new:
                 await self._register_and_settle(req.id, sub)
@@ -553,8 +555,8 @@ class Resonate:
             if record.state != "pending":
                 self._settle_and_cleanup(id, sub, record.state, record.value)
 
-        created = asyncio.Event()
-        created.set()
+        created: asyncio.Future[None] = asyncio.Future()
+        created.set_result(None)
         return ResonateHandle(id, sub, self._codec, Any, created)
 
     async def schedule(
@@ -738,22 +740,6 @@ class Resonate:
             param=self._codec.encode(req.param.data),
             tags=req.tags,
         )
-
-    # ── Promise-creation chain ─────────────────────────────────────────────────
-
-    def _advance_promise_chain(self) -> tuple[asyncio.Event | None, asyncio.Event]:
-        """Advance the creation-chain tail, returning ``(prev_tail, new_tail)``.
-
-        Each run/rpc captures the previous tail (which its background task waits
-        on before creating its promise) and installs a fresh event as the new
-        tail (which it sets once its own create returns). This serializes the
-        ``promise.create``/``task.create`` requests in call order. Mirrors
-        ``Context._advance_promise_chain``.
-        """
-        prev_tail = self._tail
-        new_tail = asyncio.Event()
-        self._tail = new_tail
-        return prev_tail, new_tail
 
     # ── Subscription / handle path ─────────────────────────────────────────────
 

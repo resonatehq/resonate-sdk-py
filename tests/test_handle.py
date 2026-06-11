@@ -34,11 +34,11 @@ def _ready(result: PromiseResult) -> Subscription:
     return sub
 
 
-def _created() -> asyncio.Event:
-    """Build a pre-set creation event: these handles model created promises."""
-    evt = asyncio.Event()
-    evt.set()
-    return evt
+def _created() -> asyncio.Future[None]:
+    """Build a resolved creation future: these handles model created promises."""
+    fut: asyncio.Future[None] = asyncio.Future()
+    fut.set_result(None)
+    return fut
 
 
 @pytest.mark.asyncio
@@ -138,9 +138,9 @@ async def test_done_reflects_channel_state() -> None:
 
 @pytest.mark.asyncio
 async def test_id_blocks_until_creation_confirmed() -> None:
-    # The id is not exposed until the creation event fires: until then a caller
-    # awaiting it stays blocked, mirroring ``ResonateFuture.id``.
-    created = asyncio.Event()
+    # The id is not exposed until the creation future resolves: until then a
+    # caller awaiting it stays blocked, mirroring ``ResonateFuture.id``.
+    created: asyncio.Future[None] = asyncio.Future()
     handle = ResonateHandle(
         "p1",
         _ready(PromiseResult(state="pending", value=Value())),
@@ -151,5 +151,22 @@ async def test_id_blocks_until_creation_confirmed() -> None:
     id_task = asyncio.create_task(handle.id())
     await asyncio.sleep(0)
     assert not id_task.done()
-    created.set()
+    created.set_result(None)
     assert await id_task == "p1"
+
+
+@pytest.mark.asyncio
+async def test_id_raises_when_creation_fails() -> None:
+    # A failed create rejects the creation future, so ``id`` raises that error
+    # rather than handing back an id for a promise that was never created.
+    created: asyncio.Future[None] = asyncio.Future()
+    handle = ResonateHandle(
+        "p1",
+        _ready(PromiseResult(state="pending", value=Value())),
+        _codec(),
+        int,
+        created,
+    )
+    created.set_exception(ApplicationError("create failed"))
+    with pytest.raises(ApplicationError, match="create failed"):
+        await handle.id()
