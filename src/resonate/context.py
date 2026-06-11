@@ -241,7 +241,12 @@ class Context:
         return opts
 
     async def invoke_with_retry(
-        self, df: DurableFunction, payload: Any, policy: RetryPolicy
+        self,
+        df: DurableFunction,
+        payload: Any,
+        policy: RetryPolicy,
+        *,
+        coerce_args: bool = True,
     ) -> Any:
         """Execute ``df`` on this context, retrying a *pure-function* failure.
 
@@ -262,11 +267,17 @@ class Context:
         ``SuspendedError`` is a durable suspension, not a failure, so it is
         re-raised untouched ahead of the generic ``Exception`` arm (it *is* an
         ``Exception``). Mirrors the awaited-result handling in ``invoke``.
+
+        ``coerce_args`` is forwarded to :meth:`DurableFunction.invoke`. The root
+        path leaves it ``True`` (args arrive as decoded JSON and must be
+        reshaped to their declared types); a local ``ctx.run`` child passes
+        ``False`` so its in-memory args reach the function verbatim -- they are
+        never serialized, so there is nothing to reshape and nothing to reject.
         """
         attempt = 0
         while True:
             try:
-                return await df.invoke(self, payload)
+                return await df.invoke(self, payload, coerce_args=coerce_args)
             except SuspendedError:
                 raise
             except Exception:
@@ -444,16 +455,23 @@ class Context:
         prev_created, created = self._advance_promise_chain()
 
         # Build id/req synchronously so child-id ordering matches call order
-        # without relying on asyncio's task-start scheduling being FIFO. The
-        # DurableFunction owns the symmetric (de)serialization of this child's
-        # arguments and return value across the durability boundary.
+        # without relying on asyncio's task-start scheduling being FIFO.
+        # ``pack_args`` validates arity and produces the in-memory ``payload``
+        # the child executes from below; it is *not* serialized into the
+        # promise param. A local child is run from this ``payload`` (never from
+        # the param) and, on recovery, re-derived by the parent's replay -- so
+        # its param is write-only and left empty here. That is what lets
+        # ``ctx.run`` accept non-serializable arguments: unlike ``rpc``/
+        # ``detached`` (whose param a different worker must decode), nothing ever
+        # reads a local child's param back. The return value still round-trips
+        # (see ``settle_promise`` / ``coerce_result`` below).
         df = DurableFunction(fn)
         payload = df.pack_args(*args, **kwargs)
 
         req = PromiseCreateReq(
             id=self._next_id(),
             timeout_at=self._child_timeout(opts.timeout),
-            param=Value(data=payload),
+            param=Value(),
             tags={
                 "resonate:scope": "local",
                 "resonate:branch": self.branch_id,
@@ -507,7 +525,14 @@ class Context:
                     if opts.retry_policy is not None
                     else self.retry_policy
                 )
-                value = await child.invoke_with_retry(df, payload, policy)
+                # ``coerce_args=False``: ``payload`` holds the verbatim in-memory
+                # arguments (never serialized for a local child), so they pass to
+                # the function untouched -- this is what lets ``ctx.run`` accept
+                # non-serializable args. Replay re-derives the same objects, so
+                # skipping coercion keeps the live and replay paths symmetric.
+                value = await child.invoke_with_retry(
+                    df, payload, policy, coerce_args=False
+                )
                 assert not inspect.isawaitable(value)
                 outcome = "done"
             except SuspendedError:

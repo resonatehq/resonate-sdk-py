@@ -8,15 +8,23 @@ optional, so ``def fn(ctx, x):`` carries nothing that says ``ctx`` is a
 argument. The runtime strips that first parameter and injects the ``Context``
 on each call; it never inspects annotations to decide *shape*.
 
-Annotations drive exactly one thing: **symmetric serialize/deserialize**. A
-call's arguments are JSON-encoded into the durable promise's ``param``; on every
-(re-)invocation they are coerced back to their declared parameter types
-(:meth:`DurableFunction.invoke`), and a recovered return value is coerced back to
-the declared return type (:meth:`DurableFunction.coerce_result`). Both run
-through the one primitive :meth:`DurableFunction._coerce_value`, mirroring the
-top-level :class:`~resonate.handle.ResonateHandle`'s ``msgspec.convert``. A
-missing / ``Any`` / unresolved annotation is a pass-through, so an untyped
-function behaves like ``rpc`` (raw builtins, the caller's responsibility).
+Annotations drive exactly one thing: **symmetric serialize/deserialize**. For
+the root / dispatched path a call's arguments are JSON-encoded into the durable
+promise's ``param`` and, on every (re-)invocation, coerced back to their declared
+parameter types (:meth:`DurableFunction.invoke` with ``coerce_args=True``); a
+recovered return value is likewise coerced back to the declared return type
+(:meth:`DurableFunction.coerce_result`). Both run through the one primitive
+:meth:`DurableFunction._coerce_value`, mirroring the top-level
+:class:`~resonate.handle.ResonateHandle`'s ``msgspec.convert``. A missing /
+``Any`` / unresolved annotation is a pass-through, so an untyped function behaves
+like ``rpc`` (raw builtins, the caller's responsibility).
+
+A local ``ctx.run`` child is the exception: its arguments are never serialized
+into the param (nothing reads it back -- see :meth:`Context.run`), so
+:meth:`DurableFunction.invoke` is called with ``coerce_args=False`` and the
+in-memory objects reach the function verbatim. That is what lets ``ctx.run``
+accept non-serializable arguments. The return value still round-trips and is
+coerced, so it must remain serializable.
 """
 
 from __future__ import annotations
@@ -120,20 +128,29 @@ class DurableFunction:
 
         return Args(args=args, kwargs=kwargs)
 
-    async def invoke(self, ctx: Context, packed: Args) -> Any:
+    async def invoke(
+        self, ctx: Context, packed: Args, *, coerce_args: bool = True
+    ) -> Any:
         """Re-bind ``packed`` to the signature and execute the function.
 
         ``packed`` is the :class:`Args` :meth:`pack_args` produced (a local child)
         or the :class:`~resonate.types.TaskData` Core decoded from the root promise
         param -- ``TaskData`` is an ``Args``, so both arrive through the same slot.
 
-        Arguments are coerced to their declared types on **every** call, live or
-        replay: the first execution sees freshly-packed objects and a replay sees
-        the JSON builtins they round-tripped to, and both are reshaped the same
-        way -- so a payload that cannot satisfy the declared type fails fast, and
-        the two paths stay symmetric. The flip side is msgspec strictness (e.g.
-        ``True`` is rejected for an ``int`` parameter, an ``int`` is widened to a
-        declared ``float``), applied identically on both paths.
+        When ``coerce_args`` is ``True`` (the root / dispatched path) arguments are
+        coerced to their declared types: that path's args arrive as JSON builtins
+        decoded from the persisted param, so they must be reshaped, and msgspec
+        strictness applies (e.g. ``True`` is rejected for an ``int`` parameter, an
+        ``int`` is widened to a declared ``float``).
+
+        A local ``ctx.run`` child passes ``coerce_args=False``: its arguments are
+        never serialized into the promise param (see :meth:`Context.run`), so the
+        in-memory objects reach the function verbatim -- nothing to reshape, and
+        no annotation can reject them. This is what lets ``ctx.run`` accept
+        non-serializable arguments. Symmetry with replay is preserved because the
+        parent re-derives the *same* in-memory objects on every run, so neither
+        path round-trips. ``bind`` + ``apply_defaults`` still run, so arity is
+        validated and defaults are filled regardless.
 
         ``ctx`` is injected as the first positional argument; sync and ``async``
         functions are both supported.
@@ -150,7 +167,8 @@ class DurableFunction:
         # type deliberately violates its annotation), so it is left untouched.
         provided = set(bound.arguments)
         bound.apply_defaults()
-        self._coerce(bound, provided)
+        if coerce_args:
+            self._coerce(bound, provided)
 
         result = self._fn(ctx, *bound.args, **bound.kwargs)
         if inspect.isawaitable(result):

@@ -16,6 +16,7 @@ The harness builds a root :class:`~resonate.context.Context` over a real
 from __future__ import annotations
 
 import asyncio
+import threading
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -30,7 +31,7 @@ from resonate.context import Context, Opts, _hash_id
 from resonate.dependencies import DependencyMap
 from resonate.durable import DurableFunction
 from resonate.effects import ResonateEffects
-from resonate.error import ApplicationError, SuspendedError
+from resonate.error import ApplicationError, SerializationError, SuspendedError
 from resonate.network import LocalNetwork
 from resonate.retry import Constant, Never
 from resonate.send import Sender
@@ -151,6 +152,19 @@ class Point(msgspec.Struct, frozen=True):
 
 async def sum_point(ctx: Context, p: Point) -> int:
     return p.x + p.y
+
+
+class _Resource:
+    """A live object msgspec cannot encode (it holds a ``threading.Lock``).
+
+    Stands in for the kind of argument -- a client, a connection, a handle --
+    that a local ``ctx.run`` must now accept, since its args are neither
+    serialized into the promise param nor coerced against their annotation.
+    """
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.lock = threading.Lock()
 
 
 async def parent_workflow(ctx: Context, x: int) -> int:
@@ -294,6 +308,63 @@ async def test_run_rejects_non_callable() -> None:
     ctx = _root()
     with pytest.raises(ApplicationError):
         await ctx.run(not_callable)
+
+
+# =============================================================================
+# run: non-serializable arguments
+#
+# A local child's args are never written to its promise param (the param is
+# write-only -- nothing reads it back) and never coerced against their
+# annotation, so ``ctx.run`` accepts any Python object. The return value still
+# round-trips, so it must stay serializable.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_run_accepts_non_serializable_unannotated_arg() -> None:
+    async def use_resource(ctx: Context, r: Any) -> str:
+        return r.label
+
+    resource = _Resource("db")
+    ctx = _root()
+    # Would raise SerializationError at create_promise before this change.
+    assert await ctx.run(use_resource, resource) == "db"
+
+
+@pytest.mark.asyncio
+async def test_run_accepts_non_serializable_annotated_arg_verbatim() -> None:
+    # Annotated with its own non-msgspec class: coercion is skipped for local
+    # children, so the *same* live object reaches the function rather than being
+    # rejected (or copied) by ``msgspec.convert``.
+    received: list[_Resource] = []
+
+    async def use_resource(ctx: Context, r: _Resource) -> str:
+        received.append(r)
+        return r.label
+
+    resource = _Resource("cache")
+    ctx = _root()
+    assert await ctx.run(use_resource, resource) == "cache"
+    assert received[0] is resource  # verbatim identity, not coerced
+
+
+@pytest.mark.asyncio
+async def test_run_local_child_param_is_empty() -> None:
+    # The arg is never stored in the child's param, even when serializable: the
+    # child executes from the in-memory payload and recovery reads the settled
+    # value, never the param.
+    ctx = _root()
+    await ctx.run(double, 21)
+    assert ctx.effects.cache["root.1"].param == Value()
+
+
+@pytest.mark.asyncio
+async def test_rpc_still_rejects_non_serializable_arg() -> None:
+    # Global scope is unchanged: a different worker reconstructs an ``rpc`` call
+    # from the persisted param, so a non-serializable arg still fails to encode.
+    ctx = _root()
+    with pytest.raises(SerializationError):
+        await ctx.rpc("remote_fn", _Resource("db"))
 
 
 # =============================================================================

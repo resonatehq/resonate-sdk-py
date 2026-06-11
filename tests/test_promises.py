@@ -25,7 +25,7 @@ I64_MAX = 2**63 - 1
 
 def _local() -> Promises:
     """Build promise/schedule clients sharing one local network, like ``Resonate::local()``."""
-    net = LocalNetwork(pid="default", group="default")
+    net = LocalNetwork()
     sender = Sender(Transport(net), None)
     codec = Codec(NoopEncryptor())
     return Promises(sender, codec)
