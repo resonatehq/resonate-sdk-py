@@ -54,7 +54,7 @@ async def main() -> None:
     try:
         id = f"rpc-{time.time_ns()}"
         # Dispatch by name + target to the backend group, then await the result.
-        handle = frontend.with_opts(target="backend").rpc(id, "greet", "world")
+        handle = frontend.options(target="backend").rpc(id, "greet", "world")
         result = await handle.result()
         assert result == "hello from backend, world!"
         print(f"frontend: got {result!r}")

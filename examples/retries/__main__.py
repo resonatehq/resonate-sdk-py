@@ -63,7 +63,7 @@ async def charge(ctx: Context, key: str, amount: int) -> str:
 async def checkout(ctx: Context) -> str:
     # checkout is a workflow (it calls ctx.run / ctx.rpc), so it is never
     # retried -- but each flaky leaf it invokes is.
-    via_run = await ctx.with_opts(retry_policy=POLICY).run(charge, "ctx.run", 300)
+    via_run = await ctx.options(retry_policy=POLICY).run(charge, "ctx.run", 300)
     via_rpc = await ctx.rpc("charge", "ctx.rpc", 400)
     return f"{via_run} | {via_rpc}"
 

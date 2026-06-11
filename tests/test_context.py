@@ -836,7 +836,7 @@ async def test_run_does_not_settle_before_create_returns() -> None:
 async def test_run_with_options_timeout_sets_child_deadline() -> None:
     ctx = _root()
     before = now_ms()
-    assert await ctx.with_opts(timeout=timedelta(seconds=30)).run(double, 5) == 10
+    assert await ctx.options(timeout=timedelta(seconds=30)).run(double, 5) == 10
     after = now_ms()
     record = ctx.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
@@ -847,14 +847,14 @@ async def test_run_with_options_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
     # A year-long timeout still cannot outlive the parent's deadline.
-    await ctx.with_opts(timeout=timedelta(days=365)).run(double, 1)
+    await ctx.options(timeout=timedelta(days=365)).run(double, 1)
     assert ctx.effects.cache["root.1"].timeout_at == cap
 
 
 @pytest.mark.asyncio
 async def test_run_consumes_options_after_one_call() -> None:
     ctx = _root()
-    await ctx.with_opts(timeout=timedelta(seconds=30)).run(double, 1)  # root.1
+    await ctx.options(timeout=timedelta(seconds=30)).run(double, 1)  # root.1
     short = ctx.effects.cache["root.1"].timeout_at
     # The next run carries no options -> the 24h default, well past the 30s one.
     await ctx.run(double, 1)  # root.2
@@ -865,7 +865,7 @@ async def test_run_consumes_options_after_one_call() -> None:
 @pytest.mark.asyncio
 async def test_run_resets_options_even_on_error() -> None:
     ctx = _root()
-    ctx.with_opts(timeout=timedelta(seconds=5))
+    ctx.options(timeout=timedelta(seconds=5))
     with pytest.raises(ApplicationError):
         await ctx.run(failing)
     assert ctx.opts == Opts()
@@ -1236,7 +1236,7 @@ async def test_rpc_promise_creation_order_under_concurrency() -> None:
 async def test_rpc_with_options_target_sets_tag() -> None:
     ctx = _root()
     with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
-        await ctx.with_opts(target="worker-1").rpc("fn")
+        await ctx.options(target="worker-1").rpc("fn")
     assert captured[0].tags["resonate:target"] == "worker-1"
 
 
@@ -1245,7 +1245,7 @@ async def test_rpc_with_options_timeout_sets_child_deadline() -> None:
     ctx = _root()
     before = now_ms()
     with pytest.raises(SuspendedError):
-        await ctx.with_opts(timeout=timedelta(seconds=30)).rpc("fn")
+        await ctx.options(timeout=timedelta(seconds=30)).rpc("fn")
     after = now_ms()
     record = ctx.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
@@ -1256,14 +1256,14 @@ async def test_rpc_with_options_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
     with pytest.raises(SuspendedError):
-        await ctx.with_opts(timeout=timedelta(days=365)).rpc("fn")
+        await ctx.options(timeout=timedelta(days=365)).rpc("fn")
     assert ctx.effects.cache["root.1"].timeout_at == cap
 
 
 @pytest.mark.asyncio
 async def test_rpc_consumes_options_after_one_call() -> None:
     ctx = _root([_resolved("root.1", "a")])
-    await ctx.with_opts(timeout=timedelta(seconds=30), target="x").rpc("fn")
+    await ctx.options(timeout=timedelta(seconds=30), target="x").rpc("fn")
     assert ctx.opts == Opts()
 
 
@@ -1272,7 +1272,7 @@ async def test_rpc_resets_options_even_on_suspend() -> None:
     # Suspension is the common rpc terminal state; opts must still reset so the
     # next call does not inherit them.
     ctx = _root()
-    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
+    ctx.options(timeout=timedelta(seconds=5), target="x")
     with pytest.raises(SuspendedError):
         await ctx.rpc("fn")
     assert ctx.opts == Opts()
@@ -1422,7 +1422,7 @@ async def test_sleep_ignores_opts_timeout_for_duration() -> None:
     ctx = _root()
     before = now_ms()
     with pytest.raises(SuspendedError):
-        await ctx.with_opts(timeout=timedelta(seconds=5)).sleep(timedelta(seconds=30))
+        await ctx.options(timeout=timedelta(seconds=5)).sleep(timedelta(seconds=30))
     after = now_ms()
     record = ctx.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
@@ -1433,7 +1433,7 @@ async def test_sleep_consumes_options_so_they_do_not_leak() -> None:
     # sleep ignores opts for its own duration but still clears them, so a
     # stray with_opts() before a sleep cannot bleed into the next entrypoint.
     ctx = _root()
-    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
+    ctx.options(timeout=timedelta(seconds=5), target="x")
     with pytest.raises(SuspendedError):
         await ctx.sleep(timedelta(seconds=1))
     assert ctx.opts == Opts()
@@ -1621,7 +1621,7 @@ async def test_promise_ignores_opts_timeout_for_deadline() -> None:
     ctx = _root()
     before = now_ms()
     with pytest.raises(SuspendedError):
-        await ctx.with_opts(timeout=timedelta(seconds=5)).promise(timedelta(seconds=30))
+        await ctx.options(timeout=timedelta(seconds=5)).promise(timedelta(seconds=30))
     after = now_ms()
     record = ctx.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
@@ -1632,7 +1632,7 @@ async def test_promise_consumes_options_so_they_do_not_leak() -> None:
     # ``promise`` ignores opts for its own deadline but still clears them, so a
     # stray ``with_opts()`` cannot bleed into the next entrypoint call.
     ctx = _root()
-    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
+    ctx.options(timeout=timedelta(seconds=5), target="x")
     with pytest.raises(SuspendedError):
         await ctx.promise(timedelta(seconds=1))
     assert ctx.opts == Opts()
@@ -1816,7 +1816,7 @@ async def test_detached_with_options_target_and_timeout() -> None:
     child_id = _detached_id("root", "root.1")
     before = now_ms()
     with _spy_create_promise(ctx) as captured:
-        await ctx.with_opts(target="worker-1", timeout=timedelta(seconds=30)).detached(
+        await ctx.options(target="worker-1", timeout=timedelta(seconds=30)).detached(
             "fn"
         )
     after = now_ms()
@@ -1829,7 +1829,7 @@ async def test_detached_with_options_target_and_timeout() -> None:
 @pytest.mark.asyncio
 async def test_detached_consumes_options_after_one_call() -> None:
     ctx = _root()
-    await ctx.with_opts(target="x", timeout=timedelta(seconds=30)).detached("fn")
+    await ctx.options(target="x", timeout=timedelta(seconds=30)).detached("fn")
     assert ctx.opts == Opts()
 
 
@@ -1838,7 +1838,7 @@ async def test_detached_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
     child_id = _detached_id("root", "root.1")
-    await ctx.with_opts(timeout=timedelta(days=365)).detached("fn")
+    await ctx.options(timeout=timedelta(days=365)).detached("fn")
     assert ctx.effects.cache[child_id].timeout_at == cap
 
 
@@ -2188,5 +2188,5 @@ async def test_ctx_run_with_opts_retry_policy_overrides_context_default() -> Non
     # Generous inherited default, but the per-call override is Never.
     ctx = _root(retry_policy=Constant(max_retries=9, delay=0))
     with pytest.raises(ApplicationError, match="boom"):
-        await ctx.with_opts(retry_policy=Never()).run(flaky)
+        await ctx.options(retry_policy=Never()).run(flaky)
     assert calls == 1  # override Never -> no retry

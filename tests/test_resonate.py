@@ -630,14 +630,14 @@ async def test_multiple_dependencies() -> None:
 @pytest.mark.asyncio
 async def test_with_opts_returns_self_for_chaining() -> None:
     async with local() as r:
-        assert r.with_opts(timeout=timedelta(seconds=1)) is r
+        assert r.options(timeout=timedelta(seconds=1)) is r
 
 
 @pytest.mark.asyncio
 async def test_with_opts_consumed_synchronously_and_reset() -> None:
     async with local() as r:
         r.register(noop)
-        r.with_opts(target="worker")
+        r.options(target="worker")
         assert r._opts.target == "worker"
         r.run("c", noop)
         # Consumed and reset the moment run is called (run is synchronous).
@@ -647,7 +647,7 @@ async def test_with_opts_consumed_synchronously_and_reset() -> None:
 @pytest.mark.asyncio
 async def test_with_opts_bare_name_target_rewritten() -> None:
     async with local() as r:
-        r.with_opts(target="my-worker").rpc("t-bare", "remote")
+        r.options(target="my-worker").rpc("t-bare", "remote")
         record = await wait_for_promise(r, "t-bare")
         assert record.tags["resonate:target"] == "local://any@my-worker"
 
@@ -656,7 +656,7 @@ async def test_with_opts_bare_name_target_rewritten() -> None:
 async def test_with_opts_url_target_passes_through() -> None:
     async with local() as r:
         url = "https://remote:9000/workers/hello"
-        r.with_opts(target=url).rpc("t-url", "remote")
+        r.options(target=url).rpc("t-url", "remote")
         record = await wait_for_promise(r, "t-url")
         assert record.tags["resonate:target"] == url
 
@@ -679,7 +679,7 @@ async def test_run_version_comes_from_registration() -> None:
 async def test_rpc_version_comes_from_opts() -> None:
     # rpc() dispatches by name, so with_opts(version=) selects the version.
     async with local() as r:
-        r.with_opts(version=7).rpc("t-rpc-ver", "remote")
+        r.options(version=7).rpc("t-rpc-ver", "remote")
         record = await wait_for_promise(r, "t-rpc-ver")
         assert record.param.data
         assert record.param.data.get("version") == 7
@@ -689,7 +689,7 @@ async def test_rpc_version_comes_from_opts() -> None:
 async def test_with_opts_applies_to_run_target() -> None:
     async with local() as r:
         r.register(noop)
-        await r.with_opts(target="my-target").run("rt2", noop).result()
+        await r.options(target="my-target").run("rt2", noop).result()
         record = await r.promises.get("rt2")
         assert record.tags["resonate:target"] == "local://any@my-target"
 

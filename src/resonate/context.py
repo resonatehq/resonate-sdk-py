@@ -279,7 +279,7 @@ class Context:
                 await asyncio.sleep(delay)
                 attempt += 1
 
-    def with_opts(
+    def options(
         self,
         *,
         timeout: timedelta | None = None,

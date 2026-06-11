@@ -244,7 +244,7 @@ class Resonate:
         self._deps.insert(value)
         return self
 
-    def with_opts(
+    def options(
         self,
         *,
         timeout: timedelta | None = None,

@@ -69,7 +69,7 @@ async def main() -> None:
         # rpc() -- dispatched by NAME; version comes from with_opts (default 1).
         rpc_v1 = await r.rpc(f"charge-rpc-v1-{ts}", "charge", 100.0).result()
         rpc_v2 = await (
-            r.with_opts(version=2).rpc(f"charge-rpc-v2-{ts}", "charge", 100.0).result()
+            r.options(version=2).rpc(f"charge-rpc-v2-{ts}", "charge", 100.0).result()
         )
         assert rpc_v1 == 100
         assert rpc_v2 == 103
