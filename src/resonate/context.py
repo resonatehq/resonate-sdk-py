@@ -48,13 +48,13 @@ class Opts(msgspec.Struct, frozen=True, kw_only=True):
 class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
     _id: str
     _task: asyncio.Task[T]
-    _created: asyncio.Event
+    _created: asyncio.Future[None]
 
     def __await__(self) -> Generator[Any, None, T]:
         return self._task.__await__()
 
     async def id(self) -> str:
-        await self._created.wait()
+        await self._created
         return self._id
 
 
@@ -130,7 +130,7 @@ class Context:
         # Tail of the create-promise chain. Each ctx.run() captures this as
         # its prev-link and installs a fresh event as the new tail, so bg
         # tasks issue create_promise in ctx.run call order under concurrency.
-        self._tail: asyncio.Event | None = None
+        self._tail: asyncio.Future[None] | None = None
 
         # Whether this context has performed any durable operation
         # (run/rpc/sleep/promise/detached) -- i.e. is a workflow rather than a
@@ -644,8 +644,9 @@ class Context:
             remote todo and never suspends: the detached child is fire-and-forget,
             so once the durable promise has been created (idempotent on replay) its
             id is simply returned. Mirrors Go's ``Detached``, which ignores the
-            record returned by ``CreatePromise``. ``created.set()`` lives in
-            ``finally`` so a failing create never deadlocks the chain's successors.
+            record returned by ``CreatePromise``. A failed create propagates
+            down the creation chain rather than deadlocking its successors:
+            each link re-raises the upstream exception.
             """
             record = await self._create_promise_in_chain(req, prev_created, created)
             # Det nodes are exempt from the contract, but track settlement anyway
@@ -660,38 +661,54 @@ class Context:
             _created=created,
         )
 
-    def _advance_promise_chain(self) -> tuple[asyncio.Event | None, asyncio.Event]:
+    def _advance_promise_chain(
+        self,
+    ) -> tuple[asyncio.Future[None] | None, asyncio.Future[None]]:
         """Advances the creation chain tail, returning (prev_tail, new_tail)."""
         prev_tail = self._tail
-        new_tail = asyncio.Event()
+        new_tail = asyncio.Future[None]()
         self._tail = new_tail
         return prev_tail, new_tail
 
     async def _create_promise_in_chain(
         self,
         req: PromiseCreateReq,
-        prev_created: asyncio.Event | None,
-        created: asyncio.Event,
+        prev_created: asyncio.Future[None] | None,
+        created: asyncio.Future[None],
     ) -> PromiseRecord:
         """Create ``req``'s promise in creation-chain order.
 
         Waits on the previous chain link (so create_promise calls issue in
         ctx.run call order under concurrency), creates the promise, then
-        releases the next link. ``created.set()`` lives in ``finally`` so a
-        failing create never deadlocks the chain's successors.
+        resolves ``created`` to release the next link. ``created`` carries
+        this link's outcome so awaiters (the next link, :meth:`ResonateFuture.id`)
+        observe it: ``set_result`` on success, ``set_exception`` on failure.
+        A predecessor that failed propagates its exception through
+        ``await prev_created``; we re-raise it on this link too, so the whole
+        chain fails as a unit rather than issuing a create on top of an
+        inconsistent prefix. The *same* upstream exception object travels down
+        every successor link (each catches it from ``await prev_created`` and
+        re-installs it on its own ``created``), so the failure surfaces
+        identically no matter how far down the chain it is observed.
         """
         try:
             if prev_created is not None:
-                await prev_created.wait()
-            return await self.effects.create_promise(req)
-        finally:
-            created.set()
+                await prev_created
+
+            record = await self.effects.create_promise(req)
+            created.set_result(None)
+        except Exception as e:
+            created.set_exception(e)
+            # Mark retrieved
+            created.exception()
+            raise
+        return record
 
     def _remote_future(
         self,
         req: PromiseCreateReq,
-        prev_created: asyncio.Event | None,
-        created: asyncio.Event,
+        prev_created: asyncio.Future[None] | None,
+        created: asyncio.Future[None],
     ) -> ResonateFuture:
         """Wrap a remote ``req`` in a future backed by a deferred-create task.
 
@@ -715,8 +732,8 @@ class Context:
     def _spawn_remote_await(
         self,
         req: PromiseCreateReq,
-        prev_created: asyncio.Event | None,
-        created: asyncio.Event,
+        prev_created: asyncio.Future[None] | None,
+        created: asyncio.Future[None],
     ) -> asyncio.Task[Any]:
         """Spawn the :meth:`_await_remote` task for rpc/sleep/promise.
 
@@ -736,8 +753,8 @@ class Context:
     async def _await_remote(
         self,
         req: PromiseCreateReq,
-        prev_created: asyncio.Event | None,
-        created: asyncio.Event,
+        prev_created: asyncio.Future[None] | None,
+        created: asyncio.Future[None],
     ) -> Any:
         """Background body shared by :meth:`rpc`, :meth:`sleep`, and :meth:`promise`.
 
@@ -751,8 +768,9 @@ class Context:
         goroutines -- which run in parallel and so guard the slice with
         ``c.mu`` -- these are asyncio tasks on a single event loop, and the
         append has no ``await`` between read and write, so it cannot interleave
-        with a peer task. ``created.set()`` lives in ``finally`` so a failing
-        create never deadlocks the successors waiting on this chain link.
+        with a peer task. A failed create propagates down the creation chain
+        rather than deadlocking the successors waiting on this link: each link
+        re-raises the upstream exception.
         """
         record = await self._create_promise_in_chain(req, prev_created, created)
 
