@@ -15,7 +15,7 @@ from resonate.types import (
     Value,
 )
 
-# --- serialization: omit_defaults mirrors serde `skip_serializing_if = is_none` ---
+# --- serialization: omit_defaults drops None fields from the wire format ---
 
 
 def test_encode_empty_value_is_empty_object() -> None:
@@ -62,7 +62,7 @@ def test_value_decodes_empty_object() -> None:
 
 
 def test_promise_record_decode_minimal_applies_defaults() -> None:
-    # Only the Rust-required fields; the rest come from `#[serde(default)]`.
+    # Only the required fields; the rest fall back to struct defaults.
     r = msgspec.json.decode(
         b'{"id":"p1","state":"pending","timeoutAt":10}', type=PromiseRecord
     )

@@ -22,7 +22,7 @@ class Value(msgspec.Struct, omit_defaults=True, kw_only=True, frozen=True):
     :class:`~resonate.codec.Codec` will serialize.
 
     Both fields default to ``None`` and, with ``omit_defaults=True``, are left
-    out when encoding -- the equivalent of serde's ``skip_serializing_if``.
+    out of the encoded output entirely.
 
     Note: Python uses ``None`` for JSON ``null``, so an absent ``data`` field
     and an explicit ``null`` collapse to the same value.
@@ -35,10 +35,10 @@ class Value(msgspec.Struct, omit_defaults=True, kw_only=True, frozen=True):
 class PromiseRecord(msgspec.Struct, rename="camel", kw_only=True, frozen=True):
     """A durable promise record as stored by the server.
 
-    ``kw_only=True`` lets the defaulted fields keep their Rust declaration
-    order (and hence wire order) while leaving ``timeout_at`` required even
-    though it follows defaulted fields. The defaults mirror Rust's
-    ``#[serde(default)]``.
+    ``kw_only=True`` lets ``timeout_at`` stay required even though it is
+    declared after fields with defaults, keeping the declaration order aligned
+    with the wire format. Defaulted fields are filled in when the server omits
+    them.
     """
 
     id: str

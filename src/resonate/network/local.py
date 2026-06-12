@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import uuid
 from typing import TYPE_CHECKING, Any, Literal
 
 import msgspec
@@ -23,13 +22,12 @@ PENDING_RETRY_TTL = 30_000
 I64_MAX = (1 << 63) - 1
 I64_MIN = -(1 << 63)
 
-# Rust serde enums (``PromiseState`` / ``TaskState``) fold into ``Literal``s here,
-# following the type-mapping convention used across the mirror.
+# The lifecycle states a task can be in.
 type TaskState = Literal["pending", "acquired", "suspended", "halted", "fulfilled"]
 
 
 # =============================================================================
-# SERVER STATE TYPES (ported from the TS Server class in local.ts)
+# SERVER STATE TYPES
 # =============================================================================
 
 
@@ -125,26 +123,25 @@ class ScheduleStub(msgspec.Struct, kw_only=True):
 # JSON FIELD ACCESSORS
 # =============================================================================
 #
-# These mirror the Rust ``.get(..).and_then(|v| v.as_str()).unwrap_or(..)``
-# chains over ``serde_json::Value``. JSON parses to Python builtins, so a
-# "value" is a ``dict`` / ``list`` / scalar and a missing field collapses to a
-# default. ``bool`` is excluded from integer reads because ``bool`` subclasses
-# ``int`` in Python but is not a number in JSON.
+# Small helpers for reading fields out of decoded JSON (``dict`` / ``list`` /
+# scalar values); a missing or wrongly-typed field collapses to a default.
+# ``bool`` is excluded from integer reads because ``bool`` subclasses ``int``
+# in Python but is not a number in JSON.
 
 
 def _get(obj: Any, key: str) -> Any:
-    """Return ``obj[key]`` cloned-to-``None``, mirroring ``.get(..).cloned()``."""
+    """Return ``obj[key]``, or ``None`` when missing or ``obj`` is not a dict."""
     return obj.get(key) if isinstance(obj, dict) else None
 
 
 def _str(obj: Any, key: str) -> str:
-    """Return a string field, defaulting to ``""`` (Rust ``as_str().unwrap_or("")``)."""
+    """Return a string field, defaulting to ``""``."""
     value = _get(obj, key)
     return value if isinstance(value, str) else ""
 
 
 def _i64(obj: Any, key: str, default: int) -> int:
-    """Return an integer field (Rust ``as_i64().unwrap_or(default)``)."""
+    """Return an integer field, falling back to ``default``."""
     value = _get(obj, key)
     if isinstance(value, int) and not isinstance(value, bool):
         return value
@@ -152,7 +149,7 @@ def _i64(obj: Any, key: str, default: int) -> int:
 
 
 def _u64(obj: Any, key: str, default: int) -> int:
-    """Return a non-negative integer field (Rust ``as_u64().unwrap_or(default)``)."""
+    """Return a non-negative integer field, falling back to ``default``."""
     value = _get(obj, key)
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
@@ -160,7 +157,7 @@ def _u64(obj: Any, key: str, default: int) -> int:
 
 
 def _ttl(obj: Any, key: str, default: int) -> int:
-    """Return a TTL field, mirroring Rust's ``as_i64().or_else(as_u64.min(i64::MAX))``."""
+    """Return a TTL field clamped to the 64-bit signed range, else ``default``."""
     value = _get(obj, key)
     if isinstance(value, int) and not isinstance(value, bool):
         if I64_MIN <= value <= I64_MAX:
@@ -171,15 +168,15 @@ def _ttl(obj: Any, key: str, default: int) -> int:
 
 
 def _opt_i64(value: Any) -> int | None:
-    """Return ``value`` as an ``i64`` or ``None`` (Rust ``as_i64``)."""
+    """Return ``value`` if it is an integer, else ``None``."""
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def require_str(obj: Any, field: str) -> str:
-    """Return a required non-empty string field, raising on absence.
+    """Return a required non-empty string field.
 
-    Mirrors Rust's ``require_str``: a missing, non-string, or empty value
-    raises :class:`ServerError` with code 400.
+    A missing, non-string, or empty value raises :class:`ServerError` with
+    code 400.
     """
     value = _get(obj, field)
     if isinstance(value, str) and value != "":
@@ -189,12 +186,12 @@ def require_str(obj: Any, field: str) -> str:
 
 
 def require_task_id(obj: Any) -> str:
-    """Extract the required task ID from a request (Rust ``require_task_id``)."""
+    """Extract the required task ID from a request."""
     return require_str(obj, "id")
 
 
 def _saturating_add(a: int, b: int) -> int:
-    """Add clamping to the ``i64`` range, mirroring Rust's ``saturating_add``."""
+    """Add two integers, clamping the result to the 64-bit signed range."""
     result = a + b
     if result > I64_MAX:
         return I64_MAX
@@ -204,10 +201,7 @@ def _saturating_add(a: int, b: int) -> int:
 
 
 def _parse_promise_state(value: Any) -> PromiseState:
-    """Parse a settle state, defaulting to ``"resolved"`` on anything else.
-
-    Mirrors ``serde_json::from_value::<PromiseState>(..).ok().unwrap_or(Resolved)``.
-    """
+    """Parse a settle state, defaulting to ``"resolved"`` for unknown values."""
     match value:
         case "pending":
             return "pending"
@@ -231,9 +225,8 @@ def _parse_promise_state(value: Any) -> PromiseState:
 class ServerState:
     """The in-process server state machine driving :class:`LocalNetwork`.
 
-    Mirrors Rust's ``ServerState``: it owns promises, tasks, schedules, pending
-    timeouts, and the queue of outgoing messages produced while applying a
-    request or ticking.
+    It owns promises, tasks, schedules, pending timeouts, and the queue of
+    outgoing messages produced while applying a request or ticking.
     """
 
     def __init__(self) -> None:
@@ -248,8 +241,7 @@ class ServerState:
         """Apply a single (flat) request and return the flat response.
 
         Auto-times-out any promise the request touches, then dispatches on
-        ``kind``. Mirrors Rust's ``ServerState::apply``; an unknown kind raises
-        :class:`ServerError` (code 400).
+        ``kind``. An unknown kind raises :class:`ServerError` (code 400).
         """
         self.outgoing.clear()
 
@@ -1048,7 +1040,7 @@ class ServerState:
 
     def send_execute_message(self, address: str, task_id: str, version: int) -> None:
         msg = {"kind": "execute", "data": {"task": {"id": task_id, "version": version}}}
-        # Upsert: replace existing execute message for the same task (like TS).
+        # Upsert: replace any existing execute message for the same task.
         for existing in self.outgoing:
             if _execute_task_id(existing.message) == task_id:
                 existing.address = address
@@ -1065,16 +1057,15 @@ class ServerState:
 class LocalNetwork:
     """In-process :class:`Network` backed by a :class:`ServerState` simulation.
 
-    Mirrors Rust's ``LocalNetwork``. The tick loop and outgoing-message
-    dispatch run as asyncio tasks rather than tokio tasks; ``recv`` appends the
-    callback directly (asyncio is single-threaded, so the Rust write-lock spawn
-    is unnecessary).
+    Useful for running workflows without a Resonate server. A background tick
+    loop advances time once per second; outgoing messages are dispatched to
+    callbacks registered via :meth:`recv` as asyncio tasks.
     """
 
     def __init__(self, pid: str | None = None, group: str | None = None) -> None:
         self.state = ServerState()
 
-        self._pid = pid if pid is not None else uuid.uuid4().hex
+        self._pid = pid if pid is not None else "default"
         self._group = group if group is not None else "default"
         self._unicast = f"local://uni@{self._group}/{self._pid}"
         self._anycast = f"local://any@{self._group}/{self._pid}"
@@ -1099,8 +1090,8 @@ class LocalNetwork:
         self._tick_handle = asyncio.create_task(self._tick_loop())
 
     async def _tick_loop(self) -> None:
-        # tokio's interval fires its first tick immediately, so the body runs
-        # once on start and then once per second thereafter.
+        # The body runs once immediately on start and then once per second
+        # thereafter.
         with contextlib.suppress(asyncio.CancelledError):
             while True:
                 now = now_ms()
@@ -1141,7 +1132,7 @@ class LocalNetwork:
         envelope_response = wrap_response_envelope(flat_response)
         resp_str = msgspec.json.encode(envelope_response).decode("utf-8")
 
-        # Dispatch messages asynchronously (like TS setTimeout(0)).
+        # Dispatch messages asynchronously, off the critical path.
         self._dispatch_messages(outgoing)
 
         return resp_str
@@ -1175,7 +1166,7 @@ class LocalNetwork:
 
 
 def _parse_int(value: str | None) -> int | None:
-    """Parse a decimal string into an int, mirroring Rust's ``str::parse::<i64>().ok()``."""
+    """Parse a decimal string into an int, returning ``None`` if it is invalid."""
     if value is None:
         return None
     try:
@@ -1200,8 +1191,8 @@ def extract_tags(v: Any) -> dict[str, str]:
 def extract_action_data(val: Any) -> Any:
     """Return the ``data`` portion of a sub-envelope, or ``val`` if it is flat.
 
-    Mirrors Rust's ``extract_action_data``: a value carrying both ``kind`` and
-    ``data`` is treated as a ``{ kind, head, data }`` sub-envelope.
+    A value carrying both ``kind`` and ``data`` keys is treated as a
+    ``{ kind, head, data }`` sub-envelope.
     """
     if isinstance(val, dict) and "kind" in val and "data" in val:
         return val["data"]
@@ -1213,7 +1204,6 @@ def unwrap_request_envelope(req: Any) -> Any:
 
     A request carrying ``head`` and ``data`` is flattened (``data`` fields plus
     ``kind`` and ``head.corrId``); an already-flat request is returned as-is.
-    Mirrors Rust's ``unwrap_request_envelope``.
     """
     if isinstance(req, dict) and "head" in req and "data" in req:
         data = req.get("data")
@@ -1230,8 +1220,8 @@ def unwrap_request_envelope(req: Any) -> Any:
 def wrap_response_envelope(flat: Any) -> dict[str, Any]:
     """Wrap a flat ``ServerState`` response into the protocol envelope format.
 
-    Mirrors Rust's ``wrap_response_envelope``: ``kind``, ``corrId``, and
-    ``status`` are lifted into the envelope head and stripped from the data.
+    ``kind``, ``corrId``, and ``status`` are lifted into the envelope head and
+    stripped from the data.
     """
     kind = _get(flat, "kind")
     corr_id = _get(flat, "corrId")

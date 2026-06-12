@@ -1,8 +1,6 @@
 """Behaviour tests for :mod:`resonate.durable`.
 
-``durable.rs`` has no ``#[cfg(test)]`` block, so there is no Rust test module to
-mirror here. The closest analog is Go's ``durable_test.go`` (reflection-based
-detection and arg coercion); these tests pin the Python contract: every durable
+These tests pin the contract: every durable
 function -- workflow or leaf -- receives a :class:`Context` as its first
 positional argument, the runtime never inspects annotations, and the
 ``*args``/``**kwargs`` round trip through
@@ -69,7 +67,7 @@ async def leaf(ctx: Context, x: int) -> int:
 
 
 async def workflow(ctx: Context, x: int) -> str:
-    return f"{ctx.id}:{x}"
+    return f"{ctx.info.id}:{x}"
 
 
 async def ctx_only(ctx: Context) -> int:
@@ -180,7 +178,7 @@ async def test_raising_function_propagates() -> None:
 
 
 async def variadic(ctx: Context, *args: int, **kwargs: int) -> int:
-    return ctx.seq + sum(args) + sum(kwargs.values())
+    return sum(args) + sum(kwargs.values())
 
 
 async def keyword_only(ctx: Context, *, a: int, b: int = 10) -> int:
@@ -408,7 +406,7 @@ class _Adder:
 
 class _Service:
     async def step(self, ctx: Context, x: int) -> str:
-        return f"{ctx.id}:{x}"
+        return f"{ctx.info.id}:{x}"
 
 
 @pytest.mark.asyncio

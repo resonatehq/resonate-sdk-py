@@ -22,22 +22,18 @@ logger = logging.getLogger(__name__)
 _INITIAL_BACKOFF_SECS = 1
 _MAX_BACKOFF_SECS = 60
 
-#: Total connection cap for the shared :class:`aiohttp.ClientSession`. aiohttp's
-#: default ``TCPConnector`` caps at 100; under a heavy fan-out (e.g. a deep
-#: recursive workflow whose rpc children are all dispatched back to this worker)
-#: that pool saturates with acquire/create/suspend traffic, and the periodic
-#: ``task.heartbeat`` POST queues behind it -- so leases lapse and the server
-#: re-delivers them, a self-amplifying 409 storm. Raising the cap well above the
-#: execution-concurrency ceiling (see
-#: ``resonate.resonate.DEFAULT_MAX_CONCURRENT_TASKS``) guarantees the heartbeat
-#: always finds a free connection. The long-lived SSE ``GET`` occupies one slot.
+#: Total connection cap for the shared :class:`aiohttp.ClientSession`.
+#: aiohttp's default of 100 can saturate under heavy fan-out, delaying the
+#: periodic ``task.heartbeat`` request until task leases lapse and the server
+#: re-delivers them. Keeping the cap well above the execution-concurrency
+#: ceiling (see ``resonate.resonate.DEFAULT_MAX_CONCURRENT_TASKS``) guarantees
+#: the heartbeat always finds a free connection. The long-lived SSE ``GET``
+#: occupies one slot.
 DEFAULT_CONN_LIMIT = 256
 
 
 class HttpNetwork:
-    """:class:`Network` that communicates with a Resonate server over HTTP.
-
-    Mirrors Rust's ``HttpNetwork``:
+    """:class:`Network` implementation that talks to a Resonate server over HTTP.
 
     - Requests are sent via ``POST /`` (JSON envelope format).
     - Incoming messages (execute/unblock) are received via SSE on
@@ -45,11 +41,8 @@ class HttpNetwork:
     - Addresses use the ``poll://`` scheme: ``poll://uni@group/id`` and
       ``poll://any@group/id``.
 
-    asyncio specifics: the SSE listener runs as an :func:`asyncio.create_task`
-    (mirror of tokio::spawn) and ``aiohttp`` plays the role of Rust's
-    ``reqwest`` client. ``recv`` appends the callback directly (single-threaded
-    asyncio needs no write-lock spawn), and callbacks fire on the event loop as
-    SSE events arrive.
+    The SSE listener runs as a background asyncio task; callbacks registered
+    via :meth:`recv` fire on the event loop as SSE events arrive.
     """
 
     def __init__(
@@ -73,10 +66,8 @@ class HttpNetwork:
         self._session: aiohttp.ClientSession | None = None
         self._sse_handle: asyncio.Task[None] | None = None
         self._running: bool = False
-        # Awaitable mirror of ``_running``: lets a ``send`` parked in the
-        # retry backoff wake immediately on :meth:`stop`. Without it, an
-        # in-flight request retrying through a server outage would block the
-        # bounded join inside :meth:`~resonate.resonate.Resonate.stop`.
+        # Set on :meth:`stop` so a ``send`` parked in its retry backoff wakes
+        # immediately instead of blocking shutdown.
         self._stop_event = asyncio.Event()
 
     def pid(self) -> str:
@@ -116,38 +107,15 @@ class HttpNetwork:
     async def send(self, req: str) -> str:
         """Send a request to the Resonate server via ``POST /``.
 
-        Retries on transport-level connection failures with the same
-        exponential backoff the SSE loop already uses (``1s → 60s``): the SDK
-        must survive the server being down at startup, restarting mid-flight,
-        or briefly unreachable. Without this, *any* request initiated while
-        the server is dead -- ``task.create``/``promise.create`` from
-        :class:`~resonate.resonate.Resonate.run`/``rpc``, plus every
-        ``task.acquire``/``task.fulfill``/``task.suspend``/``promise.settle``
-        the workflow's :class:`~resonate.core.Core` issues mid-execution --
-        would propagate :class:`HttpError`, abandon the in-flight task, and
-        strand the handle awaiting an ``unblock`` that never comes.
-        Asymmetric resilience (only the SSE half reconnects) would be worse
-        than none.
+        Transport-level connection failures are retried with exponential
+        backoff (``1s → 60s``), so the SDK survives the server being down at
+        startup, restarting, or briefly unreachable. Only connection failures
+        are retried: an HTTP response of any status returns normally, so error
+        statuses (404, 409, 500, …) propagate to the caller unchanged.
 
-        :class:`aiohttp.ClientError` (the underlying ``HttpError`` cause) is
-        the only signal retried; an HTTP response of any status still returns
-        normally so :class:`~resonate.error.ServerError` semantics (404, 409,
-        500, …) propagate unchanged. The loop exits when :meth:`stop` is
-        called, re-raising :class:`HttpError` so the caller can log it
-        cleanly during shutdown.
-
-        Shutdown race: :meth:`stop` closes the session while requests are
-        still in flight (by design -- :class:`~resonate.resonate.Resonate.stop`
-        stops the network first so the bounded bg-task join can drain). A
-        mid-flight ``session.post`` then raises ``RuntimeError("Session is
-        closed")`` rather than a :class:`aiohttp.ClientError`, so both are
-        caught here and folded into :class:`HttpError`; otherwise the bare
-        ``RuntimeError`` would surface from every fire-and-forget
-        :func:`asyncio.create_task` whose result nobody is awaiting (the
-        ``ctx.run`` ``bg()`` chain) as a ``Task exception was never
-        retrieved`` log. A new request issued *after* stop short-circuits at
-        the top of the loop so no fresh session is opened post-shutdown (the
-        ``Unclosed client session`` warning from aiohttp).
+        Once :meth:`stop` is called, any in-flight or new request raises
+        :class:`HttpError` instead of retrying, so shutdown is never blocked
+        by the backoff loop.
         """
         logger.debug("http_network http_req: %s", req)
         headers = self._auth_headers({"Content-Type": "application/json"})
@@ -163,11 +131,11 @@ class HttpNetwork:
                 ) as resp:
                     resp_str = await resp.text()
             except (aiohttp.ClientError, RuntimeError) as exc:
-                # ``stop`` closing the session mid-flight raises ``RuntimeError
-                # ("Session is closed")``; surface as :class:`HttpError` so the
-                # caller's bg task unwinds cleanly. A spontaneous ``RuntimeError``
-                # while still running is not retriable -- re-raise so a real
-                # bug is not papered over by infinite backoff.
+                # :meth:`stop` closing the session mid-flight raises
+                # ``RuntimeError("Session is closed")``; surface it as
+                # :class:`HttpError` so the caller unwinds cleanly. A
+                # ``RuntimeError`` while still running is not retriable --
+                # re-raise so a real bug is not hidden by infinite backoff.
                 if not self._running:
                     raise HttpError(exc) from exc
                 if isinstance(exc, RuntimeError):
@@ -196,16 +164,12 @@ class HttpNetwork:
     def _ensure_session(self) -> aiohttp.ClientSession:
         """Lazily create the shared :class:`aiohttp.ClientSession`.
 
-        Mirrors Rust building ``reqwest::Client`` in ``new``, but deferred until
-        an event loop is running (``ClientSession`` must be created inside one).
+        Creation is deferred until an event loop is running, because a
+        ``ClientSession`` must be created inside one.
 
-        Once :meth:`stop` has run, ``_session`` is ``None`` *and*
-        ``_running`` is ``False``; refuse to open a fresh session in that
-        window so a retry loop racing with shutdown does not leak a
-        ``ClientSession`` that nobody will close (the ``Unclosed client
-        session`` aiohttp warning). :meth:`send` is responsible for the
-        guard at the top of its retry loop -- this assert is defence in
-        depth.
+        Once :meth:`stop` has run, this refuses to open a fresh session so a
+        retry loop racing with shutdown cannot leak a session that nobody
+        will close.
         """
         if self._session is None:
             if not self._running:
@@ -213,8 +177,8 @@ class HttpNetwork:
                 raise RuntimeError(msg)
             # Raise the connector cap above aiohttp's default 100 so heartbeat
             # and execution traffic never starve each other (see
-            # ``_DEFAULT_CONN_LIMIT``). The session owns the connector, so the
-            # existing ``session.close()`` in :meth:`stop` tears it down.
+            # ``DEFAULT_CONN_LIMIT``). The session owns the connector, so
+            # ``session.close()`` in :meth:`stop` tears it down.
             self._session = aiohttp.ClientSession(
                 connector=aiohttp.TCPConnector(limit=self._conn_limit)
             )
@@ -229,10 +193,8 @@ class HttpNetwork:
     async def _sleep_or_stop(self, secs: float) -> None:
         """Sleep for ``secs``, returning early once :meth:`stop` is called.
 
-        Used by :meth:`send`'s retry loop -- the SSE loop, which holds its
-        long-lived connection inside :meth:`asyncio.CancelledError`-safe
-        :func:`asyncio.sleep`, gets unblocked by the task ``cancel`` in
-        :meth:`stop` instead.
+        Used by :meth:`send`'s retry loop so a pending retry never delays
+        shutdown.
         """
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._stop_event.wait(), timeout=secs)
@@ -284,9 +246,8 @@ class HttpNetwork:
     async def _read_stream(self, resp: aiohttp.ClientResponse) -> None:
         """Parse the SSE byte stream and dispatch each ``data:`` line.
 
-        SSE events are separated by a blank line; mirrors Rust's buffering by
-        splitting on the blank line and dispatching every ``data:`` line in a
-        block to each subscriber.
+        SSE events are separated by a blank line; every ``data:`` line in an
+        event is dispatched to each subscriber.
         """
         buffer = ""
         async for chunk in resp.content.iter_any():

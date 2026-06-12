@@ -11,8 +11,8 @@ settlement is recorded in a durable promise, so if the worker crashes between
 two steps a restart skips the steps that already settled and runs only the
 missing ones -- including the compensations.
 
-Mirrors the Go SDK's ``saga`` example. Start a Resonate server on
-localhost:8001 first (``resonate dev``), then either of::
+Start a Resonate server on localhost:8001 first (``resonate dev``), then
+either of::
 
     uv run python examples/saga                  # happy path
     uv run python examples/saga --fail charge    # both compensations run

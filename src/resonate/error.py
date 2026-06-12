@@ -70,7 +70,13 @@ class IoError(ResonateError):
         super().__init__(f"io error: {error}")
 
 
-class SuspendedError(ResonateError):
+class SuspendedError(BaseException):
+    """Signals that an execution has suspended.
+
+    Extends ``BaseException`` so that a ``try/except Exception`` does not
+    swallow it.
+    """
+
     def __init__(self) -> None:
         super().__init__("execution suspended")
 

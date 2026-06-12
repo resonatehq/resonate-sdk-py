@@ -1,7 +1,6 @@
 """Behaviour tests for :mod:`resonate.resonate`.
 
-Mirrors the Rust ``resonate.rs`` ``#[cfg(test)]`` suite (same cases, same names
-where they map), adapted to the Python port's API:
+Key API properties exercised here:
 
 * ``run`` / ``rpc`` are **synchronous** fire-and-forget triggers returning a
   :class:`~resonate.handle.ResonateHandle` -- the task is created (and, when this
@@ -53,7 +52,7 @@ if TYPE_CHECKING:
 
     from resonate.codec import Encryptor
     from resonate.context import Context
-    from resonate.types import PromiseCreateReq, PromiseRecord
+    from resonate.types import PromiseRecord
 
 
 # ── Harness ──────────────────────────────────────────────────────────────
@@ -74,7 +73,7 @@ async def local(
     # is now an effectively-unbounded Exponential, which would retry such a leaf
     # forever and hang these tests. Tests asserting retry behavior live in
     # ``test_context.py`` with explicit policies.
-    r = Resonate.local(
+    r = Resonate(
         group=group,
         pid=pid,
         ttl=ttl,
@@ -161,52 +160,52 @@ async def add_via_child(ctx: Context, x: int, y: int) -> int:
 @pytest.mark.asyncio
 async def test_local_constructor_sets_defaults() -> None:
     async with local() as r:
-        assert r.pid == "default"
-        assert r.id_prefix == ""
-        assert r.ttl == DEFAULT_TTL
-        assert isinstance(r.network, LocalNetwork)
+        assert r._pid == "default"
+        assert r._id_prefix == ""
+        assert r._ttl == DEFAULT_TTL
+        assert isinstance(r._network, LocalNetwork)
 
 
 @pytest.mark.asyncio
 async def test_config_with_custom_pid_and_group() -> None:
     async with local(pid="worker-1", group="workers") as r:
-        assert r.pid == "worker-1"
-        assert "worker-1" in r.network.unicast()
-        assert "workers" in r.network.unicast()
+        assert r._pid == "worker-1"
+        assert "worker-1" in r._network.unicast()
+        assert "workers" in r._network.unicast()
 
 
 @pytest.mark.asyncio
 async def test_config_with_prefix() -> None:
     async with local(prefix="myapp", ttl=timedelta(seconds=30)) as r:
-        assert r.id_prefix == "myapp:"
-        assert r.ttl == timedelta(seconds=30)
+        assert r._id_prefix == "myapp:"
+        assert r._ttl == timedelta(seconds=30)
 
 
 @pytest.mark.asyncio
 async def test_config_with_empty_prefix() -> None:
     async with local(prefix="") as r:
-        assert r.id_prefix == ""
+        assert r._id_prefix == ""
 
 
 @pytest.mark.asyncio
 async def test_default_ttl_is_one_minute() -> None:
     async with local() as r:
-        assert r.ttl == timedelta(minutes=1)
+        assert r._ttl == timedelta(minutes=1)
 
 
 @pytest.mark.asyncio
 async def test_network_identity_local_mode() -> None:
     async with local() as r:
-        assert r.network.unicast().startswith("local://uni@")
-        assert r.network.anycast().startswith("local://any@")
-        assert r.network.group() == "default"
-        assert r.network.pid() == "default"
+        assert r._network.unicast().startswith("local://uni@")
+        assert r._network.anycast().startswith("local://any@")
+        assert r._network.group() == "default"
+        assert r._network.pid() == "default"
 
 
 @pytest.mark.asyncio
 async def test_target_resolver_returns_local_anycast() -> None:
     async with local() as r:
-        assert r.network.target_resolver("my-target") == "local://any@my-target"
+        assert r._network.target_resolver("my-target") == "local://any@my-target"
 
 
 @pytest.mark.asyncio
@@ -391,10 +390,28 @@ async def test_run_unregistered_raises_synchronously() -> None:
             return None
 
         # Raised at the call site (not from an awaited coroutine): an
-        # unregistered callable resolves to its __name__, which the registry
-        # lookup rejects.
+        # unregistered function object is refused outright -- its registry name
+        # is not its __name__, so the dispatch target cannot be guessed (the same
+        # rule rpc follows).
         with pytest.raises(FunctionNotFoundError):
             r.run("x", unregistered)
+
+
+@pytest.mark.asyncio
+async def test_run_by_object_unregistered_does_not_dispatch_name_collision() -> None:
+    # By-object resolution is by identity, not by ``__name__``: an unregistered
+    # object whose ``__name__`` collides with a *different* registered function
+    # must be refused, never silently dispatched to that function. (Under a
+    # ``__name__`` fallback this would have wrongly run ``add``.)
+    async def impostor(ctx: Context) -> int:
+        return -1
+
+    impostor.__name__ = "add"  # collide with the registered ``add``
+
+    async with local() as r:
+        r.register(add)
+        with pytest.raises(FunctionNotFoundError):
+            r.run("x", impostor)
 
 
 @pytest.mark.asyncio
@@ -469,6 +486,51 @@ async def test_run_default_target_uses_network_resolver() -> None:
         record = await r.promises.get("rt")
         assert record.tags["resonate:target"] == "local://any@default"
         assert record.tags["resonate:scope"] == "global"
+
+
+# ── run by name (registry lookup) ────────────────────────────────────────────
+#    ``run`` also accepts the registered *name*. The function must still be
+#    registered locally (run executes here); a name carries no version, so it is
+#    dispatched at ``options``'s version.
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_resolves_from_registry() -> None:
+    async with local() as r:
+        r.register(add)
+        assert await r.run("a", "add", 2, 3).result() == 5
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_decodes_struct_result() -> None:
+    async with local() as r:
+        r.register(make_point)
+        # A by-name run still resolves a local DurableFunction, so its return is
+        # coerced to the declared type, exactly like the by-object form.
+        assert await r.run("pt", "make_point", 1, 2).result() == Point(x=1, y=2)
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_uses_opts_version() -> None:
+    async def v1(ctx: Context) -> str:
+        return "one"
+
+    async def v2(ctx: Context) -> str:
+        return "two"
+
+    async with local() as r:
+        r.register(v1, name="impl", version=1)
+        r.register(v2, name="impl", version=2)
+        assert await r.run("x1", "impl").result() == "one"  # default version 1
+        assert await r.options(version=2).run("x2", "impl").result() == "two"
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_unregistered_raises_synchronously() -> None:
+    async with local() as r:
+        # By-name resolution happens in the synchronous body of ``run``.
+        with pytest.raises(FunctionNotFoundError, match="ghost"):
+            r.run("x", "ghost")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -568,11 +630,71 @@ async def test_rpc_handle_id_resolves() -> None:
         assert h.done() is False
 
 
+# ── rpc by object (reverse registry lookup) ──────────────────────────────────
+#    ``rpc`` also accepts the function *object*: its registered name is recovered
+#    by identity and dispatched over the wire, carrying its own registered
+#    version. The object form is locally registered by definition, so -- unlike
+#    by-name rpc -- its result is decoded against the declared return type.
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_dispatches_registered_name() -> None:
+    async with local() as r:
+        r.register(add, name="sum", version=1)
+        r.rpc("rpc-obj", add, 1, 2)
+        record = await wait_for_promise(r, "rpc-obj")
+        # Dispatched by the registered name, not ``add.__name__``.
+        assert record.param.data
+        assert record.param.data["func"] == "sum"
+        assert record.param.data["version"] == 1
+        assert record.param.data["args"] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_version_from_identity() -> None:
+    async def impl(ctx: Context) -> None: ...
+
+    async with local() as r:
+        r.register(impl, name="impl", version=4)
+        # The object carries its own version, so ``options(version=9)`` is ignored.
+        r.options(version=9).rpc("rpc-ver", impl)
+        record = await wait_for_promise(r, "rpc-ver")
+        assert record.param.data
+        assert record.param.data["func"] == "impl"
+        assert record.param.data["version"] == 4
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_unregistered_raises() -> None:
+    async def stranger(ctx: Context) -> None: ...
+
+    async with local() as r:
+        # A function object's registry name is not its ``__name__``, so an
+        # unregistered object cannot be dispatched: refuse rather than guess.
+        # Raised synchronously at the call site, so no promise is created.
+        with pytest.raises(FunctionNotFoundError, match="stranger"):
+            r.rpc("rpc-stranger", stranger)
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_handle_is_typed_by_name_is_any() -> None:
+    async with local() as r:
+        r.register(make_point)
+        # A remote rpc promise never settles in local mode, so this asserts the
+        # handle's decode type directly (white-box). A by-object dispatch carries
+        # the registered function's return annotation, exactly like ``run``; a
+        # by-name dispatch has no local function to read one from, so it is ``Any``.
+        typed = r.rpc("rpc-typed", make_point, 1, 2)
+        untyped = r.rpc("rpc-untyped", "make_point", 1, 2)
+        await wait_for_promise(r, "rpc-typed")
+        await wait_for_promise(r, "rpc-untyped")
+        assert typed._type is Point
+        assert untyped._type is Any
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  with_dependency (DI)
 #
-# Mirrors the Rust ``resonate.rs`` dependency-injection suite
-# (``e2e_workflow_reads_dependency_via_context`` / ``e2e_multiple_dependencies``):
 # ``with_dependency`` stores a value keyed by concrete type into the shared
 # DependencyMap, and a running workflow reads it back via ``ctx.get_dependency``.
 # ═══════════════════════════════════════════════════════════════════════════
@@ -623,31 +745,50 @@ async def test_multiple_dependencies() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  with_opts
+#  options
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 @pytest.mark.asyncio
-async def test_with_opts_returns_self_for_chaining() -> None:
+async def test_options_mints_new_handle_sharing_state() -> None:
+    # Mirrors Context.options: a *new* handle over the same engine, carrying
+    # its own opts; the originating handle keeps its defaults untouched.
     async with local() as r:
-        assert r.with_opts(timeout=timedelta(seconds=1)) is r
+        scoped = r.options(timeout=timedelta(seconds=1))
+        assert scoped is not r
+        # The shallow copy shares everything by reference: the rebound-state
+        # container and the construction-time wiring alike.
+        assert scoped._runtime is r._runtime
+        assert scoped.promises is r.promises
+        assert scoped.schedules is r.schedules
+        assert scoped.opts == Opts(timeout=timedelta(seconds=1))
+        assert r.opts == Opts()
 
 
 @pytest.mark.asyncio
-async def test_with_opts_consumed_synchronously_and_reset() -> None:
+async def test_options_handles_are_holdable_and_reusable() -> None:
+    # Two held handles never interfere -- each run/rpc reads its own frozen
+    # opts, so there is no consume/reset step for a second handle to clobber.
     async with local() as r:
-        r.register(noop)
-        r.with_opts(target="worker")
-        assert r._opts.target == "worker"
-        r.run("c", noop)
-        # Consumed and reset the moment run is called (run is synchronous).
-        assert r._opts == Opts()
+        a = r.options(target="worker-a")
+        b = r.options(target="worker-b")
+        a.rpc("held-a", "remote")
+        b.rpc("held-b", "remote")
+        # ``a`` still carries worker-a after ``b`` was created and used.
+        a.rpc("held-a2", "remote")
+        for id, target in [
+            ("held-a", "worker-a"),
+            ("held-b", "worker-b"),
+            ("held-a2", "worker-a"),
+        ]:
+            record = await wait_for_promise(r, id)
+            assert record.tags["resonate:target"] == f"local://any@{target}"
 
 
 @pytest.mark.asyncio
 async def test_with_opts_bare_name_target_rewritten() -> None:
     async with local() as r:
-        r.with_opts(target="my-worker").rpc("t-bare", "remote")
+        r.options(target="my-worker").rpc("t-bare", "remote")
         record = await wait_for_promise(r, "t-bare")
         assert record.tags["resonate:target"] == "local://any@my-worker"
 
@@ -656,7 +797,7 @@ async def test_with_opts_bare_name_target_rewritten() -> None:
 async def test_with_opts_url_target_passes_through() -> None:
     async with local() as r:
         url = "https://remote:9000/workers/hello"
-        r.with_opts(target=url).rpc("t-url", "remote")
+        r.options(target=url).rpc("t-url", "remote")
         record = await wait_for_promise(r, "t-url")
         assert record.tags["resonate:target"] == url
 
@@ -679,7 +820,7 @@ async def test_run_version_comes_from_registration() -> None:
 async def test_rpc_version_comes_from_opts() -> None:
     # rpc() dispatches by name, so with_opts(version=) selects the version.
     async with local() as r:
-        r.with_opts(version=7).rpc("t-rpc-ver", "remote")
+        r.options(version=7).rpc("t-rpc-ver", "remote")
         record = await wait_for_promise(r, "t-rpc-ver")
         assert record.param.data
         assert record.param.data.get("version") == 7
@@ -689,48 +830,9 @@ async def test_rpc_version_comes_from_opts() -> None:
 async def test_with_opts_applies_to_run_target() -> None:
     async with local() as r:
         r.register(noop)
-        await r.with_opts(target="my-target").run("rt2", noop).result()
+        await r.options(target="my-target").run("rt2", noop).result()
         record = await r.promises.get("rt2")
         assert record.tags["resonate:target"] == "local://any@my-target"
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Promise-creation chain (ordering under concurrency)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-@pytest.mark.asyncio
-async def test_chain_serializes_create_order() -> None:
-    async with local() as r:
-        started: list[str] = []
-        finished: list[str] = []
-        original = r._sender.promise_create
-
-        async def traced(req: PromiseCreateReq) -> PromiseRecord:
-            started.append(req.id)
-            if req.id == "c0":
-                # Slow the first create; the chain must hold back the rest.
-                await asyncio.sleep(0.05)
-            record = await original(req)
-            finished.append(req.id)
-            return record
-
-        with mock.patch.object(r._sender, "promise_create", side_effect=traced):
-            # Fire three back-to-back with no await between them.
-            r.rpc("c0", "f")
-            r.rpc("c1", "f")
-            r.rpc("c2", "f")
-
-            # Real sleeps so the 0.05s delay on c0 can actually elapse.
-            for _ in range(400):
-                if finished == ["c0", "c1", "c2"]:
-                    break
-                await asyncio.sleep(0.005)
-
-        # c1/c2 must not have started their create until c0 (the slow one)
-        # finished -- proof the chain serialized them in call order.
-        assert started == ["c0", "c1", "c2"]
-        assert finished == ["c0", "c1", "c2"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -862,19 +964,19 @@ async def test_schedule_creates_and_deletes() -> None:
 
 @pytest.mark.asyncio
 async def test_stop_is_clean_and_idempotent() -> None:
-    r = Resonate.local()
+    r = Resonate()
     await r.stop()
     await r.stop()  # second stop is a no-op
 
 
 @pytest.mark.asyncio
 async def test_stop_cancels_refresh_task() -> None:
-    r = Resonate.local()
-    handle = r._refresh_handle
+    r = Resonate()
+    handle = r._runtime.refresh_handle
     assert handle is not None
     assert not handle.done()
     await r.stop()
-    assert r._refresh_handle is None
+    assert r._runtime.refresh_handle is None
     # Let the cancellation finish processing, then confirm the task is done.
     with contextlib.suppress(asyncio.CancelledError):
         await handle
@@ -1008,7 +1110,7 @@ async def test_bounded_execute_caps_concurrent_executions() -> None:
 async def test_default_concurrency_ceiling_applied() -> None:
     """With no override the semaphore uses :data:`DEFAULT_MAX_CONCURRENT_TASKS`."""
     async with local() as r:
-        assert r._execute_sema._value == DEFAULT_MAX_CONCURRENT_TASKS
+        assert r._runtime.execute_sema._value == DEFAULT_MAX_CONCURRENT_TASKS
 
 
 # ── DurableFunction.return_type resolution ──────────────────────────────────

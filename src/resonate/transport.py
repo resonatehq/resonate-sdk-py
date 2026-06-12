@@ -59,8 +59,8 @@ class UnblockMsg(
         return self.data.promise
 
 
-# A parsed incoming message from the network. Mirrors Rust's internally tagged
-# ``Message`` enum (``#[serde(tag = "kind")]``).
+# A parsed incoming message from the network, discriminated by its ``kind``
+# field.
 Message = ExecuteMsg | UnblockMsg
 
 
@@ -72,8 +72,7 @@ Message = ExecuteMsg | UnblockMsg
 def _nested_str(value: Any, *keys: str) -> str:
     """Walk nested mapping ``keys`` and return the final string, or ``""``.
 
-    Mirrors the Rust chains of ``.get(..).and_then(|v| v.as_str()).unwrap_or("")``:
-    any missing key, non-mapping node, or non-string leaf collapses to ``""``.
+    Any missing key, non-mapping node, or non-string leaf collapses to ``""``.
     """
     for key in keys:
         if not isinstance(value, dict):

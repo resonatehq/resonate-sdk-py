@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from resonate.send import Sender
     from resonate.types import PromiseRecord
 
-# Mirrors Rust's ``tracing::info!(target: "resonate::validation", ...)``: the
-# validation harness keys off this logger name rather than the module name.
+# The validation harness keys off this logger name rather than the module
+# name, so it must stay "resonate.validation".
 logger = logging.getLogger("resonate.validation")
 
 
@@ -28,11 +28,10 @@ class Effects(Protocol):
 class ResonateEffects:
     """The two durable operations the SDK needs, built from a Sender and Codec.
 
-    Maintains an internal cache of decoded :class:`PromiseRecord`s. Mirrors
-    Rust's ``Effects``; the Rust ``DashMap`` becomes a plain ``dict`` because the
-    SDK runs single-threaded on asyncio -- individual ``dict`` reads and writes
-    are atomic and no operation holds the cache across an ``await`` (matching the
-    way Rust never holds the ``DashMap`` lock across the network round-trip).
+    Maintains an internal cache of decoded :class:`PromiseRecord`s. A plain
+    ``dict`` is safe here because the SDK runs single-threaded on asyncio --
+    individual ``dict`` reads and writes are atomic, and no operation holds
+    the cache across an ``await``.
     """
 
     def __init__(
@@ -41,7 +40,7 @@ class ResonateEffects:
         """Build Effects from a Sender, Codec, and optional preloaded promises.
 
         Each preloaded record is decoded into the cache; a record that fails to
-        decode is silently skipped, mirroring Rust's ``if let Ok(decoded)``.
+        decode is silently skipped.
         """
         self.sender = sender
         self.codec = codec
@@ -70,7 +69,7 @@ class ResonateEffects:
             tags=req.tags,
         )
 
-        # validation tracing
+        # validation logging
         scope = encoded_req.tags.get("resonate:scope")
         if scope == "local":
             invocation = "run"

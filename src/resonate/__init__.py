@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-#: Protocol version string sent in all requests. Mirrors Rust's ``PROTOCOL_VERSION``.
+#: Protocol version string sent in all requests to the Resonate server.
 PROTOCOL_VERSION = "2026-04-01"
 
 

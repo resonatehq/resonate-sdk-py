@@ -148,11 +148,6 @@ def test_encode_error_produces_correct_shape() -> None:
 
 
 def _roundtrip[T](value: Any, type_: type[T]) -> T | None:
-    """Encode, decode, then coerce ``value`` back into ``type_`` through a codec.
-
-    Mirrors the real read path (``handle.py``): the codec decodes to builtins
-    and ``convert`` reshapes them into the concrete type.
-    """
     c = codec()
     return c.convert(c.decode(c.encode(value)), type_)
 
@@ -264,8 +259,6 @@ def test_roundtrip_int_enum() -> None:
 
 @dataclasses.dataclass(frozen=True)
 class MixedShape:
-    """A dataclass nesting a msgspec.Struct, a collection, and an optional."""
-
     corner: MsgspecPoint
     label: str | None = None
 

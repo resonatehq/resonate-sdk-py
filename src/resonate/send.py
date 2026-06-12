@@ -54,9 +54,9 @@ class PromiseSearchResult(msgspec.Struct, frozen=True, kw_only=True):
     cursor: str | None
 
 
-#: Result of task creation when conflict is expected. Mirrors Rust's
-#: ``TaskCreateOutcome`` enum: ``Created`` folds into :data:`TaskCreateResult`,
-#: ``Conflict`` into the literal ``"conflict"``.
+#: Result of task creation when a conflict is expected: either a
+#: :data:`TaskCreateResult` on success, or the literal ``"conflict"`` when the
+#: server responds with 409.
 #:
 #: The 409 response from the server carries no promise data -- callers receiving
 #: ``"conflict"`` must subscribe to the existing promise themselves.
@@ -262,9 +262,9 @@ class Sender:
     ) -> tuple[int, Any]:
         """Serialize an envelope, send it, and return ``(status, data)``.
 
-        Mirrors Rust's ``send_envelope``: ``status`` defaults to 200 and ``data``
-        to an empty object when absent, and a status >= 400 (other than an
-        allowed 409) is converted into a :class:`ServerError`.
+        ``status`` defaults to 200 and ``data`` to an empty object when absent.
+        A status >= 400 (other than an allowed 409) raises a
+        :class:`ServerError`.
         """
         head = self._make_head()
         corr_id = head.corr_id
@@ -299,8 +299,7 @@ class Head(
 ):
     """The ``head`` of a protocol envelope.
 
-    ``auth`` mirrors Rust's ``#[serde(skip_serializing_if = "Option::is_none")]``:
-    ``omit_defaults`` leaves it out of the wire format when ``None``.
+    ``auth`` is left out of the wire format when ``None``.
     """
 
     corr_id: str
@@ -328,8 +327,7 @@ class SubEnvelope(msgspec.Struct, frozen=True, kw_only=True):
 # Response parsing helpers (internal)
 # =============================================================================
 
-# Value-typed fields whose JSON ``null`` must collapse to an empty Value,
-# mirroring Rust's custom ``Value`` deserialize (``null -> Value::default()``).
+# Value-typed fields whose JSON ``null`` must collapse to an empty Value.
 # msgspec rejects ``null`` for a struct field, so these keys are dropped when
 # ``null`` and the struct's default factory supplies an empty Value.
 _VALUE_FIELDS = ("param", "value", "promiseParam")
@@ -346,10 +344,7 @@ def _normalize_record(raw: Any) -> Any:
 
 
 def _decode_or_raise[T](raw: Any, type_: type[T], what: str) -> T:
-    """Convert parsed JSON into ``type_``, raising :class:`DecodingError` on failure.
-
-    Mirrors Rust's ``T::deserialize(value).map_err(|e| DecodingError(...))``.
-    """
+    """Convert parsed JSON into ``type_``, raising :class:`DecodingError` on failure."""
     try:
         return msgspec.convert(_normalize_record(raw), type=type_)
     except (TypeError, ValueError, msgspec.MsgspecError) as exc:
@@ -358,10 +353,7 @@ def _decode_or_raise[T](raw: Any, type_: type[T], what: str) -> T:
 
 
 def _decode_list[T](data: Any, key: str, type_: type[T]) -> list[T]:
-    """Decode the array at ``data[key]``, silently dropping records that fail to parse.
-
-    Mirrors Rust's ``filter_map(|v| T::deserialize(v).ok())``.
-    """
+    """Decode the array at ``data[key]``, silently dropping records that fail to parse."""
     arr = data.get(key) if isinstance(data, dict) else None
     if not isinstance(arr, list):
         return []
@@ -375,13 +367,13 @@ def _decode_list[T](data: Any, key: str, type_: type[T]) -> list[T]:
 
 
 def _cursor(data: Any) -> str | None:
-    """Extract a string ``cursor`` field, defaulting to ``None`` (Rust ``as_str``)."""
+    """Extract a string ``cursor`` field, defaulting to ``None``."""
     cursor = data.get("cursor") if isinstance(data, dict) else None
     return cursor if isinstance(cursor, str) else None
 
 
 def _resp_status(resp: Any) -> int:
-    """Extract ``head.status``, defaulting to 200 (Rust ``as_u64().unwrap_or(200)``)."""
+    """Extract ``head.status``, defaulting to 200."""
     if isinstance(resp, dict):
         head = resp.get("head")
         if isinstance(head, dict):
@@ -392,7 +384,7 @@ def _resp_status(resp: Any) -> int:
 
 
 def _resp_data(resp: Any) -> Any:
-    """Extract the ``data`` portion, defaulting to ``{}`` (Rust ``unwrap_or(json!({}))``)."""
+    """Extract the ``data`` portion, defaulting to ``{}``."""
     if isinstance(resp, dict) and "data" in resp:
         return resp["data"]
     return {}

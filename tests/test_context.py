@@ -1,12 +1,8 @@
 """Behaviour tests for :mod:`resonate.context` -- focused on ``Context.run``.
 
-``context.rs`` has its own ``#[cfg(test)]`` module, but the Python ``run`` was
-ported from Go's ``context.go`` (``Run`` + ``executeLocal`` + ``Future.Await``
-fused into the inline async-await form), so these tests mirror Go's
-``context_test.go`` ``Run`` cases adapted to that model: ``run`` returns the
-value directly, raises on rejection, and raises
-:class:`~resonate.error.SuspendedError` (instead of Go's ``suspendSignal`` panic)
-when a dependency is still pending.
+``run`` executes the child inline in async-await form: it returns the value
+directly, raises on rejection, and raises
+:class:`~resonate.error.SuspendedError` when a dependency is still pending.
 
 The harness builds a root :class:`~resonate.context.Context` over a real
 :class:`~resonate.network.LocalNetwork` (as :mod:`tests.test_durable` does), so
@@ -16,6 +12,7 @@ The harness builds a root :class:`~resonate.context.Context` over a real
 from __future__ import annotations
 
 import asyncio
+import threading
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -30,8 +27,14 @@ from resonate.context import Context, Opts, _hash_id
 from resonate.dependencies import DependencyMap
 from resonate.durable import DurableFunction
 from resonate.effects import ResonateEffects
-from resonate.error import ApplicationError, SuspendedError
+from resonate.error import (
+    ApplicationError,
+    FunctionNotFoundError,
+    SerializationError,
+    SuspendedError,
+)
 from resonate.network import LocalNetwork
+from resonate.registry import Registry
 from resonate.retry import Constant, Never
 from resonate.send import Sender
 from resonate.transport import Transport
@@ -60,12 +63,17 @@ def _root(
     timeout_at: int = I64_MAX,
     deps: DependencyMap | None = None,
     retry_policy: RetryPolicy | None = None,
+    registry: Registry | None = None,
 ) -> Context:
     """Build a root ``Context`` over a fresh ``LocalNetwork``.
 
     ``retry_policy`` defaults to ``None`` -> ``Never`` (the engine-layer default),
     so a failing pure leaf settles on the first attempt; pass a policy to exercise
     the inherited-default path that ``ctx.run`` children resolve against.
+
+    ``registry`` defaults to ``None`` -> an empty registry, so the by-name
+    durable ops resolve to not-found; pass one (with functions registered) to
+    exercise by-name ``run`` / by-object ``rpc`` resolution.
     """
     sender = Sender(Transport(LocalNetwork()), None)
     effects = ResonateEffects(sender, _codec(), preload or [])
@@ -79,6 +87,7 @@ def _root(
         target_resolver=lambda target: target or "",
         deps=deps or DependencyMap(),
         retry_policy=retry_policy,
+        registry=registry,
     )
 
 
@@ -153,6 +162,19 @@ async def sum_point(ctx: Context, p: Point) -> int:
     return p.x + p.y
 
 
+class _Resource:
+    """A live object msgspec cannot encode (it holds a ``threading.Lock``).
+
+    Stands in for the kind of argument -- a client, a connection, a handle --
+    that a local ``ctx.run`` must now accept, since its args are neither
+    serialized into the promise param nor coerced against their annotation.
+    """
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.lock = threading.Lock()
+
+
 async def parent_workflow(ctx: Context, x: int) -> int:
     """Run nested leaves on this workflow's own child context."""
     a = await ctx.run(double, x)
@@ -166,13 +188,13 @@ async def blocks_on_remote(ctx: Context) -> int:
     Those register the awaited promise id and unwind via ``SuspendedError``;
     until they exist, this stands in so ``run``'s suspension path is exercised.
     """
-    ctx.spawned_remote.append("remote-dep")
+    ctx._state.spawned_remote.append("remote-dep")
     raise SuspendedError
 
 
 async def fire_and_forget(ctx: Context) -> int:
     """Complete normally but leave a pending remote child registered."""
-    ctx.spawned_remote.append("ff-dep")
+    ctx._state.spawned_remote.append("ff-dep")
     return 7
 
 
@@ -189,14 +211,13 @@ def test_next_id_sequential() -> None:
 
 
 def test_child_parent_is_current_id() -> None:
-    # Regression: child.parent_id must be the *current* id (Go ``c.id`` / Rust
-    # ``self.id``), not the parent's own parent_id.
+    # Regression: child.parent_id must be the *current* id, not the parent's
+    # own parent_id.
     ctx = _root()
     child = ctx._child("root.1", "fn", I64_MAX)
-    assert child.parent_id == "root"
-    assert child.origin_id == "root"
-    assert child.prefix_id == "root"
-    assert child.branch_id == "root.1"
+    assert child.info.parent_id == "root"
+    assert child.info.origin_id == "root"
+    assert child.info.branch_id == "root.1"
 
 
 def test_child_timeout_caps_to_parent() -> None:
@@ -213,8 +234,7 @@ def test_child_timeout_caps_to_parent() -> None:
 #
 # ``Context.get_dependency`` is a thin pass-through to ``deps.get(type)`` -- the
 # same map ``Resonate.with_dependency`` populates. It returns the stored value
-# by concrete type and surfaces the map's ``KeyError`` when absent. Mirrors
-# Rust's ``Context::get_dependency``.
+# by concrete type and surfaces the map's ``KeyError`` when absent.
 # =============================================================================
 
 
@@ -259,7 +279,7 @@ def test_get_dependency_shared_with_child_context() -> None:
 async def test_run_leaf_returns_and_settles_resolved() -> None:
     ctx = _root()
     assert await ctx.run(double, 21) == 42
-    record = ctx.effects.cache["root.1"]
+    record = ctx._state.effects.cache["root.1"]
     assert record.state == "resolved"
     assert record.value.data == 42
 
@@ -268,7 +288,7 @@ async def test_run_leaf_returns_and_settles_resolved() -> None:
 async def test_run_ctx_only_function() -> None:
     ctx = _root()
     assert await ctx.run(beat) == "ok"
-    assert ctx.effects.cache["root.1"].state == "resolved"
+    assert ctx._state.effects.cache["root.1"].state == "resolved"
 
 
 @pytest.mark.asyncio
@@ -284,8 +304,8 @@ async def test_run_sequential_child_ids() -> None:
     ctx = _root()
     assert await ctx.run(double, 2) == 4  # root.1
     assert await ctx.run(double, 3) == 6  # root.2
-    assert ctx.effects.cache["root.1"].value.data == 4
-    assert ctx.effects.cache["root.2"].value.data == 6
+    assert ctx._state.effects.cache["root.1"].value.data == 4
+    assert ctx._state.effects.cache["root.2"].value.data == 6
 
 
 @pytest.mark.asyncio
@@ -294,6 +314,63 @@ async def test_run_rejects_non_callable() -> None:
     ctx = _root()
     with pytest.raises(ApplicationError):
         await ctx.run(not_callable)
+
+
+# =============================================================================
+# run: non-serializable arguments
+#
+# A local child's args are never written to its promise param (the param is
+# write-only -- nothing reads it back) and never coerced against their
+# annotation, so ``ctx.run`` accepts any Python object. The return value still
+# round-trips, so it must stay serializable.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_run_accepts_non_serializable_unannotated_arg() -> None:
+    async def use_resource(ctx: Context, r: Any) -> str:
+        return r.label
+
+    resource = _Resource("db")
+    ctx = _root()
+    # Would raise SerializationError at create_promise before this change.
+    assert await ctx.run(use_resource, resource) == "db"
+
+
+@pytest.mark.asyncio
+async def test_run_accepts_non_serializable_annotated_arg_verbatim() -> None:
+    # Annotated with its own non-msgspec class: coercion is skipped for local
+    # children, so the *same* live object reaches the function rather than being
+    # rejected (or copied) by ``msgspec.convert``.
+    received: list[_Resource] = []
+
+    async def use_resource(ctx: Context, r: _Resource) -> str:
+        received.append(r)
+        return r.label
+
+    resource = _Resource("cache")
+    ctx = _root()
+    assert await ctx.run(use_resource, resource) == "cache"
+    assert received[0] is resource  # verbatim identity, not coerced
+
+
+@pytest.mark.asyncio
+async def test_run_local_child_param_is_empty() -> None:
+    # The arg is never stored in the child's param, even when serializable: the
+    # child executes from the in-memory payload and recovery reads the settled
+    # value, never the param.
+    ctx = _root()
+    await ctx.run(double, 21)
+    assert ctx._state.effects.cache["root.1"].param == Value()
+
+
+@pytest.mark.asyncio
+async def test_rpc_still_rejects_non_serializable_arg() -> None:
+    # Global scope is unchanged: a different worker reconstructs an ``rpc`` call
+    # from the persisted param, so a non-serializable arg still fails to encode.
+    ctx = _root()
+    with pytest.raises(SerializationError):
+        await ctx.rpc("remote_fn", _Resource("db"))
 
 
 # =============================================================================
@@ -306,7 +383,7 @@ async def test_run_function_error_propagates_and_settles_rejected() -> None:
     ctx = _root()
     with pytest.raises(ApplicationError, match="denied"):
         await ctx.run(failing)
-    assert ctx.effects.cache["root.1"].state == "rejected"
+    assert ctx._state.effects.cache["root.1"].state == "rejected"
 
 
 @pytest.mark.asyncio
@@ -323,7 +400,7 @@ async def test_run_plain_exception_preserves_type_and_settles_rejected() -> None
     ctx = _root()
     with pytest.raises(BookingError, match="card declined"):
         await ctx.run(failing_plain)
-    assert ctx.effects.cache["root.1"].state == "rejected"
+    assert ctx._state.effects.cache["root.1"].state == "rejected"
 
 
 # =============================================================================
@@ -370,11 +447,6 @@ async def test_run_replay_does_not_reinvoke() -> None:
         return x
 
     ctx = _root()
-    assert await ctx.run(counted, 7) == 7
-    assert calls == 1
-    # Replay: the same child id is recreated, but the cached settled record
-    # short-circuits, so the body does not run again.
-    ctx.seq = 0
     assert await ctx.run(counted, 7) == 7
     assert calls == 1
 
@@ -441,7 +513,7 @@ async def test_run_live_path_coerces_return_to_declared_type() -> None:
     # The promise stores the raw return (an int); coercion is applied only at the
     # return boundary, matching the top-level run (which stores raw and coerces
     # at the handle).
-    assert ctx.effects.cache["root.1"].value.data == 3
+    assert ctx._state.effects.cache["root.1"].value.data == 3
 
 
 @pytest.mark.asyncio
@@ -476,11 +548,11 @@ async def test_run_live_path_coerces_return_to_struct() -> None:
 async def test_workflow_runs_nested_leaves() -> None:
     ctx = _root()
     assert await ctx.run(parent_workflow, 5) == 30  # a=10, b=20
-    assert ctx.spawned_remote == []  # nothing pending -> no suspension
-    assert ctx.effects.cache["root.1"].state == "resolved"
+    assert ctx._state.spawned_remote == []  # nothing pending -> no suspension
+    assert ctx._state.effects.cache["root.1"].state == "resolved"
     # Nested children live under the workflow's own id.
-    assert ctx.effects.cache["root.1.1"].value.data == 10
-    assert ctx.effects.cache["root.1.2"].value.data == 20
+    assert ctx._state.effects.cache["root.1.1"].value.data == 10
+    assert ctx._state.effects.cache["root.1.2"].value.data == 20
 
 
 # =============================================================================
@@ -494,20 +566,20 @@ async def test_run_suspends_when_child_blocks_on_remote() -> None:
     with pytest.raises(SuspendedError):
         await ctx.run(blocks_on_remote)
     # The child's todo is merged up so the task can suspend on it...
-    assert ctx.spawned_remote == ["remote-dep"]
+    assert ctx._state.spawned_remote == ["remote-dep"]
     # ...and the child promise is left pending (not settled).
-    assert ctx.effects.cache["root.1"].state == "pending"
+    assert ctx._state.effects.cache["root.1"].state == "pending"
 
 
 @pytest.mark.asyncio
 async def test_run_suspends_when_child_completes_with_pending_remote() -> None:
-    # Go reports ``localResult{suspended: true}`` when the function finished but
-    # left remote todos -- the value is dropped in favour of suspension.
+    # When the function finished but left remote todos, the value is dropped
+    # in favour of suspension.
     ctx = _root()
     with pytest.raises(SuspendedError):
         await ctx.run(fire_and_forget)
-    assert ctx.spawned_remote == ["ff-dep"]
-    assert ctx.effects.cache["root.1"].state == "pending"
+    assert ctx._state.spawned_remote == ["ff-dep"]
+    assert ctx._state.effects.cache["root.1"].state == "pending"
 
 
 # =============================================================================
@@ -515,16 +587,15 @@ async def test_run_suspends_when_child_completes_with_pending_remote() -> None:
 #
 # When a deeply nested child blocks on a remote dependency, its todo must
 # travel through every intermediate ``ctx.run`` up to the root, and every
-# promise on the suspension path must be left pending (not settled). This
-# mirrors Go's ``executeLocal`` recursion and Rust's ``RunTask::into_future``
-# propagation: at each level, ``take_remote_todos`` drains the child and
+# promise on the suspension path must be left pending (not settled):
+# at each level, ``take_remote_todos`` drains the child and
 # extends the parent before re-raising ``SuspendedError``.
 # =============================================================================
 
 
 async def deep_inner(ctx: Context) -> int:
     """Leaf stand-in for rpc/sleep -- registers a remote dep and suspends."""
-    ctx.spawned_remote.append("deep-dep")
+    ctx._state.spawned_remote.append("deep-dep")
     raise SuspendedError
 
 
@@ -545,7 +616,7 @@ async def completes_then_suspends(ctx: Context) -> int:
 
 async def multi_remote(ctx: Context) -> int:
     """Register multiple remote deps before suspending -- a multi-todo leaf."""
-    ctx.spawned_remote.extend(["dep-a", "dep-b", "dep-c"])
+    ctx._state.spawned_remote.extend(["dep-a", "dep-b", "dep-c"])
     raise SuspendedError
 
 
@@ -568,10 +639,10 @@ async def test_run_suspension_propagates_through_intermediate_workflow() -> None
     ctx = _root()
     with pytest.raises(SuspendedError):
         await ctx.run(deep_middle)
-    assert ctx.spawned_remote == ["deep-dep"]
+    assert ctx._state.spawned_remote == ["deep-dep"]
     # Both promises along the suspension path are left pending.
-    assert ctx.effects.cache["root.1"].state == "pending"  # middle
-    assert ctx.effects.cache["root.1.1"].state == "pending"  # inner
+    assert ctx._state.effects.cache["root.1"].state == "pending"  # middle
+    assert ctx._state.effects.cache["root.1.1"].state == "pending"  # inner
 
 
 @pytest.mark.asyncio
@@ -580,10 +651,10 @@ async def test_run_suspension_propagates_through_three_levels() -> None:
     ctx = _root()
     with pytest.raises(SuspendedError):
         await ctx.run(deep_top)
-    assert ctx.spawned_remote == ["deep-dep"]
-    assert ctx.effects.cache["root.1"].state == "pending"  # top
-    assert ctx.effects.cache["root.1.1"].state == "pending"  # middle
-    assert ctx.effects.cache["root.1.1.1"].state == "pending"  # inner
+    assert ctx._state.spawned_remote == ["deep-dep"]
+    assert ctx._state.effects.cache["root.1"].state == "pending"  # top
+    assert ctx._state.effects.cache["root.1.1"].state == "pending"  # middle
+    assert ctx._state.effects.cache["root.1.1.1"].state == "pending"  # inner
 
 
 @pytest.mark.asyncio
@@ -594,15 +665,15 @@ async def test_run_completed_sibling_settles_but_parent_still_suspends() -> None
     ctx = _root()
     with pytest.raises(SuspendedError):
         await ctx.run(completes_then_suspends)
-    assert ctx.spawned_remote == ["remote-dep"]
+    assert ctx._state.spawned_remote == ["remote-dep"]
     # First child got fully settled with its computed value.
-    assert ctx.effects.cache["root.1.1"].state == "resolved"
-    assert ctx.effects.cache["root.1.1"].value.data == 42
+    assert ctx._state.effects.cache["root.1.1"].state == "resolved"
+    assert ctx._state.effects.cache["root.1.1"].value.data == 42
     # Second child remains pending -- its body raised SuspendedError.
-    assert ctx.effects.cache["root.1.2"].state == "pending"
+    assert ctx._state.effects.cache["root.1.2"].state == "pending"
     # Parent workflow itself stays pending: ``outcome == "suspended"`` skips
     # the settle_promise call at the bottom of ``run``.
-    assert ctx.effects.cache["root.1"].state == "pending"
+    assert ctx._state.effects.cache["root.1"].state == "pending"
 
 
 @pytest.mark.asyncio
@@ -612,7 +683,7 @@ async def test_run_merges_multiple_todos_from_single_child() -> None:
     ctx = _root()
     with pytest.raises(SuspendedError):
         await ctx.run(multi_remote)
-    assert ctx.spawned_remote == ["dep-a", "dep-b", "dep-c"]
+    assert ctx._state.spawned_remote == ["dep-a", "dep-b", "dep-c"]
 
 
 @pytest.mark.asyncio
@@ -622,18 +693,17 @@ async def test_run_fire_and_forget_child_suspension_propagates() -> None:
     # child's todo into the parent's spawned_remote and force the parent to
     # suspend even though the body returned 99.
     #
-    # This is the exact scenario Go's executeLocal calls out with
-    # ``localResult{suspended: true}`` when the function returned but left
-    # remote todos (context.go:362-371) -- it depends on spawned_locals
-    # being populated so flush has something to wait for.
+    # This is the "function returned but left remote todos" scenario -- it
+    # depends on spawned_locals being populated so flush has something to
+    # wait for.
     ctx = _root()
     with pytest.raises(SuspendedError):
         await ctx.run(parent_with_fire_and_forget)
-    assert ctx.spawned_remote == ["remote-dep"]
+    assert ctx._state.spawned_remote == ["remote-dep"]
     # Parent's value (99) was dropped in favour of suspension; both promises
     # along the suspension path are left pending.
-    assert ctx.effects.cache["root.1"].state == "pending"
-    assert ctx.effects.cache["root.1.1"].state == "pending"
+    assert ctx._state.effects.cache["root.1"].state == "pending"
+    assert ctx._state.effects.cache["root.1.1"].state == "pending"
 
 
 # =============================================================================
@@ -644,7 +714,6 @@ async def test_run_fire_and_forget_child_suspension_propagates() -> None:
 # that a fire-and-forget child must not be orphaned: the parent's
 # ``settle_promise`` cannot run until every child registered on the parent's
 # context has reached a terminal state (settled or merged remote todos up).
-# Mirrors Go's ``wg.Wait()`` over ``spawnedLocals`` in ``executeLocal``.
 # =============================================================================
 
 
@@ -669,14 +738,14 @@ async def test_run_unawaited_child_settles_before_parent() -> None:
     # observed strictly before the parent's.
     ctx = _root()
     settle_order: list[str] = []
-    original = ctx.effects.settle_promise
+    original = ctx._state.effects.settle_promise
 
     async def recorder(id: str, value: Any) -> Any:
         settle_order.append(id)
         return await original(id, value)
 
     with patch.object(
-        ctx.effects, "settle_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "settle_promise", new=AsyncMock(side_effect=recorder)
     ):
         assert await ctx.run(parent_does_not_await_child) == 1
 
@@ -684,10 +753,10 @@ async def test_run_unawaited_child_settles_before_parent() -> None:
     # the parent's bg would settle ahead of the still-pending child task and
     # this order would flip.
     assert settle_order == ["root.1.1", "root.1"]
-    assert ctx.effects.cache["root.1.1"].state == "resolved"
-    assert ctx.effects.cache["root.1.1"].value.data == 42
-    assert ctx.effects.cache["root.1"].state == "resolved"
-    assert ctx.effects.cache["root.1"].value.data == 1
+    assert ctx._state.effects.cache["root.1.1"].state == "resolved"
+    assert ctx._state.effects.cache["root.1.1"].value.data == 42
+    assert ctx._state.effects.cache["root.1"].state == "resolved"
+    assert ctx._state.effects.cache["root.1"].value.data == 1
 
 
 # =============================================================================
@@ -705,7 +774,7 @@ async def test_run_unawaited_child_settles_before_parent() -> None:
 @contextmanager
 def _gated_create_promise(ctx: Context, gate: asyncio.Event) -> Iterator[asyncio.Event]:
     entered = asyncio.Event()
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def gated(req: Any) -> Any:
         entered.set()
@@ -713,7 +782,7 @@ def _gated_create_promise(ctx: Context, gate: asyncio.Event) -> Iterator[asyncio
         return await original(req)
 
     mock = AsyncMock(side_effect=gated)
-    with patch.object(ctx.effects, "create_promise", new=mock):
+    with patch.object(ctx._state.effects, "create_promise", new=mock):
         yield entered
 
 
@@ -732,13 +801,13 @@ async def test_run_task_pending_while_create_promise_blocked() -> None:
         await entered.wait()
 
         # And the durable record is not in the cache yet.
-        assert "root.1" not in ctx.effects.cache
+        assert "root.1" not in ctx._state.effects.cache
 
         # Releasing the gate lets create_promise return, the event fire, and
         # the body run through to settlement.
         gate.set()
         assert await task == 42
-        assert ctx.effects.cache["root.1"].state == "resolved"
+        assert ctx._state.effects.cache["root.1"].state == "resolved"
 
 
 @pytest.mark.asyncio
@@ -776,10 +845,10 @@ async def test_run_durable_promise_visible_in_cache_before_task_resolves() -> No
     ctx = _root()
     result = await ctx.run(double, 5)
     assert result == 10
-    assert "root.1" in ctx.effects.cache
+    assert "root.1" in ctx._state.effects.cache
     # And it was created *before* it was settled -- the cached record reflects
     # the post-settle state by the time we observe the result.
-    assert ctx.effects.cache["root.1"].state == "resolved"
+    assert ctx._state.effects.cache["root.1"].state == "resolved"
 
 
 @pytest.mark.asyncio
@@ -791,7 +860,7 @@ async def test_run_releases_event_when_create_promise_raises() -> None:
     ctx = _root()
 
     failing = AsyncMock(side_effect=RuntimeError("network down"))
-    with patch.object(ctx.effects, "create_promise", new=failing):
+    with patch.object(ctx._state.effects, "create_promise", new=failing):
         task = ctx.run(double, 1)
 
         with pytest.raises(RuntimeError, match="network down"):
@@ -799,7 +868,7 @@ async def test_run_releases_event_when_create_promise_raises() -> None:
 
     failing.assert_awaited_once()
     # Nothing was cached, because creation never succeeded.
-    assert "root.1" not in ctx.effects.cache
+    assert "root.1" not in ctx._state.effects.cache
 
 
 @pytest.mark.asyncio
@@ -812,9 +881,9 @@ async def test_run_does_not_settle_before_create_returns() -> None:
 
     # ``wraps=`` lets the mock both record calls *and* delegate to the real
     # ``settle_promise`` so settlement still hits the cache as usual.
-    settle_mock = AsyncMock(wraps=ctx.effects.settle_promise)
+    settle_mock = AsyncMock(wraps=ctx._state.effects.settle_promise)
     with (
-        patch.object(ctx.effects, "settle_promise", new=settle_mock),
+        patch.object(ctx._state.effects, "settle_promise", new=settle_mock),
         _gated_create_promise(ctx, gate) as entered,
     ):
         task = ctx.run(double, 3)
@@ -828,7 +897,13 @@ async def test_run_does_not_settle_before_create_returns() -> None:
 
 
 # =============================================================================
-# run: with_options(timeout=...) and per-call opts reset
+# run: options(timeout=...) and per-call opts scoping
+#
+# ``options`` mints an independent ``Context`` over the same shared state,
+# carrying the override only for its next durable op. The originating context
+# is never mutated, so an override applies to exactly the one
+# ``ctx.options(...).run(...)`` it is chained onto and a later bare ``ctx.run``
+# still sees the defaults -- there is no consume/reset step.
 # =============================================================================
 
 
@@ -836,9 +911,9 @@ async def test_run_does_not_settle_before_create_returns() -> None:
 async def test_run_with_options_timeout_sets_child_deadline() -> None:
     ctx = _root()
     before = now_ms()
-    assert await ctx.with_opts(timeout=timedelta(seconds=30)).run(double, 5) == 10
+    assert await ctx.options(timeout=timedelta(seconds=30)).run(double, 5) == 10
     after = now_ms()
-    record = ctx.effects.cache["root.1"]
+    record = ctx._state.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
 
 
@@ -847,28 +922,144 @@ async def test_run_with_options_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
     # A year-long timeout still cannot outlive the parent's deadline.
-    await ctx.with_opts(timeout=timedelta(days=365)).run(double, 1)
-    assert ctx.effects.cache["root.1"].timeout_at == cap
+    await ctx.options(timeout=timedelta(days=365)).run(double, 1)
+    assert ctx._state.effects.cache["root.1"].timeout_at == cap
 
 
 @pytest.mark.asyncio
-async def test_run_consumes_options_after_one_call() -> None:
+async def test_run_options_do_not_leak_to_base_context() -> None:
     ctx = _root()
-    await ctx.with_opts(timeout=timedelta(seconds=30)).run(double, 1)  # root.1
-    short = ctx.effects.cache["root.1"].timeout_at
-    # The next run carries no options -> the 24h default, well past the 30s one.
+    await ctx.options(timeout=timedelta(seconds=30)).run(double, 1)  # root.1
+    short = ctx._state.effects.cache["root.1"].timeout_at
+    # The next run is issued on the base context, which still carries no
+    # options -> the 24h default, well past the 30s one. The override rode the
+    # throwaway handle and never touched ``ctx``.
     await ctx.run(double, 1)  # root.2
-    assert ctx.effects.cache["root.2"].timeout_at > short
+    assert ctx._state.effects.cache["root.2"].timeout_at > short
     assert ctx.opts == Opts()
 
 
 @pytest.mark.asyncio
-async def test_run_resets_options_even_on_error() -> None:
+async def test_options_returns_independent_handle_sharing_state() -> None:
+    # ``options`` returns a *new* context (not ``self``) carrying the override,
+    # over the *same* shared state -- so the base context is never mutated.
     ctx = _root()
-    ctx.with_opts(timeout=timedelta(seconds=5))
-    with pytest.raises(ApplicationError):
-        await ctx.run(failing)
+    scoped = ctx.options(timeout=timedelta(seconds=5))
+    assert scoped is not ctx
+    assert scoped.opts == Opts(timeout=timedelta(seconds=5))
     assert ctx.opts == Opts()
+    assert scoped._state is ctx._state
+
+
+# =============================================================================
+# options: the Context is an isolated opts container over shared state
+#
+# ``options`` is the only way to set per-call ``Opts``, and it does so by minting
+# a brand-new ``Context`` rather than mutating ``self``. Two complementary
+# properties follow, and these tests pin both halves of "isolated container":
+#
+# * Opts are isolated -- every ``options(...)`` handle builds its own fresh
+#   ``Opts`` from the keyword defaults. It never merges with the base handle's
+#   opts (so a *chained* ``options`` resets each unspecified field to its
+#   default rather than carrying it forward), and sibling handles minted off the
+#   same base never observe each other's overrides.
+# * State is shared -- all of those handles point at the *same* ``_state``, so
+#   execution-level mutations (the id sequence, the ``workflow`` flag, the
+#   spawned-children lists, the durable cache) are visible across every handle.
+#   The container isolates ``_opts``, deliberately NOT ``_state``.
+# =============================================================================
+
+
+def test_options_builds_fresh_opts_not_merged_from_base() -> None:
+    # A chained ``options`` does not inherit the previous handle's overrides:
+    # each call constructs ``Opts`` from the keyword defaults, so a field the
+    # second call omits falls back to its default rather than carrying forward.
+    ctx = _root()
+    scoped = ctx.options(target="worker-1").options(version=2)
+    # ``version`` is the only field the second call set; ``target`` reset to its
+    # default (None) -- it was NOT carried over from the first ``options``.
+    assert scoped.opts == Opts(version=2)
+    assert scoped.opts.target is None
+
+
+def test_options_no_args_yields_default_opts_on_a_new_handle() -> None:
+    # A bare ``options()`` still mints a distinct handle, carrying a default
+    # ``Opts`` equal to -- but not identical with -- the base context's.
+    ctx = _root()
+    scoped = ctx.options()
+    assert scoped is not ctx
+    assert scoped.opts == Opts()
+    assert scoped._state is ctx._state
+
+
+def test_options_carries_every_field_independently() -> None:
+    # All four overridable fields ride the throwaway handle; none touches base.
+    ctx = _root()
+    policy = Constant(max_retries=4, delay=0)
+    scoped = ctx.options(
+        timeout=timedelta(seconds=7),
+        target="w",
+        version=3,
+        retry_policy=policy,
+    )
+    assert scoped.opts == Opts(
+        timeout=timedelta(seconds=7), target="w", version=3, retry_policy=policy
+    )
+    # The base handle's opts are untouched -- still the bare defaults.
+    assert ctx.opts == Opts()
+
+
+def test_options_sibling_handles_are_mutually_isolated() -> None:
+    # Two handles minted off the same base never see each other's overrides, and
+    # neither leaks back onto the base -- yet all three share one ``_state``.
+    ctx = _root()
+    a = ctx.options(timeout=timedelta(seconds=5))
+    b = ctx.options(target="worker-2")
+    assert a.opts == Opts(timeout=timedelta(seconds=5))
+    assert b.opts == Opts(target="worker-2")
+    assert a.opts != b.opts
+    assert ctx.opts == Opts()
+    assert a._state is ctx._state is b._state
+
+
+def test_options_handles_share_id_sequence() -> None:
+    # ``_next_id`` mutates the shared ``_state.seq``, so ids advance across every
+    # handle minted off the same base: the opts are per-handle, the sequence is
+    # not. A broken impl that copied state per handle would re-mint ``root.1``.
+    ctx = _root()
+    assert ctx.options(target="x")._next_id() == "root.1"
+    assert ctx.options(version=2)._next_id() == "root.2"
+    assert ctx._next_id() == "root.3"
+
+
+@pytest.mark.asyncio
+async def test_options_op_flips_shared_workflow_flag() -> None:
+    # A durable op issued through a throwaway ``options`` handle flips the
+    # ``workflow`` flag on the *shared* state, so the base handle observes it --
+    # the flag lives on ``_state``, not the per-call ``Context``.
+    ctx = _root()
+    assert ctx._state.workflow is False
+    with pytest.raises(SuspendedError):
+        await ctx.options(target="x").rpc("fn")
+    assert ctx._state.workflow is True
+
+
+@pytest.mark.asyncio
+async def test_options_handles_share_spawned_state() -> None:
+    # Ops issued through different throwaway ``options`` handles all record onto
+    # the one shared ``_state``: their child promises land in the same cache and
+    # their pending remote todos accumulate in the same ``spawned_remote`` in
+    # call order -- regardless of which handle issued them.
+    ctx = _root()
+    f1 = ctx.options(target="a").rpc("fn")  # root.1
+    f2 = ctx.options(target="b").rpc("fn")  # root.2
+    with pytest.raises(SuspendedError):
+        await f1
+    with pytest.raises(SuspendedError):
+        await f2
+    assert ctx._state.spawned_remote == ["root.1", "root.2"]
+    assert ctx._state.effects.cache["root.1"].state == "pending"
+    assert ctx._state.effects.cache["root.2"].state == "pending"
 
 
 # =============================================================================
@@ -888,7 +1079,7 @@ async def test_run_promise_creation_order_under_concurrency() -> None:
     # serializes ``create_promise`` calls into call order.
     ctx = _root()
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -897,7 +1088,7 @@ async def test_run_promise_creation_order_under_concurrency() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.run(double, 1)
         f2 = ctx.run(double, 2)
@@ -910,36 +1101,42 @@ async def test_run_promise_creation_order_under_concurrency() -> None:
 
 @pytest.mark.asyncio
 async def test_run_chain_blocks_second_create_until_first_returns() -> None:
-    # Stronger than the recorder-style test above: gate the first
-    # ``create_promise`` and assert the second has NOT entered ``create_promise``
-    # at all. This proves the chain parks bg #2 at ``await prev_created``
-    # rather than just happening to win a scheduling race.
     ctx = _root()
+
     gate = asyncio.Event()
-    seen: list[str] = []
+    first_entered = asyncio.Event()
     entered_second = asyncio.Event()
-    original = ctx.effects.create_promise
+
+    seen: list[str] = []
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
+
         if req.id == "root.1":
+            first_entered.set()
             await gate.wait()
         else:
             entered_second.set()
+
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.run(double, 1)
         f2 = ctx.run(double, 2)
-        # Yield generously: a non-chained impl would let bg #2 enter create_promise.
-        for _ in range(5):
-            await asyncio.sleep(0)
+
+        # Wait until bg #1 has actually entered create_promise.
+        await first_entered.wait()
+
+        # A non-chained implementation would allow bg #2 to enter
+        # create_promise before bg #1 completes.
         assert seen == ["root.1"]
         assert not entered_second.is_set()
 
         gate.set()
+
         assert await f1 == 2
         assert await f2 == 4
 
@@ -964,7 +1161,7 @@ async def test_run_chain_failure_propagates_to_successor() -> None:
     ctx = _root()
     boom = RuntimeError("network down")
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -973,7 +1170,7 @@ async def test_run_chain_failure_propagates_to_successor() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.run(double, 1)
         f2 = ctx.run(double, 2)
@@ -988,8 +1185,8 @@ async def test_run_chain_failure_propagates_to_successor() -> None:
     # Only the first link ever attempted a create: the successor parked on the
     # failed predecessor and unwound without issuing its own create_promise.
     assert seen == ["root.1"]
-    assert "root.1" not in ctx.effects.cache
-    assert "root.2" not in ctx.effects.cache
+    assert "root.1" not in ctx._state.effects.cache
+    assert "root.2" not in ctx._state.effects.cache
 
 
 @pytest.mark.asyncio
@@ -1000,7 +1197,7 @@ async def test_rpc_chain_failure_propagates_to_successor() -> None:
     ctx = _root()
     boom = RuntimeError("network down")
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -1009,7 +1206,7 @@ async def test_rpc_chain_failure_propagates_to_successor() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.rpc("fn")
         f2 = ctx.rpc("fn")
@@ -1021,10 +1218,10 @@ async def test_rpc_chain_failure_propagates_to_successor() -> None:
     assert ei1.value is boom
     assert ei2.value is boom
     assert seen == ["root.1"]
-    assert "root.1" not in ctx.effects.cache
-    assert "root.2" not in ctx.effects.cache
+    assert "root.1" not in ctx._state.effects.cache
+    assert "root.2" not in ctx._state.effects.cache
     # A failed create never registered a remote todo.
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
 
 
 @pytest.mark.asyncio
@@ -1037,7 +1234,7 @@ async def test_run_chain_failure_poisons_every_later_link() -> None:
     ctx = _root()
     boom = RuntimeError("network down")
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -1046,7 +1243,7 @@ async def test_run_chain_failure_poisons_every_later_link() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.run(double, 1)  # fails
         f2 = ctx.run(double, 2)  # inherits f1's failure
@@ -1058,7 +1255,9 @@ async def test_run_chain_failure_poisons_every_later_link() -> None:
 
     # Only the first link reached create_promise; the rest unwound on the chain.
     assert seen == ["root.1"]
-    assert not any(id in ctx.effects.cache for id in ("root.1", "root.2", "root.3"))
+    assert not any(
+        id in ctx._state.effects.cache for id in ("root.1", "root.2", "root.3")
+    )
 
 
 # =============================================================================
@@ -1085,7 +1284,7 @@ async def test_future_id_returns_id_after_create() -> None:
 async def test_future_id_raises_when_create_fails() -> None:
     ctx = _root()
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
-    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+    with patch.object(ctx._state.effects, "create_promise", new=failing_mock):
         fut = ctx.run(double, 1)
         with pytest.raises(RuntimeError, match="network down"):
             await fut.id()
@@ -1102,14 +1301,13 @@ async def test_future_id_raises_when_create_fails() -> None:
 @pytest.mark.asyncio
 async def test_rpc_pending_registers_todo_and_suspends() -> None:
     # A fresh remote promise is created pending; awaiting the future appends
-    # its id to ``spawned_remote`` and raises ``SuspendedError`` (mirrors Go's
-    # Future.Await for a futureRemote pending record).
+    # its id to ``spawned_remote`` and raises ``SuspendedError``.
     ctx = _root()
     fut = ctx.rpc("remote_fn", 1, 2)
     with pytest.raises(SuspendedError):
         await fut
-    assert ctx.spawned_remote == ["root.1"]
-    assert ctx.effects.cache["root.1"].state == "pending"
+    assert ctx._state.spawned_remote == ["root.1"]
+    assert ctx._state.effects.cache["root.1"].state == "pending"
 
 
 # =============================================================================
@@ -1121,7 +1319,7 @@ async def test_rpc_pending_registers_todo_and_suspends() -> None:
 async def test_rpc_presettled_resolved_returns_value() -> None:
     ctx = _root([_resolved("root.1", "remote-result")])
     assert await ctx.rpc("remote_fn") == "remote-result"
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
 
 
 @pytest.mark.asyncio
@@ -1129,7 +1327,7 @@ async def test_rpc_presettled_rejected_raises() -> None:
     ctx = _root([_rejected("root.1", "remote failure")])
     with pytest.raises(ApplicationError, match="remote failure"):
         await ctx.rpc("remote_fn")
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================
@@ -1141,13 +1339,15 @@ async def test_rpc_presettled_rejected_raises() -> None:
 def _spy_create_promise(ctx: Context) -> Iterator[list[Any]]:
     """Capture every PromiseCreateReq passed to ``effects.create_promise``."""
     captured: list[Any] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def spy(req: Any) -> Any:
         captured.append(req)
         return await original(req)
 
-    with patch.object(ctx.effects, "create_promise", new=AsyncMock(side_effect=spy)):
+    with patch.object(
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=spy)
+    ):
         yield captured
 
 
@@ -1207,7 +1407,7 @@ async def test_rpc_promise_creation_order_under_concurrency() -> None:
     # calls into call order even when both rpcs are spawned concurrently.
     ctx = _root([_resolved("root.1", "a"), _resolved("root.2", "b")])
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -1216,7 +1416,7 @@ async def test_rpc_promise_creation_order_under_concurrency() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.rpc("fn")
         f2 = ctx.rpc("fn")
@@ -1228,7 +1428,7 @@ async def test_rpc_promise_creation_order_under_concurrency() -> None:
 
 
 # =============================================================================
-# rpc: with_options(timeout=, target=) and per-call opts reset
+# rpc: options(timeout=, target=) and per-call opts scoping
 # =============================================================================
 
 
@@ -1236,7 +1436,7 @@ async def test_rpc_promise_creation_order_under_concurrency() -> None:
 async def test_rpc_with_options_target_sets_tag() -> None:
     ctx = _root()
     with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
-        await ctx.with_opts(target="worker-1").rpc("fn")
+        await ctx.options(target="worker-1").rpc("fn")
     assert captured[0].tags["resonate:target"] == "worker-1"
 
 
@@ -1245,9 +1445,9 @@ async def test_rpc_with_options_timeout_sets_child_deadline() -> None:
     ctx = _root()
     before = now_ms()
     with pytest.raises(SuspendedError):
-        await ctx.with_opts(timeout=timedelta(seconds=30)).rpc("fn")
+        await ctx.options(timeout=timedelta(seconds=30)).rpc("fn")
     after = now_ms()
-    record = ctx.effects.cache["root.1"]
+    record = ctx._state.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
 
 
@@ -1256,26 +1456,27 @@ async def test_rpc_with_options_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
     with pytest.raises(SuspendedError):
-        await ctx.with_opts(timeout=timedelta(days=365)).rpc("fn")
-    assert ctx.effects.cache["root.1"].timeout_at == cap
+        await ctx.options(timeout=timedelta(days=365)).rpc("fn")
+    assert ctx._state.effects.cache["root.1"].timeout_at == cap
 
 
 @pytest.mark.asyncio
-async def test_rpc_consumes_options_after_one_call() -> None:
+async def test_rpc_options_do_not_leak_to_base_context() -> None:
     ctx = _root([_resolved("root.1", "a")])
-    await ctx.with_opts(timeout=timedelta(seconds=30), target="x").rpc("fn")
+    await ctx.options(timeout=timedelta(seconds=30), target="x").rpc("fn")
+    # The override rode the throwaway handle; the base context is untouched.
     assert ctx.opts == Opts()
 
 
 @pytest.mark.asyncio
-async def test_rpc_resets_options_even_on_suspend() -> None:
-    # Suspension is the common rpc terminal state; opts must still reset so the
-    # next call does not inherit them.
+async def test_rpc_on_base_context_ignores_a_discarded_options_call() -> None:
+    # ``options`` returns a new handle; discarding it leaves the base context's
+    # defaults intact, so a bare ``ctx.rpc`` carries no target (empty tag).
     ctx = _root()
-    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
-    with pytest.raises(SuspendedError):
+    ctx.options(timeout=timedelta(seconds=5), target="x")
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
         await ctx.rpc("fn")
-    assert ctx.opts == Opts()
+    assert captured[0].tags["resonate:target"] == ""
 
 
 # =============================================================================
@@ -1295,12 +1496,12 @@ async def test_rpc_task_pending_while_create_promise_blocked() -> None:
 
         await entered.wait()
 
-        assert "root.1" not in ctx.effects.cache
+        assert "root.1" not in ctx._state.effects.cache
 
         gate.set()
         with pytest.raises(SuspendedError):
             await task
-        assert ctx.effects.cache["root.1"].state == "pending"
+        assert ctx._state.effects.cache["root.1"].state == "pending"
 
 
 @pytest.mark.asyncio
@@ -1312,14 +1513,14 @@ async def test_rpc_releases_event_when_create_promise_raises() -> None:
     ctx = _root()
 
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
-    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+    with patch.object(ctx._state.effects, "create_promise", new=failing_mock):
         task = ctx.rpc("fn")
         with pytest.raises(RuntimeError, match="network down"):
             await task
 
     failing_mock.assert_awaited_once()
-    assert "root.1" not in ctx.effects.cache
-    assert ctx.spawned_remote == []
+    assert "root.1" not in ctx._state.effects.cache
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================
@@ -1340,8 +1541,8 @@ async def test_sleep_pending_registers_todo_and_suspends() -> None:
     fut = ctx.sleep(timedelta(seconds=30))
     with pytest.raises(SuspendedError):
         await fut
-    assert ctx.spawned_remote == ["root.1"]
-    assert ctx.effects.cache["root.1"].state == "pending"
+    assert ctx._state.spawned_remote == ["root.1"]
+    assert ctx._state.effects.cache["root.1"].state == "pending"
 
 
 # =============================================================================
@@ -1355,7 +1556,7 @@ async def test_sleep_presettled_resolved_returns_none() -> None:
     # ``_decode_settled`` yields its (empty) value and no todo is registered.
     ctx = _root([_resolved("root.1", None)])
     assert await ctx.sleep(timedelta(seconds=1)) is None
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================
@@ -1391,7 +1592,7 @@ async def test_sleep_timeout_at_is_now_plus_duration() -> None:
     with pytest.raises(SuspendedError):
         await ctx.sleep(timedelta(seconds=30))
     after = now_ms()
-    record = ctx.effects.cache["root.1"]
+    record = ctx._state.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
 
 
@@ -1403,15 +1604,15 @@ async def test_sleep_duration_capped_to_parent_timeout() -> None:
     ctx = _root(timeout_at=cap)
     with pytest.raises(SuspendedError):
         await ctx.sleep(timedelta(days=365))
-    assert ctx.effects.cache["root.1"].timeout_at == cap
+    assert ctx._state.effects.cache["root.1"].timeout_at == cap
 
 
 # =============================================================================
 # sleep: duration comes from the argument, NOT from opts
 #
-# Unlike run/rpc, ``sleep`` does not read ``opts.timeout`` for its deadline
-# (mirrors Go's ``Sleep(d)``). It still consumes any opts set via with_opts()
-# so they cannot leak into the next entrypoint call.
+# Unlike run/rpc, ``sleep`` does not read ``opts.timeout`` for its deadline.
+# It still consumes any opts set via with_opts() so they cannot leak into the
+# next entrypoint call.
 # =============================================================================
 
 
@@ -1422,18 +1623,19 @@ async def test_sleep_ignores_opts_timeout_for_duration() -> None:
     ctx = _root()
     before = now_ms()
     with pytest.raises(SuspendedError):
-        await ctx.with_opts(timeout=timedelta(seconds=5)).sleep(timedelta(seconds=30))
+        await ctx.options(timeout=timedelta(seconds=5)).sleep(timedelta(seconds=30))
     after = now_ms()
-    record = ctx.effects.cache["root.1"]
+    record = ctx._state.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
 
 
 @pytest.mark.asyncio
-async def test_sleep_consumes_options_so_they_do_not_leak() -> None:
-    # sleep ignores opts for its own duration but still clears them, so a
-    # stray with_opts() before a sleep cannot bleed into the next entrypoint.
+async def test_sleep_options_do_not_leak_to_base_context() -> None:
+    # sleep ignores opts for its own duration, and a discarded ``options()``
+    # call never mutates the base context, so a stray override before a sleep
+    # cannot bleed into the next entrypoint.
     ctx = _root()
-    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
+    ctx.options(timeout=timedelta(seconds=5), target="x")
     with pytest.raises(SuspendedError):
         await ctx.sleep(timedelta(seconds=1))
     assert ctx.opts == Opts()
@@ -1457,7 +1659,7 @@ async def test_sleep_promise_creation_order_under_concurrency() -> None:
     # timers spawned concurrently still issue ``create_promise`` in call order.
     ctx = _root([_resolved("root.1", None), _resolved("root.2", None)])
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -1466,7 +1668,7 @@ async def test_sleep_promise_creation_order_under_concurrency() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.sleep(timedelta(seconds=1))
         f2 = ctx.sleep(timedelta(seconds=1))
@@ -1491,14 +1693,14 @@ async def test_sleep_releases_event_when_create_promise_raises() -> None:
     ctx = _root()
 
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
-    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+    with patch.object(ctx._state.effects, "create_promise", new=failing_mock):
         task = ctx.sleep(timedelta(seconds=1))
         with pytest.raises(RuntimeError, match="network down"):
             await task
 
     failing_mock.assert_awaited_once()
-    assert "root.1" not in ctx.effects.cache
-    assert ctx.spawned_remote == []
+    assert "root.1" not in ctx._state.effects.cache
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================
@@ -1521,8 +1723,8 @@ async def test_promise_pending_registers_todo_and_suspends() -> None:
     fut = ctx.promise(timedelta(seconds=30))
     with pytest.raises(SuspendedError):
         await fut
-    assert ctx.spawned_remote == ["root.1"]
-    assert ctx.effects.cache["root.1"].state == "pending"
+    assert ctx._state.spawned_remote == ["root.1"]
+    assert ctx._state.effects.cache["root.1"].state == "pending"
 
 
 # =============================================================================
@@ -1536,7 +1738,7 @@ async def test_promise_presettled_resolved_returns_value() -> None:
     # record; ``_decode_settled`` yields its payload and no todo is registered.
     ctx = _root([_resolved("root.1", "external-result")])
     assert await ctx.promise(timedelta(seconds=1)) == "external-result"
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
 
 
 @pytest.mark.asyncio
@@ -1544,7 +1746,7 @@ async def test_promise_presettled_rejected_raises() -> None:
     ctx = _root([_rejected("root.1", "external failure")])
     with pytest.raises(ApplicationError, match="external failure"):
         await ctx.promise(timedelta(seconds=1))
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================
@@ -1582,7 +1784,7 @@ async def test_promise_timeout_at_is_now_plus_timeout() -> None:
     with pytest.raises(SuspendedError):
         await ctx.promise(timedelta(seconds=30))
     after = now_ms()
-    record = ctx.effects.cache["root.1"]
+    record = ctx._state.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
 
 
@@ -1595,7 +1797,7 @@ async def test_promise_none_timeout_uses_default() -> None:
     with pytest.raises(SuspendedError):
         await ctx.promise(None)
     after = now_ms()
-    record = ctx.effects.cache["root.1"]
+    record = ctx._state.effects.cache["root.1"]
     day_ms = 24 * 60 * 60 * 1000
     assert before + day_ms <= record.timeout_at <= after + day_ms
 
@@ -1606,7 +1808,7 @@ async def test_promise_timeout_capped_to_parent() -> None:
     ctx = _root(timeout_at=cap)
     with pytest.raises(SuspendedError):
         await ctx.promise(timedelta(days=365))
-    assert ctx.effects.cache["root.1"].timeout_at == cap
+    assert ctx._state.effects.cache["root.1"].timeout_at == cap
 
 
 # =============================================================================
@@ -1621,18 +1823,19 @@ async def test_promise_ignores_opts_timeout_for_deadline() -> None:
     ctx = _root()
     before = now_ms()
     with pytest.raises(SuspendedError):
-        await ctx.with_opts(timeout=timedelta(seconds=5)).promise(timedelta(seconds=30))
+        await ctx.options(timeout=timedelta(seconds=5)).promise(timedelta(seconds=30))
     after = now_ms()
-    record = ctx.effects.cache["root.1"]
+    record = ctx._state.effects.cache["root.1"]
     assert before + 30_000 <= record.timeout_at <= after + 30_000
 
 
 @pytest.mark.asyncio
-async def test_promise_consumes_options_so_they_do_not_leak() -> None:
-    # ``promise`` ignores opts for its own deadline but still clears them, so a
-    # stray ``with_opts()`` cannot bleed into the next entrypoint call.
+async def test_promise_options_do_not_leak_to_base_context() -> None:
+    # ``promise`` ignores opts for its own deadline, and a discarded
+    # ``options()`` call never mutates the base context, so a stray override
+    # cannot bleed into the next entrypoint call.
     ctx = _root()
-    ctx.with_opts(timeout=timedelta(seconds=5), target="x")
+    ctx.options(timeout=timedelta(seconds=5), target="x")
     with pytest.raises(SuspendedError):
         await ctx.promise(timedelta(seconds=1))
     assert ctx.opts == Opts()
@@ -1656,7 +1859,7 @@ async def test_promise_creation_order_under_concurrency() -> None:
     # two DI promises spawned concurrently still create in call order.
     ctx = _root([_resolved("root.1", "a"), _resolved("root.2", "b")])
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -1665,7 +1868,7 @@ async def test_promise_creation_order_under_concurrency() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.promise(timedelta(seconds=1))
         f2 = ctx.promise(timedelta(seconds=1))
@@ -1690,14 +1893,14 @@ async def test_promise_releases_event_when_create_promise_raises() -> None:
     ctx = _root()
 
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
-    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+    with patch.object(ctx._state.effects, "create_promise", new=failing_mock):
         task = ctx.promise(timedelta(seconds=1))
         with pytest.raises(RuntimeError, match="network down"):
             await task
 
     failing_mock.assert_awaited_once()
-    assert "root.1" not in ctx.effects.cache
-    assert ctx.spawned_remote == []
+    assert "root.1" not in ctx._state.effects.cache
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================
@@ -1709,7 +1912,7 @@ async def test_promise_releases_event_when_create_promise_raises() -> None:
 # *id* rather than a remote result. The id lives outside the structured
 # ``{id}.{seq}`` namespace -- it is ``{prefix}.d{blake2b 16 hex of the raw seq}``
 # (the ``d`` marks it a detached segment) -- so it is deterministic across replay
-# yet distinct from awaited children. Mirrors Go's ``Context.Detached``.
+# yet distinct from awaited children.
 # =============================================================================
 
 
@@ -1726,10 +1929,10 @@ async def test_detached_returns_id_without_suspending() -> None:
     ctx = _root()
     child_id = _detached_id("root", "root.1")
     assert await ctx.detached("remote_fn", 1, 2) == child_id
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
     # The durable promise was created (and left pending -- nobody settles it
     # on our behalf within this workflow).
-    assert ctx.effects.cache[child_id].state == "pending"
+    assert ctx._state.effects.cache[child_id].state == "pending"
 
 
 @pytest.mark.asyncio
@@ -1805,9 +2008,9 @@ async def test_detached_idempotent_on_preloaded_record() -> None:
     # regardless of the record's state.
     ctx = _root()
     child_id = _detached_id("root", "root.1")
-    ctx.effects.cache[child_id] = _resolved(child_id, "external-result")
+    ctx._state.effects.cache[child_id] = _resolved(child_id, "external-result")
     assert await ctx.detached("fn") == child_id
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
 
 
 @pytest.mark.asyncio
@@ -1816,20 +2019,21 @@ async def test_detached_with_options_target_and_timeout() -> None:
     child_id = _detached_id("root", "root.1")
     before = now_ms()
     with _spy_create_promise(ctx) as captured:
-        await ctx.with_opts(target="worker-1", timeout=timedelta(seconds=30)).detached(
+        await ctx.options(target="worker-1", timeout=timedelta(seconds=30)).detached(
             "fn"
         )
     after = now_ms()
     [req] = captured
     assert req.tags["resonate:target"] == "worker-1"
     assert before + 30_000 <= req.timeout_at <= after + 30_000
-    assert ctx.effects.cache[child_id].timeout_at == req.timeout_at
+    assert ctx._state.effects.cache[child_id].timeout_at == req.timeout_at
 
 
 @pytest.mark.asyncio
-async def test_detached_consumes_options_after_one_call() -> None:
+async def test_detached_options_do_not_leak_to_base_context() -> None:
     ctx = _root()
-    await ctx.with_opts(target="x", timeout=timedelta(seconds=30)).detached("fn")
+    await ctx.options(target="x", timeout=timedelta(seconds=30)).detached("fn")
+    # The override rode the throwaway handle; the base context is untouched.
     assert ctx.opts == Opts()
 
 
@@ -1838,8 +2042,8 @@ async def test_detached_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
     child_id = _detached_id("root", "root.1")
-    await ctx.with_opts(timeout=timedelta(days=365)).detached("fn")
-    assert ctx.effects.cache[child_id].timeout_at == cap
+    await ctx.options(timeout=timedelta(days=365)).detached("fn")
+    assert ctx._state.effects.cache[child_id].timeout_at == cap
 
 
 @pytest.mark.asyncio
@@ -1851,7 +2055,7 @@ async def test_detached_creation_order_under_concurrency() -> None:
     id1 = _detached_id("root", "root.1")
     id2 = _detached_id("root", "root.2")
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -1859,7 +2063,7 @@ async def test_detached_creation_order_under_concurrency() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.detached("fn")
         f2 = ctx.detached("fn")
@@ -1878,12 +2082,12 @@ async def test_detached_releases_event_when_create_promise_raises() -> None:
     # rather than hanging.
     ctx = _root()
     failing_mock = AsyncMock(side_effect=RuntimeError("network down"))
-    with patch.object(ctx.effects, "create_promise", new=failing_mock):
+    with patch.object(ctx._state.effects, "create_promise", new=failing_mock):
         task = ctx.detached("fn")
         with pytest.raises(RuntimeError, match="network down"):
             await task
     failing_mock.assert_awaited_once()
-    assert ctx.spawned_remote == []
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================
@@ -1907,13 +2111,109 @@ async def test_detached_does_not_force_parent_to_suspend() -> None:
     # The workflow returns its value -- it is NOT dropped in favour of
     # suspension the way a pending rpc/promise dependency would force.
     assert await ctx.run(dispatches_detached) == "done"
-    assert ctx.spawned_remote == []
-    assert ctx.effects.cache["root.1"].state == "resolved"
-    assert ctx.effects.cache["root.1"].value.data == "done"
+    assert ctx._state.spawned_remote == []
+    assert ctx._state.effects.cache["root.1"].state == "resolved"
+    assert ctx._state.effects.cache["root.1"].value.data == "done"
     # The detached promise was created under the child's own origin-rooted id
     # and left pending.
     detached_id = _detached_id("root", "root.1.1")
-    assert ctx.effects.cache[detached_id].state == "pending"
+    assert ctx._state.effects.cache[detached_id].state == "pending"
+
+
+# =============================================================================
+# detached: create_promise is guaranteed before the workflow exits
+#
+# The detached body's sole side effect is ``create_promise``; it deferred that
+# call through the creation chain on a bg task. Because the body neither
+# appends to ``spawned_remote`` nor raises ``SuspendedError``, nothing else
+# pulls it along -- so it must be registered in ``spawned_remote_tasks`` and
+# joined by ``flush_local_work`` before the parent settles. Otherwise a
+# fire-and-forget detached child whose future is never awaited could leave the
+# event loop with its durable promise still uncreated when the workflow exits.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_detached_bg_task_registered_for_flush() -> None:
+    # The bg task is parked in ``spawned_remote_tasks`` (the bucket
+    # ``flush_local_work`` joins), and the join drains the list.
+    ctx = _root()
+    fut = ctx.detached("fn")
+    assert len(ctx._state.spawned_remote_tasks) == 1
+    assert ctx._state.spawned_remote_tasks[0] is fut._task
+    await ctx.flush_local_work()
+    assert ctx._state.spawned_remote_tasks == []
+
+
+@pytest.mark.asyncio
+async def test_detached_create_promise_completes_by_flush_when_unawaited() -> None:
+    # The discriminating case: dispatch a detached child but NEVER await its
+    # future. The bg body is deferred, so right after the call the durable
+    # promise does not exist yet...
+    ctx = _root()
+    child_id = _detached_id("root", "root.1")
+    _ = ctx.detached("remote_fn", 1, 2)
+    assert child_id not in ctx._state.effects.cache
+    # ...``flush_local_work`` joins the body before the workflow can settle, so
+    # the durable promise IS created by the time we exit. (Without the
+    # registration, flush would be a no-op here and the promise would never be
+    # created.)
+    await ctx.flush_local_work()
+    assert ctx._state.effects.cache[child_id].state == "pending"
+    # The join added no remote todo, so the parent is still free to fulfill.
+    assert ctx.take_remote_todos() == []
+
+
+async def dispatches_detached_fire_and_forget(ctx: Context) -> str:
+    # Dispatch a detached child and return WITHOUT awaiting it -- the future is
+    # dropped on the floor, so only ``flush_local_work`` can drive its create.
+    _ = ctx.detached("remote_fn", 1)
+    return "done"
+
+
+@pytest.mark.asyncio
+async def test_detached_promise_created_before_parent_settles_unawaited() -> None:
+    # End-to-end happens-before: a workflow whose only durable op is a
+    # fire-and-forget detached child fulfills normally, and the detached
+    # ``create_promise`` is observed strictly BEFORE the parent's
+    # ``settle_promise``. The body never awaits the future and never yields
+    # between dispatching it and returning, so the bg create can only be driven
+    # by ``flush_local_work`` joining it -- without that join the parent settles
+    # first (or the create never happens at all).
+    ctx = _root()
+    detached_id = _detached_id("root", "root.1.1")
+    order: list[str] = []
+    orig_create = ctx._state.effects.create_promise
+    orig_settle = ctx._state.effects.settle_promise
+
+    async def rec_create(req: Any) -> Any:
+        record = await orig_create(req)
+        order.append(f"create:{req.id}")
+        return record
+
+    async def rec_settle(id: str, value: Any) -> Any:
+        order.append(f"settle:{id}")
+        return await orig_settle(id, value)
+
+    with (
+        patch.object(
+            ctx._state.effects, "create_promise", new=AsyncMock(side_effect=rec_create)
+        ),
+        patch.object(
+            ctx._state.effects, "settle_promise", new=AsyncMock(side_effect=rec_settle)
+        ),
+    ):
+        assert await ctx.run(dispatches_detached_fire_and_forget) == "done"
+
+    assert order == [
+        "create:root.1",  # parent workflow promise
+        f"create:{detached_id}",  # detached child -- flushed before settle
+        "settle:root.1",  # parent settles last
+    ]
+    assert ctx._state.effects.cache["root.1"].state == "resolved"
+    assert ctx._state.effects.cache[detached_id].state == "pending"
+    # Fire-and-forget: it never became a remote todo for the parent.
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================
@@ -1933,7 +2233,7 @@ async def test_mixed_run_and_rpc_create_in_call_order() -> None:
         ]
     )
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -1942,7 +2242,7 @@ async def test_mixed_run_and_rpc_create_in_call_order() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.run(double, 1)  # root.1 (executes locally)
         f2 = ctx.rpc("remote_fn")  # root.2 (preloaded resolved)
@@ -1968,7 +2268,7 @@ async def test_mixed_run_rpc_sleep_create_in_call_order() -> None:
         ]
     )
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -1976,7 +2276,7 @@ async def test_mixed_run_rpc_sleep_create_in_call_order() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.run(double, 1)  # root.1 (executes locally)
         f2 = ctx.rpc("remote_fn")  # root.2 (preloaded resolved)
@@ -2002,7 +2302,7 @@ async def test_mixed_run_rpc_sleep_promise_create_in_call_order() -> None:
         ]
     )
     seen: list[str] = []
-    original = ctx.effects.create_promise
+    original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
@@ -2010,7 +2310,7 @@ async def test_mixed_run_rpc_sleep_promise_create_in_call_order() -> None:
         return await original(req)
 
     with patch.object(
-        ctx.effects, "create_promise", new=AsyncMock(side_effect=recorder)
+        ctx._state.effects, "create_promise", new=AsyncMock(side_effect=recorder)
     ):
         f1 = ctx.run(double, 1)  # root.1 (executes locally)
         f2 = ctx.rpc("remote_fn")  # root.2 (preloaded resolved)
@@ -2030,7 +2330,7 @@ async def test_mixed_run_rpc_sleep_promise_create_in_call_order() -> None:
 # =============================================================================
 #
 # The rule under test: a body that performs any durable op (run/rpc/sleep/
-# promise/detached, all of which flip ``_workflow`` via ``_consume_opts``) is a
+# promise/detached, all of which flip ``workflow`` via ``_begin_durable_op``) is a
 # workflow and settles its failure on the first attempt; only a pure leaf -- no
 # durable footprint -- is retried, up to what the policy allows. ``delay=0`` keeps
 # the in-process ``asyncio.sleep`` between attempts instant.
@@ -2120,10 +2420,10 @@ async def test_invoke_with_retry_workflow_never_retries() -> None:
     async def workflow(ctx: Context) -> int:
         nonlocal calls
         calls += 1
-        # Touch a durable op -- ``_consume_opts`` is the chokepoint every
+        # Touch a durable op -- ``_begin_durable_op`` is the chokepoint every
         # run/rpc/sleep/promise/detached shares, so this is exactly what flips
-        # the ``_workflow`` flag -- then fail. A generous policy must NOT retry.
-        ctx._consume_opts()
+        # the ``workflow`` flag -- then fail. A generous policy must NOT retry.
+        ctx._state.workflow = True
         msg = "boom after durable op"
         raise RuntimeError(msg)
 
@@ -2132,7 +2432,7 @@ async def test_invoke_with_retry_workflow_never_retries() -> None:
         await ctx.invoke_with_retry(
             df, df.pack_args(), Constant(max_retries=9, delay=0)
         )
-    assert ctx._workflow is True
+    assert ctx._state.workflow is True
     assert calls == 1
 
 
@@ -2188,5 +2488,136 @@ async def test_ctx_run_with_opts_retry_policy_overrides_context_default() -> Non
     # Generous inherited default, but the per-call override is Never.
     ctx = _root(retry_policy=Constant(max_retries=9, delay=0))
     with pytest.raises(ApplicationError, match="boom"):
-        await ctx.with_opts(retry_policy=Never()).run(flaky)
+        await ctx.options(retry_policy=Never()).run(flaky)
     assert calls == 1  # override Never -> no retry
+
+
+# =============================================================================
+# run: by-name dispatch (registry lookup)
+#
+# ``run`` also accepts a registered *name*. Unlike the by-object form (which
+# wraps the object directly), a name is resolved to a local ``DurableFunction``
+# via the context's registry and executed here as an ordinary local child --
+# versioned by ``opts.version`` since a name carries none.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_resolves_and_executes_from_registry() -> None:
+    registry = Registry()
+    registry.register("double", double)
+    ctx = _root(registry=registry)
+    # Same local-child semantics as ``ctx.run(double, 21)``, reached by name.
+    assert await ctx.run("double", 21) == 42
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_dispatches_opts_version() -> None:
+    async def v1(ctx: Context) -> str:
+        return "one"
+
+    async def v2(ctx: Context) -> str:
+        return "two"
+
+    registry = Registry()
+    registry.register("impl", v1, 1)
+    registry.register("impl", v2, 2)
+    ctx = _root(registry=registry)
+    # A name carries no version, so the call's ``opts.version`` selects the impl.
+    assert await ctx.run("impl") == "one"  # default version 1
+    assert await ctx.options(version=2).run("impl") == "two"
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_unregistered_raises_function_not_found() -> None:
+    # Resolution happens in the synchronous body of ``run``, so an unknown name
+    # fails fast at the call site -- before any background task is spawned.
+    ctx = _root()  # empty registry
+    with pytest.raises(FunctionNotFoundError, match="missing"):
+        ctx.run("missing")
+
+
+# =============================================================================
+# rpc: by-object dispatch (reverse registry lookup)
+#
+# ``rpc`` also accepts the function *object*: its registered name is recovered
+# by identity (reverse lookup) and dispatched over the wire, carrying its own
+# registered version. An unregistered object raises -- its registry name is not
+# its ``__name__``, so the dispatch target cannot be guessed.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_dispatches_registered_name_and_version() -> None:
+    registry = Registry()
+    registry.register("remote_impl", double, 3)
+    ctx = _root(registry=registry)
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.rpc(double, 5)
+
+    [req] = captured
+    # Dispatched by the registered name (not ``double.__name__``) and the
+    # registered version -- not ``opts.version``.
+    assert req.param.data == TaskData(
+        func="remote_impl", args=(5,), kwargs={}, version=3
+    )
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_version_from_identity_not_opts() -> None:
+    registry = Registry()
+    registry.register("remote_impl", double, 2)
+    ctx = _root(registry=registry)
+    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+        await ctx.options(version=9).rpc(double, 5)
+
+    # The object carries its own version, so ``opts.version`` (9) is ignored.
+    assert captured[0].param.data.version == 2
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_unregistered_raises() -> None:
+    async def stranger(ctx: Context) -> None: ...
+
+    # No reverse entry: refuse to guess a dispatch name from ``__name__``. Raised
+    # synchronously at the call site, before any promise is created.
+    ctx = _root()  # empty registry
+    with (
+        _spy_create_promise(ctx) as captured,
+        pytest.raises(FunctionNotFoundError, match="stranger"),
+    ):
+        ctx.rpc(stranger)
+    assert captured == []  # nothing dispatched
+
+
+# =============================================================================
+# rpc: by-object dispatch is typed -- the settled remote result is coerced to
+# the registered function's declared return type (symmetric with ``ctx.run``).
+# A by-name dispatch has no local function, so its result stays raw builtins.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_recovery_coerces_return_to_declared_struct() -> None:
+    # The settled remote value was stored as plain builtins (a dict). Because the
+    # object dispatch recovers the target's DurableFunction, the settled record is
+    # coerced back to the declared return type -- the parent observes a
+    # ``_RecoveredPoint``, not a dict (genuine type safety, not just a static
+    # annotation).
+    registry = Registry()
+    registry.register("make_point", _make_point, 1)
+    ctx = _root([_resolved("root.1", _RecoveredPoint(x=3, y=4))], registry=registry)
+    result = await ctx.rpc(_make_point, 3, 4)
+    assert isinstance(result, _RecoveredPoint)
+    assert result == _RecoveredPoint(x=3, y=4)
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_name_recovery_stays_raw_builtins() -> None:
+    # The contrast case: a by-name dispatch has no local function to coerce
+    # against, so the settled value passes through as raw builtins (a dict),
+    # untyped by design -- matching the top-level ``rpc``/``get``.
+    ctx = _root([_resolved("root.1", _RecoveredPoint(x=3, y=4))])
+    result = await ctx.rpc("make_point", 3, 4)
+    assert isinstance(result, dict)
+    assert result == {"x": 3, "y": 4}

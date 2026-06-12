@@ -1,28 +1,24 @@
 """Behaviour tests for :mod:`resonate.core`.
 
-Mirrors Go's ``core_test.go`` (same cases, same names where they map). Like the
-Go suite, these run against a *real* server simulation -- the in-process
+These run against a *real* server simulation -- the in-process
 :class:`~resonate.network.LocalNetwork` driven through the real
 :class:`~resonate.send.Sender` / :class:`~resonate.transport.Transport` -- so
 the contract is "real server, real wire".
 
-Adaptations from Go (none change what is being asserted):
+Conventions exercised throughout:
 
-* Go has leaf functions without a ``Context`` (``wfReturnSeven`` etc.); the
-  Python convention gives *every* durable function a :class:`Context` first
-  argument, so the library below follows suit.
-* Go's ``fut.Await`` becomes ``await fut``; a pending remote raises
-  :class:`~resonate.error.SuspendedError` (Go's ``suspendSignal`` panic).
-* Go returns ``(Status, error)``; this port returns :data:`Status` and raises on
-  failure, so the error-path tests assert ``pytest.raises`` instead of a
-  returned ``StatusErr``.
+* *Every* durable function takes a :class:`Context` as its first argument,
+  so the function library below follows suit.
+* Awaiting a pending remote raises :class:`~resonate.error.SuspendedError`.
+* ``execute_until_blocked_outer`` returns :data:`Status` and raises on
+  failure, so the error-path tests assert ``pytest.raises``.
 
-Two groups from Go are intentionally omitted for the same reasons documented
-there: the **short-circuit** branch (settling a root promise on LocalNetwork
-auto-fulfills its task, so "acquired task + already-settled root promise" can't
-be constructed) and the **redirect loop** (needs an awaited promise settled at
-the exact instant ``task.suspend`` lands -- a race LocalNetwork can't produce
-deterministically). See the NOTE comments inline.
+Two groups are intentionally omitted: the **short-circuit** branch (settling a
+root promise on LocalNetwork auto-fulfills its task, so "acquired task +
+already-settled root promise" can't be constructed) and the **redirect loop**
+(needs an awaited promise settled at the exact instant ``task.suspend`` lands
+-- a race LocalNetwork can't produce deterministically). See the NOTE comments
+inline.
 """
 
 from __future__ import annotations
@@ -50,7 +46,7 @@ if TYPE_CHECKING:
     from resonate.context import Context
     from resonate.types import PromiseRecord
 
-# Far-future deadline, matching Go's ``int64(1) << 50``.
+# Far-future deadline.
 FAR_FUTURE = 1 << 50
 TTL = 10_000
 
@@ -61,8 +57,7 @@ TTL = 10_000
 class TrackingHeartbeat:
     """Counts ``start``/``stop`` calls for Core's heartbeat hook.
 
-    Mirrors Go's ``trackingHeartbeat``; implements the
-    :class:`~resonate.heartbeat.Heartbeat` protocol.
+    Implements the :class:`~resonate.heartbeat.Heartbeat` protocol.
     """
 
     def __init__(self) -> None:
@@ -79,7 +74,7 @@ class TrackingHeartbeat:
 
 
 class CoreFixture:
-    """Wires a LocalNetwork + Sender + Codec + Registry + Core. Mirrors Go's ``coreFixture``."""
+    """Wires a LocalNetwork + Sender + Codec + Registry + Core."""
 
     def __init__(self) -> None:
         self.pid = "core-test-pid"
@@ -109,7 +104,7 @@ class CoreFixture:
 
         ``func_name`` and ``args`` go into the promise param as ``TaskData``.
         ``args`` is the (optional) single user positional -- ``None`` means a
-        ctx-only call. Mirrors Go's ``createRootTask``.
+        ctx-only call.
         """
         param = self.codec.encode(
             TaskData(
@@ -326,8 +321,8 @@ async def test_execute_until_blocked_with_preload(fix: CoreFixture) -> None:
     assert got.value.data == 99
 
 
-# NOTE: Short-circuit tests (Go core_test.go:398-406, Rust core.rs:915-1029)
-# are intentionally omitted from this LocalNetwork-driven suite. The
+# NOTE: Short-circuit tests are intentionally omitted from this
+# LocalNetwork-driven suite. The
 # short-circuit branch fires when Core encounters an acquired task whose root
 # promise is already settled -- but on LocalNetwork, settling a root promise
 # also auto-fulfills the task, so "acquired task + settled root promise" can't
@@ -382,8 +377,7 @@ async def test_plain_exception_rejects_promise_and_fulfills_task(
 ) -> None:
     """A non-Resonate exception is captured as an ``ApplicationError`` rejection.
 
-    Python has no ``return err`` / ``panic()`` split (cf. Go) -- raising an
-    ``Exception`` is the user's way of reporting failure, so we settle the
+    Raising an ``Exception`` is the user's way of reporting failure, so we settle the
     promise ``rejected`` with the original message and the task completes
     normally (no release, no re-acquire).
     """
@@ -471,7 +465,7 @@ async def test_noop_heartbeat_does_not_interfere() -> None:
     assert status == "done"
 
 
-# ── Migrated from context_test.go (run-workflow boundary tests) ─────────
+# ── Run-workflow boundary tests ─────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -527,8 +521,8 @@ async def test_fire_and_forget_local_suspension(fix: CoreFixture) -> None:
     assert status == "suspended"
 
 
-# NOTE: Redirect-loop tests (Go core_test.go:625-636, Rust core.rs:606-674) are
-# intentionally omitted. Triggering a redirect from a real workflow requires an
+# NOTE: Redirect-loop tests are intentionally omitted. Triggering a redirect
+# from a real workflow requires an
 # awaited promise to be settled at the exact moment Core's task.suspend lands --
 # a race LocalNetwork cannot produce deterministically (awaiting a settled
 # record resolves inline and never registers a remote todo, so the workflow

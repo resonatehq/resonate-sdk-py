@@ -16,11 +16,11 @@ if TYPE_CHECKING:
 
 
 class PromiseResult(msgspec.Struct, frozen=True, kw_only=True):
-    """The settled state of a durable promise, delivered over the result channel.
+    """The settled state of a durable promise.
 
-    Mirrors Rust's crate-internal ``PromiseResult``: a (folded) ``PromiseState``
-    and the raw, still-encoded wire ``value``. Decoding the value is deferred to
-    :class:`~resonate.codec.Codec` when the holder reads the result.
+    Carries the ``PromiseState`` and the raw, still-encoded wire ``value``.
+    Decoding the value is deferred to :class:`~resonate.codec.Codec` when the
+    holder reads the result.
     """
 
     state: PromiseState
@@ -30,12 +30,10 @@ class PromiseResult(msgspec.Struct, frozen=True, kw_only=True):
 class Subscription:
     """A settle-once signal shared by every handle to one promise id.
 
-    Mirrors Go's ``subscription`` (a ``done`` channel + a ``result`` slot) and
-    supersedes the earlier ``asyncio.get_running_loop().create_future()``: an
-    :class:`asyncio.Event` is the idiomatic high-level primitive for "wait until
-    something external happens", needs no loop reference at construction, and a
-    single ``settle`` wakes every waiter at once. The settle is driven from the
-    ``unblock`` push handler (or an already-settled listener registration).
+    Built on an :class:`asyncio.Event` plus a result slot: it needs no loop
+    reference at construction, and a single ``settle`` wakes every waiter at
+    once. The settle is driven from the ``unblock`` push handler (or an
+    already-settled listener registration).
     """
 
     def __init__(self) -> None:
@@ -55,9 +53,8 @@ class Subscription:
     async def wait(self) -> PromiseResult:
         """Block until settled, then return the result.
 
-        A woken-but-resultless subscription (the analogue of tokio's "all
-        senders dropped") raises, mirroring Go's "subscription closed without a
-        settled result".
+        A subscription woken without a settled result is an SDK bug and
+        raises.
         """
         await self._done.wait()
         assert self._result
@@ -68,16 +65,19 @@ class ResonateHandle[T]:
     """A handle to a durable promise, returned from ``run``, ``rpc``, and ``get``.
 
     Allows non-blocking observation and eventual awaiting of a durable promise.
-    The target type ``type_`` stands in for Rust's ``PhantomData<T>``: Python
-    cannot resolve the type variable at runtime, so the decode type is passed
-    explicitly at construction.
+    Python cannot resolve the type variable ``T`` at runtime, so the decode
+    type is passed explicitly at construction as ``type_``.
 
     The promise id is not exposed synchronously. For ``run``/``rpc`` the durable
     promise is created in the background, so the id is only meaningful once that
     creation round-trip has confirmed; :meth:`id` awaits ``created`` before
-    handing it back, mirroring :class:`~resonate.context.ResonateFuture.id`. The
-    ``get`` path passes an already-set event, since it only builds a handle after
-    the promise has been confirmed to exist.
+    handing it back, just like :meth:`~resonate.context.ResonateFuture.id`.
+    ``created`` is a :class:`asyncio.Future` carrying the creation *outcome*: it
+    resolves to ``None`` once the durable promise exists and is rejected with the
+    creation error if the round-trip failed, so :meth:`id` never hands back an id
+    for a promise that was never created. The ``get`` path passes an
+    already-resolved future, since it only builds a handle after the promise has
+    been confirmed to exist.
     """
 
     def __init__(
@@ -86,7 +86,7 @@ class ResonateHandle[T]:
         sub: Subscription,
         codec: Codec,
         type_: type[T],
-        created: asyncio.Event,
+        created: asyncio.Future[None],
     ) -> None:
         self._id = id
         self._sub = sub
@@ -97,11 +97,12 @@ class ResonateHandle[T]:
     async def id(self) -> str:
         """Return the durable promise id, once its creation is confirmed.
 
-        Waits on the creation event so a caller never observes an id before the
-        backing durable promise is known to exist. Mirrors
+        Awaits the creation future so a caller never observes an id before the
+        backing durable promise is known to exist; if creation failed, the
+        future's exception is raised here. Behaves like
         :meth:`~resonate.context.ResonateFuture.id`.
         """
-        await self._created.wait()
+        await self._created
         return self._id
 
     async def result(self) -> T:
@@ -112,8 +113,8 @@ class ResonateHandle[T]:
     def done(self) -> bool:
         """Check if the promise is done (non-blocking).
 
-        Rust's ``done`` is ``async`` only to lock the receiver; the single-threaded
-        asyncio port needs no lock, so this mirrors ``recv`` in being synchronous.
+        Synchronous: the SDK runs single-threaded on asyncio, so no lock is
+        needed to read the subscription's state.
         """
         return self._sub.settled()
 
@@ -123,8 +124,7 @@ class ResonateHandle[T]:
         The wire ``value`` crosses the durability boundary through the
         :class:`~resonate.codec.Codec` -- the sole owner of that decode. This
         method only maps the settled state onto the decoded value (coerced to
-        ``T``) or the matching error. The coercion mirrors Rust's
-        ``serde_json::from_value::<T>`` in ``handle.rs``: type-shaping an
+        ``T``) or the matching error. The coercion type-shapes an
         already-decoded value, distinct from the codec's serialization work.
         """
         match result.state:

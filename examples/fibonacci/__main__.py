@@ -7,8 +7,8 @@ the Resonate SDK:
                  same worker)
     --mode mix   one branch via rpc, the other via run
 
-Mirrors the Go SDK's ``fibonacci`` example. Start a Resonate server on
-localhost:8001 first (``resonate dev``), then e.g.::
+Start a Resonate server on localhost:8001 first (``resonate dev``), then
+e.g.::
 
     uv run python examples/fibonacci --mode rpc --n 10
 """

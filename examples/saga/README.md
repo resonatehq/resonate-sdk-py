@@ -44,7 +44,7 @@ Expected output for `--fail charge`:
 
 ## A note on replay
 
-Unlike Go's blocking model, the Python SDK runs an orchestrator with a
+The SDK runs an orchestrator with a
 **suspend-and-replay** model: `book_trip` re-executes from the top each time it
 awaits a not-yet-settled future. So all side effects (the log lines here) live
 in the leaf step functions, which settle exactly once and are never re-run. If

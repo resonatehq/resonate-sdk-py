@@ -9,8 +9,7 @@ Every stage is a registered function backed by a durable promise, so a crash
 mid-pipeline picks up at the first unsettled stage without re-doing completed
 work.
 
-Mirrors the Go SDK's ``pipeline`` example. Start a Resonate server on
-localhost:8001 first (``resonate dev``), then::
+Start a Resonate server on localhost:8001 first (``resonate dev``), then::
 
     uv run python examples/pipeline
 

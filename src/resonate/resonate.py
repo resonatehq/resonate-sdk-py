@@ -1,32 +1,28 @@
 """The top-level Resonate SDK entrypoint.
 
-Ports Go's ``resonate.go`` and Rust's ``resonate.rs`` to idiomatic Python:
+:class:`Resonate` is the object applications construct and use directly:
+register durable functions with :meth:`Resonate.register`, start them with
+:meth:`Resonate.run` or :meth:`Resonate.rpc`, look up existing invocations
+with :meth:`Resonate.get`, and shut down cleanly with :meth:`Resonate.stop`.
 
-* Rust/Go's typed builder objects (``ResRunTask``/``RegisteredFunc``) collapse
-  into plain methods. ``run``/``rpc`` mirror :meth:`~resonate.context.Context.run`
-  / :meth:`~resonate.context.Context.rpc` (with the top-level ``id`` prepended)
-  and are **synchronous** fire-and-forget triggers returning a
-  :class:`~resonate.handle.ResonateHandle`; per-call options come from
-  :meth:`Resonate.with_opts`, mirroring the ``with_opts`` on ``Context``.
-* Go's ``sync.RWMutex``-guarded subscription map becomes a plain ``dict`` --
-  asyncio is single-threaded and no mutation spans an ``await`` (see the same
-  note in ``effects.py`` / ``heartbeat.py``). Each id maps to a single
-  :class:`~resonate.handle.Subscription` (an :class:`asyncio.Event` + result
-  slot, mirroring Go's ``subscription``); every handle to that id awaits the
-  same subscription, so one settle wakes them all (the analogue of Rust's
-  ``watch`` fan-out). The ``asyncio.Event`` supersedes the earlier
-  ``loop.create_future()`` -- it is the idiomatic high-level primitive and needs
-  no loop reference at construction.
-* Goroutine / ``tokio::spawn`` fire-and-forget execution becomes
-  :func:`asyncio.create_task`, with task references retained both so the loop
-  does not garbage-collect them mid-flight and so :meth:`Resonate.stop` can join
-  them.
+``run`` and ``rpc`` are synchronous fire-and-forget triggers: they return a
+:class:`~resonate.handle.ResonateHandle` immediately, while the network work
+happens in a background task. Per-call options come from
+:meth:`Resonate.options`, which returns a fresh handle over the same shared
+engine carrying the overridden :class:`Opts`.
+
+Internally, each promise id maps to a single
+:class:`~resonate.handle.Subscription`; every handle to that id awaits the
+same subscription, so one settle wakes them all. Background work runs as
+:func:`asyncio.create_task` tasks, retained so the event loop does not
+garbage-collect them mid-flight and so :meth:`Resonate.stop` can join them.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import logging
 import os
 from datetime import timedelta
@@ -46,9 +42,10 @@ from resonate.error import (
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.network import HttpNetwork, LocalNetwork
-from resonate.promises import Promises, Schedules
+from resonate.promises import Promises
 from resonate.registry import Registry
 from resonate.retry import Exponential
+from resonate.schedules import Schedules
 from resonate.send import Sender
 from resonate.transport import ExecuteMsg, Transport, UnblockMsg
 from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
@@ -66,30 +63,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 #: Default deadline applied to a top-level :meth:`Resonate.run` /
-#: :meth:`Resonate.rpc` when the caller passes none. Matches the Go/Rust default.
+#: :meth:`Resonate.rpc` when the caller passes none.
 DEFAULT_TOP_LEVEL_TIMEOUT = timedelta(days=1)
 
 #: Default per-task lease duration.
 DEFAULT_TTL = timedelta(minutes=1)
 
 #: Ceiling on tasks executing concurrently in this process. A task holds a
-#: server lease from acquire until it suspends or fulfills; with no bound, an
-#: ``execute`` flood (e.g. a deep recursive workflow whose rpc children are all
-#: routed back to this worker) acquires leases far faster than it can drain
-#: them, so the per-task heartbeat can't keep every lease alive and they lapse
-#: -- a self-amplifying 409 storm as the server re-delivers each lapsed task.
-#: Bounding concurrent executions caps both the live-lease count (so the
-#: heartbeat payload stays small) and the request burst against the connection
-#: pool, leaving it headroom (see
-#: :data:`~resonate.network._http._DEFAULT_CONN_LIMIT`). Safe because a task
-#: never *blocks* on a child while holding its permit: durable functions
-#: suspend (unwind, releasing the permit) and resume as a fresh ``execute``, so
-#: bounding cannot deadlock a parent waiting on a child.
+#: server lease from acquire until it suspends or fulfills; without a bound, a
+#: flood of ``execute`` messages (e.g. a deep recursive workflow whose rpc
+#: children are all routed back to this worker) could acquire leases faster
+#: than the heartbeat can keep them alive, so leases lapse and the server
+#: re-delivers each lapsed task. Bounding concurrent executions caps both the
+#: live-lease count and the request burst against the connection pool. The
+#: bound cannot deadlock a parent waiting on a child: durable functions never
+#: block while holding a permit -- they suspend (releasing the permit) and
+#: resume later as a fresh ``execute``.
 DEFAULT_MAX_CONCURRENT_TASKS = 64
 
-#: Divisor applied to the lease TTL to derive the heartbeat interval. Three
-#: beats per lease tolerates two missed/slow round-trips before a lapse (the
-#: old ``ttl/2`` tolerated only one).
+#: Divisor applied to the lease TTL to derive the heartbeat interval, so
+#: multiple beats fit within each lease and a slow round-trip does not
+#: immediately lapse it.
 HEARTBEAT_INTERVAL_DIVISOR = 2
 
 #: How often the background loop re-issues ``promise.register_listener`` for
@@ -98,7 +92,7 @@ _SUBSCRIPTION_REFRESH_SECS = 60
 
 
 class ResonateSchedule:
-    """Handle to a created schedule. Mirrors Rust's ``ResonateSchedule``."""
+    """Handle to a created schedule."""
 
     def __init__(self, name: str, schedules: Schedules) -> None:
         self.name = name
@@ -109,12 +103,54 @@ class ResonateSchedule:
         await self._schedules.delete(self.name)
 
 
+class _Runtime:
+    """The shared mutable runtime behind every :class:`Resonate` handle.
+
+    :meth:`Resonate.options` mints handles with ``copy.copy``, so attributes
+    set at construction are shared by reference. A shallow copy cannot share
+    an attribute that is later *rebound*, though: if one handle reassigned its
+    own slot (e.g. ``stopping = True`` in :meth:`Resonate.stop`), the change
+    would be invisible to every other handle. This object therefore holds all
+    state mutated after construction -- the lifecycle fields (``stopping``,
+    ``refresh_handle``) and the runtime containers -- so every handle observes
+    the same state. The never-rebound wiring (network, codec, core, ...) lives
+    directly on :class:`Resonate`.
+    """
+
+    def __init__(self, max_concurrent_tasks: int) -> None:
+        #: id -> settle-once subscription. A single subscription is shared by
+        #: every handle to that id, so one settle wakes them all.
+        self.subs: dict[str, Subscription] = {}
+        #: Live fire-and-forget tasks (network start, promise creation, workflow
+        #: execution), retained both so the event loop does not collect them
+        #: mid-flight and so :meth:`Resonate.stop` can join them.
+        self.bg_tasks: set[asyncio.Task[Any]] = set()
+        #: Set by :meth:`Resonate.stop` to refuse new ``execute`` work. Without
+        #: it, an in-flight job that fails and releases its task triggers the
+        #: server to re-deliver an ``execute`` message, which would spawn a
+        #: fresh job -- an unbounded loop the join could never drain.
+        self.stopping = False
+        #: Caps tasks executing (holding a lease) at once. Acquired for the whole
+        #: acquire→execute→suspend/fulfill span of every core execution, so the
+        #: live-lease count never exceeds it regardless of how fast ``execute``
+        #: messages arrive (see :data:`DEFAULT_MAX_CONCURRENT_TASKS`).
+        self.execute_sema = asyncio.Semaphore(max_concurrent_tasks)
+        #: The 60s listener-refresh loop; cancelled by :meth:`Resonate.stop`.
+        self.refresh_handle: asyncio.Task[None] | None = None
+
+
 class Resonate:
     """The main entry point for the Resonate SDK.
 
-    Owns the network, sender, codec, core execution engine, registry,
-    heartbeat, and a subscription map that wakes handles when their promise
-    settles via an ``unblock`` message from the server.
+    A thin handle over a shared engine: the instance holds the wiring built
+    once at construction (network, sender, codec, core, registry, heartbeat,
+    the public ``promises``/``schedules`` clients), a shared
+    :class:`_Runtime`, and the :class:`Opts` its ``run``/``rpc`` calls use.
+    :meth:`options` mints a fresh handle by shallow copy -- wiring and runtime
+    shared by reference -- carrying overridden opts, so a held handle stays
+    valid indefinitely and never interferes with another. Everything mutated
+    at runtime (subscriptions, background tasks, stopping) lives on the shared
+    :class:`_Runtime` and is visible across every handle.
 
     Network selection precedence: ``url`` > ``network`` > ``RESONATE_URL`` env
     (with a ``RESONATE_HOST``/``RESONATE_PORT`` fallback) > an in-process
@@ -138,14 +174,14 @@ class Resonate:
         max_concurrent_tasks: int | None = None,
         retry_policy: RetryPolicy | None = None,
     ) -> None:
-        self._ttl = ttl if ttl is not None else DEFAULT_TTL
+        resolved_ttl = ttl if ttl is not None else DEFAULT_TTL
+        safe_ttl = _safe_ttl_ms(resolved_ttl)
 
-        #: SDK-wide default retry policy, applied to a pure-leaf failure when a
-        #: function has no per-call (:meth:`~resonate.context.Context.with_opts`)
-        #: or per-function (:meth:`register`) override. Defaults to
-        #: :data:`~resonate.retry.DEFAULT_RETRY_POLICY` (Exponential); pass
-        #: ``retry_policy=Never()`` to disable retries process-wide (e.g. tests).
-        self._retry_policy = (
+        # SDK-wide default retry policy, applied to a pure-leaf failure when a
+        # function has no per-call (``ctx.options``) or per-function
+        # (:meth:`register`) override. Lives on :class:`~resonate.core.Core`;
+        # pass ``retry_policy=Never()`` to disable retries process-wide (tests).
+        resolved_retry_policy = (
             retry_policy
             if retry_policy is not None
             else Exponential(delay=1, max_delay=(1 << 63) - 1, factor=2, max_retries=30)
@@ -154,78 +190,65 @@ class Resonate:
         resolved_prefix = (
             prefix if prefix is not None else os.environ.get("RESONATE_PREFIX")
         )
-        self._id_prefix = f"{resolved_prefix}:" if resolved_prefix else ""
-
         auth = token if token is not None else os.environ.get("RESONATE_TOKEN")
 
-        self._network = _select_network(url, network, group, pid, auth)
-        self._pid = self._network.pid()
+        net = _select_network(url, network, group, pid, auth)
+        net_pid = net.pid()
 
-        transport = Transport(self._network)
-        self._codec = Codec(encryptor if encryptor is not None else NoopEncryptor())
-        self._registry = Registry()
-        self._sender = Sender(transport, auth)
-        self._deps = DependencyMap()
+        transport = Transport(net)
+        codec = Codec(encryptor if encryptor is not None else NoopEncryptor())
+        registry = Registry()
+        sender = Sender(transport, auth)
+        deps = DependencyMap()
 
         if heartbeat is not None:
-            self._heartbeat = heartbeat
-        elif isinstance(network, LocalNetwork):
-            self._heartbeat = NoopHeartbeat()
+            hb = heartbeat
+        elif isinstance(net, LocalNetwork):
+            hb = NoopHeartbeat()
         else:
-            interval_ms = max(self._safe_ttl_ms() // HEARTBEAT_INTERVAL_DIVISOR, 1)
-            self._heartbeat = AsyncHeartbeat(self._pid, interval_ms, self._sender)
+            interval_ms = max(safe_ttl // HEARTBEAT_INTERVAL_DIVISOR, 1)
+            hb = AsyncHeartbeat(net_pid, interval_ms, sender)
 
-        self._core = Core(
-            sender=self._sender,
-            codec=self._codec,
-            registry=self._registry,
+        core = Core(
+            sender=sender,
+            codec=codec,
+            registry=registry,
+            # A bound method invoked lazily at dispatch time, so handing it over
+            # before the wiring is assigned below is safe.
             resolver=self._resolve_target,
-            heartbeat=self._heartbeat,
-            pid=self._pid,
-            ttl=self._safe_ttl_ms(),
-            deps=self._deps,
-            retry_policy=self._retry_policy,
+            heartbeat=hb,
+            pid=net_pid,
+            ttl=safe_ttl,
+            deps=deps,
+            retry_policy=resolved_retry_policy,
         )
 
-        self.promises = Promises(self._sender, self._codec)
-        self.schedules = Schedules(self._sender, self._codec)
-
-        #: Transient options for the next run/rpc, set via :meth:`with_opts`.
-        self._opts = Opts()
-        #: Tail of the durable-promise-creation chain. Each run/rpc captures this
-        #: as its prev-link and installs a fresh event as the new tail, so the
-        #: background tasks issue ``promise.create``/``task.create`` in call order
-        #: under concurrency. Mirrors ``Context._tail``.
-        self._tail: asyncio.Event | None = None
-        #: id -> settle-once subscription. A single subscription is shared by
-        #: every handle to that id, so one settle wakes them all.
-        self._subs: dict[str, Subscription] = {}
-        #: Registered-function identity -> ``(name, version)``, so :meth:`run` can
-        #: resolve both the registry name and version for the exact ``fn`` object
-        #: it was given. A ``fn`` registered at version 2 is dispatched at version
-        #: 2 -- the object itself carries the version, so :meth:`with_opts` does
-        #: not. Falls back to ``(__name__, 1)`` for an unrecorded callable.
-        self._names: dict[
-            Callable[Concatenate[Context, ...], Any], tuple[str, int]
-        ] = {}
-        #: Live fire-and-forget tasks (network start, promise creation, workflow
-        #: execution), retained both so the event loop does not collect them
-        #: mid-flight and so :meth:`stop` can join them.
-        self._bg_tasks: set[asyncio.Task[Any]] = set()
-        #: Set by :meth:`stop` to refuse new ``execute`` work. Without it, an
-        #: in-flight job that fails and releases its task triggers the server to
-        #: re-deliver an ``execute`` message, which would spawn a fresh job --
-        #: an unbounded loop the join could never drain.
-        self._stopping = False
-        #: Caps tasks executing (holding a lease) at once. Acquired for the whole
-        #: acquire→execute→suspend/fulfill span of every core execution, so the
-        #: live-lease count never exceeds it regardless of how fast ``execute``
-        #: messages arrive (see :data:`DEFAULT_MAX_CONCURRENT_TASKS`).
-        self._execute_sema = asyncio.Semaphore(
+        # Construction-time wiring: set once here, never rebound, so every
+        # handle minted by :meth:`options` (a shallow copy) shares it by
+        # reference automatically.
+        self._ttl = resolved_ttl
+        self._id_prefix = f"{resolved_prefix}:" if resolved_prefix else ""
+        self._network = net
+        self._pid = net_pid
+        self._codec = codec
+        self._registry = registry
+        self._sender = sender
+        self._deps = deps
+        self._heartbeat = hb
+        self._core = core
+        #: Public clients for direct promise/schedule manipulation.
+        self.promises = Promises(sender, codec)
+        self.schedules = Schedules(sender, codec)
+        #: The runtime state every handle must observe *through rebinding* --
+        #: see :class:`_Runtime`.
+        self._runtime = _Runtime(
             max_concurrent_tasks
             if max_concurrent_tasks is not None
             else DEFAULT_MAX_CONCURRENT_TASKS
         )
+        #: This handle's options, applied by its run/rpc calls. Frozen; an
+        #: overriding handle is minted via :meth:`options`.
+        self.opts = Opts()
 
         # Wire push-message dispatch BEFORE starting the network so the initial
         # frames are not missed.
@@ -233,42 +256,8 @@ class Resonate:
 
         # Start the network (fire-and-forget; HttpNetwork reconnects via SSE
         # backoff, LocalNetwork never fails here).
-        self._spawn(self._network.start())
-        self._refresh_handle: asyncio.Task[None] | None = asyncio.create_task(
-            self._run_refresh()
-        )
-
-    # ── Constructors ────────────────────────────────────────────────────────
-
-    @classmethod
-    def local(
-        cls,
-        *,
-        group: str | None = None,
-        pid: str | None = None,
-        ttl: timedelta | None = None,
-        encryptor: Encryptor | None = None,
-        prefix: str | None = None,
-        max_concurrent_tasks: int | None = None,
-        retry_policy: RetryPolicy | None = None,
-    ) -> Resonate:
-        """Local-only mode backed by an in-process :class:`LocalNetwork`.
-
-        Always uses the in-process network regardless of ``RESONATE_URL`` --
-        local must mean local. ``pid`` and ``group`` default to ``"default"``.
-        """
-        resolved_pid = pid if pid is not None else "default"
-        resolved_group = group if group is not None else "default"
-        return cls(
-            network=LocalNetwork(pid=resolved_pid, group=resolved_group),
-            group=resolved_group,
-            pid=resolved_pid,
-            ttl=ttl,
-            encryptor=encryptor,
-            max_concurrent_tasks=max_concurrent_tasks,
-            prefix=prefix,
-            retry_policy=retry_policy,
-        )
+        self._spawn(net.start())
+        self._runtime.refresh_handle = asyncio.create_task(self._run_refresh())
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -281,28 +270,39 @@ class Resonate:
         self._deps.insert(value)
         return self
 
-    def with_opts(
+    def options(
         self,
         *,
         timeout: timedelta | None = None,
         target: str | None = None,
         version: int = 1,
     ) -> Self:
-        """Set options for the **next** :meth:`run` / :meth:`rpc`, then chain.
+        """Mint a new handle over the same engine, carrying these options.
 
-        Mirrors :meth:`~resonate.context.Context.with_opts`: returns ``self`` so
-        the call reads ``resonate.with_opts(timeout=...).run(...)``. The options
-        are consumed -- and reset to defaults -- synchronously by that next call
-        (``run``/``rpc`` are synchronous), so the value is captured the moment
-        the call is made, not when its handle is awaited.
+        Returns a **new** ``Resonate`` made by shallow copy -- wiring and
+        :class:`_Runtime` shared by reference -- whose :meth:`run` /
+        :meth:`rpc` calls use the given options. The originating handle is
+        untouched, so held handles never interfere::
 
-        ``version`` applies to :meth:`rpc` (which dispatches by name and so must
-        be told which version to target). It does **not** apply to :meth:`run`:
-        ``run`` takes a function *object* whose registered version is recovered
-        by identity, so the version is implied by the object itself.
+            a = resonate.options(target="a")
+            b = resonate.options(target="b")
+            a.run(...)  # target=a
+            b.run(...)  # target=b -- and both stay reusable
+
+        Options *replace* rather than merge: ``options(a).options(b)`` carries
+        only ``b``, and any field not passed resets to its default.
+
+        ``version`` applies to the **by-name** form of :meth:`run` / :meth:`rpc`
+        (a name carries no version, so it must be told which to target). It is
+        ignored for the **by-object** form: a function object's registered
+        version is recovered by identity, so the version is implied by the object
+        itself.
         """
-        self._opts = Opts(timeout=timeout, target=target, version=version)
-        return self
+        new = copy.copy(self)
+        # Same-class access, not a privacy break: ``new`` is the clone being
+        # constructed, and ``copy.copy`` has no post-copy hook to set it through.
+        new.opts = Opts(timeout=timeout, target=target, version=version)
+        return new
 
     @overload
     def register[**P, T](
@@ -340,8 +340,8 @@ class Resonate:
         so it can be used bare (``@resonate.register``) or parameterized
         (``@resonate.register(name="...", version=2)``) -- and so the same object
         stays usable from a workflow via ``ctx.run(fn, ...)``. The
-        identity -> ``(name, version)`` map lets :meth:`run` recover both for the
-        exact ``fn`` object it is later given.
+        registry's reverse map lets :meth:`run` recover both for the exact ``fn``
+        object it is later given (and :meth:`rpc` recover the dispatch name).
 
         ``retry_policy`` overrides the SDK-wide default for this function when it
         runs as a root task; it only takes effect for a *pure-leaf* failure (a
@@ -359,7 +359,6 @@ class Resonate:
             msg = "register: a name is required for an anonymous function"
             raise ApplicationError(msg)
         self._registry.register(reg_name, fn, version, retry_policy)
-        self._names[fn] = (reg_name, version)
         return fn
 
     @overload
@@ -378,50 +377,57 @@ class Resonate:
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> ResonateHandle[T]: ...
+    @overload
+    def run(
+        self, id: str, func: str, *args: Any, **kwargs: Any
+    ) -> ResonateHandle[Any]: ...
     def run[T](
         self,
         id: str,
-        func: Callable[Concatenate[Context, ...], Any],
+        func: str | Callable[Concatenate[Context, ...], Any],
         *args: Any,
         **kwargs: Any,
     ) -> ResonateHandle[T]:
         """Start a durable invocation of a locally registered function.
 
-        The ``func``/``*args``/``**kwargs`` shape mirrors
-        :meth:`~resonate.context.Context.run` exactly, with the top-level ``id``
-        prepended: ``func`` is the registered **function object** (not a name --
-        running purely by name is :meth:`rpc`'s job). Its registered name is
-        recovered by identity, falling back to ``func.__name__`` for a callable
-        that was never registered (which then fails fast as not-found).
+        The ``func``/``*args``/``**kwargs`` shape matches
+        :meth:`~resonate.context.Context.run`, with the top-level ``id``
+        prepended. ``func`` is either the registered **function object** --
+        whose name and version are recovered from the registration itself --
+        or the registered **name** as a string, dispatched at
+        :meth:`options`'s ``version``. Either way the function must be
+        registered locally, since ``run`` executes here (dispatching purely to
+        a remote worker by name is :meth:`rpc`'s job): an unregistered name,
+        or a function object that was never registered, raises
+        :class:`~resonate.error.FunctionNotFoundError`. A function object is
+        dispatched by its registered name, not its Python ``__name__`` (which
+        need not match), so an unregistered object is refused rather than
+        guessed -- the same rule :meth:`rpc` follows.
 
         Returns immediately with a handle; the task is created -- and, if this
-        process wins the create-and-acquire race, executed -- in the background,
-        exactly like ``ctx.run``. ``await handle.result()`` for the value. The
-        result type ``T`` is inferred from the function's return annotation.
-        Calling ``run`` twice with the same id yields a handle to the same
-        promise.
+        process wins the create-and-acquire race, executed -- in the
+        background. ``await handle.result()`` for the value. The result type
+        ``T`` is inferred from the function's return annotation. Calling
+        ``run`` twice with the same id yields a handle to the same promise.
 
-        Everything that must follow call order -- consuming the
-        :meth:`with_opts` options, assigning the id, and advancing the
-        durable-promise-creation chain -- happens synchronously here; only the
-        network round-trips are deferred to the background task.
-
-        A ParamSpec signature must end in ``*args: P.args, **kwargs: P.kwargs``
-        with nothing following, so the function's own arguments own the keyword
-        space -- per-call routing/timeout/tags options come from
-        :meth:`with_opts` (``resonate.with_opts(...).run(...)``) instead.
+        The function's own arguments own the keyword space, so per-call
+        routing/timeout options come from :meth:`options`
+        (``resonate.options(...).run(...)``) instead of keyword arguments.
         """
-        opts = self._consume_opts()
+        opts = self.opts
 
-        # The function object carries its own version: recover both name and
-        # version by identity so the exact registered implementation is
-        # dispatched (opts.version applies to rpc, not run). An unrecorded
-        # callable falls back to (__name__, 1), which then fails fast below.
-        recorded = self._names.get(func)
-        if recorded is not None:
-            name, version = recorded
+        if isinstance(func, str):
+            # By-name: a string carries no identity, so it is dispatched at
+            # ``opts.version``, the same as rpc. Must be registered locally --
+            # run executes here -- else it fails fast as not-found below.
+            name, version = func, opts.version
         else:
-            name, version = getattr(func, "__name__", ""), 1
+            # By-object: recover name and version from the registration
+            # (opts.version applies to the by-name form, not this one). An
+            # unregistered object raises rather than falling back to its
+            # ``__name__`` -- the same rule ``rpc`` follows (see
+            # :meth:`_registered_key`).
+            name, version = self._registered_key(func)
 
         df = self._registry.get(name, version)
         if df is None:
@@ -437,28 +443,29 @@ class Resonate:
             opts.target,
         )
 
-        prev_created, created = self._advance_promise_chain()
+        created: asyncio.Future[None] = asyncio.Future()
         sub, is_new = self._subscribe(prefixed_id)
 
         async def _() -> None:
-            """Background body for :meth:`run`: create the task in chain order, run it.
+            """Background body for :meth:`run`: create the task, then run it.
 
-            Waits for the previous chain link before issuing ``task.create`` so the
-            creates fire in call order, then releases the next link via
-            ``created.set()`` (in ``finally``, so a failed create never deadlocks its
-            successors). If this process won the create-and-acquire race, the
-            workflow is executed in its own background task.
+            Resolves ``created`` to ``None`` once ``task.create`` returns, or
+            rejects it with the creation error, so a failed create never hands
+            an id back through :meth:`ResonateHandle.id` for a promise that
+            does not exist. If this process won the create-and-acquire race,
+            the workflow is executed in its own background task.
             """
             try:
-                if prev_created is not None:
-                    await prev_created.wait()
                 outcome = await self._sender.task_create_or_conflict(
                     self._pid,
-                    self._safe_ttl_ms(),
+                    _safe_ttl_ms(self._ttl),
                     self._encode_create_req(req),
                 )
-            finally:
-                created.set()
+            except Exception as exc:
+                created.set_exception(exc)
+                raise
+
+            created.set_result(None)
 
             if outcome != "conflict" and outcome.task.state == "acquired":
                 decoded = self._codec.decode_promise(outcome.promise)
@@ -477,54 +484,114 @@ class Resonate:
                 await self._register_and_settle(req.id, sub)
 
         self._spawn(_())
-        # The return type comes from the same ``DurableFunction`` that packed the
-        # arguments above -- the sole owner of this function's serde -- so the
-        # top-level decode resolves the annotation identically to the ``ctx.run``
-        # recovery decode (``df.coerce_result``), including for callable instances.
+        # The return type comes from the same ``DurableFunction`` that packed
+        # the arguments above -- the sole owner of this function's
+        # serialization -- so the top-level decode resolves the annotation the
+        # same way the recovery decode does, including for callable instances.
         return ResonateHandle(prefixed_id, sub, self._codec, df.return_type, created)
 
-    def rpc(self, id: str, fn: str, *args: Any, **kwargs: Any) -> ResonateHandle[Any]:
+    @overload
+    def rpc(
+        self, id: str, fn: str, *args: Any, **kwargs: Any
+    ) -> ResonateHandle[Any]: ...
+    @overload
+    def rpc[**P, T](
+        self,
+        id: str,
+        fn: Callable[Concatenate[Context, P], Awaitable[T]],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> ResonateHandle[T]: ...
+    @overload
+    def rpc[**P, T](
+        self,
+        id: str,
+        fn: Callable[Concatenate[Context, P], T],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> ResonateHandle[T]: ...
+    def rpc(
+        self,
+        id: str,
+        fn: str | Callable[Concatenate[Context, ...], Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> ResonateHandle[Any]:
         """Dispatch a function remotely.
 
-        Returns immediately with a handle; the durable promise is created in the
-        background. The ``fn``/``*args``/``**kwargs`` shape mirrors
-        :meth:`~resonate.context.Context.rpc`; ``id`` is the (required) top-level
-        promise id. Does not require local registration of the target function --
-        some worker subscribed to the target runs it. The result is untyped (use
-        :meth:`with_opts` for routing).
+        Returns immediately with a handle; the durable promise is created in
+        the background. The ``fn``/``*args``/``**kwargs`` shape matches
+        :meth:`~resonate.context.Context.rpc`; ``id`` is the (required)
+        top-level promise id. The by-name form does not require local
+        registration of the target -- some worker subscribed to the target
+        runs it.
+
+        ``fn`` is either the registered **name** as a string -- dispatched at
+        :meth:`options`'s ``version``, with an untyped (``Any``) result, since
+        there is no local function to read a return annotation from -- or the
+        registered **function object**, whose name and version are recovered
+        from the registration and whose result is decoded against the declared
+        return type, exactly like :meth:`run`. A function object that was
+        never registered raises
+        :class:`~resonate.error.FunctionNotFoundError`: its registry name is
+        not its Python ``__name__`` (which need not match any registered
+        name), so the dispatch target cannot be guessed -- pass the name as a
+        string to dispatch an unregistered target.
         """
-        opts = self._consume_opts()
+        opts = self.opts
         prefixed_id = self._prefix_id(id)
-        # Unlike :meth:`run`, there is no local ``DurableFunction`` to pack/validate
-        # against -- ``fn`` is a name dispatched to whatever worker owns the target,
-        # which need not be this process -- so the args are packed raw into ``Args``
-        # and the result stays untyped (``Any``), exactly like :meth:`get`.
+
+        # Unlike :meth:`run`, the dispatched function may not run in this
+        # process, so the args are always packed raw into ``Args`` (no local
+        # pack/validate). By-name dispatch stays untyped, exactly like
+        # :meth:`get`; by-object dispatch recovers the name/version from the
+        # registration -- which implies local registration, so it decodes the
+        # result against the declared return type (the same assumption
+        # :meth:`run` makes) and refuses to guess a name for an unregistered
+        # object.
+        if isinstance(fn, str):
+            name, version, return_type = fn, opts.version, Any
+        else:
+            # By-object: recover the registered key (raising for an
+            # unregistered object, see :meth:`_registered_key`). A reverse-map
+            # hit guarantees a forward-map one -- both are populated together
+            # at register time -- so decode the result against the declared
+            # return type, exactly like :meth:`run`.
+            name, version = self._registered_key(fn)
+            df = self._registry.get(name, version)
+            return_type = df.return_type if df is not None else Any
+
         req = self._build_root_promise_create_req(
             prefixed_id,
-            fn,
+            name,
             Args(args=args, kwargs=kwargs),
-            opts.version,
+            version,
             opts.timeout,
             opts.target,
         )
 
-        prev_created, created = self._advance_promise_chain()
+        created: asyncio.Future[None] = asyncio.Future()
         sub, is_new = self._subscribe(prefixed_id)
 
         async def _() -> None:
-            """Background body for :meth:`rpc`: create the promise in chain order."""
+            """Background body for :meth:`rpc`: create the promise.
+
+            Resolves ``created`` to ``None`` once ``promise.create`` returns,
+            or rejects it with the creation error, so a failed create never
+            hands an id back through :meth:`ResonateHandle.id`.
+            """
             try:
-                if prev_created is not None:
-                    await prev_created.wait()
                 await self._sender.promise_create(self._encode_create_req(req))
-            finally:
-                created.set()
+            except Exception as exc:
+                created.set_exception(exc)
+                raise
+            created.set_result(None)
 
             if is_new:
                 await self._register_and_settle(req.id, sub)
 
         self._spawn(_())
-        return ResonateHandle(prefixed_id, sub, self._codec, Any, created)
+        return ResonateHandle(prefixed_id, sub, self._codec, return_type, created)
 
     async def get(self, id: str) -> ResonateHandle[Any]:
         """Return a handle for an existing promise.
@@ -547,14 +614,14 @@ class Resonate:
                     id, self._network.unicast()
                 )
             except ResonateError:
-                if self._subs.get(id) is sub and not sub.settled():
-                    del self._subs[id]
+                if self._runtime.subs.get(id) is sub and not sub.settled():
+                    del self._runtime.subs[id]
                 raise
             if record.state != "pending":
                 self._settle_and_cleanup(id, sub, record.state, record.value)
 
-        created = asyncio.Event()
-        created.set()
+        created: asyncio.Future[None] = asyncio.Future()
+        created.set_result(None)
         return ResonateHandle(id, sub, self._codec, Any, created)
 
     async def schedule(
@@ -606,23 +673,21 @@ class Resonate:
         snapshot. Finally the refresh loop is cancelled and the heartbeat shut
         down.
 
-        Unlike Go -- which deliberately leaves execution goroutines untracked so
-        ``Stop`` never waits on a function that blocks indefinitely -- this joins
-        them; durable functions suspend (unwind) rather than block, so the join
-        completes.
+        Execution tasks are joined too; durable functions suspend (unwind)
+        rather than block, so the join completes.
         """
-        self._stopping = True
+        self._runtime.stopping = True
 
-        handle = self._refresh_handle
-        self._refresh_handle = None
+        handle = self._runtime.refresh_handle
+        self._runtime.refresh_handle = None
         if handle is not None:
             handle.cancel()
 
         with contextlib.suppress(ResonateError):
             await self._network.stop()
 
-        while self._bg_tasks:
-            await asyncio.gather(*self._bg_tasks, return_exceptions=True)
+        while self._runtime.bg_tasks:
+            await asyncio.gather(*self._runtime.bg_tasks, return_exceptions=True)
             # Yield so each finished task's done-callback can discard itself from
             # the set (and any network dispatch settle) before we re-check --
             # otherwise the tight loop re-gathers the same already-done tasks.
@@ -630,33 +695,29 @@ class Resonate:
 
         self._heartbeat.shutdown()
 
-    # ── Accessors ─────────────────────────────────────────────────────────────
-
-    @property
-    def pid(self) -> str:
-        return self._pid
-
-    @property
-    def ttl(self) -> timedelta:
-        return self._ttl
-
-    @property
-    def id_prefix(self) -> str:
-        return self._id_prefix
-
-    @property
-    def network(self) -> Network:
-        return self._network
-
     # ── Helpers ───────────────────────────────────────────────────────────────
-
-    def _consume_opts(self) -> Opts:
-        opts = self._opts
-        self._opts = Opts()
-        return opts
 
     def _prefix_id(self, id: str) -> str:
         return f"{self._id_prefix}{id}" if self._id_prefix else id
+
+    def _registered_key(
+        self, fn: Callable[Concatenate[Context, ...], Any]
+    ) -> tuple[str, int]:
+        """Recover the ``(name, version)`` a function *object* was registered under.
+
+        Shared by the by-object form of :meth:`run` and :meth:`rpc` so the two
+        resolve identically. A function object is dispatched by its registered
+        key, not its Python ``__name__`` (which need not match any registered
+        name), so an object that was never registered raises
+        :class:`~resonate.error.FunctionNotFoundError` rather than letting a
+        guessed name dispatch the wrong target -- pass the name as a string to
+        dispatch an unregistered target. The version comes from the registration,
+        so :meth:`options`'s ``version`` does not apply to the by-object form.
+        """
+        recorded = self._registry.reverse(fn)
+        if recorded is None:
+            raise FunctionNotFoundError(getattr(fn, "__name__", "<anonymous>"))
+        return recorded
 
     def _resolve_target(self, target: str | None) -> str:
         """Resolve a routing target.
@@ -672,10 +733,6 @@ class Resonate:
 
         return self._network.target_resolver(resolved)
 
-    def _safe_ttl_ms(self) -> int:
-        ms = _timeout_ms(self._ttl)
-        return ms if ms > 0 else (1 << 50)
-
     def _build_root_promise_create_req(
         self,
         prefixed_id: str,
@@ -687,14 +744,15 @@ class Resonate:
     ) -> PromiseCreateReq:
         """Build the root ``PromiseCreateReq`` for a top-level run or rpc.
 
-        The param is a **plaintext** :class:`~resonate.types.Value` wrapping the
-        :class:`~resonate.types.TaskData` -- symmetric with the requests
-        :class:`~resonate.context.Context` builds for child promises. Encryption
-        is deferred to a single boundary, :meth:`_encode_create_req`, applied
-        immediately before the request is handed to the sender (mirroring
-        :meth:`~resonate.effects.Effects.create_promise` for child promises and
-        :func:`~resonate.promises.encode_value` for the public clients). Carries
-        the SDK's ``resonate:origin/branch/parent/scope/target`` tags.
+        The param is a **plaintext** :class:`~resonate.types.Value` wrapping
+        the :class:`~resonate.types.TaskData` -- symmetric with the requests
+        :class:`~resonate.context.Context` builds for child promises.
+        Encryption is deferred to a single boundary,
+        :meth:`_encode_create_req`, applied immediately before the request is
+        handed to the sender (the same pattern as
+        :meth:`~resonate.effects.Effects.create_promise` for child promises
+        and :func:`~resonate.promises.encode_value` for the public clients).
+        Carries the SDK's ``resonate:origin/branch/parent/scope/target`` tags.
         """
         timeout = timeout if timeout is not None else DEFAULT_TOP_LEVEL_TIMEOUT
 
@@ -725,12 +783,13 @@ class Resonate:
         """Encode a plaintext root req's ``param`` through the codec for the wire.
 
         The single symmetric encode boundary for top-level run/rpc, applied
-        immediately before the request is handed to the sender. Mirrors
-        :meth:`resonate.effects.ResonateEffects.create_promise` for child
-        promises and :func:`resonate.promises.encode_value` for the public
-        clients, keeping the :class:`~resonate.codec.Codec` the sole owner of
-        encode/decode -- and so of encryption/decryption. The companion decode
-        happens on the way back via :meth:`Codec.decode_promise`.
+        immediately before the request is handed to the sender -- the same
+        pattern as :meth:`resonate.effects.ResonateEffects.create_promise` for
+        child promises and :func:`resonate.promises.encode_value` for the
+        public clients, keeping the :class:`~resonate.codec.Codec` the sole
+        owner of encode/decode -- and so of encryption/decryption. The
+        companion decode happens on the way back via
+        :meth:`Codec.decode_promise`.
         """
         return PromiseCreateReq(
             id=req.id,
@@ -738,22 +797,6 @@ class Resonate:
             param=self._codec.encode(req.param.data),
             tags=req.tags,
         )
-
-    # ── Promise-creation chain ─────────────────────────────────────────────────
-
-    def _advance_promise_chain(self) -> tuple[asyncio.Event | None, asyncio.Event]:
-        """Advance the creation-chain tail, returning ``(prev_tail, new_tail)``.
-
-        Each run/rpc captures the previous tail (which its background task waits
-        on before creating its promise) and installs a fresh event as the new
-        tail (which it sets once its own create returns). This serializes the
-        ``promise.create``/``task.create`` requests in call order. Mirrors
-        ``Context._advance_promise_chain``.
-        """
-        prev_tail = self._tail
-        new_tail = asyncio.Event()
-        self._tail = new_tail
-        return prev_tail, new_tail
 
     # ── Subscription / handle path ─────────────────────────────────────────────
 
@@ -764,11 +807,11 @@ class Resonate:
         and hand back a handle -- before their background task touches the
         network, keeping an early ``unblock`` from being dropped.
         """
-        sub = self._subs.get(id)
+        sub = self._runtime.subs.get(id)
         if sub is not None:
             return sub, False
         sub = Subscription()
-        self._subs[id] = sub
+        self._runtime.subs[id] = sub
         return sub, True
 
     async def _register_and_settle(self, id: str, sub: Subscription) -> None:
@@ -836,8 +879,8 @@ class Resonate:
         decode.
         """
         sub.settle(PromiseResult(state=state, value=value))
-        if self._subs.get(id) is sub:
-            del self._subs[id]
+        if self._runtime.subs.get(id) is sub:
+            del self._runtime.subs[id]
 
     # ── Message dispatch ────────────────────────────────────────────────────────
 
@@ -849,7 +892,7 @@ class Resonate:
         routed so a handle awaiting a last-moment settle is not stranded.
         """
         if isinstance(msg, ExecuteMsg):
-            if not self._stopping:
+            if not self._runtime.stopping:
                 self._spawn(
                     self._bounded_execute(
                         self._core.on_message(msg.task_id, msg.version)
@@ -857,7 +900,7 @@ class Resonate:
                 )
         elif isinstance(msg, UnblockMsg):
             promise = msg.promise
-            sub = self._subs.get(msg.promise.id)
+            sub = self._runtime.subs.get(msg.promise.id)
             if sub is None:
                 # No one waiting (already settled+cleaned, or a duplicate push).
                 return
@@ -878,7 +921,7 @@ class Resonate:
         un-awaited coroutine, so the ``task.acquire`` round-trip inside it is
         deferred until the permit is in hand.
         """
-        async with self._execute_sema:
+        async with self._runtime.execute_sema:
             await coro
 
     def _spawn(self, coro: Coroutine[Any, Any, None]) -> None:
@@ -891,13 +934,13 @@ class Resonate:
         task = asyncio.create_task(coro)
 
         def _(task: asyncio.Task[Any]) -> None:
-            self._bg_tasks.discard(task)
+            self._runtime.bg_tasks.discard(task)
             if not task.cancelled():
                 exc = task.exception()
                 if exc is not None:
                     logger.error("background task failed: %s", exc)
 
-        self._bg_tasks.add(task)
+        self._runtime.bg_tasks.add(task)
         task.add_done_callback(_)
 
     async def _run_refresh(self) -> None:
@@ -914,7 +957,7 @@ class Resonate:
                 await asyncio.sleep(_SUBSCRIPTION_REFRESH_SECS)
                 addr = self._network.unicast()
 
-                for id, sub in list(self._subs.items()):
+                for id, sub in list(self._runtime.subs.items()):
                     if not sub.settled():
                         try:
                             record = await self._sender.promise_register_listener(
@@ -947,6 +990,11 @@ def _timeout_ms(timeout: timedelta) -> int:
     return int(timeout.total_seconds() * 1000)
 
 
+def _safe_ttl_ms(ttl: timedelta) -> int:
+    ms = _timeout_ms(ttl)
+    return ms if ms > 0 else (1 << 50)
+
+
 def _select_network(
     url: str | None,
     network: Network | None,
@@ -967,9 +1015,8 @@ def _select_network(
 def _resolve_env_url() -> str | None:
     """Resolve a server URL from the environment.
 
-    ``RESONATE_URL`` takes precedence; otherwise a ``RESONATE_HOST`` (with
-    optional ``RESONATE_SCHEME``/``RESONATE_PORT``) is assembled. Mirrors Rust's
-    URL resolution.
+    ``RESONATE_URL`` takes precedence; otherwise a URL is assembled from
+    ``RESONATE_HOST`` (with optional ``RESONATE_SCHEME``/``RESONATE_PORT``).
     """
     env_url = os.environ.get("RESONATE_URL")
     if env_url:

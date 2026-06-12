@@ -1,30 +1,25 @@
 """The execution tree -- the in-memory model of one workflow attempt's call graph.
 
-This is the Python port of the model specified in ``tree.md``. It is an
-**assertion-only** structure: the runtime never reads it to make a control-flow
-decision (the outer drives off ``Context.spawned_remote``); instead it
-materializes what ``execute_until_blocked_inner`` produced -- the set of
-promises the body created, who settles each, and which are still pending -- so
-that :meth:`Tree.well_formed` can assert the worker's behavior matches the
-suspension contract on every inner return.
+It is an **assertion-only** structure: the runtime never reads it to make a
+control-flow decision; instead it materializes what one execution pass
+produced -- the set of promises the body created, who settles each, and which
+are still pending -- so that :meth:`Tree.well_formed` can assert the worker's
+behavior matches the suspension contract on every return.
 
-Terminology tracks ``tree.md`` exactly: a node's :data:`NodeType` (who settles
-it, §2 Type) and :data:`NodeKind` (whether it has settled, §2 Kind) form the
-2x3 product whose ``(ext, pending)`` cell is the suspension
-:meth:`~Tree.frontier`.
+A node's :data:`NodeType` (who settles it) and :data:`NodeKind` (whether it
+has settled) form a 2x3 product whose ``(ext, pending)`` cell is the
+suspension :meth:`~Tree.frontier`.
 
-Two deliberate divergences from a strict reading of the spec, both documented:
+Two implementation notes:
 
-* **No mutex.** ``tree.md`` §10 guards ``t.nodes`` with a ``sync.Mutex`` because
-  spawned-local goroutines run in parallel. Here every writer is an asyncio
-  task on a single event loop, and no public method awaits between read and
-  write, so the map and the per-node child slice cannot interleave -- the lock
-  would add nothing.
-* **Predicates raise.** ``tree.md`` §12 has ``Useful()`` / ``WellFormed()``
-  return ``error``; following the repo-wide convention (codec.py / core.py)
-  the equivalents here return ``None`` and raise :class:`AssertionError` with a
-  multi-line message on violation. The tree is a pure assertion layer, so a
-  failed check is a bug in the SDK, not a recoverable condition.
+* **No lock.** Every writer is an asyncio task on a single event loop, and no
+  public method awaits between read and write, so the node map and the
+  per-node child list cannot interleave.
+* **Predicates raise.** Following the repo-wide convention (codec.py /
+  core.py), :meth:`Tree.useful` and :meth:`Tree.well_formed` return ``None``
+  and raise :class:`AssertionError` with a multi-line message on violation.
+  The tree is a pure assertion layer, so a failed check is a bug in the SDK,
+  not a recoverable condition.
 """
 
 from __future__ import annotations
@@ -34,7 +29,7 @@ from typing import Literal
 import msgspec
 
 #: Who is responsible for settling a node's durable promise. Assigned at the
-#: call site and never changes (``tree.md`` §2 Type):
+#: call site and never changes:
 #:
 #: * ``"int"`` -- internal, created by ``ctx.run``; this worker settles it
 #:   under our task lease when the local executor returns.
@@ -51,18 +46,18 @@ NodeType = Literal["int", "ext", "det"]
 #: rejected_canceled | rejected_timedout``) collapses to this single bit -- the
 #: success/failure distinction matters at ``Future.await`` time, not for the
 #: structural suspension contract. Transitions monotonically:
-#: ``pending`` -> ``settled`` only (``tree.md`` §2 Kind).
+#: ``pending`` -> ``settled`` only.
 NodeKind = Literal["pending", "settled"]
 
-#: The outcome status the inner can report at a tree-assertion boundary.
-#: ``tree.md`` §4 enumerates only ``Done`` and ``Suspended``; an error-fulfill
-#: (the body raised an :class:`~resonate.errors.ApplicationError`) is a Done
-#: with a rejected settle state, not a separate tree-level status.
+#: The outcome status an execution pass can report at a tree-assertion
+#: boundary. An error-fulfill (the body raised an
+#: :class:`~resonate.errors.ApplicationError`) is a ``"done"`` with a rejected
+#: settle state, not a separate tree-level status.
 Status = Literal["done", "suspended"]
 
 
 class Node(msgspec.Struct, kw_only=True):
-    """One promise in the call graph (``tree.md`` §12 Node).
+    """One promise in the call graph.
 
     Mutable: ``kind`` flips ``pending`` -> ``settled`` exactly once, and
     ``children`` grows as the body spawns. ``children`` holds child IDs in
@@ -77,13 +72,13 @@ class Node(msgspec.Struct, kw_only=True):
 
 
 class Tree:
-    """The execution tree for one workflow attempt (``tree.md`` §12 Tree).
+    """The execution tree for one workflow attempt.
 
     Built incrementally as the body runs (:meth:`add_child` per spawn,
-    :meth:`settle` as promises terminate), then asserted at the inner boundary
-    via :meth:`well_formed`. The root is always ``(int, pending)`` -- it is
-    settled by ``task.fulfill`` in the outer, never by the inner (invariant
-    U1).
+    :meth:`settle` as promises terminate), then asserted at each execution
+    boundary via :meth:`well_formed`. The root is always ``(int, pending)`` --
+    it is settled when the task is fulfilled, never during the body's own
+    execution pass (invariant U1).
     """
 
     def __init__(self, root_id: str) -> None:
@@ -95,23 +90,23 @@ class Tree:
     # ── inspection ──────────────────────────────────────────────────
 
     def root(self) -> str:
-        """Return the root node's id (``tree.md`` §12 Root)."""
+        """Return the root node's id."""
         return self._root
 
     def has(self, id: str) -> bool:
-        """Whether ``id`` exists in the tree (``tree.md`` §12 Has)."""
+        """Whether ``id`` exists in the tree."""
         return id in self._nodes
 
     def size(self) -> int:
-        """Total node count (``tree.md`` §12 Size)."""
+        """Total node count."""
         return len(self._nodes)
 
     def ids(self) -> list[str]:
-        """Every node id, unordered (``tree.md`` §12 IDs)."""
+        """Every node id, unordered."""
         return list(self._nodes)
 
     def get(self, id: str) -> Node | None:
-        """Return a defensive copy of the node, or ``None`` if absent (``tree.md`` §12 Get).
+        """Return a defensive copy of the node, or ``None`` if absent.
 
         Returns a copy (including a fresh ``children`` list) so callers cannot
         mutate tree state through the handle.
@@ -131,7 +126,7 @@ class Tree:
     # ── mutation ────────────────────────────────────────────────────
 
     def add_child(self, parent: str, id: str, type: NodeType) -> bool:
-        """Attach a child of ``type`` under ``parent``; idempotent on ``id`` (``tree.md`` §12 AddChild).
+        """Attach a child of ``type`` under ``parent``; idempotent on ``id``.
 
         Returns ``True`` if a node was inserted, ``False`` if ``id`` already
         existed (so a replay that re-walks the same body does not duplicate
@@ -146,7 +141,7 @@ class Tree:
         return True
 
     def settle(self, id: str) -> None:
-        """Mark ``id`` settled; monotonic, no-op if already settled or unknown (``tree.md`` §12 Settle)."""
+        """Mark ``id`` settled; monotonic, no-op if already settled or unknown."""
         node = self._nodes.get(id)
         if node is None:
             return
@@ -155,7 +150,7 @@ class Tree:
     # ── frontier ────────────────────────────────────────────────────
 
     def frontier(self) -> list[str]:
-        """Return the ``(ext, pending)`` node IDs, skipping Det subtrees (``tree.md`` §3).
+        """Return the ``(ext, pending)`` node IDs, skipping Det subtrees.
 
         These are the workflow's live remote dependencies -- the promises
         whose settlement will unblock further progress. A depth-first walk in
@@ -164,7 +159,7 @@ class Tree:
         and its subtree pruned; everything else descends.
 
         Note this is a **superset** of ``outcome.todos`` (the awaited subset
-        the outer registers callbacks for): the frontier is *every* pending
+        the runtime registers callbacks for): the frontier is *every* pending
         remote leaf, including ones the body created but never reached an
         ``await`` on. Invariant S4 (``todos subset frontier``) connects the
         two.
@@ -192,7 +187,7 @@ class Tree:
     # ── predicates ──────────────────────────────────────────────────
 
     def useful(self) -> None:
-        """Assert U3: no dead pending branches (``tree.md`` §4).
+        """Assert U3: no dead pending branches.
 
         Every non-root, non-Det node must be either ``settled`` OR have at
         least one ``(ext, pending)`` node in its subtree (itself included). A
@@ -200,9 +195,8 @@ class Tree:
         should already have settled. Raises :class:`AssertionError` listing
         every dead branch.
 
-        U3 subsumes the older S2/S3 (no Int-pending leaf, every Int-pending
-        has an Ext-pending descendant): a suspended-local Int node is kept
-        alive only by the Ext-pending descendant its child folded up.
+        A suspended-local Int node is kept alive only by an Ext-pending
+        descendant somewhere in its subtree.
         """
         dead = [
             id
@@ -232,13 +226,14 @@ class Tree:
         return any(self._has_pending_ext(c) for c in node.children)
 
     def well_formed(self, status: Status, todos: list[str]) -> None:
-        """Assert the tree matches the inner outcome (``tree.md`` §4).
+        """Assert the tree matches the reported execution outcome.
 
-        Checked on *every* inner return. ``status`` is the outcome the inner
-        is about to report -- ``"done"`` (the body returned, including a
-        rejected fulfill) or ``"suspended"``; ``todos`` is the awaited subset
-        (``Context.take_remote_todos()``), used for S4. Universal rules apply
-        in both states; the status-specific rule then pins the frontier.
+        Checked on *every* return from an execution pass. ``status`` is the
+        outcome about to be reported -- ``"done"`` (the body returned,
+        including a rejected fulfill) or ``"suspended"``; ``todos`` is the
+        awaited subset (``Context.take_remote_todos()``), used for S4.
+        Universal rules apply in both states; the status-specific rule then
+        pins the frontier.
 
         * **U1** root is ``(int, pending)``.
         * **U2** every node reachable from the root.
@@ -249,7 +244,8 @@ class Tree:
 
         Raises :class:`AssertionError` on the first violated rule.
         """
-        # U1 -- the root is always settled by the outer, never the inner.
+        # U1 -- the root is settled when the task is fulfilled, never by the
+        # body's own execution pass.
         root = self._nodes[self._root]
         assert root.type == "int", (
             f"U1 violated: root {self._root!r} has type {root.type}, expected int"
@@ -302,7 +298,7 @@ class Tree:
     # ── replay comparison ───────────────────────────────────────────
 
     def _shared_type_stable(self, other: Tree) -> bool:
-        """Whether the trees share a root and every shared id keeps its ``type`` (``tree.md`` §6).
+        """Whether the trees share a root and every shared id keeps its ``type``.
 
         The direction-agnostic half of the replay contract: a node's settler is
         fixed at its call site and never changes, so a reclassified shared node
@@ -322,8 +318,8 @@ class Tree:
     def _is_at_least_as_settled_as(self, earlier: Tree) -> bool:
         """Whether every node ``earlier`` had settled is still settled in ``self``.
 
-        Kind monotonicity (``tree.md`` §6): the durable lattice only advances,
-        so a later replay is never *less* settled than an earlier one. This is
+        Kind monotonicity: the durable lattice only advances, so a later
+        replay is never *less* settled than an earlier one. This is
         the one part of the replay contract whose direction is fixed rather than
         containment-symmetric -- ``self`` is always the later replay, so all
         three replay predicates call it the same way.
@@ -337,12 +333,12 @@ class Tree:
         return True
 
     def is_prune_of(self, other: Tree) -> bool:
-        """Whether ``self`` is a *pruning* of ``other`` (``tree.md`` §6).
+        """Whether ``self`` is a *pruning* of ``other``.
 
         ``self`` is a *later* replay of the same body than ``other`` that
         **added nothing** -- it may have **dropped** nodes (a completed Int
         subtree short-circuited, so the children its body would have spawned
-        were never re-added -- context.py / §6) or dropped nothing at all (a
+        were never re-added -- see context.py) or dropped nothing at all (a
         structurally unchanged replay, or a settle-only kind advance). This is
         the no-extension specialization of :meth:`is_prune_and_extension_of`:
         the gate is one-sided (``added == ∅``), so it is *not* exclusive with
@@ -377,13 +373,13 @@ class Tree:
         return True
 
     def is_extension_of(self, other: Tree) -> bool:
-        """Whether ``self`` is an *extension* of ``other`` (``tree.md`` §6/§8).
+        """Whether ``self`` is an *extension* of ``other``.
 
         ``self`` is the *later* replay after the cache advanced and **dropped
         nothing**: it may have run past a now-unblocked await and **appended**
-        nodes ``other`` never had (§8 growth), or merely advanced a shared
-        node's kind (a frontier dependency settled, no new spawn -- ``tree.md``
-        §9 iter 1->2), or be structurally unchanged. This is the no-prune
+        nodes ``other`` never had, or merely advanced a shared node's kind (a
+        frontier dependency settled, no new spawn), or be structurally
+        unchanged. This is the no-prune
         specialization of :meth:`is_prune_and_extension_of`: the gate is
         one-sided (``removed == ∅``), so it is *not* exclusive with
         :meth:`is_prune_of` -- an unchanged replay (both deltas empty) satisfies
@@ -416,7 +412,7 @@ class Tree:
         return True
 
     def is_prune_and_extension_of(self, other: Tree) -> bool:
-        """Whether ``self`` is a *valid replay* of ``other`` (``tree.md`` §6/§8).
+        """Whether ``self`` is a *valid replay* of ``other``.
 
         The general replay relation -- ``self`` may have **pruned** completed
         Int subtrees, **extended** past freshly-unblocked awaits, done **both**
@@ -456,12 +452,12 @@ class Tree:
     # ── display ─────────────────────────────────────────────────────
 
     def print(self) -> str:
-        """Return an ASCII tree diagram, children in insertion order (``tree.md`` §12 Print).
+        """Return an ASCII tree diagram, children in insertion order.
 
         Each line is ``<id> (<type>, <kind>)``. Children are listed in their
         insertion (== call) order, so the output is a deterministic function
         of the (body, cache) pair -- exactly the children-as-prefix replay
-        property (``tree.md`` §6).
+        property.
         """
         lines: list[str] = []
         self._print_node(self._root, line_prefix="", child_prefix="", lines=lines)
