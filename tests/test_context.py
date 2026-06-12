@@ -1109,22 +1109,24 @@ async def test_run_promise_creation_order_under_concurrency() -> None:
 
 @pytest.mark.asyncio
 async def test_run_chain_blocks_second_create_until_first_returns() -> None:
-    # Stronger than the recorder-style test above: gate the first
-    # ``create_promise`` and assert the second has NOT entered ``create_promise``
-    # at all. This proves the chain parks bg #2 at ``await prev_created``
-    # rather than just happening to win a scheduling race.
     ctx = _root()
+
     gate = asyncio.Event()
-    seen: list[str] = []
+    first_entered = asyncio.Event()
     entered_second = asyncio.Event()
+
+    seen: list[str] = []
     original = ctx._state.effects.create_promise
 
     async def recorder(req: Any) -> Any:
         seen.append(req.id)
+
         if req.id == "root.1":
+            first_entered.set()
             await gate.wait()
         else:
             entered_second.set()
+
         return await original(req)
 
     with patch.object(
@@ -1132,13 +1134,17 @@ async def test_run_chain_blocks_second_create_until_first_returns() -> None:
     ):
         f1 = ctx.run(double, 1)
         f2 = ctx.run(double, 2)
-        # Yield generously: a non-chained impl would let bg #2 enter create_promise.
-        for _ in range(5):
-            await asyncio.sleep(0)
+
+        # Wait until bg #1 has actually entered create_promise.
+        await first_entered.wait()
+
+        # A non-chained implementation would allow bg #2 to enter
+        # create_promise before bg #1 completes.
         assert seen == ["root.1"]
         assert not entered_second.is_set()
 
         gate.set()
+
         assert await f1 == 2
         assert await f2 == 4
 
@@ -2121,6 +2127,102 @@ async def test_detached_does_not_force_parent_to_suspend() -> None:
     # and left pending.
     detached_id = _detached_id("root", "root.1.1")
     assert ctx._state.effects.cache[detached_id].state == "pending"
+
+
+# =============================================================================
+# detached: create_promise is guaranteed before the workflow exits
+#
+# The detached body's sole side effect is ``create_promise``; it deferred that
+# call through the creation chain on a bg task. Because the body neither
+# appends to ``spawned_remote`` nor raises ``SuspendedError``, nothing else
+# pulls it along -- so it must be registered in ``spawned_remote_tasks`` and
+# joined by ``flush_local_work`` before the parent settles. Otherwise a
+# fire-and-forget detached child whose future is never awaited could leave the
+# event loop with its durable promise still uncreated when the workflow exits.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_detached_bg_task_registered_for_flush() -> None:
+    # The bg task is parked in ``spawned_remote_tasks`` (the bucket
+    # ``flush_local_work`` joins), and the join drains the list.
+    ctx = _root()
+    fut = ctx.detached("fn")
+    assert len(ctx._state.spawned_remote_tasks) == 1
+    assert ctx._state.spawned_remote_tasks[0] is fut._task
+    await ctx.flush_local_work()
+    assert ctx._state.spawned_remote_tasks == []
+
+
+@pytest.mark.asyncio
+async def test_detached_create_promise_completes_by_flush_when_unawaited() -> None:
+    # The discriminating case: dispatch a detached child but NEVER await its
+    # future. The bg body is deferred, so right after the call the durable
+    # promise does not exist yet...
+    ctx = _root()
+    child_id = _detached_id("root", "root.1")
+    _ = ctx.detached("remote_fn", 1, 2)
+    assert child_id not in ctx._state.effects.cache
+    # ...``flush_local_work`` joins the body before the workflow can settle, so
+    # the durable promise IS created by the time we exit. (Without the
+    # registration, flush would be a no-op here and the promise would never be
+    # created.)
+    await ctx.flush_local_work()
+    assert ctx._state.effects.cache[child_id].state == "pending"
+    # The join added no remote todo, so the parent is still free to fulfill.
+    assert ctx.take_remote_todos() == []
+
+
+async def dispatches_detached_fire_and_forget(ctx: Context) -> str:
+    # Dispatch a detached child and return WITHOUT awaiting it -- the future is
+    # dropped on the floor, so only ``flush_local_work`` can drive its create.
+    _ = ctx.detached("remote_fn", 1)
+    return "done"
+
+
+@pytest.mark.asyncio
+async def test_detached_promise_created_before_parent_settles_unawaited() -> None:
+    # End-to-end happens-before: a workflow whose only durable op is a
+    # fire-and-forget detached child fulfills normally, and the detached
+    # ``create_promise`` is observed strictly BEFORE the parent's
+    # ``settle_promise``. The body never awaits the future and never yields
+    # between dispatching it and returning, so the bg create can only be driven
+    # by ``flush_local_work`` joining it -- without that join the parent settles
+    # first (or the create never happens at all).
+    ctx = _root()
+    detached_id = _detached_id("root", "root.1.1")
+    order: list[str] = []
+    orig_create = ctx._state.effects.create_promise
+    orig_settle = ctx._state.effects.settle_promise
+
+    async def rec_create(req: Any) -> Any:
+        record = await orig_create(req)
+        order.append(f"create:{req.id}")
+        return record
+
+    async def rec_settle(id: str, value: Any) -> Any:
+        order.append(f"settle:{id}")
+        return await orig_settle(id, value)
+
+    with (
+        patch.object(
+            ctx._state.effects, "create_promise", new=AsyncMock(side_effect=rec_create)
+        ),
+        patch.object(
+            ctx._state.effects, "settle_promise", new=AsyncMock(side_effect=rec_settle)
+        ),
+    ):
+        assert await ctx.run(dispatches_detached_fire_and_forget) == "done"
+
+    assert order == [
+        "create:root.1",  # parent workflow promise
+        f"create:{detached_id}",  # detached child -- flushed before settle
+        "settle:root.1",  # parent settles last
+    ]
+    assert ctx._state.effects.cache["root.1"].state == "resolved"
+    assert ctx._state.effects.cache[detached_id].state == "pending"
+    # Fire-and-forget: it never became a remote todo for the parent.
+    assert ctx._state.spawned_remote == []
 
 
 # =============================================================================

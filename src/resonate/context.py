@@ -368,12 +368,16 @@ class Context:
         * ``spawned_locals`` -- the ``ctx.run`` children. Each merges its own
           remote todos into ``spawned_remote`` before it exits.
         * ``spawned_remote_tasks`` -- the ``rpc``/``sleep``/``promise``
-          background bodies (see :meth:`_spawn_remote_await`). Each appends its
-          child id to ``spawned_remote`` and unwinds via ``SuspendedError`` when
-          its record is pending. Joining them here makes that append
-          deterministic for futures the workflow created but never awaited
-          (e.g. it suspended on a sibling first), instead of relying on the
-          event loop happening to run the task before ``take_remote_todos``.
+          background bodies (see :meth:`_spawn_remote_await`) plus the
+          ``detached`` body (see :meth:`detached`). The rpc/sleep/promise bodies
+          each append their child id to ``spawned_remote`` and unwind via
+          ``SuspendedError`` when the record is pending; joining them here makes
+          that append deterministic for futures the workflow created but never
+          awaited (e.g. it suspended on a sibling first), instead of relying on
+          the event loop happening to run the task before ``take_remote_todos``.
+          The detached body neither appends nor suspends -- the join simply
+          guarantees its ``create_promise`` (a fire-and-forget child's only side
+          effect) has completed before the parent settles.
 
         Mirrors Go's ``flushLocalWork`` (an unbounded ``wg.Wait()``): the
         structured-concurrency invariant requires every child's remote todos be
@@ -784,9 +788,11 @@ class Context:
                 self._state.tree.settle(req.id)
             return req.id
 
+        task = asyncio.create_task(bg())
+        self._state.spawned_remote_tasks.append(task)
         return ResonateFuture(
             _id=req.id,
-            _task=asyncio.create_task(bg()),
+            _task=task,
             _created=created,
         )
 
