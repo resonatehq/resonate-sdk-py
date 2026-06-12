@@ -30,6 +30,7 @@ from resonate.effects import ResonateEffects
 from resonate.error import (
     ApplicationError,
     FunctionNotFoundError,
+    PlatformError,
     SerializationError,
     SuspendedError,
 )
@@ -368,9 +369,13 @@ async def test_run_local_child_param_is_empty() -> None:
 async def test_rpc_still_rejects_non_serializable_arg() -> None:
     # Global scope is unchanged: a different worker reconstructs an ``rpc`` call
     # from the persisted param, so a non-serializable arg still fails to encode.
+    # Inside a durable execution that encode failure is a platform error (the
+    # task must be released, not rejected), carrying the SerializationError as
+    # its cause.
     ctx = _root()
-    with pytest.raises(SerializationError):
+    with pytest.raises(PlatformError) as excinfo:
         await ctx.rpc("remote_fn", _Resource("db"))
+    assert isinstance(excinfo.value.__cause__, SerializationError)
 
 
 # =============================================================================

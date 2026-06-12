@@ -12,6 +12,7 @@ otherwise. On error the task is released before the exception is re-raised.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Literal
 
@@ -24,6 +25,7 @@ from resonate.effects import Effects, ResonateEffects
 from resonate.error import (
     DecodingError,
     FunctionNotFoundError,
+    PlatformError,
     ResonateError,
     SerializationError,
     SuspendedError,
@@ -209,7 +211,10 @@ class Core(msgspec.Struct, kw_only=True):
                                 len(sr.preload),
                             )
                             current_preload = sr.preload
-            except ResonateError:
+            # PlatformError is BaseException-derived, so it reaches here past
+            # user code untouched; this catch is the single place the
+            # release-on-platform-error guarantee lives.
+            except (ResonateError, PlatformError):
                 logger.exception(
                     "core: execution failed, releasing task task_id=%s promise_id=%s",
                     task_id,
@@ -314,6 +319,16 @@ class Core(msgspec.Struct, kw_only=True):
             res = await root_ctx.invoke_with_retry(df, task_data, policy)
         except SuspendedError:
             suspended = True
+        except PlatformError:
+            # A platform failure surfaced through user code (an awaited
+            # durable op failed against the server). The task is about to be
+            # released by the caller, so contain first: best-effort drain the
+            # context's spawned tasks so none keep running against a released
+            # task, suppressing any secondary PlatformError from the drain,
+            # then re-raise the original.
+            with contextlib.suppress(PlatformError):
+                await root_ctx.flush_local_work()
+            raise
         except Exception as exc:
             # User code reported failure by raising. Any ``Exception`` (a
             # deliberately raised ``ApplicationError``, a child rejection

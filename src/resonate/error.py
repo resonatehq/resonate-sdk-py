@@ -70,6 +70,20 @@ class IoError(ResonateError):
         super().__init__(f"io error: {error}")
 
 
+class PlatformError(BaseException):
+    """A Resonate platform failure inside a durable execution.
+
+    Extends ``BaseException`` (like :class:`SuspendedError`) so user code's
+    ``except Exception`` cannot swallow it; the task must be released, not
+    fulfilled. Always raised ``from`` the original :class:`ResonateError`,
+    which is also kept on ``cause``.
+    """
+
+    def __init__(self, cause: ResonateError) -> None:
+        self.cause = cause
+        super().__init__(f"platform error: {cause}")
+
+
 class SuspendedError(BaseException):
     """Signals that an execution has suspended.
 

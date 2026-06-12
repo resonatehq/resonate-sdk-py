@@ -14,7 +14,7 @@ import msgspec
 from resonate import now_ms
 from resonate.codec import decode_settled
 from resonate.durable import DurableFunction
-from resonate.error import FunctionNotFoundError, SuspendedError
+from resonate.error import FunctionNotFoundError, PlatformError, SuspendedError
 from resonate.registry import Registry
 from resonate.retry import Never, RetryPolicy
 from resonate.tree import Tree
@@ -395,12 +395,25 @@ class Context:
         remotes = self._state.spawned_remote_tasks
         self._state.spawned_locals = []
         self._state.spawned_remote_tasks = []
+        # A PlatformError is the one failure that must NOT be dropped here: a
+        # fire-and-forget child may have no other awaiter, and the task must be
+        # released rather than fulfilled. Join *every* task first (so none is
+        # abandoned), then re-raise the first PlatformError collected.
+        platform_error: PlatformError | None = None
         for task in locals_:
-            with contextlib.suppress(Exception, SuspendedError):
-                await task.handle
+            try:
+                with contextlib.suppress(Exception, SuspendedError):
+                    await task.handle
+            except PlatformError as exc:
+                platform_error = platform_error if platform_error is not None else exc
         for remote in remotes:
-            with contextlib.suppress(Exception, SuspendedError):
-                await remote
+            try:
+                with contextlib.suppress(Exception, SuspendedError):
+                    await remote
+            except PlatformError as exc:
+                platform_error = platform_error if platform_error is not None else exc
+        if platform_error is not None:
+            raise platform_error
 
     def take_remote_todos(self) -> list[str]:
         """Drain and return all remote todos accumulated on this context."""
@@ -816,7 +829,11 @@ class Context:
 
             record = await self._state.effects.create_promise(req)
             created.set_result(None)
-        except Exception as e:
+        # PlatformError is included so a platform failure still settles this
+        # link's ``created`` (successor links and ``ResonateFuture.id()``
+        # awaiters would otherwise deadlock). Deliberately not a bare
+        # ``BaseException``: that would interfere with task cancellation.
+        except (Exception, PlatformError) as e:
             created.set_exception(e)
             # Mark retrieved
             created.exception()
