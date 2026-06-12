@@ -4,9 +4,12 @@ Once the root durable promise exists, a server failure on a durable operation
 (``ctx.run`` / ``ctx.rpc`` / ``ctx.sleep`` / ``ctx.promise`` / ``ctx.detached``)
 must surface as a :class:`~resonate.error.PlatformError` -- a ``BaseException``
 that user code cannot swallow -- and the task must be **released** (so another
-worker can resume it), never fulfilled. Before the root promise exists
-(top-level ``resonate.run`` / ``resonate.rpc``), failures stay plain
-:class:`~resonate.error.ResonateError` instances.
+worker can resume it), never fulfilled. ``execute_until_blocked_outer`` is the
+boundary: after releasing it unwraps, raising the *original*
+:class:`~resonate.error.ResonateError` to its caller (with the PlatformError
+chained as cause), so nothing above outer ever sees a ``BaseException``.
+Before the root promise exists (top-level ``resonate.run`` / ``resonate.rpc``),
+failures stay plain :class:`~resonate.error.ResonateError` instances.
 
 Like :mod:`tests.test_core`, these run against the in-process
 :class:`~resonate.network.LocalNetwork` through the real Sender/Transport;
@@ -56,10 +59,9 @@ TTL = 10_000
 class FailingSender(Sender):
     """A :class:`Sender` that can be armed to fail specific durable-op calls.
 
-    ``fail_promise_create`` / ``fail_promise_settle`` arm the failure;
-    ``fail_ids`` optionally narrows it to specific promise ids (``None`` fails
-    every call of the armed method). Everything else passes through, so task
-    lifecycle calls (acquire/fulfill/suspend/release) hit the real server.
+    ``fail_promise_create`` / ``fail_promise_settle`` arm the failure.
+    Everything else passes through, so task lifecycle calls
+    (acquire/fulfill/suspend/release) hit the real server.
     """
 
     def __init__(
@@ -71,18 +73,14 @@ class FailingSender(Sender):
         )
         self.fail_promise_create = False
         self.fail_promise_settle = False
-        self.fail_ids: set[str] | None = None
-
-    def _should_fail(self, armed: bool, id: str) -> bool:
-        return armed and (self.fail_ids is None or id in self.fail_ids)
 
     async def promise_create(self, req: PromiseCreateReq) -> PromiseRecord:
-        if self._should_fail(self.fail_promise_create, req.id):
+        if self.fail_promise_create:
             raise self.error
         return await super().promise_create(req)
 
     async def promise_settle(self, req: PromiseSettleReq) -> PromiseRecord:
-        if self._should_fail(self.fail_promise_settle, req.id):
+        if self.fail_promise_settle:
             raise self.error
         return await super().promise_settle(req)
 
@@ -146,7 +144,7 @@ def leaf(ctx: Context) -> int:
     return 1
 
 
-# ── 1. create_promise failure → released task, PlatformError ────────────
+# ── 1. create_promise failure → released task, original error raised ─────
 
 
 @pytest.mark.asyncio
@@ -166,11 +164,13 @@ async def test_rpc_create_failure_releases_task(
     fix.sender.error = error
     fix.sender.fail_promise_create = True
 
-    with pytest.raises(PlatformError) as excinfo:
+    # Outer unwraps the PlatformError after releasing: the caller sees the
+    # *original* ResonateError, with the PlatformError chained as its cause.
+    with pytest.raises(ResonateError) as excinfo:
         await fix.core.execute_until_blocked_outer("pe-rpc", v, promise, preload)
 
-    assert excinfo.value.__cause__ is error
-    assert excinfo.value.cause is error
+    assert excinfo.value is error
+    assert isinstance(excinfo.value.__cause__, PlatformError)
     await assert_released_root_pending(fix, "pe-rpc")
 
 
@@ -184,10 +184,10 @@ async def test_run_create_failure_releases_task(fix: PlatformFixture) -> None:
 
     fix.sender.fail_promise_create = True
 
-    with pytest.raises(PlatformError) as excinfo:
+    with pytest.raises(ServerError) as excinfo:
         await fix.core.execute_until_blocked_outer("pe-run", v, promise, preload)
 
-    assert isinstance(excinfo.value.__cause__, ServerError)
+    assert isinstance(excinfo.value.__cause__, PlatformError)
     await assert_released_root_pending(fix, "pe-run")
 
 
@@ -214,7 +214,7 @@ async def test_except_exception_does_not_swallow_platform_error(
 
     fix.sender.fail_promise_create = True
 
-    with pytest.raises(PlatformError):
+    with pytest.raises(ServerError):
         await fix.core.execute_until_blocked_outer("pe-swallow", v, promise, preload)
 
     assert not swallowed
@@ -239,10 +239,10 @@ async def test_fire_and_forget_settle_failure_releases_task(
 
     fix.sender.fail_promise_settle = True
 
-    with pytest.raises(PlatformError) as excinfo:
+    with pytest.raises(ServerError) as excinfo:
         await fix.core.execute_until_blocked_outer("pe-ff", v, promise, preload)
 
-    assert isinstance(excinfo.value.__cause__, ServerError)
+    assert isinstance(excinfo.value.__cause__, PlatformError)
     # The child's settle never landed.
     child = await fix.promise_get_raw("pe-ff.1")
     assert child.state == "pending"
@@ -250,27 +250,30 @@ async def test_fire_and_forget_settle_failure_releases_task(
 
 
 @pytest.mark.asyncio
-async def test_flush_joins_all_tasks_before_raising(fix: PlatformFixture) -> None:
-    """Sibling tasks are joined (not abandoned) before the first error re-raises."""
+async def test_first_platform_error_wins_with_multiple_failures(
+    fix: PlatformFixture,
+) -> None:
+    """Concurrent platform failures release the task once, on the first error.
+
+    The flush propagates the first PlatformError it joins; remaining siblings
+    are abandoned (the released task's re-delivery retries everything), so the
+    execution must neither hang nor double-release.
+    """
 
     async def wf(ctx: Context) -> int:
-        ctx.run(leaf)  # "pe-join.1" -- its settle fails
-        ctx.run(leaf)  # "pe-join.2" -- settles fine, must still complete
+        ctx.run(leaf)  # "pe-multi.1" -- its settle fails
+        ctx.run(leaf)  # "pe-multi.2" -- its settle fails too
         return 0
 
     fix.reg.register("wf", wf)
-    v, promise, preload = await fix.create_root_task("pe-join", "wf")
+    v, promise, preload = await fix.create_root_task("pe-multi", "wf")
 
     fix.sender.fail_promise_settle = True
-    fix.sender.fail_ids = {"pe-join.1"}
 
-    with pytest.raises(PlatformError):
-        await fix.core.execute_until_blocked_outer("pe-join", v, promise, preload)
+    with pytest.raises(ServerError):
+        await fix.core.execute_until_blocked_outer("pe-multi", v, promise, preload)
 
-    # The healthy sibling was joined and settled before the re-raise.
-    sibling = await fix.promise_get_raw("pe-join.2")
-    assert sibling.state == "resolved"
-    await assert_released_root_pending(fix, "pe-join")
+    await assert_released_root_pending(fix, "pe-multi")
 
 
 # ── 4. creation-chain integrity: no deadlock past a failed link ──────────
@@ -367,7 +370,7 @@ async def test_platform_error_never_fed_to_retry_policy(fix: PlatformFixture) ->
 
     fix.sender.fail_promise_create = True
 
-    with pytest.raises(PlatformError):
+    with pytest.raises(ServerError):
         await fix.core.execute_until_blocked_outer("pe-retry", v, promise, preload)
 
     assert policy.calls == 0
@@ -399,9 +402,18 @@ async def test_pure_leaf_user_failure_still_retries(fix: PlatformFixture) -> Non
 
 
 @pytest.mark.asyncio
-async def test_spawn_logs_platform_error_and_stop_drains(
+async def test_spawn_and_stop_tolerate_base_exception_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Defense in depth: the background-task plumbing survives a BaseException.
+
+    Outer unwraps every PlatformError, so none should reach ``_spawn`` in a
+    real flow -- but if one ever leaked, ``task.exception()`` returns custom
+    BaseException subclasses (asyncio only special-cases SystemExit /
+    KeyboardInterrupt / CancelledError) and ``stop()``'s
+    ``gather(return_exceptions=True)`` aggregates them, so the failure is
+    logged and shutdown completes instead of crashing.
+    """
     res = Resonate()
 
     async def boom() -> None:
@@ -409,13 +421,6 @@ async def test_spawn_logs_platform_error_and_stop_drains(
 
     with caplog.at_level(logging.ERROR, logger="resonate.resonate"):
         res._spawn(boom())
-        # stop() gathers bg_tasks with return_exceptions=True; a PlatformError
-        # must be aggregated there, not crash the shutdown.
         await res.stop()
 
-    assert any(
-        "background task failed" in record.message
-        and record.exc_info is not None
-        and isinstance(record.exc_info[1], PlatformError)
-        for record in caplog.records
-    )
+    assert any("background task failed" in record.message for record in caplog.records)

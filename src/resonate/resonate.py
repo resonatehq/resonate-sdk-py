@@ -36,7 +36,6 @@ from resonate.dependencies import DependencyMap
 from resonate.error import (
     ApplicationError,
     FunctionNotFoundError,
-    PlatformError,
     ResonateError,
     ServerError,
 )
@@ -937,17 +936,9 @@ class Resonate:
         def _(task: asyncio.Task[Any]) -> None:
             self._runtime.bg_tasks.discard(task)
             if not task.cancelled():
-                # ``task.exception()`` returns custom BaseException subclasses
-                # too (asyncio only special-cases SystemExit /
-                # KeyboardInterrupt / CancelledError), so a PlatformError
-                # escaping a released execution lands here -- log it with its
-                # traceback; the server re-delivers the released task.
                 exc = task.exception()
                 if exc is not None:
-                    if isinstance(exc, PlatformError):
-                        logger.error("background task failed: %s", exc, exc_info=exc)
-                    else:
-                        logger.error("background task failed: %s", exc)
+                    logger.error("background task failed: %s", exc)
 
         self._runtime.bg_tasks.add(task)
         task.add_done_callback(_)

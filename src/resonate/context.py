@@ -395,25 +395,17 @@ class Context:
         remotes = self._state.spawned_remote_tasks
         self._state.spawned_locals = []
         self._state.spawned_remote_tasks = []
-        # A PlatformError is the one failure that must NOT be dropped here: a
+        # A PlatformError is a BaseException, so it is NOT suppressed below: a
         # fire-and-forget child may have no other awaiter, and the task must be
-        # released rather than fulfilled. Join *every* task first (so none is
-        # abandoned), then re-raise the first PlatformError collected.
-        platform_error: PlatformError | None = None
+        # released rather than fulfilled, so the first one propagates from its
+        # join (the remaining tasks are abandoned -- the sooner the task is
+        # released the better, and the re-delivered task retries everything).
         for task in locals_:
-            try:
-                with contextlib.suppress(Exception, SuspendedError):
-                    await task.handle
-            except PlatformError as exc:
-                platform_error = platform_error if platform_error is not None else exc
+            with contextlib.suppress(Exception, SuspendedError):
+                await task.handle
         for remote in remotes:
-            try:
-                with contextlib.suppress(Exception, SuspendedError):
-                    await remote
-            except PlatformError as exc:
-                platform_error = platform_error if platform_error is not None else exc
-        if platform_error is not None:
-            raise platform_error
+            with contextlib.suppress(Exception, SuspendedError):
+                await remote
 
     def take_remote_todos(self) -> list[str]:
         """Drain and return all remote todos accumulated on this context."""
