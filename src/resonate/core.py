@@ -345,7 +345,7 @@ class Core(msgspec.Struct, kw_only=True):
             logger.debug(
                 "core: user function raised %s in task=%s: %s",
                 type(exc).__name__,
-                root_ctx.id,
+                root_ctx.info.id,
                 exc,
                 exc_info=True,
             )

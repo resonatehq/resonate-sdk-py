@@ -69,7 +69,7 @@ async def leaf(ctx: Context, x: int) -> int:
 
 
 async def workflow(ctx: Context, x: int) -> str:
-    return f"{ctx.id}:{x}"
+    return f"{ctx.info.id}:{x}"
 
 
 async def ctx_only(ctx: Context) -> int:
@@ -180,7 +180,7 @@ async def test_raising_function_propagates() -> None:
 
 
 async def variadic(ctx: Context, *args: int, **kwargs: int) -> int:
-    return ctx.seq + sum(args) + sum(kwargs.values())
+    return sum(args) + sum(kwargs.values())
 
 
 async def keyword_only(ctx: Context, *, a: int, b: int = 10) -> int:
@@ -408,7 +408,7 @@ class _Adder:
 
 class _Service:
     async def step(self, ctx: Context, x: int) -> str:
-        return f"{ctx.id}:{x}"
+        return f"{ctx.info.id}:{x}"
 
 
 @pytest.mark.asyncio
