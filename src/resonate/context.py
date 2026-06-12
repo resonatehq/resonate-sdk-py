@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import inspect
 from collections.abc import Awaitable, Callable, Generator
 from datetime import timedelta
@@ -177,7 +178,7 @@ class Context:
 
     def __init__(self, state: _State, opts: Opts) -> None:
         self._state = state
-        self._opts = opts
+        self.opts = opts
 
     @property
     def tree(self) -> Tree:
@@ -342,15 +343,16 @@ class Context:
         version: int = 1,
         retry_policy: RetryPolicy | None = None,
     ) -> Context:
-        return Context(
-            self._state,
-            Opts(
-                timeout=timeout,
-                target=target,
-                version=version,
-                retry_policy=retry_policy,
-            ),
+        new = copy.copy(self)
+        # Same-class access, not a privacy break: ``new`` is the clone being
+        # constructed, and ``copy.copy`` has no post-copy hook to set it through.
+        new.opts = Opts(
+            timeout=timeout,
+            target=target,
+            version=version,
+            retry_policy=retry_policy,
         )
+        return new
 
     def get_dependency[T](self, type: type[T]) -> T:
         return self._state.deps.get(type)
@@ -524,9 +526,9 @@ class Context:
         # a callable is wrapped directly, as before, carrying its own identity so
         # it needs no registry round-trip.
         if isinstance(fn, str):
-            resolved = self._state.registry.get(fn, self._opts.version)
+            resolved = self._state.registry.get(fn, self.opts.version)
             if resolved is None:
-                raise FunctionNotFoundError(fn, self._opts.version)
+                raise FunctionNotFoundError(fn, self.opts.version)
             df = resolved
         else:
             df = DurableFunction(fn)
@@ -534,7 +536,7 @@ class Context:
 
         req = PromiseCreateReq(
             id=self._next_id(),
-            timeout_at=self._child_timeout(self._opts.timeout),
+            timeout_at=self._child_timeout(self.opts.timeout),
             param=Value(),
             tags={
                 "resonate:scope": "local",
@@ -585,8 +587,8 @@ class Context:
                 # ``opts`` is captured from the enclosing ``run`` call, so the
                 # policy is fixed at dispatch.
                 policy = (
-                    self._opts.retry_policy
-                    if self._opts.retry_policy is not None
+                    self.opts.retry_policy
+                    if self.opts.retry_policy is not None
                     else self._state.retry_policy
                 )
                 # ``coerce_args=False``: ``payload`` holds the verbatim in-memory
@@ -704,7 +706,7 @@ class Context:
         # object raises: its registry name is not its ``__name__``, so the target
         # cannot be guessed (pass the name as a string for an unregistered one).
         if isinstance(fn, str):
-            name, version, df = fn, self._opts.version, None
+            name, version, df = fn, self.opts.version, None
         else:
             recorded = self._state.registry.reverse(fn)
             if recorded is None:
@@ -716,9 +718,9 @@ class Context:
 
         req = self._global_req(
             self._next_id(),
-            self._opts.timeout,
+            self.opts.timeout,
             data=TaskData(func=name, args=args, kwargs=kwargs, version=version),
-            target=self._state.target_resolver(self._opts.target),
+            target=self._state.target_resolver(self.opts.target),
         )
 
         return self._remote_future(req, prev_created, created, df)
@@ -755,11 +757,9 @@ class Context:
         child_id = f"{self._state.prefix_id}.d{_hash_id(self._next_id())}"
         req = self._global_req(
             child_id,
-            self._opts.timeout,
-            data=TaskData(
-                func=fn, args=args, kwargs=kwargs, version=self._opts.version
-            ),
-            target=self._state.target_resolver(self._opts.target),
+            self.opts.timeout,
+            data=TaskData(func=fn, args=args, kwargs=kwargs, version=self.opts.version),
+            target=self._state.target_resolver(self.opts.target),
             origin=child_id,
         )
 

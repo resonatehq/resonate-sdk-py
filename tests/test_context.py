@@ -944,7 +944,7 @@ async def test_run_options_do_not_leak_to_base_context() -> None:
     # throwaway handle and never touched ``ctx``.
     await ctx.run(double, 1)  # root.2
     assert ctx._state.effects.cache["root.2"].timeout_at > short
-    assert ctx._opts == Opts()
+    assert ctx.opts == Opts()
 
 
 @pytest.mark.asyncio
@@ -954,8 +954,8 @@ async def test_options_returns_independent_handle_sharing_state() -> None:
     ctx = _root()
     scoped = ctx.options(timeout=timedelta(seconds=5))
     assert scoped is not ctx
-    assert scoped._opts == Opts(timeout=timedelta(seconds=5))
-    assert ctx._opts == Opts()
+    assert scoped.opts == Opts(timeout=timedelta(seconds=5))
+    assert ctx.opts == Opts()
     assert scoped._state is ctx._state
 
 
@@ -986,8 +986,8 @@ def test_options_builds_fresh_opts_not_merged_from_base() -> None:
     scoped = ctx.options(target="worker-1").options(version=2)
     # ``version`` is the only field the second call set; ``target`` reset to its
     # default (None) -- it was NOT carried over from the first ``options``.
-    assert scoped._opts == Opts(version=2)
-    assert scoped._opts.target is None
+    assert scoped.opts == Opts(version=2)
+    assert scoped.opts.target is None
 
 
 def test_options_no_args_yields_default_opts_on_a_new_handle() -> None:
@@ -996,7 +996,7 @@ def test_options_no_args_yields_default_opts_on_a_new_handle() -> None:
     ctx = _root()
     scoped = ctx.options()
     assert scoped is not ctx
-    assert scoped._opts == Opts()
+    assert scoped.opts == Opts()
     assert scoped._state is ctx._state
 
 
@@ -1010,11 +1010,11 @@ def test_options_carries_every_field_independently() -> None:
         version=3,
         retry_policy=policy,
     )
-    assert scoped._opts == Opts(
+    assert scoped.opts == Opts(
         timeout=timedelta(seconds=7), target="w", version=3, retry_policy=policy
     )
     # The base handle's opts are untouched -- still the bare defaults.
-    assert ctx._opts == Opts()
+    assert ctx.opts == Opts()
 
 
 def test_options_sibling_handles_are_mutually_isolated() -> None:
@@ -1023,10 +1023,10 @@ def test_options_sibling_handles_are_mutually_isolated() -> None:
     ctx = _root()
     a = ctx.options(timeout=timedelta(seconds=5))
     b = ctx.options(target="worker-2")
-    assert a._opts == Opts(timeout=timedelta(seconds=5))
-    assert b._opts == Opts(target="worker-2")
-    assert a._opts != b._opts
-    assert ctx._opts == Opts()
+    assert a.opts == Opts(timeout=timedelta(seconds=5))
+    assert b.opts == Opts(target="worker-2")
+    assert a.opts != b.opts
+    assert ctx.opts == Opts()
     assert a._state is ctx._state is b._state
 
 
@@ -1474,7 +1474,7 @@ async def test_rpc_options_do_not_leak_to_base_context() -> None:
     ctx = _root([_resolved("root.1", "a")])
     await ctx.options(timeout=timedelta(seconds=30), target="x").rpc("fn")
     # The override rode the throwaway handle; the base context is untouched.
-    assert ctx._opts == Opts()
+    assert ctx.opts == Opts()
 
 
 @pytest.mark.asyncio
@@ -1647,7 +1647,7 @@ async def test_sleep_options_do_not_leak_to_base_context() -> None:
     ctx.options(timeout=timedelta(seconds=5), target="x")
     with pytest.raises(SuspendedError):
         await ctx.sleep(timedelta(seconds=1))
-    assert ctx._opts == Opts()
+    assert ctx.opts == Opts()
 
 
 # =============================================================================
@@ -1847,7 +1847,7 @@ async def test_promise_options_do_not_leak_to_base_context() -> None:
     ctx.options(timeout=timedelta(seconds=5), target="x")
     with pytest.raises(SuspendedError):
         await ctx.promise(timedelta(seconds=1))
-    assert ctx._opts == Opts()
+    assert ctx.opts == Opts()
 
 
 # =============================================================================
@@ -2043,7 +2043,7 @@ async def test_detached_options_do_not_leak_to_base_context() -> None:
     ctx = _root()
     await ctx.options(target="x", timeout=timedelta(seconds=30)).detached("fn")
     # The override rode the throwaway handle; the base context is untouched.
-    assert ctx._opts == Opts()
+    assert ctx.opts == Opts()
 
 
 @pytest.mark.asyncio
