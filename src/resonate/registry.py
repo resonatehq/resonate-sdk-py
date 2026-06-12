@@ -17,30 +17,26 @@ class Registry:
     """Maps a ``(name, version)`` pair to a validated :class:`DurableFunction`.
 
     The version is explicit -- never "latest" -- so a lookup is deterministic
-    regardless of what is registered afterwards: a task records its version in
-    ``TaskData`` at create time and resolves the *same* implementation on every replay.
+    regardless of what is registered afterwards: a task records its version at
+    create time and resolves the same implementation on every replay.
 
-    Names stay explicit -- passed at register time, not derived from the Python
-    function -- so they remain stable across renames. The callable is wrapped in
-    a :class:`DurableFunction` at register time, which validates the ctx-first
-    convention and owns the symmetric serialize/deserialize of its arguments and
-    return value.
+    Names are passed at register time rather than derived from the Python
+    function, so they stay stable across renames. The callable is wrapped in a
+    :class:`DurableFunction`, which validates the ctx-first convention and
+    handles serializing/deserializing its arguments and return value.
     """
 
     def __init__(self) -> None:
         self._by_key: dict[tuple[str, int], DurableFunction] = {}
-        #: Per-function retry policy *override*, parallel to ``_by_key``. Read by
-        #: Core when it dispatches a root task -- a remote dispatch carries no
-        #: policy on the wire, so the worker resolves it here by ``(name,
-        #: version)``. ``None`` (or absent) means "no override" -- Core falls back
-        #: to its SDK-wide default.
+        #: Per-function retry policy override, looked up by ``(name, version)``
+        #: when a root task is dispatched (a remote dispatch carries no policy
+        #: on the wire). ``None`` (or absent) means "no override" -- the
+        #: SDK-wide default applies.
         self._policy_by_key: dict[tuple[str, int], RetryPolicy | None] = {}
-        #: Reverse of ``_by_key``: function identity -> its registered
-        #: ``(name, version)``. Lets a caller holding the function *object*
-        #: recover what to dispatch by -- the name for a by-object ``rpc`` and the
-        #: version for a by-object ``run`` (both at the top level and on
-        #: ``Context``). The same object registered under several keys keeps the
-        #: last, matching last-writer semantics for a given identity.
+        #: Reverse of ``_by_key``: function object -> its registered
+        #: ``(name, version)``. Lets a caller holding the function object
+        #: recover what to dispatch by (e.g. a by-object ``rpc`` or ``run``).
+        #: Registering the same object under several keys keeps the last one.
         self._by_fn: dict[
             Callable[Concatenate[Context, ...], Any], tuple[str, int]
         ] = {}
@@ -54,9 +50,9 @@ class Registry:
     ) -> None:
         """Validate ``fn`` and store it under ``(name, version)``.
 
-        ``retry_policy`` is a per-function *override*, applied to a *pure-leaf*
-        failure when this function runs as a root task. ``None`` (the default)
-        means no override -- Core falls back to its SDK-wide default. A workflow
+        ``retry_policy`` is a per-function override, applied when this function
+        fails as a pure (leaf) function running as a root task. ``None`` (the
+        default) means no override -- the SDK-wide default applies. A workflow
         body never retries regardless of the policy.
         """
         if not name:
@@ -80,10 +76,9 @@ class Registry:
     ) -> tuple[str, int] | None:
         """Return the ``(name, version)`` ``fn`` was registered under, or ``None``.
 
-        The inverse of :meth:`get`: a caller holding the function *object* rather
-        than its name (a by-object ``rpc`` dispatch, a by-object ``run``) uses
-        this to recover what to dispatch by. ``None`` means the object was never
-        registered, leaving the caller to fall back (e.g. to ``__name__``).
+        The inverse of :meth:`get`: a caller holding the function object rather
+        than its name uses this to recover what to dispatch by. ``None`` means
+        the object was never registered.
         """
         return self._by_fn.get(fn)
 

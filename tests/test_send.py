@@ -188,9 +188,9 @@ def test_task_release_roundtrip() -> None:
 class CapturingNetwork:
     """A ``Network`` stub that records every sent body and echoes a canned reply.
 
-    Stands in for Rust's ``TestHarness``: it replies with the right ``kind`` and
-    ``corrId`` (echoed from the request) so the :class:`Transport` validation
-    passes, letting tests inspect the raw envelope the :class:`Sender` produced.
+    It replies with the right ``kind`` and ``corrId`` (echoed from the
+    request) so the :class:`Transport` validation passes, letting tests
+    inspect the raw envelope the :class:`Sender` produced.
     """
 
     def __init__(self) -> None:

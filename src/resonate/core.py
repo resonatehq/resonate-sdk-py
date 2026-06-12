@@ -1,17 +1,13 @@
-"""Orchestrates the full lifecycle of one task. Mirrors Go's ``core.go``.
+"""Orchestrates the full lifecycle of one task.
 
-A :class:`Core` acquires (via :meth:`Core.on_message`) or skip-acquires (via
-:meth:`Core.execute_until_blocked`) a task, executes the registered function
-inside a suspend/panic boundary, then fulfills on done, suspends on remote
-work, or releases on error.
+A :class:`Core` acquires a task (via :meth:`Core.on_message`) or takes an
+already-acquired one (via :meth:`Core.execute_until_blocked_outer`), executes
+the registered function, then fulfills on done, suspends on remote work, or
+releases on error.
 
-Where Go returns ``(Status, error)`` from every method, this port follows the
-repo-wide convention (see codec.py / sender.py): methods **raise** a
-:class:`~resonate.error.ResonateError` on failure and return the success
-:data:`~resonate.types.Status` (``"done"`` / ``"suspended"``) otherwise. The
-``StatusErr`` arm of Go's enum is therefore expressed as a raised exception, and
-the release-on-error ``defer`` becomes an ``except`` that releases the task then
-re-raises.
+Methods raise a :class:`~resonate.error.ResonateError` on failure and return
+the success :data:`~resonate.types.Status` (``"done"`` / ``"suspended"``)
+otherwise. On error the task is released before the exception is re-raised.
 """
 
 from __future__ import annotations
@@ -49,9 +45,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: The target state for a ``promise.settle`` request, mirroring Go's
-#: ``SettleState``. Folded into the field type as a ``Literal`` per the
-#: established convention; identical to
+#: The target state for a ``promise.settle`` request; identical to
 #: :class:`~resonate.types.PromiseSettleReq`'s ``state``.
 SettleState = Literal["resolved", "rejected", "rejected_canceled"]
 
@@ -59,14 +53,14 @@ SettleState = Literal["resolved", "rejected", "rejected_canceled"]
 def identity_target_resolver(override: str | None) -> str:
     """Return the override unchanged, or the empty string when there is none.
 
-    Mirrors Go's ``IdentityTargetResolver`` -- the fallback resolver used when a
-    :class:`Core` is built without one.
+    This is the fallback resolver used when a :class:`Core` is built without
+    one.
     """
     return override if override is not None else ""
 
 
 # ═══════════════════════════════════════════════════════════════
-#  execOutcome -- what the inner reports back to the lifecycle loop
+#  Execution outcome -- what the inner reports back to the lifecycle loop
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -74,7 +68,7 @@ class _ExecFulfilled(msgspec.Struct, frozen=True, kw_only=True):
     """The workflow finished; the task should be fulfilled with these args.
 
     ``value`` is already codec-encoded, so the caller has a single uniform
-    fulfill path. Mirrors Go's ``execOutcome{kind: execFulfill}``.
+    fulfill path.
     """
 
     state: SettleState
@@ -83,30 +77,24 @@ class _ExecFulfilled(msgspec.Struct, frozen=True, kw_only=True):
 
 
 class _ExecSuspended(msgspec.Struct, frozen=True, kw_only=True):
-    """The workflow has remote dependencies; suspend on these awaiteds.
-
-    Mirrors Go's ``execOutcome{kind: execSuspend}``.
-    """
+    """The workflow has remote dependencies; suspend on these awaiteds."""
 
     todos: list[str]
     tree: Tree
 
 
-#: Outcome reported by :meth:`Core._execute_until_blocked_inner`. Mirrors Go's
-#: ``execOutcome`` discriminated by ``execOutcomeKind``.
+#: Outcome reported by :meth:`Core.execute_until_blocked_inner`.
 _ExecOutcome = _ExecFulfilled | _ExecSuspended
 
 
 class Core(msgspec.Struct, kw_only=True):
     """Orchestrates acquire/execute/fulfill-suspend-release for one task.
 
-    Mirrors Go's ``Core``. ``resolver`` may be ``None`` -- it falls back to
-    :func:`identity_target_resolver`. ``heartbeat`` may be ``None`` -- it falls
-    back to :class:`~resonate.heartbeat.NoopHeartbeat`.
+    ``resolver`` defaults to :func:`identity_target_resolver` and ``heartbeat``
+    to :class:`~resonate.heartbeat.NoopHeartbeat`.
 
-    ``deps`` has no Go analog: Go injects dependencies through the host
-    ``context.Context`` (``Context.Value``), whereas the Python SDK threads an
-    explicit :class:`~resonate.DependencyMap` into the root context.
+    ``deps`` is the :class:`~resonate.DependencyMap` threaded into the root
+    context, making registered dependencies available to user functions.
     """
 
     sender: Sender | None
@@ -130,7 +118,7 @@ class Core(msgspec.Struct, kw_only=True):
         """Handle an execute push message.
 
         Acquires the task, decodes the root promise, and runs
-        :meth:`execute_until_blocked`. Mirrors Go's ``OnMessage``.
+        :meth:`execute_until_blocked_outer`.
         """
         assert self.sender, "sender must be set"
         res = await self.sender.task_acquire(task_id, version, self.pid, self.ttl)
@@ -160,7 +148,7 @@ class Core(msgspec.Struct, kw_only=True):
 
         Owns the task lifecycle: builds :class:`~resonate.effects.Effects`,
         drives the redirect loop, fulfills or suspends on the inner's outcome,
-        and releases on error. Mirrors Go's ``ExecuteUntilBlocked``.
+        and releases on error.
         """
         self.heartbeat.start(task_id, task_version)
         assert self.sender, "sender must be set"
@@ -245,8 +233,7 @@ class Core(msgspec.Struct, kw_only=True):
 
         Does not touch task lifecycle APIs (fulfill/suspend/release) -- the
         caller owns those. Encodes return values through the codec so the caller
-        has a single, uniform fulfill path. Mirrors Go's
-        ``executeUntilBlockedInner``.
+        has a single, uniform fulfill path.
         """
         # 1. Decode TaskData from the (already-decoded) promise param.
         try:
@@ -328,8 +315,7 @@ class Core(msgspec.Struct, kw_only=True):
         except SuspendedError:
             suspended = True
         except Exception as exc:
-            # User code reported failure by raising -- Python has no Go-style
-            # "returned error vs panic" split, so any ``Exception`` (a
+            # User code reported failure by raising. Any ``Exception`` (a
             # deliberately raised ``ApplicationError``, a child rejection
             # surfaced by ``ctx.rpc``, or a plain ``ValueError`` /
             # domain-specific subclass) settles the promise ``rejected``. The

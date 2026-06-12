@@ -1,12 +1,8 @@
 """Behaviour tests for :mod:`resonate.context` -- focused on ``Context.run``.
 
-``context.rs`` has its own ``#[cfg(test)]`` module, but the Python ``run`` was
-ported from Go's ``context.go`` (``Run`` + ``executeLocal`` + ``Future.Await``
-fused into the inline async-await form), so these tests mirror Go's
-``context_test.go`` ``Run`` cases adapted to that model: ``run`` returns the
-value directly, raises on rejection, and raises
-:class:`~resonate.error.SuspendedError` (instead of Go's ``suspendSignal`` panic)
-when a dependency is still pending.
+``run`` executes the child inline in async-await form: it returns the value
+directly, raises on rejection, and raises
+:class:`~resonate.error.SuspendedError` when a dependency is still pending.
 
 The harness builds a root :class:`~resonate.context.Context` over a real
 :class:`~resonate.network.LocalNetwork` (as :mod:`tests.test_durable` does), so
@@ -215,8 +211,8 @@ def test_next_id_sequential() -> None:
 
 
 def test_child_parent_is_current_id() -> None:
-    # Regression: child.parent_id must be the *current* id (Go ``c.id`` / Rust
-    # ``self.id``), not the parent's own parent_id.
+    # Regression: child.parent_id must be the *current* id, not the parent's
+    # own parent_id.
     ctx = _root()
     child = ctx._child("root.1", "fn", I64_MAX)
     assert child.info.parent_id == "root"
@@ -238,8 +234,7 @@ def test_child_timeout_caps_to_parent() -> None:
 #
 # ``Context.get_dependency`` is a thin pass-through to ``deps.get(type)`` -- the
 # same map ``Resonate.with_dependency`` populates. It returns the stored value
-# by concrete type and surfaces the map's ``KeyError`` when absent. Mirrors
-# Rust's ``Context::get_dependency``.
+# by concrete type and surfaces the map's ``KeyError`` when absent.
 # =============================================================================
 
 
@@ -578,8 +573,8 @@ async def test_run_suspends_when_child_blocks_on_remote() -> None:
 
 @pytest.mark.asyncio
 async def test_run_suspends_when_child_completes_with_pending_remote() -> None:
-    # Go reports ``localResult{suspended: true}`` when the function finished but
-    # left remote todos -- the value is dropped in favour of suspension.
+    # When the function finished but left remote todos, the value is dropped
+    # in favour of suspension.
     ctx = _root()
     with pytest.raises(SuspendedError):
         await ctx.run(fire_and_forget)
@@ -592,9 +587,8 @@ async def test_run_suspends_when_child_completes_with_pending_remote() -> None:
 #
 # When a deeply nested child blocks on a remote dependency, its todo must
 # travel through every intermediate ``ctx.run`` up to the root, and every
-# promise on the suspension path must be left pending (not settled). This
-# mirrors Go's ``executeLocal`` recursion and Rust's ``RunTask::into_future``
-# propagation: at each level, ``take_remote_todos`` drains the child and
+# promise on the suspension path must be left pending (not settled):
+# at each level, ``take_remote_todos`` drains the child and
 # extends the parent before re-raising ``SuspendedError``.
 # =============================================================================
 
@@ -699,10 +693,9 @@ async def test_run_fire_and_forget_child_suspension_propagates() -> None:
     # child's todo into the parent's spawned_remote and force the parent to
     # suspend even though the body returned 99.
     #
-    # This is the exact scenario Go's executeLocal calls out with
-    # ``localResult{suspended: true}`` when the function returned but left
-    # remote todos (context.go:362-371) -- it depends on spawned_locals
-    # being populated so flush has something to wait for.
+    # This is the "function returned but left remote todos" scenario -- it
+    # depends on spawned_locals being populated so flush has something to
+    # wait for.
     ctx = _root()
     with pytest.raises(SuspendedError):
         await ctx.run(parent_with_fire_and_forget)
@@ -721,7 +714,6 @@ async def test_run_fire_and_forget_child_suspension_propagates() -> None:
 # that a fire-and-forget child must not be orphaned: the parent's
 # ``settle_promise`` cannot run until every child registered on the parent's
 # context has reached a terminal state (settled or merged remote todos up).
-# Mirrors Go's ``wg.Wait()`` over ``spawnedLocals`` in ``executeLocal``.
 # =============================================================================
 
 
@@ -1309,8 +1301,7 @@ async def test_future_id_raises_when_create_fails() -> None:
 @pytest.mark.asyncio
 async def test_rpc_pending_registers_todo_and_suspends() -> None:
     # A fresh remote promise is created pending; awaiting the future appends
-    # its id to ``spawned_remote`` and raises ``SuspendedError`` (mirrors Go's
-    # Future.Await for a futureRemote pending record).
+    # its id to ``spawned_remote`` and raises ``SuspendedError``.
     ctx = _root()
     fut = ctx.rpc("remote_fn", 1, 2)
     with pytest.raises(SuspendedError):
@@ -1619,9 +1610,9 @@ async def test_sleep_duration_capped_to_parent_timeout() -> None:
 # =============================================================================
 # sleep: duration comes from the argument, NOT from opts
 #
-# Unlike run/rpc, ``sleep`` does not read ``opts.timeout`` for its deadline
-# (mirrors Go's ``Sleep(d)``). It still consumes any opts set via with_opts()
-# so they cannot leak into the next entrypoint call.
+# Unlike run/rpc, ``sleep`` does not read ``opts.timeout`` for its deadline.
+# It still consumes any opts set via with_opts() so they cannot leak into the
+# next entrypoint call.
 # =============================================================================
 
 
@@ -1921,7 +1912,7 @@ async def test_promise_releases_event_when_create_promise_raises() -> None:
 # *id* rather than a remote result. The id lives outside the structured
 # ``{id}.{seq}`` namespace -- it is ``{prefix}.d{blake2b 16 hex of the raw seq}``
 # (the ``d`` marks it a detached segment) -- so it is deterministic across replay
-# yet distinct from awaited children. Mirrors Go's ``Context.Detached``.
+# yet distinct from awaited children.
 # =============================================================================
 
 

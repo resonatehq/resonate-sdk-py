@@ -1,7 +1,7 @@
 """Tests for :class:`resonate.registry.Registry`.
 
-Mirrors Go's ``registry_test.go``: explicit-name registration backed by
-reflection-built :class:`~resonate.durable.DurableFunction` entries. The lookup
+Covers explicit-name registration backed by reflection-built
+:class:`~resonate.durable.DurableFunction` entries. The lookup
 *name* is supplied by the caller (so it stays stable across renames of the
 Python function); the registered callable must follow the Python SDK
 convention of accepting a :class:`Context` as its first argument.
@@ -61,8 +61,8 @@ def test_duplicate_name_rejected() -> None:
         r.register("dup", flow)
 
 
-# ── Versioning (a Python-only divergence from the Rust/Go reference SDKs, which
-#    key the registry purely on name; see Registry's docstring) ───────────────
+# ── Versioning (registry entries are keyed on name *and* version; see
+#    Registry's docstring) ──────────────────────────────────────────────
 
 
 def test_default_version_is_one() -> None:

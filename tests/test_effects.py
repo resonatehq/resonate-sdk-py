@@ -1,9 +1,8 @@
 """Behaviour tests for :mod:`resonate.effects`.
 
-Mirrors the ``#[cfg(test)]`` module in ``effects.rs`` (same test names, same
-cases). Rust's shared ``TestHarness`` / ``StubNetwork`` live in ``test_utils.rs``;
-here a minimal stub is inlined, porting only the ``promise.create`` /
-``promise.settle`` handlers the effects tests exercise. The stub speaks the
+A minimal stub network is inlined here, implementing only the
+``promise.create`` / ``promise.settle`` handlers the effects tests exercise.
+The stub speaks the
 protocol-envelope wire format (echoing ``kind`` and ``corrId``) so the real
 :class:`Sender` / :class:`Transport` validation passes unchanged.
 """
@@ -28,7 +27,7 @@ I64_MAX = 2**63 - 1
 
 
 # =============================================================================
-# Test harness (ported subset of Rust's TestHarness / StubNetwork)
+# Test harness
 # =============================================================================
 
 
@@ -42,7 +41,7 @@ def _value_from_wire(raw: Any) -> Value:
 
 
 def _promise_to_json(p: PromiseRecord) -> dict[str, Any]:
-    """Convert a PromiseRecord to the server response JSON (Rust ``promise_to_json``)."""
+    """Convert a PromiseRecord to the server response JSON."""
     return {
         "id": p.id,
         "state": p.state,
@@ -162,7 +161,7 @@ class StubNetwork:
 
 
 class Harness:
-    """Wraps a :class:`StubNetwork`, mirroring Rust's ``TestHarness``."""
+    """Wraps a :class:`StubNetwork` and builds the client stack over it."""
 
     def __init__(self) -> None:
         self.network = StubNetwork()

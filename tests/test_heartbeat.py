@@ -20,8 +20,7 @@ if TYPE_CHECKING:
 class _RecordingNetwork:
     """A ``Network`` stub that records every sent body and echoes a 200 reply.
 
-    Stands in for the parts of Rust's ``TestHarness`` the heartbeat tests use:
-    it records each raw envelope and replies with the matching ``kind`` /
+    It records each raw envelope and replies with the matching ``kind`` /
     ``corrId`` so :class:`Transport` validation passes.
     """
 
@@ -60,10 +59,7 @@ class _RecordingNetwork:
 
 
 class Harness:
-    """Records sent requests and builds a :class:`Sender` over them.
-
-    Mirrors the subset of Rust's ``TestHarness`` exercised by these tests.
-    """
+    """Records sent requests and builds a :class:`Sender` over them."""
 
     def __init__(self) -> None:
         self.sent: list[str] = []

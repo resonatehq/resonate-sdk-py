@@ -15,13 +15,11 @@ class Network(Protocol):
     """The transport abstraction for all server communication.
 
     All communication between Resonate and the server (local or remote) flows
-    through it as JSON strings.
+    through it as JSON strings. Methods raise on error.
 
-    Mirrors Rust's ``Network`` trait. Methods that return ``Result<()>`` /
-    ``Result<String>`` in Rust raise on error and return ``None`` / ``str``
-    here. :class:`LocalNetwork` (in ``local.py``) is the in-process
-    implementation backed by the :class:`ServerState` simulation;
-    :class:`HttpNetwork` (in ``http.py``) talks to a Resonate server over HTTP.
+    Two implementations are provided: :class:`LocalNetwork` runs an in-process
+    server simulation, and :class:`HttpNetwork` talks to a Resonate server
+    over HTTP.
     """
 
     def pid(self) -> str: ...

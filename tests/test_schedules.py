@@ -1,11 +1,8 @@
-"""Behaviour tests for :mod:`resonate.promises`.
+"""Behaviour tests for :mod:`resonate.schedules`.
 
-Mirrors the ``#[cfg(test)]`` module in ``promises.rs`` (same test names, same
-cases). The Rust tests drive the sub-clients through ``Resonate::local()``; the
-``Resonate`` root is not yet ported, so here the :class:`Promises` /
-:class:`Schedules` clients are built directly over a real :class:`Sender` +
-:class:`Transport` + :class:`LocalNetwork` -- the same wiring
-``Resonate::local()`` performs -- with a ``Codec(NoopEncryptor())``.
+The :class:`Promises` / :class:`Schedules` clients are built directly over a
+real :class:`Sender` + :class:`Transport` + :class:`LocalNetwork` -- the same
+wiring ``Resonate.local()`` performs -- with a ``Codec(NoopEncryptor())``.
 """
 
 from __future__ import annotations

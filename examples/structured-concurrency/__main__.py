@@ -11,8 +11,8 @@ never awaiting either future. A naive runtime would resolve ``foo`` and orphan
 the two children. Resonate does not: structured concurrency guarantees a
 parent cannot settle while any child it spawned is still in flight. Before
 ``foo``'s promise resolves, the runtime joins every eagerly-spawned local
-child (Go's ``flushLocalWork`` / Rust's ``flush_local_work``), so both ``bar``
-invocations run to completion regardless of whether ``foo`` awaited them.
+child, so both ``bar`` invocations run to completion regardless of whether
+``foo`` awaited them.
 
 We prove it durably. ``ctx.run`` children get deterministic ids
 ``{foo_id}.1`` and ``{foo_id}.2``. After ``foo`` returns ``5`` we attach to

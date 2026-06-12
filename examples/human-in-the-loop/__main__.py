@@ -12,8 +12,8 @@ promise with a global, externally addressable id. The orchestrator awaits it;
 anyone with the id can settle it through the regular promise API
 (``r.promises.resolve(id, ...)``), the CLI, or HTTP.
 
-Mirrors the Go SDK style. Start a Resonate server on localhost:8001
-(``resonate dev``) in one terminal, then::
+Start a Resonate server on localhost:8001 (``resonate dev``) in one terminal,
+then::
 
     uv run python examples/human                  # simulated approval (happy)
     uv run python examples/human --decision reject

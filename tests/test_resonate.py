@@ -1,7 +1,6 @@
 """Behaviour tests for :mod:`resonate.resonate`.
 
-Mirrors the Rust ``resonate.rs`` ``#[cfg(test)]`` suite (same cases, same names
-where they map), adapted to the Python port's API:
+Key API properties exercised here:
 
 * ``run`` / ``rpc`` are **synchronous** fire-and-forget triggers returning a
   :class:`~resonate.handle.ResonateHandle` -- the task is created (and, when this
@@ -696,8 +695,6 @@ async def test_rpc_by_object_handle_is_typed_by_name_is_any() -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 #  with_dependency (DI)
 #
-# Mirrors the Rust ``resonate.rs`` dependency-injection suite
-# (``e2e_workflow_reads_dependency_via_context`` / ``e2e_multiple_dependencies``):
 # ``with_dependency`` stores a value keyed by concrete type into the shared
 # DependencyMap, and a running workflow reads it back via ``ctx.get_dependency``.
 # ═══════════════════════════════════════════════════════════════════════════

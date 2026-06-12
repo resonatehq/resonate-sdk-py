@@ -47,13 +47,10 @@ class Codec:
     def encode(self, value: Any | Exception) -> Value:
         """Encode a serializable value into the wire format.
 
-        An ``Exception`` payload is a rejection: it is flattened to the error
-        shape by :func:`_encode_error` (a transport-safe ``message`` every SDK
-        reads, plus a best-effort ``__py_pickle`` for Python awaiters). Every
-        rejection site (``core``, ``context``, ``effects.settle_promise``)
-        already decided error-ness structurally before calling here, so an
-        ``Exception`` reaching ``encode`` is always a rejection -- a resolved
-        value is never an exception object.
+        An ``Exception`` is always treated as a rejection: it is flattened to
+        the error shape by :func:`_encode_error` (a plain ``message`` string,
+        plus a best-effort ``__py_pickle`` payload so the awaiter can recover
+        the original exception). A resolved value is never an exception object.
         """
         if value is None:
             return Value(headers=None, data=None)
@@ -69,12 +66,11 @@ class Codec:
         return Value(headers=None, data=base64.b64encode(encrypted).decode("ascii"))
 
     def decode(self, value: Value) -> Any:
-        """Decode a wire-format value across the durability boundary into builtins.
+        """Decode a wire-format value into plain Python builtins.
 
         Crosses the wire (base64 -> decrypt -> JSON) and stops at builtins;
         returns ``None`` for empty or ``null`` ``data``. Reshaping the decoded
-        builtins into a concrete type is :meth:`convert`'s job -- mirroring the
-        serde split between ``serde_json::from_slice`` and ``from_value::<T>``.
+        builtins into a concrete type is :meth:`convert`'s job.
         """
         if not value.data:
             return None
@@ -93,10 +89,8 @@ class Codec:
         """Coerce an already-decoded value into ``type``.
 
         Wraps :func:`msgspec.convert` so type-shaping of decoded payloads stays
-        inside the codec -- the sole owner of msgspec operations. Distinct from
-        :meth:`decode`, which crosses the wire boundary: this only reshapes a
-        value already on the Python side (mirrors Rust's
-        ``serde_json::from_value::<T>``).
+        inside the codec. Distinct from :meth:`decode`, which crosses the wire
+        boundary: this only reshapes a value already on the Python side.
         """
         try:
             return msgspec.convert(value, type)
@@ -106,10 +100,9 @@ class Codec:
     def decode_error(self, value: Value) -> BaseException:
         """Decode a rejected promise's wire ``value`` into its originating error.
 
-        Keeps the ``decode`` + error-reconstruction pair behind the codec so the
-        durability boundary owns the whole rejected-value path. Returns the
-        original exception when its ``__py_pickle`` payload round-trips (same
-        Python process / importable class), otherwise an :class:`ApplicationError`.
+        Returns the original exception when its ``__py_pickle`` payload
+        round-trips (same Python process / importable class), otherwise an
+        :class:`ApplicationError`.
         """
         return _deserialize_error(self.decode(value))
 
@@ -137,12 +130,11 @@ _PICKLE_KEY = "__py_pickle"
 def _encode_error(err: Exception) -> dict[str, str]:
     """Encode an error for durable storage.
 
-    ``message`` is the transport-safe shape every SDK (Go/Rust/TS) reads and
-    is always present. ``__py_pickle`` is an additive, best-effort field -- a
-    base64 pickle of the original exception so a Python awaiter can recover its
-    exact type and attributes. Pickling can fail (unpicklable closures, locks,
-    file handles, ...); on failure the field is simply omitted and the awaiter
-    falls back to ``message``.
+    ``message`` is a plain string and is always present. ``__py_pickle`` is a
+    best-effort extra field -- a base64 pickle of the original exception so an
+    awaiter can recover its exact type and attributes. Pickling can fail
+    (unpicklable closures, locks, file handles, ...); on failure the field is
+    simply omitted and the awaiter falls back to ``message``.
     """
     encoded = {"__type": "error", "message": str(err)}
     # Best-effort: any pickling failure (unpicklable closures, locks, ...)
@@ -187,13 +179,10 @@ def _deserialize_error(value: Any) -> BaseException:
 def decode_settled(record: PromiseRecord) -> Any:
     """Map an already-decoded, settled record to its value, raising on rejection.
 
-    Mirrors Go's ``decodeSettled`` / Rust's ``PromiseRecord::as_result``. The
-    record's ``value`` has already been decoded by :meth:`Codec.decode_promise`,
-    so a resolved payload is returned as-is and any rejected payload is turned
-    back into the originating error via :func:`_deserialize_error`. Lives in the
-    codec so the durability boundary remains the sole owner of decode; the
-    leading underscore marks it codec-internal -- ``context`` is its one
-    cross-module caller (idempotent recovery of an already-settled promise).
+    The record's ``value`` has already been decoded by
+    :meth:`Codec.decode_promise`, so a resolved payload is returned as-is and
+    any rejected payload is turned back into the originating error via
+    :func:`_deserialize_error`.
     """
     assert record.state != "pending"
     match record.state:

@@ -1,8 +1,6 @@
 """Behaviour tests for :mod:`resonate.durable`.
 
-``durable.rs`` has no ``#[cfg(test)]`` block, so there is no Rust test module to
-mirror here. The closest analog is Go's ``durable_test.go`` (reflection-based
-detection and arg coercion); these tests pin the Python contract: every durable
+These tests pin the contract: every durable
 function -- workflow or leaf -- receives a :class:`Context` as its first
 positional argument, the runtime never inspects annotations, and the
 ``*args``/``**kwargs`` round trip through

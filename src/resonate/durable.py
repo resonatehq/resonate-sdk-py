@@ -1,12 +1,11 @@
 """Runtime representation of user functions registered as durable.
 
-Where Rust derives a ``Durable`` impl at compile time and Go reflects on the
-function value at runtime, Python can reliably do neither: annotations are
-optional, so ``def fn(ctx, x):`` carries nothing that says ``ctx`` is a
-:class:`Context`. So the SDK adopts one convention: **every** durable function
--- workflow or leaf -- takes a :class:`Context` as its first positional
-argument. The runtime strips that first parameter and injects the ``Context``
-on each call; it never inspects annotations to decide *shape*.
+Python annotations are optional, so ``def fn(ctx, x):`` carries nothing that
+says ``ctx`` is a :class:`Context`. The SDK therefore adopts one convention:
+**every** durable function -- workflow or leaf -- takes a :class:`Context` as
+its first positional argument. The runtime strips that first parameter and
+injects the ``Context`` on each call; it never inspects annotations to decide
+*shape*.
 
 Annotations drive exactly one thing: **symmetric serialize/deserialize**. For
 the root / dispatched path a call's arguments are JSON-encoded into the durable
@@ -14,8 +13,8 @@ promise's ``param`` and, on every (re-)invocation, coerced back to their declare
 parameter types (:meth:`DurableFunction.invoke` with ``coerce_args=True``); a
 recovered return value is likewise coerced back to the declared return type
 (:meth:`DurableFunction.coerce_result`). Both run through the one primitive
-:meth:`DurableFunction._coerce_value`, mirroring the top-level
-:class:`~resonate.handle.ResonateHandle`'s ``msgspec.convert``. A missing /
+:meth:`DurableFunction._coerce_value`, the same type-shaping step the top-level
+:class:`~resonate.handle.ResonateHandle` applies. A missing /
 ``Any`` / unresolved annotation is a pass-through, so an untyped function behaves
 like ``rpc`` (raw builtins, the caller's responsibility).
 
@@ -108,7 +107,7 @@ class DurableFunction:
         #: Resolved return annotation, used by :meth:`coerce_result`.
         self._return_annotation = _resolve_annotation(sig.return_annotation, globalns)
         #: Source name (child context ``func_name`` + error messages). The registry
-        #: key is supplied separately at register time, mirroring Go.
+        #: key is supplied separately at register time and may differ.
         self.name = name
 
     def pack_args(self, *args: Any, **kwargs: Any) -> Args:

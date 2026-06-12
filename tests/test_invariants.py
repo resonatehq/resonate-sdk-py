@@ -76,7 +76,7 @@ if TYPE_CHECKING:
 
     from resonate.context import Context
 
-# Far-future deadline, matching tests.test_core (Go's ``int64(1) << 50``).
+# Far-future deadline, matching tests.test_core.
 FAR_FUTURE = 1 << 50
 TTL = 10_000
 

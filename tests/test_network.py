@@ -23,7 +23,7 @@ async def send(net: LocalNetwork, req: Any) -> Any:
 
 
 def status(resp: Any) -> int:
-    """Extract ``head.status`` from an envelope response (Rust test helper)."""
+    """Extract ``head.status`` from an envelope response."""
     head = resp.get("head") if isinstance(resp, dict) else None
     if isinstance(head, dict) and isinstance(head.get("status"), int):
         return head["status"]
@@ -31,7 +31,7 @@ def status(resp: Any) -> int:
 
 
 def data(resp: Any) -> Any:
-    """Extract the ``data`` portion from an envelope response (Rust test helper)."""
+    """Extract the ``data`` portion from an envelope response."""
     if isinstance(resp, dict) and "data" in resp:
         return resp["data"]
     return resp

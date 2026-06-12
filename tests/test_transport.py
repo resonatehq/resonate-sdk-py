@@ -22,9 +22,8 @@ if TYPE_CHECKING:
 class StubNetwork:
     """A minimal in-process ``Network`` standing in for ``LocalNetwork``.
 
-    ``LocalNetwork`` is not yet ported, so this stub plays the server: ``send``
-    returns a canned response and ``recv`` captures the registered callback so
-    tests can feed it raw messages.
+    The stub plays the server: ``send`` returns a canned response and ``recv``
+    captures the registered callback so tests can feed it raw messages.
     """
 
     def __init__(self, response: str = "") -> None:

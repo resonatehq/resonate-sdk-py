@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class Schedules:
-    """Sub-client for schedule operations. Mirrors Rust's ``Schedules``."""
+    """Sub-client for schedule operations."""
 
     def __init__(self, sender: Sender, codec: Codec) -> None:
         self.sender = sender

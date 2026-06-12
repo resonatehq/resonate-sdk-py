@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class Heartbeat(Protocol):
-    """Heartbeat trait for keeping task leases alive.
+    """Protocol for keeping task leases alive.
 
     Implementations track a set of active tasks and periodically send heartbeat
-    requests to the server for all of them. Mirrors Rust's ``Heartbeat`` trait.
+    requests to the server for all of them.
     """
 
     def start(self, task_id: str, task_version: int) -> None:
@@ -40,7 +40,7 @@ class Heartbeat(Protocol):
 
 
 class NoopHeartbeat:
-    """No-op heartbeat for local mode. Mirrors Rust's ``NoopHeartbeat``."""
+    """No-op heartbeat for local mode."""
 
     def start(self, task_id: str, task_version: int) -> None: ...
     def stop(self, task_id: str) -> None: ...
@@ -53,9 +53,9 @@ class AsyncHeartbeat:
     Uses :class:`~resonate.send.Sender` (not the raw transport) so the request
     goes through the standard protocol envelope with corrId, version header, etc.
 
-    Mirrors Rust's ``AsyncHeartbeat``. The loop runs as an asyncio task rather
-    than a tokio task; ``active_tasks`` needs no lock because asyncio is
-    single-threaded and the sync methods never mutate it across an ``await``.
+    The loop runs as an asyncio task; ``active_tasks`` needs no lock because
+    asyncio is single-threaded and the sync methods never mutate it across an
+    ``await``.
     """
 
     def __init__(self, pid: str, interval_ms: int, sender: Sender) -> None:
@@ -73,8 +73,7 @@ class AsyncHeartbeat:
 
     async def _run(self) -> None:
         interval = self.interval_ms / 1000
-        # tokio's interval fires its first tick immediately, so the first
-        # heartbeat goes out without waiting and subsequent ones every interval.
+        # Send the first heartbeat immediately, then one every interval.
         first = True
         with contextlib.suppress(asyncio.CancelledError):
             while True:
@@ -94,7 +93,7 @@ class AsyncHeartbeat:
 
                 try:
                     await self.sender.task_heartbeat(self.pid, tasks)
-                except Exception as exc:  # mirror Rust's `if let Err(e)`
+                except Exception as exc:  # log and keep heartbeating
                     logger.warning("heartbeat failed: %s", exc)
 
     def start(self, task_id: str, task_version: int) -> None:

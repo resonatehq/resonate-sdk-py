@@ -1,9 +1,8 @@
 """Behaviour tests for :mod:`resonate.handle`.
 
-``handle.rs`` carries no ``#[cfg(test)]`` module, so there is no Rust mirror to
-keep in sync; these cases exercise the port's own responsibilities (result
-decoding per promise state and the non-blocking ``done`` check) through the
-public API, using a real :class:`Codec` round-trip rather than white-box calls.
+These cases exercise result decoding per promise state and the non-blocking
+``done`` check through the public API, using a real :class:`Codec` round-trip
+rather than white-box calls.
 """
 
 from __future__ import annotations

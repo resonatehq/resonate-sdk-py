@@ -39,11 +39,12 @@ class Opts(msgspec.Struct, frozen=True, kw_only=True):
     target: str | None = None
     version: int = 1
     # Per-call retry policy override for ``ctx.run``'s child, set via
-    # ``with_opts(retry_policy=...)``. ``None`` means "inherit the context's
+    # ``ctx.options(retry_policy=...)``. ``None`` means "inherit the context's
     # default" (which traces back to the SDK-wide default). Only honored for a
-    # pure leaf -- a body that performs any durable op is a workflow and never
-    # retries (see :meth:`Context.invoke_with_retry`). Opts is a runtime config
-    # object, never serialized, so holding a ``RetryPolicy`` is fine.
+    # pure leaf function -- a body that performs any durable op is a workflow
+    # and never retries (see :meth:`Context.invoke_with_retry`). Opts is a
+    # runtime config object, never serialized, so holding a ``RetryPolicy``
+    # is fine.
     retry_policy: RetryPolicy | None = None
 
 
@@ -88,14 +89,13 @@ class _State:
         self.origin_id = origin_id
 
         # The id-generation prefix, carried through the ``resonate:prefix`` tag.
-        # Distinct from ``origin_id``: ``origin_id`` is the lineage origin (which
-        # ``detached`` resets to the child's own id, starting a new lineage),
-        # while ``prefix_id`` is propagated *unchanged* across ``detached``
-        # re-roots. That is what keeps recursive ``detached`` ids bounded --
-        # every level mints ``{prefix}.{16hex}`` off the same fixed prefix rather
-        # than off its own grown id (see :meth:`detached`). For any non-detached
-        # context the two are equal (see ``resonate:prefix == resonate:origin``
-        # on every promise except a detached child's).
+        # Distinct from ``origin_id``: ``origin_id`` is the lineage origin
+        # (which ``detached`` resets to the child's own id, starting a new
+        # lineage), while ``prefix_id`` propagates *unchanged* across
+        # ``detached`` re-roots. That keeps recursive ``detached`` ids bounded:
+        # every level mints ``{prefix}.{16hex}`` off the same fixed prefix
+        # rather than off its own grown id (see :meth:`Context.detached`). For
+        # any non-detached context the two are equal.
         self.prefix_id = prefix_id
 
         self.branch_id = branch_id
@@ -105,8 +105,8 @@ class _State:
 
         # The execution tree for this workflow attempt. Shared by reference
         # across the root context and every ``_child`` it spawns, so each spawn
-        # records itself under the right parent. Assertion-only -- see
-        # ``tree.py`` and ``tree.md``; the runtime never reads it.
+        # records itself under the right parent. Assertion-only: the runtime
+        # never reads it.
         self.tree = tree
 
         self.timeout_at = timeout_at
@@ -120,21 +120,21 @@ class _State:
 
         self.deps = deps
 
-        # The function registry, threaded in from ``Core`` and shared by
-        # reference root -> child. Backs the by-name forms of the durable ops:
-        # ``run("name")`` resolves a local ``DurableFunction`` to execute, and
-        # ``rpc(fn_object)`` recovers the registered name to dispatch by
-        # (reverse lookup). A by-object ``run`` never consults it. Defaults to an
-        # empty registry for a directly-constructed context (tests), where the
-        # by-name forms then resolve to not-found.
+        # The function registry, shared by reference from root to child. Backs
+        # the by-name forms of the durable ops: ``run("name")`` resolves a
+        # local ``DurableFunction`` to execute, and ``rpc(fn_object)`` recovers
+        # the registered name to dispatch by (reverse lookup). A by-object
+        # ``run`` never consults it. Defaults to an empty registry for a
+        # directly-constructed context (tests), where the by-name forms then
+        # resolve to not-found.
         self.registry = registry
 
-        # Default retry policy for this context's executions, inherited
-        # root -> child by reference. A ``ctx.run`` child uses it unless the call
-        # overrides via ``with_opts(retry_policy=...)``. Traces back to the
-        # SDK-wide default the root was built with (``Core.retry_policy``); the
-        # engine-layer default (direct ``Context.root`` construction in tests) is
-        # ``Never`` -- no retries.
+        # Default retry policy for this context's executions, inherited from
+        # root to child by reference. A ``ctx.run`` child uses it unless the
+        # call overrides via ``ctx.options(retry_policy=...)``. Traces back to
+        # the SDK-wide default the root was built with; a direct
+        # ``Context.root`` construction (tests) defaults to ``Never`` -- no
+        # retries.
         self.retry_policy = retry_policy
 
         # Tail of the create-promise chain. Each ctx.run() captures this as
@@ -144,9 +144,9 @@ class _State:
 
         # Whether this execution has performed any durable operation
         # (run/rpc/sleep/promise/detached) -- i.e. is a workflow rather than a
-        # pure leaf function. Flipped by :meth:`Context._begin_durable_op` -- the
-        # one method all five share -- and never reset. Lives on the shared state
-        # (not the per-call ``Context``) so it accumulates across every
+        # pure leaf function. Set to True at the top of each of the five
+        # durable ops and never reset. Lives on the shared state (not the
+        # per-call ``Context``) so it accumulates across every
         # ``ctx.options(...).<op>`` minted off the same state. Once True the
         # execution has a durable footprint and must never be re-run, so
         # ``invoke_with_retry`` refuses to retry it (see that method).
@@ -163,17 +163,16 @@ class _State:
 
 
 class Context:
-    """A thin, per-call handle over a shared :class:`_State`.
+    """A thin, per-call handle over shared execution state.
 
-    A ``Context`` is just the shared execution :attr:`_state` plus the
-    :class:`Opts` for the *next* durable op. :meth:`options` mints a fresh
-    ``Context`` over the *same* ``_state`` carrying overridden opts, so a
-    ``ctx.options(...).run(...)`` chain configures only that one call and leaves
-    the originating context (and its default opts) untouched -- there is no
-    consume/reset step. Everything mutated during execution (id sequence,
-    spawned children, the creation chain, the workflow flag, the tree) lives on
-    the shared ``_state`` and is therefore visible across every ``Context`` that
-    shares it.
+    A ``Context`` pairs the shared execution state with the :class:`Opts` for
+    the *next* durable op. :meth:`options` mints a fresh ``Context`` over the
+    *same* state carrying overridden opts, so a ``ctx.options(...).run(...)``
+    chain configures only that one call and leaves the originating context
+    (and its default opts) untouched. Everything mutated during execution (id
+    sequence, spawned children, the creation chain, the workflow flag, the
+    tree) lives on the shared state and is therefore visible across every
+    ``Context`` that shares it.
     """
 
     def __init__(self, state: _State, opts: Opts) -> None:
@@ -198,11 +197,11 @@ class Context:
         retry_policy: RetryPolicy | None = None,
         registry: Registry | None = None,
     ) -> Self:
-        # ``origin_id`` is the top of the execution lineage, carried through the
-        # ``resonate:origin`` tag from whoever dispatched this workflow
-        # (top-level run, ``rpc``, or ``detached``). For a genuine top-level root
-        # it equals ``id``; a ``detached`` child resets it to its *own* id,
-        # starting a fresh lineage (so ``resonate:origin == id`` there).
+        # ``origin_id`` is the top of the execution lineage, carried through
+        # the ``resonate:origin`` tag from whoever dispatched this workflow
+        # (top-level run, ``rpc``, or ``detached``). For a genuine top-level
+        # root it equals ``id``; a ``detached`` child resets it to its *own*
+        # id, starting a fresh lineage.
         #
         # ``prefix_id`` is the id-generation prefix, carried through the
         # ``resonate:prefix`` tag. Unlike the lineage origin it is propagated
@@ -211,9 +210,9 @@ class Context:
         # past the fixed prefix) rather than growing a segment per level. For a
         # genuine top-level root it equals ``id`` (and ``origin_id``).
         #
-        # The caller resolves both from the dispatching promise's tags (see
-        # ``core.py``); a re-root must never silently fall back to ``id``, so
-        # both are required rather than defaulted.
+        # The caller resolves both from the dispatching promise's tags; a
+        # re-root must never silently fall back to ``id``, so both are
+        # required rather than defaulted.
         return cls(
             state=_State(
                 id=id,
@@ -230,16 +229,16 @@ class Context:
                 spawned_remote=[],
                 deps=deps,
                 # The root owns the tree; ``_child`` copies the reference. The root
-                # node is ``(int, pending)`` -- settled by ``task.fulfill`` in the
-                # outer, never the inner (invariant U1).
+                # node starts pending and is settled by the task fulfillment that
+                # completes this workflow, never from inside the body.
                 tree=Tree(id),
-                # The SDK-wide default flows in here from ``Core.retry_policy``. A
-                # direct construction (tests) that passes none gets the engine-layer
-                # default ``Never`` -- no retries unless asked.
+                # The SDK-wide default retry policy flows in here. A direct
+                # construction (tests) that passes none gets ``Never`` -- no
+                # retries unless asked.
                 retry_policy=retry_policy if retry_policy is not None else Never(),
-                # Threaded in from ``Core``; a direct construction (tests) that passes
-                # none gets an empty registry, so the by-name durable ops resolve to
-                # not-found rather than crashing on a missing attribute.
+                # A direct construction (tests) that passes no registry gets an
+                # empty one, so the by-name durable ops resolve to not-found
+                # rather than crashing on a missing attribute.
                 registry=registry if registry is not None else Registry(),
             ),
             opts=Opts(),
@@ -268,7 +267,7 @@ class Context:
                 # record themselves under ``id`` in the same per-attempt tree.
                 tree=self._state.tree,
                 # Inherit the parent's default policy; a child's own ``ctx.run``
-                # calls fall back to it when not overridden via ``with_opts``.
+                # calls fall back to it when not overridden via ``options``.
                 retry_policy=self._state.retry_policy,
                 # Share the parent's registry by reference: by-name run / by-object
                 # rpc resolve against the same functions at every depth.
@@ -287,23 +286,19 @@ class Context:
     ) -> Any:
         """Execute ``df`` on this context, retrying a *pure-function* failure.
 
-        Retry is gated on the ``workflow`` flag. The moment this context performs
-        a durable operation (run/rpc/sleep/promise/detached -- all of which flip
-        ``workflow`` via :meth:`_begin_durable_op`) the execution is a workflow with a
-        durable footprint and must never be re-run: a second attempt would mint
-        fresh child-promise ids off :meth:`_next_id` and corrupt durability. So a
-        body that touched any durable op settles its failure on the first attempt;
-        only a pure leaf function -- zero durable footprint -- is retried, as far
-        as ``policy`` allows, before the failure is settled.
-
-        This is why retrying is *safe*: the only executions ever re-run are those
-        with no durable side effects, so re-running is deterministic. The first
-        attempt that touches a durable op either suspends or settles -- it is
-        always the last attempt.
+        Retry is gated on the ``workflow`` flag. The moment this context
+        performs a durable operation (run/rpc/sleep/promise/detached, all of
+        which set ``workflow``) the execution is a workflow with a durable
+        footprint and must never be re-run: a second attempt would mint fresh
+        child-promise ids and corrupt durability. So a body that touched any
+        durable op settles its failure on the first attempt; only a pure leaf
+        function -- zero durable footprint -- is retried, as far as ``policy``
+        allows, before the failure is settled. That is what makes retrying
+        safe: the only executions ever re-run have no durable side effects.
 
         ``SuspendedError`` is a durable suspension, not a failure, so it is
         re-raised untouched ahead of the generic ``Exception`` arm (it *is* an
-        ``Exception``). Mirrors the awaited-result handling in ``invoke``.
+        ``Exception``).
 
         ``coerce_args`` is forwarded to :meth:`DurableFunction.invoke`. The root
         path leaves it ``True`` (args arrive as decoded JSON and must be
@@ -381,9 +376,8 @@ class Context:
           guarantees its ``create_promise`` (a fire-and-forget child's only side
           effect) has completed before the parent settles.
 
-        Mirrors Go's ``flushLocalWork`` (an unbounded ``wg.Wait()``): the
-        structured-concurrency invariant requires every child's remote todos be
-        merged before the parent decides to suspend, otherwise the suspend would
+        Structured concurrency requires every child's remote todos be merged
+        before the parent decides to suspend; otherwise the suspend would
         register a partial awaited list.
 
         Per-task exceptions are swallowed: by the time a task ends, it has
@@ -395,10 +389,7 @@ class Context:
         exception type, which the codec round-trips on the awaiter side) and
         ``SuspendedError`` are suppressed; the latter is listed explicitly
         because it extends ``BaseException``, so ``suppress(Exception)`` alone
-        would let a suspended child's signal escape here. This matches Go's
-        ``wg.Wait`` +
-        channel-based result delivery and Rust's ``Outcome::{Done, Suspended}``
-        handling in ``flush_local_work``.
+        would let a suspended child's signal escape here.
         """
         locals_ = self._state.spawned_locals
         remotes = self._state.spawned_remote_tasks
@@ -412,10 +403,7 @@ class Context:
                 await remote
 
     def take_remote_todos(self) -> list[str]:
-        """Drain and return all remote todos accumulated on this context.
-
-        Mirrors Go's ``drainSpawnedRemote``.
-        """
+        """Drain and return all remote todos accumulated on this context."""
         todos = self._state.spawned_remote
         self._state.spawned_remote = []
         return todos
@@ -455,7 +443,7 @@ class Context:
         dispatch (empty otherwise); ``target`` adds the routing tag for remote
         dispatch; ``timer`` adds the ``resonate:timer`` tag that distinguishes a
         sleep from a bare promise. Tags are inserted in a fixed order so the
-        serialized form matches across SDKs.
+        serialized form is deterministic.
 
         ``resonate:prefix`` is *always* this context's :attr:`prefix_id` -- the
         prefix is set once at the top (``resonate.run``/``rpc``) and propagates
@@ -520,11 +508,11 @@ class Context:
         # reads a local child's param back. The return value still round-trips
         # (see ``settle_promise`` / ``coerce_result`` below).
         #
-        # Resolve the function: a name is a registry lookup (the function must be
-        # registered locally -- a local child executes here, in process),
-        # versioned by ``opts.version`` since a name carries none, mirroring rpc;
-        # a callable is wrapped directly, as before, carrying its own identity so
-        # it needs no registry round-trip.
+        # Resolve the function: a name is a registry lookup (the function must
+        # be registered locally -- a local child executes here, in process),
+        # versioned by ``opts.version`` since a name carries none, just like
+        # :meth:`rpc`; a callable is wrapped directly, carrying its own
+        # identity, so it needs no registry round-trip.
         if isinstance(fn, str):
             resolved = self._state.registry.get(fn, self.opts.version)
             if resolved is None:
@@ -563,12 +551,11 @@ class Context:
             # execution. The settled value comes back as JSON builtins, so coerce
             # it to the function's declared return type -- yielding the same
             # in-memory object the live path below produces, which also runs the
-            # return through ``df.coerce_result`` (symmetric with the top-level
-            # ResonateHandle's convert, and with argument coercion in ``invoke``).
+            # return through ``df.coerce_result``.
             #
-            # Tree pruning (``tree.md`` §6): the local body never executes, so any
-            # children it would have spawned are never added -- mark the node
-            # Settled and stop here.
+            # Tree pruning: the local body never executes, so any children it
+            # would have spawned are never added -- mark the node settled and
+            # stop here.
             if record.state != "pending":
                 self._state.tree.settle(req.id)
                 return df.coerce_result(decode_settled(record))
@@ -583,7 +570,7 @@ class Context:
                 # Retry a pure-leaf failure per the call's policy; a child that
                 # touches a durable op is a workflow and settles on the first
                 # failure (see ``invoke_with_retry``). The override from
-                # ``with_opts`` wins; otherwise inherit this context's default.
+                # ``options`` wins; otherwise inherit this context's default.
                 # ``opts`` is captured from the enclosing ``run`` call, so the
                 # policy is fixed at dispatch.
                 policy = (
@@ -649,19 +636,17 @@ class Context:
             # chain, or an unpicklable class) is therefore identical on the live
             # and recovery paths -- both fall back to the same ``ApplicationError``.
             record = await self._state.effects.settle_promise(req.id, value)
-            # The local executor completed (resolved or rejected): mark the Int
-            # node Settled. Reached only on the done/error path -- a suspended
-            # child raised above with its node left Pending, which is the
-            # suspended-local case U3 keeps alive via its Ext-pending descendant.
+            # The local executor completed (resolved or rejected): mark the
+            # node settled. Reached only on the done/error path -- a suspended
+            # child raised above with its node left pending.
             self._state.tree.settle(req.id)
             return df.coerce_result(decode_settled(record))
 
         task = asyncio.create_task(bg())
-        # Register for structured-concurrency flush: a fire-and-forget child
-        # that suspends or errors in the background must be joined here so its
-        # todos / settled state are observed before the parent decides what to
-        # do. Mirrors Go's append to ``spawnedLocals`` + ``wg.Add(1)`` and
-        # Rust's ``tasks.push(SpawnedLocal { id, handle })``.
+        # Register for the structured-concurrency flush: a fire-and-forget
+        # child that suspends or errors in the background must be joined in
+        # ``flush_local_work`` so its todos / settled state are observed
+        # before the parent decides what to do.
         self._state.spawned_locals.append(SpawnedLocal(id=req.id, handle=task))
         return ResonateFuture(
             _id=req.id,
@@ -775,11 +760,10 @@ class Context:
             Defers ``create_promise`` through the creation chain like the other
             entrypoints, but -- unlike :meth:`_await_remote` -- never registers a
             remote todo and never suspends: the detached child is fire-and-forget,
-            so once the durable promise has been created (idempotent on replay) its
-            id is simply returned. Mirrors Go's ``Detached``, which ignores the
-            record returned by ``CreatePromise``. A failed create propagates
-            down the creation chain rather than deadlocking its successors:
-            each link re-raises the upstream exception.
+            so once the durable promise has been created (idempotent on replay)
+            its id is simply returned. A failed create propagates down the
+            creation chain rather than deadlocking its successors: each link
+            re-raises the upstream exception.
             """
             record = await self._create_promise_in_chain(req, prev_created, created)
             # Det nodes are exempt from the contract, but track settlement anyway
@@ -858,11 +842,11 @@ class Context:
         leaving the result as raw builtins.
         """
         # Record the remote child in the execution tree. All three callers are
-        # Ext -- settled by something we await (another worker, the server timer,
-        # an external ``promise.settle``), so a pending Ext node sits in the
-        # suspension frontier. Added here at the (synchronous) call site so the
-        # frontier is a superset of ``spawned_remote`` even for a future the body
-        # created but never awaited -- the bridge for invariant S4.
+        # external -- settled by something we await (another worker, the server
+        # timer, an external ``promise.settle``), so a pending external node
+        # sits in the suspension frontier. Added here at the (synchronous) call
+        # site so the frontier covers even a future the body created but never
+        # awaited.
         self._state.tree.add_child(self._state.id, req.id, "ext")
         return ResonateFuture(
             _id=req.id,
@@ -903,23 +887,20 @@ class Context:
         """Background body shared by :meth:`rpc`, :meth:`sleep`, and :meth:`promise`.
 
         Defers ``create_promise`` through the creation chain, short-circuits an
-        already-settled record (idempotent recovery), otherwise registers the
-        child id as a remote todo and unwinds via ``SuspendedError``. Mirrors
-        Go's remote ``Future.Await`` on a pending record (``appendRemoteTodo`` +
-        ``panic(suspendSignal{})``).
+        already-settled record (idempotent recovery), and otherwise registers
+        the child id as a remote todo and unwinds via ``SuspendedError``.
 
-        Concurrency: ``spawned_remote.append`` needs no lock. Unlike Go's
-        goroutines -- which run in parallel and so guard the slice with
-        ``c.mu`` -- these are asyncio tasks on a single event loop, and the
-        append has no ``await`` between read and write, so it cannot interleave
-        with a peer task. A failed create propagates down the creation chain
-        rather than deadlocking the successors waiting on this link: each link
-        re-raises the upstream exception.
+        Concurrency: ``spawned_remote.append`` needs no lock. These are asyncio
+        tasks on a single event loop, and the append has no ``await`` between
+        read and write, so it cannot interleave with a peer task. A failed
+        create propagates down the creation chain rather than deadlocking the
+        successors waiting on this link: each link re-raises the upstream
+        exception.
         """
         record = await self._create_promise_in_chain(req, prev_created, created)
 
         if record.state != "pending":
-            # Already settled: mark the Ext node Settled so it leaves the
+            # Already settled: mark the node settled so it leaves the
             # frontier. A by-object ``rpc`` carries the target's
             # ``DurableFunction`` (``df``), so the settled builtins are coerced to
             # its declared return type -- symmetric with ``ctx.run``'s recovery
@@ -932,8 +913,8 @@ class Context:
             settled = decode_settled(record)
             return df.coerce_result(settled) if df is not None else settled
 
-        # Still pending: the node stays Pending, keeping it in the frontier. The
-        # awaited subset (``spawned_remote``) is what the outer registers
-        # callbacks for; the tree's full frontier is its superset (S4).
+        # Still pending: the node stays pending, keeping it in the frontier.
+        # The awaited subset (``spawned_remote``) is what callbacks are
+        # registered for; the tree's full frontier is its superset.
         self._state.spawned_remote.append(req.id)
         raise SuspendedError

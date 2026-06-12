@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class Promises:
-    """Sub-client for promise operations. Mirrors Rust's ``Promises``."""
+    """Sub-client for durable promise operations."""
 
     def __init__(self, sender: Sender, codec: Codec) -> None:
         self.sender = sender

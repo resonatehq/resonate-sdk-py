@@ -1,7 +1,7 @@
 """hello is a minimal example of using the Resonate SDK.
 
 It registers a function, invokes it durably against a Resonate server, and
-prints the result. Mirrors the Go SDK's ``hello`` example.
+prints the result.
 
 Start a Resonate server on localhost:8001 first (``resonate dev``), then::
 
