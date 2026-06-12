@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from resonate.error import ResonateError
+from resonate.error import PlatformError, ResonateError
 from resonate.types import PromiseCreateReq, PromiseSettleReq
 
 if TYPE_CHECKING:
@@ -62,30 +62,37 @@ class ResonateEffects:
         if cached is not None:
             return cached
 
-        encoded_req = PromiseCreateReq(
-            id=req.id,
-            timeout_at=req.timeout_at,
-            param=self.codec.encode(req.param.data),
-            tags=req.tags,
-        )
+        # ResonateEffects only exists inside a durable execution (after the
+        # task/root promise was created), so a ResonateError here is a platform
+        # failure: re-raise it as a BaseException-derived PlatformError that
+        # user code cannot swallow and the task lifecycle releases on.
+        try:
+            encoded_req = PromiseCreateReq(
+                id=req.id,
+                timeout_at=req.timeout_at,
+                param=self.codec.encode(req.param.data),
+                tags=req.tags,
+            )
 
-        # validation logging
-        scope = encoded_req.tags.get("resonate:scope")
-        if scope == "local":
-            invocation = "run"
-        elif scope == "global":
-            invocation = "rpc"
-        else:
-            invocation = "unknown"
-        logger.info(
-            "promise_create_request promise_id=%s invocation=%s",
-            encoded_req.id,
-            invocation,
-        )
+            # validation logging
+            scope = encoded_req.tags.get("resonate:scope")
+            if scope == "local":
+                invocation = "run"
+            elif scope == "global":
+                invocation = "rpc"
+            else:
+                invocation = "unknown"
+            logger.info(
+                "promise_create_request promise_id=%s invocation=%s",
+                encoded_req.id,
+                invocation,
+            )
 
-        record = await self.sender.promise_create(encoded_req)
+            record = await self.sender.promise_create(encoded_req)
 
-        decoded = self.codec.decode_promise(record)
+            decoded = self.codec.decode_promise(record)
+        except ResonateError as exc:
+            raise PlatformError(exc) from exc
         self.cache[decoded.id] = decoded
         logger.info(
             "promise_create_response promise_id=%s invocation=%s state=%s",
@@ -110,12 +117,22 @@ class ResonateEffects:
         state: Literal["resolved", "rejected"]
         state = "rejected" if isinstance(result, Exception) else "resolved"
 
-        req = PromiseSettleReq(id=id, state=state, value=self.codec.encode(result))
+        # Same conversion boundary as create_promise. Note this covers the
+        # encode of the *user's* return value too: an unserializable return is
+        # a PlatformError, so the task is released and re-delivered into the
+        # same failure (a poison task) -- matching the pre-existing behavior of
+        # the root-level encode in execute_until_blocked_inner.
+        try:
+            req = PromiseSettleReq(id=id, state=state, value=self.codec.encode(result))
 
-        logger.info("promise_settle_request promise_id=%s state=%s", req.id, req.state)
-        record = await self.sender.promise_settle(req)
+            logger.info(
+                "promise_settle_request promise_id=%s state=%s", req.id, req.state
+            )
+            record = await self.sender.promise_settle(req)
 
-        decoded = self.codec.decode_promise(record)
+            decoded = self.codec.decode_promise(record)
+        except ResonateError as exc:
+            raise PlatformError(exc) from exc
         logger.info(
             "promise_settle_response promise_id=%s state=%s", decoded.id, decoded.state
         )
