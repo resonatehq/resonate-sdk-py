@@ -161,58 +161,58 @@ async def add_via_child(ctx: Context, x: int, y: int) -> int:
 @pytest.mark.asyncio
 async def test_local_constructor_sets_defaults() -> None:
     async with local() as r:
-        assert r._state.pid == "default"
-        assert r._state.id_prefix == ""
-        assert r._state.ttl == DEFAULT_TTL
-        assert isinstance(r._state.network, LocalNetwork)
+        assert r._pid == "default"
+        assert r._id_prefix == ""
+        assert r._ttl == DEFAULT_TTL
+        assert isinstance(r._network, LocalNetwork)
 
 
 @pytest.mark.asyncio
 async def test_config_with_custom_pid_and_group() -> None:
     async with local(pid="worker-1", group="workers") as r:
-        assert r._state.pid == "worker-1"
-        assert "worker-1" in r._state.network.unicast()
-        assert "workers" in r._state.network.unicast()
+        assert r._pid == "worker-1"
+        assert "worker-1" in r._network.unicast()
+        assert "workers" in r._network.unicast()
 
 
 @pytest.mark.asyncio
 async def test_config_with_prefix() -> None:
     async with local(prefix="myapp", ttl=timedelta(seconds=30)) as r:
-        assert r._state.id_prefix == "myapp:"
-        assert r._state.ttl == timedelta(seconds=30)
+        assert r._id_prefix == "myapp:"
+        assert r._ttl == timedelta(seconds=30)
 
 
 @pytest.mark.asyncio
 async def test_config_with_empty_prefix() -> None:
     async with local(prefix="") as r:
-        assert r._state.id_prefix == ""
+        assert r._id_prefix == ""
 
 
 @pytest.mark.asyncio
 async def test_default_ttl_is_one_minute() -> None:
     async with local() as r:
-        assert r._state.ttl == timedelta(minutes=1)
+        assert r._ttl == timedelta(minutes=1)
 
 
 @pytest.mark.asyncio
 async def test_network_identity_local_mode() -> None:
     async with local() as r:
-        assert r._state.network.unicast().startswith("local://uni@")
-        assert r._state.network.anycast().startswith("local://any@")
-        assert r._state.network.group() == "default"
-        assert r._state.network.pid() == "default"
+        assert r._network.unicast().startswith("local://uni@")
+        assert r._network.anycast().startswith("local://any@")
+        assert r._network.group() == "default"
+        assert r._network.pid() == "default"
 
 
 @pytest.mark.asyncio
 async def test_target_resolver_returns_local_anycast() -> None:
     async with local() as r:
-        assert r._state.network.target_resolver("my-target") == "local://any@my-target"
+        assert r._network.target_resolver("my-target") == "local://any@my-target"
 
 
 @pytest.mark.asyncio
 async def test_local_mode_uses_noop_heartbeat() -> None:
     async with local() as r:
-        assert isinstance(r._state.heartbeat, NoopHeartbeat)
+        assert isinstance(r._heartbeat, NoopHeartbeat)
 
 
 @pytest.mark.asyncio
@@ -220,7 +220,7 @@ async def test_remote_network_uses_async_heartbeat() -> None:
     # A non-Local network selects the AsyncHeartbeat branch without any HTTP.
     r = Resonate(network=_FakeNetwork())
     try:
-        assert isinstance(r._state.heartbeat, AsyncHeartbeat)
+        assert isinstance(r._heartbeat, AsyncHeartbeat)
     finally:
         await r.stop()
 
@@ -230,7 +230,7 @@ async def test_explicit_heartbeat_override_wins() -> None:
     hb = NoopHeartbeat()
     r = Resonate(network=_FakeNetwork(), heartbeat=hb)
     try:
-        assert r._state.heartbeat is hb
+        assert r._heartbeat is hb
     finally:
         await r.stop()
 
@@ -244,8 +244,8 @@ async def test_heartbeat_interval_is_a_third_of_the_ttl() -> None:
     """
     r = Resonate(network=_FakeNetwork(), ttl=timedelta(seconds=60))
     try:
-        assert isinstance(r._state.heartbeat, AsyncHeartbeat)
-        assert r._state.heartbeat.interval_ms == 60_000 // HEARTBEAT_INTERVAL_DIVISOR
+        assert isinstance(r._heartbeat, AsyncHeartbeat)
+        assert r._heartbeat.interval_ms == 60_000 // HEARTBEAT_INTERVAL_DIVISOR
     finally:
         await r.stop()
 
@@ -759,7 +759,11 @@ async def test_options_mints_new_handle_sharing_state() -> None:
     async with local() as r:
         scoped = r.options(timeout=timedelta(seconds=1))
         assert scoped is not r
-        assert scoped._state is r._state
+        # The shallow copy shares everything by reference: the rebound-state
+        # container and the construction-time wiring alike.
+        assert scoped._runtime is r._runtime
+        assert scoped.promises is r.promises
+        assert scoped.schedules is r.schedules
         assert scoped.opts == Opts(timeout=timedelta(seconds=1))
         assert r.opts == Opts()
 
@@ -971,11 +975,11 @@ async def test_stop_is_clean_and_idempotent() -> None:
 @pytest.mark.asyncio
 async def test_stop_cancels_refresh_task() -> None:
     r = Resonate()
-    handle = r._state.refresh_handle
+    handle = r._runtime.refresh_handle
     assert handle is not None
     assert not handle.done()
     await r.stop()
-    assert r._state.refresh_handle is None
+    assert r._runtime.refresh_handle is None
     # Let the cancellation finish processing, then confirm the task is done.
     with contextlib.suppress(asyncio.CancelledError):
         await handle
@@ -1004,7 +1008,7 @@ async def test_handle_settles_with_error_when_listener_register_returns_404() ->
             raise ServerError(404, "Awaited promise not found")
 
         with mock.patch.object(
-            r._state.sender, "promise_register_listener", side_effect=gone
+            r._sender, "promise_register_listener", side_effect=gone
         ):
             # Use rpc so the promise stays pending in local mode -- nothing else
             # can race the 404 to settle the subscription naturally.
@@ -1036,9 +1040,7 @@ async def test_subscription_refresh_settles_handle_on_404(
             raise ServerError(404, "Awaited promise not found")
 
         with (
-            mock.patch.object(
-                r._state.sender, "promise_register_listener", side_effect=gone
-            ),
+            mock.patch.object(r._sender, "promise_register_listener", side_effect=gone),
             pytest.raises(ApplicationError, match="Awaited promise not found"),
         ):
             await asyncio.wait_for(handle.result(), timeout=2.0)
@@ -1059,7 +1061,7 @@ async def test_non_404_server_errors_do_not_settle_the_handle() -> None:
             raise ServerError(503, "transient")
 
         with mock.patch.object(
-            r._state.sender, "promise_register_listener", side_effect=transient
+            r._sender, "promise_register_listener", side_effect=transient
         ):
             handle = r.rpc("flaky", "remote")
             # Should NOT raise -- the handle stays pending despite the 503.
@@ -1111,7 +1113,7 @@ async def test_bounded_execute_caps_concurrent_executions() -> None:
 async def test_default_concurrency_ceiling_applied() -> None:
     """With no override the semaphore uses :data:`DEFAULT_MAX_CONCURRENT_TASKS`."""
     async with local() as r:
-        assert r._state.execute_sema._value == DEFAULT_MAX_CONCURRENT_TASKS
+        assert r._runtime.execute_sema._value == DEFAULT_MAX_CONCURRENT_TASKS
 
 
 # ── DurableFunction.return_type resolution ──────────────────────────────────
