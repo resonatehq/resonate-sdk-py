@@ -416,7 +416,8 @@ class Context:
                 causes.extend(exc.causes)
 
         if causes:
-            raise PlatformError(causes) from causes[0]
+            err = PlatformError(causes)
+            raise err from err.cause
 
     def take_remote_todos(self) -> list[str]:
         """Drain and return all remote todos accumulated on this context."""

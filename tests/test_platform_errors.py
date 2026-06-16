@@ -61,9 +61,10 @@ TTL = 10_000
 class FailingSender(Sender):
     """A :class:`Sender` that can be armed to fail specific durable-op calls.
 
-    ``fail_promise_create`` / ``fail_promise_settle`` arm the failure.
-    Everything else passes through, so task lifecycle calls
-    (acquire/fulfill/suspend/release) hit the real server.
+    ``fail_promise_create`` / ``fail_promise_settle`` arm a durable-op failure;
+    ``fail_task_fulfill`` / ``fail_task_suspend`` / ``fail_task_release`` arm a
+    task-lifecycle failure. Anything not armed passes through to the real
+    server.
     """
 
     def __init__(
@@ -75,6 +76,10 @@ class FailingSender(Sender):
         )
         self.fail_promise_create = False
         self.fail_promise_settle = False
+        self.fail_task_fulfill = False
+        self.fail_task_suspend = False
+        self.fail_task_release = False
+        self.release_attempts = 0
 
     async def promise_create(self, req: PromiseCreateReq) -> PromiseRecord:
         if self.fail_promise_create:
@@ -85,6 +90,24 @@ class FailingSender(Sender):
         if self.fail_promise_settle:
             raise self.error
         return await super().promise_settle(req)
+
+    async def task_fulfill(
+        self, id: str, version: int, action: PromiseSettleReq
+    ) -> Any:
+        if self.fail_task_fulfill:
+            raise self.error
+        return await super().task_fulfill(id, version, action)
+
+    async def task_suspend(self, id: str, version: int, actions: Any) -> Any:
+        if self.fail_task_suspend:
+            raise self.error
+        return await super().task_suspend(id, version, actions)
+
+    async def task_release(self, id: str, version: int) -> None:
+        self.release_attempts += 1
+        if self.fail_task_release:
+            raise self.error
+        await super().task_release(id, version)
 
 
 class PlatformFixture:
@@ -445,6 +468,84 @@ async def test_rpc_by_object_unregistered_child_releases_task(
     await assert_released_root_pending(fix, "pe-nofn-rpc")
 
 
+# ── 3d. task-lifecycle failures (fulfill / suspend / release) ────────────
+
+
+@pytest.mark.asyncio
+async def test_task_fulfill_failure_releases_task(fix: PlatformFixture) -> None:
+    """A failing ``task.fulfill`` is a platform failure: release, then unwrap.
+
+    The body completes cleanly (no durable-op failure); the only failure is the
+    final fulfill call, which ``Core`` wraps as a ``PlatformError`` and releases.
+    """
+
+    async def wf(ctx: Context) -> int:
+        return 0
+
+    fix.reg.register("wf", wf)
+    v, promise, preload = await fix.create_root_task("pe-fulfill", "wf")
+
+    fix.sender.fail_task_fulfill = True
+
+    with pytest.raises(ServerError) as excinfo:
+        await fix.core.execute_until_blocked_outer("pe-fulfill", v, promise, preload)
+
+    assert isinstance(excinfo.value.__cause__, PlatformError)
+    await assert_released_root_pending(fix, "pe-fulfill")
+
+
+@pytest.mark.asyncio
+async def test_task_suspend_failure_releases_task(fix: PlatformFixture) -> None:
+    """A failing ``task.suspend`` is a platform failure: release, then unwrap.
+
+    The body awaits a remote child (created successfully, stays pending) so the
+    workflow suspends -- and the suspend call itself fails.
+    """
+
+    async def wf(ctx: Context) -> Any:
+        return await ctx.rpc("child")  # child stays pending -> workflow suspends
+
+    fix.reg.register("wf", wf)
+    v, promise, preload = await fix.create_root_task("pe-suspend", "wf")
+
+    fix.sender.fail_task_suspend = True
+
+    with pytest.raises(ServerError) as excinfo:
+        await fix.core.execute_until_blocked_outer("pe-suspend", v, promise, preload)
+
+    assert isinstance(excinfo.value.__cause__, PlatformError)
+    await assert_released_root_pending(fix, "pe-suspend")
+
+
+@pytest.mark.asyncio
+async def test_task_release_failure_does_not_mask_original_error(
+    fix: PlatformFixture,
+) -> None:
+    """If the release *itself* fails, the original error still surfaces.
+
+    The create failure triggers the release path; the release call also fails.
+    ``Core`` logs the release failure and re-raises the original error (unwrapped
+    from its PlatformError) rather than letting the release error win.
+    """
+
+    async def wf(ctx: Context) -> Any:
+        return await ctx.rpc("child")
+
+    fix.reg.register("wf", wf)
+    v, promise, preload = await fix.create_root_task("pe-relfail", "wf")
+
+    fix.sender.fail_promise_create = True
+    fix.sender.fail_task_release = True
+
+    with pytest.raises(ServerError) as excinfo:
+        await fix.core.execute_until_blocked_outer("pe-relfail", v, promise, preload)
+
+    # The original create failure surfaces, chained from the PlatformError --
+    # the release failure was swallowed (logged), not raised.
+    assert isinstance(excinfo.value.__cause__, PlatformError)
+    assert fix.sender.release_attempts == 1
+
+
 # ── 4. creation-chain integrity: no deadlock past a failed link ──────────
 
 
@@ -476,9 +577,31 @@ async def test_chain_failure_rejects_created_so_successors_do_not_deadlock() -> 
         await asyncio.wait_for(await_fut1(), timeout=1)
     with pytest.raises(PlatformError):
         await asyncio.wait_for(fut2.id(), timeout=1)
-    # The flush surfaces the platform error rather than suppressing it.
-    with pytest.raises(PlatformError):
+    # The flush surfaces the platform error rather than suppressing it, and
+    # *aggregates* both link failures into one error's ``causes`` list.
+    with pytest.raises(PlatformError) as excinfo:
         await ctx.flush_local_work()
+    causes = excinfo.value.causes
+    assert len(causes) == 2
+    assert all(isinstance(c, ResonateError) for c in causes)
+    assert excinfo.value.cause is causes[0]
+
+
+# ── 5. PlatformError invariants ──────────────────────────────────────────
+
+
+def test_platform_error_cause_is_first_of_many() -> None:
+    first = ServerError(503, "first")
+    second = HttpError(ConnectionError("second"))
+    err = PlatformError([first, second])
+    assert err.cause is first
+    assert err.causes == [first, second]
+
+
+def test_platform_error_rejects_empty_causes() -> None:
+    # A ValueError (not a stripped-under-`-O` assert) guards the invariant.
+    with pytest.raises(ValueError, match="at least one cause"):
+        PlatformError([])
 
 
 # ── 6. pre-durable-world failures stay regular ResonateErrors ────────────

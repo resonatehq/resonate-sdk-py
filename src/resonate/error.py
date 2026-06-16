@@ -77,9 +77,18 @@ class PlatformError(BaseException):
     """
 
     def __init__(self, causes: list[ResonateError]) -> None:
-        assert causes, "PlatformError needs at least one cause"
+        if not causes:
+            # Not an assert: asserts are stripped under ``python -O``, which
+            # would turn this into a later ``IndexError`` on ``cause``.
+            msg = "PlatformError needs at least one cause"
+            raise ValueError(msg)
         self.causes: list[ResonateError] = causes
         super().__init__("platform error: " + "; ".join(str(c) for c in causes))
+
+    @property
+    def cause(self) -> ResonateError:
+        """The first (primary) cause -- what the outer boundary unwraps to."""
+        return self.causes[0]
 
 
 class Suspended(BaseException):

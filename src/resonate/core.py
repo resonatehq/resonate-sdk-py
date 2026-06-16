@@ -245,7 +245,7 @@ class Core(msgspec.Struct, kw_only=True):
                         task_id,
                     )
                 if isinstance(exc, PlatformError):
-                    raise exc.causes[0] from exc
+                    raise exc.cause from exc
                 raise
         finally:
             self.heartbeat.stop(task_id)
