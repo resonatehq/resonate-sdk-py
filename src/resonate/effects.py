@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from resonate.error import PlatformError, ResonateError
+from resonate.error import PlatformError, ResonateError, StoppedError
 from resonate.types import PromiseCreateReq, PromiseSettleReq
 
 if TYPE_CHECKING:
@@ -18,6 +18,13 @@ logger = logging.getLogger("resonate.validation")
 
 class Effects(Protocol):
     cache: dict[str, PromiseRecord]
+
+    # Circuit breaker: flipped True by the first durable-op failure in this
+    # attempt. Once set, every later durable op short-circuits with a generic
+    # platform error so no further work happens; the task is released and
+    # re-delivery retries everything. Rebuilt per attempt (the redirect loop in
+    # ``core.py``) and shared by reference root->child, so it is visible at
+    # every depth and scoped to exactly one execution.
 
     async def create_promise(self, req: PromiseCreateReq) -> PromiseRecord: ...
     async def settle_promise[T](
@@ -45,6 +52,7 @@ class ResonateEffects:
         self.sender = sender
         self.codec = codec
         self.cache: dict[str, PromiseRecord] = {}
+        self._stopped: bool = False
         for p in preload:
             try:
                 decoded = codec.decode_promise(p)
@@ -58,14 +66,13 @@ class ResonateEffects:
         Idempotent: a cached record (from preload or a prior call) is returned
         without touching the network.
         """
+        if self._stopped:
+            raise PlatformError([StoppedError()])
+
         cached = self.cache.get(req.id)
         if cached is not None:
             return cached
 
-        # ResonateEffects only exists inside a durable execution (after the
-        # task/root promise was created), so a ResonateError here is a platform
-        # failure: re-raise it as a BaseException-derived PlatformError that
-        # user code cannot swallow and the task lifecycle releases on.
         try:
             encoded_req = PromiseCreateReq(
                 id=req.id,
@@ -92,7 +99,8 @@ class ResonateEffects:
 
             decoded = self.codec.decode_promise(record)
         except ResonateError as exc:
-            raise PlatformError(exc) from exc
+            self._stopped = True
+            raise PlatformError([exc]) from exc
         self.cache[decoded.id] = decoded
         logger.info(
             "promise_create_response promise_id=%s invocation=%s state=%s",
@@ -110,6 +118,9 @@ class ResonateEffects:
         resolves the promise, any ``Exception`` rejects it (the codec flattens it
         to the error shape, pickling the original where it can).
         """
+        if self._stopped:
+            raise PlatformError([StoppedError()])
+
         cached = self.cache.get(id)
         if cached is not None and cached.state != "pending":
             return cached
@@ -132,7 +143,8 @@ class ResonateEffects:
 
             decoded = self.codec.decode_promise(record)
         except ResonateError as exc:
-            raise PlatformError(exc) from exc
+            self._stopped = True
+            raise PlatformError([exc]) from exc
         logger.info(
             "promise_settle_response promise_id=%s state=%s", decoded.id, decoded.state
         )

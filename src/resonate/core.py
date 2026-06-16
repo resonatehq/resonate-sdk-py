@@ -27,7 +27,7 @@ from resonate.error import (
     PlatformError,
     ResonateError,
     SerializationError,
-    SuspendedError,
+    Suspended,
 )
 from resonate.heartbeat import Heartbeat, NoopHeartbeat
 from resonate.registry import Registry
@@ -125,7 +125,27 @@ class Core(msgspec.Struct, kw_only=True):
         res = await self.sender.task_acquire(task_id, version, self.pid, self.ttl)
         logger.debug("core: task acquired task_id=%s", task_id)
 
-        promise = self.codec.decode_promise(res.promise)
+        # The lease is now held, but the root-promise decode happens before
+        # execute_until_blocked_outer's release boundary -- a corrupt promise
+        # (Base64DecodeError / SerializationError) would otherwise leak the
+        # lease until TTL expiry. Release immediately so re-delivery retries at
+        # once, mirroring the symmetric TaskData decode inside the inner loop.
+        try:
+            promise = self.codec.decode_promise(res.promise)
+        except ResonateError:
+            logger.exception(
+                "core: failed to decode root promise, releasing task task_id=%s",
+                task_id,
+            )
+            try:
+                await self.sender.task_release(task_id, res.task.version)
+            except ResonateError:
+                logger.exception(
+                    "core: failed to release task after decode error task_id=%s",
+                    task_id,
+                )
+            raise
+
         return await self.execute_until_blocked_outer(
             task_id, res.task.version, promise, res.preload
         )
@@ -167,13 +187,21 @@ class Core(msgspec.Struct, kw_only=True):
 
                     match outcome:
                         case _ExecFulfilled(state=state, value=value):
-                            await self.sender.task_fulfill(
-                                task_id,
-                                task_version,
-                                PromiseSettleReq(
-                                    id=promise.id, state=state, value=value
-                                ),
-                            )
+                            # The fulfill is a durable server interaction like
+                            # any other durable op; a failure here surfaces
+                            # uniformly as a PlatformError, released (and
+                            # unwrapped back to its ResonateError cause) by the
+                            # outer handler below.
+                            try:
+                                await self.sender.task_fulfill(
+                                    task_id,
+                                    task_version,
+                                    PromiseSettleReq(
+                                        id=promise.id, state=state, value=value
+                                    ),
+                                )
+                            except ResonateError as exc:
+                                raise PlatformError([exc]) from exc
 
                             logger.debug(
                                 "core: task fulfilled task_id=%s promise_id=%s",
@@ -189,16 +217,22 @@ class Core(msgspec.Struct, kw_only=True):
                                 task_id,
                                 len(todos),
                             )
-                            sr = await self.sender.task_suspend(
-                                task_id,
-                                task_version,
-                                [
-                                    PromiseRegisterCallbackData(
-                                        awaited=awaited, awaiter=task_id
-                                    )
-                                    for awaited in todos
-                                ],
-                            )
+                            # Suspend is a durable server interaction too --
+                            # wrap a failure uniformly as PlatformError (see the
+                            # fulfill case above).
+                            try:
+                                sr = await self.sender.task_suspend(
+                                    task_id,
+                                    task_version,
+                                    [
+                                        PromiseRegisterCallbackData(
+                                            awaited=awaited, awaiter=task_id
+                                        )
+                                        for awaited in todos
+                                    ],
+                                )
+                            except ResonateError as exc:
+                                raise PlatformError([exc]) from exc
 
                             if not isinstance(sr, Redirect):
                                 logger.debug("core: task suspended task_id=%s", task_id)
@@ -322,7 +356,7 @@ class Core(msgspec.Struct, kw_only=True):
         run_err: Exception | None = None
         try:
             res = await root_ctx.invoke_with_retry(df, task_data, policy)
-        except SuspendedError:
+        except Suspended:
             suspended = True
         except Exception as exc:
             # User code reported failure by raising. Any ``Exception`` (a
@@ -347,7 +381,10 @@ class Core(msgspec.Struct, kw_only=True):
             )
             run_err = exc
 
-        # Flush local work and collect remote todos.
+        # Flush local work and collect remote todos. ``flush_local_work`` joins
+        # every spawned sibling and re-raises any platform failures aggregated
+        # into one ``PlatformError``, so reaching past it guarantees none
+        # occurred.
         await root_ctx.flush_local_work()
         todos = root_ctx.take_remote_todos()
 
