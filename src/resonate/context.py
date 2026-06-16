@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import copy
 import inspect
 from collections.abc import Awaitable, Callable, Generator
+from contextlib import suppress
 from datetime import timedelta
 from hashlib import blake2b
 from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
@@ -14,7 +14,13 @@ import msgspec
 from resonate import now_ms
 from resonate.codec import decode_settled
 from resonate.durable import DurableFunction
-from resonate.error import FunctionNotFoundError, SuspendedError
+from resonate.error import (
+    FunctionNotFoundError,
+    PlatformError,
+    ResonateError,
+    SerializationError,
+    Suspended,
+)
 from resonate.registry import Registry
 from resonate.retry import Never, RetryPolicy
 from resonate.tree import Tree
@@ -154,7 +160,7 @@ class _State:
 
         # Background tasks spawned by rpc/sleep/promise (see
         # ``_spawn_remote_await``). Tracked so ``flush_local_work`` can join
-        # them, which both retrieves their (almost always ``SuspendedError``)
+        # them, which both retrieves their (almost always ``Suspended``)
         # result -- avoiding asyncio's "exception never retrieved" warning for
         # a future the workflow never awaited -- and makes ``spawned_remote``
         # population deterministic rather than dependent on incidental
@@ -296,7 +302,7 @@ class Context:
         allows, before the failure is settled. That is what makes retrying
         safe: the only executions ever re-run have no durable side effects.
 
-        ``SuspendedError`` is a durable suspension, not a failure, so it is
+        ``Suspended`` is a durable suspension, not a failure, so it is
         re-raised untouched ahead of the generic ``Exception`` arm (it *is* an
         ``Exception``).
 
@@ -310,8 +316,6 @@ class Context:
         while True:
             try:
                 return await df.invoke(self, payload, coerce_args=coerce_args)
-            except SuspendedError:
-                raise
             except Exception:
                 # ``next(attempt + 1)`` consults the policy for the *upcoming*
                 # retry; ``None`` means stop (workflow, or retries exhausted),
@@ -368,7 +372,7 @@ class Context:
           background bodies (see :meth:`_spawn_remote_await`) plus the
           ``detached`` body (see :meth:`detached`). The rpc/sleep/promise bodies
           each append their child id to ``spawned_remote`` and unwind via
-          ``SuspendedError`` when the record is pending; joining them here makes
+          ``Suspended`` when the record is pending; joining them here makes
           that append deterministic for futures the workflow created but never
           awaited (e.g. it suspended on a sibling first), instead of relying on
           the event loop happening to run the task before ``take_remote_todos``.
@@ -380,33 +384,68 @@ class Context:
         before the parent decides to suspend; otherwise the suspend would
         register a partial awaited list.
 
-        Per-task exceptions are swallowed: by the time a task ends, it has
-        either merged its todos into our ``spawned_remote`` (suspended via
-        ``SuspendedError``) or settled its own promise (errored). Either way,
-        the error belongs to whoever holds the future -- the asyncio task
-        delivers the same exception to the real awaiter, so dropping it here is
-        not losing it. Both ``Exception`` (a child rejects with its *original*
-        exception type, which the codec round-trips on the awaiter side) and
-        ``SuspendedError`` are suppressed; the latter is listed explicitly
-        because it extends ``BaseException``, so ``suppress(Exception)`` alone
-        would let a suspended child's signal escape here.
+        Ordinary per-task exceptions are swallowed: by the time a task ends, it
+        has either merged its todos into our ``spawned_remote`` (suspended via
+        ``Suspended``) or settled its own promise (errored). Either way, the
+        error belongs to whoever holds the future -- the asyncio task delivers
+        the same exception to the real awaiter, so dropping it here is not
+        losing it. ``Suspended`` is suppressed alongside ``Exception`` because
+        it extends ``BaseException``, which ``suppress(Exception)`` alone misses.
+
+        ``PlatformError`` is not swallowed: a fire-and-forget child may have no
+        other awaiter, so the task must be released. We join every sibling (no
+        orphaned task), gather the causes of each platform failure, and re-raise
+        them as one aggregated ``PlatformError`` so ``Core`` releases the task.
         """
         locals_ = self._state.spawned_locals
         remotes = self._state.spawned_remote_tasks
         self._state.spawned_locals = []
         self._state.spawned_remote_tasks = []
-        for task in locals_:
-            with contextlib.suppress(Exception, SuspendedError):
-                await task.handle
-        for remote in remotes:
-            with contextlib.suppress(Exception, SuspendedError):
-                await remote
+
+        # Join every sibling, extending one flat list with the reasons of each
+        # platform failure, then re-raise them aggregated. An ordinary rejection
+        # and a suspended child's signal belong to the real awaiter -- the
+        # asyncio task delivers the same exception there, so dropping them here
+        # is not losing them.
+        causes: list[ResonateError] = []
+        for awaitable in [task.handle for task in locals_] + remotes:
+            try:
+                with suppress(Exception, Suspended):
+                    await awaitable
+            except PlatformError as exc:
+                causes.extend(exc.causes)
+
+        if causes:
+            err = PlatformError(causes)
+            raise err from err.cause
 
     def take_remote_todos(self) -> list[str]:
         """Drain and return all remote todos accumulated on this context."""
         todos = self._state.spawned_remote
         self._state.spawned_remote = []
         return todos
+
+    def _coerce_settled(self, df: DurableFunction, value: Any) -> Any:
+        """Reshape a settled value to ``df``'s return type, platform-erroring on failure.
+
+        Symmetric with the *encode* side in
+        :meth:`ResonateEffects.settle_promise <resonate.effects.ResonateEffects.settle_promise>`:
+        once a value has been durably persisted, failing to reconstruct it for
+        the awaiter is a platform failure (release the task), not a user
+        rejection -- the SDK never stores a value it then cannot rebuild. The
+        caller passes the already-deserialized value, so a *rejected* record's
+        reconstructed user error has been raised by ``decode_settled`` before
+        this point and is never reached here.
+
+        ponytail: a deterministic type mismatch (function's value vs its declared
+        return annotation) now poison-loops on redelivery rather than storing a
+        rejection -- the cost of matching the encode side's release-on-failure.
+        Flip both sides to user-rejection if a visible error beats a poison task.
+        """
+        try:
+            return df.coerce_result(value)
+        except SerializationError as exc:
+            raise PlatformError([exc]) from exc
 
     def _child_timeout(self, requested: timedelta | None) -> int:
         now = now_ms()
@@ -516,7 +555,8 @@ class Context:
         if isinstance(fn, str):
             resolved = self._state.registry.get(fn, self.opts.version)
             if resolved is None:
-                raise FunctionNotFoundError(fn, self.opts.version)
+                exc = FunctionNotFoundError(fn, self.opts.version)
+                raise PlatformError([exc]) from exc
             df = resolved
         else:
             df = DurableFunction(fn)
@@ -558,7 +598,7 @@ class Context:
             # stop here.
             if record.state != "pending":
                 self._state.tree.settle(req.id)
-                return df.coerce_result(decode_settled(record))
+                return self._coerce_settled(df, decode_settled(record))
 
             # Pending: execute the child locally on its own Context, which is
             # what every durable function receives as its first argument.
@@ -588,7 +628,7 @@ class Context:
                 )
                 assert not inspect.isawaitable(value)
                 outcome = "done"
-            except SuspendedError:
+            except Suspended:
                 outcome = "suspended"
             except Exception as exc:
                 # Any exception from the local child -- a deliberately raised
@@ -611,7 +651,7 @@ class Context:
             # Structured-concurrency: check suspension states first
             if outcome == "suspended" or child_remote:
                 self._state.spawned_remote.extend(child_remote)
-                raise SuspendedError
+                raise Suspended
 
             # Settle, then read the outcome back through the *settled
             # record* -- uniformly for both a resolved and a rejected
@@ -640,7 +680,7 @@ class Context:
             # node settled. Reached only on the done/error path -- a suspended
             # child raised above with its node left pending.
             self._state.tree.settle(req.id)
-            return df.coerce_result(decode_settled(record))
+            return self._coerce_settled(df, decode_settled(record))
 
         task = asyncio.create_task(bg())
         # Register for the structured-concurrency flush: a fire-and-forget
@@ -695,7 +735,8 @@ class Context:
         else:
             recorded = self._state.registry.reverse(fn)
             if recorded is None:
-                raise FunctionNotFoundError(getattr(fn, "__name__", "<anonymous>"))
+                exc = FunctionNotFoundError(getattr(fn, "__name__", "<anonymous>"))
+                raise PlatformError([exc]) from exc
             name, version = recorded
             # Present by construction: the reverse and forward maps are populated
             # together at register time, so a reverse hit guarantees a forward one.
@@ -784,6 +825,12 @@ class Context:
         self,
     ) -> tuple[asyncio.Future[None] | None, asyncio.Future[None]]:
         """Advances the creation chain tail, returning (prev_tail, new_tail)."""
+        # No context-side abort gate: the circuit breaker lives in effects
+        # (``create_promise`` / ``settle_promise`` short-circuit once
+        # ``stopped`` is set), so a body that swallowed a platform error and
+        # issued more durable work re-raises off the effects gate when the new
+        # op hits the server, and the creation chain propagates an upstream
+        # failure to later links.
         prev_tail = self._state.tail
         new_tail = asyncio.Future[None]()
         self._state.tail = new_tail
@@ -816,7 +863,11 @@ class Context:
 
             record = await self._state.effects.create_promise(req)
             created.set_result(None)
-        except Exception as e:
+        # PlatformError is included so a platform failure still settles this
+        # link's ``created`` (successor links and ``ResonateFuture.id()``
+        # awaiters would otherwise deadlock). Deliberately not a bare
+        # ``BaseException``: that would interfere with task cancellation.
+        except (Exception, PlatformError) as e:
             created.set_exception(e)
             # Mark retrieved
             created.exception()
@@ -868,7 +919,7 @@ class Context:
         -- a never-awaited suspended task would otherwise trip asyncio's
         "exception never retrieved" warning -- and guarantees its
         ``spawned_remote`` append has happened before the caller drains todos.
-        Awaiting the returned future still raises ``SuspendedError`` as before;
+        Awaiting the returned future still raises ``Suspended`` as before;
         an asyncio task delivers its result to every awaiter, so the flush join
         and the future await do not conflict. ``df`` is forwarded to
         :meth:`_await_remote` for return-type coercion (by-object ``rpc`` only).
@@ -888,7 +939,7 @@ class Context:
 
         Defers ``create_promise`` through the creation chain, short-circuits an
         already-settled record (idempotent recovery), and otherwise registers
-        the child id as a remote todo and unwinds via ``SuspendedError``.
+        the child id as a remote todo and unwinds via ``Suspended``.
 
         Concurrency: ``spawned_remote.append`` needs no lock. These are asyncio
         tasks on a single event loop, and the append has no ``await`` between
@@ -911,10 +962,10 @@ class Context:
             # before any coercion, exactly as in ``ctx.run``.
             self._state.tree.settle(req.id)
             settled = decode_settled(record)
-            return df.coerce_result(settled) if df is not None else settled
+            return self._coerce_settled(df, settled) if df is not None else settled
 
         # Still pending: the node stays pending, keeping it in the frontier.
         # The awaited subset (``spawned_remote``) is what callbacks are
         # registered for; the tree's full frontier is its superset.
         self._state.spawned_remote.append(req.id)
-        raise SuspendedError
+        raise Suspended

@@ -28,10 +28,14 @@ class ServerError(ResonateError):
         super().__init__(f"server error (code={self.code}): {self.message}")
 
 
-class EncodingError(ResonateError):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(f"encoding error: {self.message}")
+class StoppedError(ResonateError):
+    """Skipped op after a prior failure stopped the execution.
+
+    Not a server failure -- the network was never touched.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("execution stopped")
 
 
 class DecodingError(ResonateError):
@@ -58,19 +62,36 @@ class Base64DecodeError(ResonateError):
         super().__init__(f"base64 decode error: {error}")
 
 
-class Utf8Error(ResonateError):
-    def __init__(self, error: Exception) -> None:
-        self.error = error
-        super().__init__(f"utf8 error: {error}")
+class PlatformError(BaseException):
+    """A Resonate platform failure inside a durable execution.
+
+    Extends ``BaseException`` (like :class:`Suspended`) so user code's
+    ``except Exception`` cannot swallow it; the task must be released, not
+    fulfilled. Always raised ``from`` the original :class:`ResonateError`,
+    which is also kept on ``causes``.
+
+    Always carries a *list* of causes: a single durable op failing wraps one
+    error, while ``flush_local_work`` aggregates every concurrent failure into
+    one error with all causes. ``cause`` returns the first (primary) one so the
+    outer-boundary unwrap keeps surfacing a single ``ResonateError``.
+    """
+
+    def __init__(self, causes: list[ResonateError]) -> None:
+        if not causes:
+            # Not an assert: asserts are stripped under ``python -O``, which
+            # would turn this into a later ``IndexError`` on ``cause``.
+            msg = "PlatformError needs at least one cause"
+            raise ValueError(msg)
+        self.causes: list[ResonateError] = causes
+        super().__init__("platform error: " + "; ".join(str(c) for c in causes))
+
+    @property
+    def cause(self) -> ResonateError:
+        """The first (primary) cause -- what the outer boundary unwraps to."""
+        return self.causes[0]
 
 
-class IoError(ResonateError):
-    def __init__(self, error: Exception) -> None:
-        self.error = error
-        super().__init__(f"io error: {error}")
-
-
-class SuspendedError(BaseException):
+class Suspended(BaseException):
     """Signals that an execution has suspended.
 
     Extends ``BaseException`` so that a ``try/except Exception`` does not
@@ -79,17 +100,6 @@ class SuspendedError(BaseException):
 
     def __init__(self) -> None:
         super().__init__("execution suspended")
-
-
-class AlreadySettledError(ResonateError):
-    def __init__(self) -> None:
-        super().__init__("promise already settled")
-
-
-class JoinError(ResonateError):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(f"task join error: {self.message}")
 
 
 class ApplicationError(ResonateError):
