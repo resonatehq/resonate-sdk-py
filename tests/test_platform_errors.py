@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -31,6 +32,7 @@ from resonate.core import Core, identity_target_resolver
 from resonate.dependencies import DependencyMap
 from resonate.effects import ResonateEffects
 from resonate.error import (
+    FunctionNotFoundError,
     HttpError,
     PlatformError,
     ResonateError,
@@ -191,6 +193,36 @@ async def test_run_create_failure_releases_task(fix: PlatformFixture) -> None:
     await assert_released_root_pending(fix, "pe-run")
 
 
+@pytest.mark.asyncio
+async def test_run_return_coercion_failure_releases_task(
+    fix: PlatformFixture,
+) -> None:
+    """Coercion failure on a settled value releases the task.
+
+    A settled value that cannot be reshaped to its declared return type is a
+    platform failure (release), symmetric with the encode side -- not a stored
+    rejection.
+    """
+
+    def bad_return(ctx: Context) -> int:
+        return cast("int", "not-an-int")
+
+    async def wf(ctx: Context) -> int:
+        return await ctx.run(bad_return)
+
+    fix.reg.register("wf", wf)
+    fix.reg.register("bad_return", bad_return)
+    v, promise, preload = await fix.create_root_task("pe-coerce", "wf")
+
+    # No sender failure armed: the failure is purely the codec failing to
+    # rebuild the persisted value, which must release rather than reject.
+    with pytest.raises(SerializationError) as excinfo:
+        await fix.core.execute_until_blocked_outer("pe-coerce", v, promise, preload)
+
+    assert isinstance(excinfo.value.__cause__, PlatformError)
+    await assert_released_root_pending(fix, "pe-coerce")
+
+
 # ── 2. user code cannot swallow a platform error ─────────────────────────
 
 
@@ -255,9 +287,11 @@ async def test_first_platform_error_wins_with_multiple_failures(
 ) -> None:
     """Concurrent platform failures release the task once, on the first error.
 
-    The flush propagates the first PlatformError it joins; remaining siblings
-    are abandoned (the released task's re-delivery retries everything), so the
-    execution must neither hang nor double-release.
+    The first failure is recorded stickily on the shared effects, arming the
+    abort gates so every still-pending sibling short-circuits its next durable
+    op and unwinds doing no further work. Flush joins them all (no orphaned
+    task), gathers the platform errors, and re-raises the recorded first one, so
+    the execution releases exactly once and neither hangs nor double-releases.
     """
 
     async def wf(ctx: Context) -> int:
@@ -274,6 +308,141 @@ async def test_first_platform_error_wins_with_multiple_failures(
         await fix.core.execute_until_blocked_outer("pe-multi", v, promise, preload)
 
     await assert_released_root_pending(fix, "pe-multi")
+
+
+# ── 3b. abort gate: no further durable work after the first failure ──────
+
+
+@pytest.mark.asyncio
+async def test_first_platform_error_stops_further_durable_work(
+    fix: PlatformFixture,
+) -> None:
+    """Once a durable op fails, no sibling op reaches the server.
+
+    Two ``ctx.run`` children fire concurrently. The first ``create`` fails and
+    records the sticky failure; the abort gates (effects + creation chain) must
+    make the second child unwind without ever attempting its own ``create``.
+    """
+    create_attempts = 0
+    original_create = fix.sender.promise_create
+
+    async def counting_create(req: PromiseCreateReq) -> PromiseRecord:
+        nonlocal create_attempts
+        create_attempts += 1
+        # Fail the first create only; the gate must prevent a second attempt.
+        if create_attempts == 1:
+            raise fix.sender.error
+        return await original_create(req)
+
+    async def wf(ctx: Context) -> int:
+        ctx.run(leaf)  # "pe-stop.1" -- its create fails first
+        ctx.run(leaf)  # "pe-stop.2" -- must never reach the server
+        return 0
+
+    fix.reg.register("wf", wf)
+    v, promise, preload = await fix.create_root_task("pe-stop", "wf")
+
+    with (
+        patch.object(
+            fix.sender, "promise_create", new=AsyncMock(side_effect=counting_create)
+        ),
+        pytest.raises(ServerError),
+    ):
+        await fix.core.execute_until_blocked_outer("pe-stop", v, promise, preload)
+
+    assert create_attempts == 1, "the second child's create must be short-circuited"
+    # The second child's promise was never created on the server (a 404 get
+    # would confirm it), which is exactly the no-further-work guarantee.
+    await assert_released_root_pending(fix, "pe-stop")
+
+
+@pytest.mark.asyncio
+async def test_base_exception_swallow_then_continue_still_releases(
+    fix: PlatformFixture,
+) -> None:
+    """A body that catches the platform error itself cannot bury it.
+
+    Even ``except BaseException`` cannot turn a platform failure into a normal
+    return: a follow-up durable op hits the armed abort gate in
+    ``_advance_promise_chain`` and re-raises, and the sticky record on effects
+    backs the precedence check in ``Core`` -- so the task still releases.
+    """
+    reached_after = False
+
+    async def wf(ctx: Context) -> str:
+        nonlocal reached_after
+        try:  # noqa: SIM105 -- spell out the deliberate worst-case swallow
+            await ctx.rpc("child")  # create fails -> PlatformError
+        except BaseException:  # noqa: S110
+            pass
+        reached_after = True
+        # Any further durable op must re-raise off the armed gate.
+        await ctx.rpc("child2")
+        return "unreachable"
+
+    fix.reg.register("wf", wf)
+    v, promise, preload = await fix.create_root_task("pe-swallow-base", "wf")
+
+    fix.sender.fail_promise_create = True
+
+    with pytest.raises(ServerError):
+        await fix.core.execute_until_blocked_outer(
+            "pe-swallow-base", v, promise, preload
+        )
+
+    assert reached_after, "body did swallow the first error and continue"
+    await assert_released_root_pending(fix, "pe-swallow-base")
+
+
+# ── 3c. in-execution registry miss releases (not a permanent rejection) ──
+
+
+@pytest.mark.asyncio
+async def test_run_by_name_unregistered_child_releases_task(
+    fix: PlatformFixture,
+) -> None:
+    """A by-name ``ctx.run`` to a function missing on this worker releases.
+
+    A registry miss is deployment skew, not a domain failure -- symmetric with
+    the root lookup in ``Core`` -- so the workflow promise stays pending and the
+    task is re-acquirable, rather than being permanently settled ``rejected``.
+    """
+
+    async def wf(ctx: Context) -> int:
+        return await ctx.run("ghost")  # not registered anywhere
+
+    fix.reg.register("wf", wf)
+    v, promise, preload = await fix.create_root_task("pe-nofn-run", "wf")
+
+    # Outer unwraps the PlatformError: caller sees the FunctionNotFoundError,
+    # with the PlatformError chained as cause.
+    with pytest.raises(FunctionNotFoundError) as excinfo:
+        await fix.core.execute_until_blocked_outer("pe-nofn-run", v, promise, preload)
+
+    assert isinstance(excinfo.value.__cause__, PlatformError)
+    await assert_released_root_pending(fix, "pe-nofn-run")
+
+
+@pytest.mark.asyncio
+async def test_rpc_by_object_unregistered_child_releases_task(
+    fix: PlatformFixture,
+) -> None:
+    """A by-object ``ctx.rpc`` whose target has no reverse entry releases too."""
+
+    async def stranger(ctx: Context) -> int:
+        return 1
+
+    async def wf(ctx: Context) -> int:
+        return await ctx.rpc(stranger)  # object never registered here
+
+    fix.reg.register("wf", wf)
+    v, promise, preload = await fix.create_root_task("pe-nofn-rpc", "wf")
+
+    with pytest.raises(FunctionNotFoundError) as excinfo:
+        await fix.core.execute_until_blocked_outer("pe-nofn-rpc", v, promise, preload)
+
+    assert isinstance(excinfo.value.__cause__, PlatformError)
+    await assert_released_root_pending(fix, "pe-nofn-rpc")
 
 
 # ── 4. creation-chain integrity: no deadlock past a failed link ──────────
@@ -417,7 +586,7 @@ async def test_spawn_and_stop_tolerate_base_exception_failure(
     res = Resonate()
 
     async def boom() -> None:
-        raise PlatformError(ServerError(503, "server unavailable"))
+        raise PlatformError([ServerError(503, "server unavailable")])
 
     with caplog.at_level(logging.ERROR, logger="resonate.resonate"):
         res._spawn(boom())

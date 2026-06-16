@@ -2,7 +2,7 @@
 
 ``run`` executes the child inline in async-await form: it returns the value
 directly, raises on rejection, and raises
-:class:`~resonate.error.SuspendedError` when a dependency is still pending.
+:class:`~resonate.error.Suspended` when a dependency is still pending.
 
 The harness builds a root :class:`~resonate.context.Context` over a real
 :class:`~resonate.network.LocalNetwork` (as :mod:`tests.test_durable` does), so
@@ -32,7 +32,7 @@ from resonate.error import (
     FunctionNotFoundError,
     PlatformError,
     SerializationError,
-    SuspendedError,
+    Suspended,
 )
 from resonate.network import LocalNetwork
 from resonate.registry import Registry
@@ -186,11 +186,11 @@ async def parent_workflow(ctx: Context, x: int) -> int:
 async def blocks_on_remote(ctx: Context) -> int:
     """Mimic ``ctx.rpc``/``sleep``/``promise`` on a *pending* promise.
 
-    Those register the awaited promise id and unwind via ``SuspendedError``;
+    Those register the awaited promise id and unwind via ``Suspended``;
     until they exist, this stands in so ``run``'s suspension path is exercised.
     """
     ctx._state.spawned_remote.append("remote-dep")
-    raise SuspendedError
+    raise Suspended
 
 
 async def fire_and_forget(ctx: Context) -> int:
@@ -568,7 +568,7 @@ async def test_workflow_runs_nested_leaves() -> None:
 @pytest.mark.asyncio
 async def test_run_suspends_when_child_blocks_on_remote() -> None:
     ctx = _root()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.run(blocks_on_remote)
     # The child's todo is merged up so the task can suspend on it...
     assert ctx._state.spawned_remote == ["remote-dep"]
@@ -581,7 +581,7 @@ async def test_run_suspends_when_child_completes_with_pending_remote() -> None:
     # When the function finished but left remote todos, the value is dropped
     # in favour of suspension.
     ctx = _root()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.run(fire_and_forget)
     assert ctx._state.spawned_remote == ["ff-dep"]
     assert ctx._state.effects.cache["root.1"].state == "pending"
@@ -594,14 +594,14 @@ async def test_run_suspends_when_child_completes_with_pending_remote() -> None:
 # travel through every intermediate ``ctx.run`` up to the root, and every
 # promise on the suspension path must be left pending (not settled):
 # at each level, ``take_remote_todos`` drains the child and
-# extends the parent before re-raising ``SuspendedError``.
+# extends the parent before re-raising ``Suspended``.
 # =============================================================================
 
 
 async def deep_inner(ctx: Context) -> int:
     """Leaf stand-in for rpc/sleep -- registers a remote dep and suspends."""
     ctx._state.spawned_remote.append("deep-dep")
-    raise SuspendedError
+    raise Suspended
 
 
 async def deep_middle(ctx: Context) -> int:
@@ -622,7 +622,7 @@ async def completes_then_suspends(ctx: Context) -> int:
 async def multi_remote(ctx: Context) -> int:
     """Register multiple remote deps before suspending -- a multi-todo leaf."""
     ctx._state.spawned_remote.extend(["dep-a", "dep-b", "dep-c"])
-    raise SuspendedError
+    raise Suspended
 
 
 async def parent_with_fire_and_forget(ctx: Context) -> int:
@@ -642,7 +642,7 @@ async def test_run_suspension_propagates_through_intermediate_workflow() -> None
     # A grandchild that suspends must bubble its todo up through the parent
     # workflow into the root's ``spawned_remote``.
     ctx = _root()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.run(deep_middle)
     assert ctx._state.spawned_remote == ["deep-dep"]
     # Both promises along the suspension path are left pending.
@@ -654,7 +654,7 @@ async def test_run_suspension_propagates_through_intermediate_workflow() -> None
 async def test_run_suspension_propagates_through_three_levels() -> None:
     # Same property at one more level of nesting: todos travel arbitrarily deep.
     ctx = _root()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.run(deep_top)
     assert ctx._state.spawned_remote == ["deep-dep"]
     assert ctx._state.effects.cache["root.1"].state == "pending"  # top
@@ -668,13 +668,13 @@ async def test_run_completed_sibling_settles_but_parent_still_suspends() -> None
     # suspends -- the parent must surface the suspension and stay pending,
     # even though one of its sub-promises is already resolved.
     ctx = _root()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.run(completes_then_suspends)
     assert ctx._state.spawned_remote == ["remote-dep"]
     # First child got fully settled with its computed value.
     assert ctx._state.effects.cache["root.1.1"].state == "resolved"
     assert ctx._state.effects.cache["root.1.1"].value.data == 42
-    # Second child remains pending -- its body raised SuspendedError.
+    # Second child remains pending -- its body raised Suspended.
     assert ctx._state.effects.cache["root.1.2"].state == "pending"
     # Parent workflow itself stays pending: ``outcome == "suspended"`` skips
     # the settle_promise call at the bottom of ``run``.
@@ -686,7 +686,7 @@ async def test_run_merges_multiple_todos_from_single_child() -> None:
     # ``take_remote_todos`` drains the full list, not just the first entry,
     # so a child registering N pending deps surfaces all N at the parent.
     ctx = _root()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.run(multi_remote)
     assert ctx._state.spawned_remote == ["dep-a", "dep-b", "dep-c"]
 
@@ -702,7 +702,7 @@ async def test_run_fire_and_forget_child_suspension_propagates() -> None:
     # depends on spawned_locals being populated so flush has something to
     # wait for.
     ctx = _root()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.run(parent_with_fire_and_forget)
     assert ctx._state.spawned_remote == ["remote-dep"]
     # Parent's value (99) was dropped in favour of suspension; both promises
@@ -1044,7 +1044,7 @@ async def test_options_op_flips_shared_workflow_flag() -> None:
     # the flag lives on ``_state``, not the per-call ``Context``.
     ctx = _root()
     assert ctx._state.workflow is False
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.options(target="x").rpc("fn")
     assert ctx._state.workflow is True
 
@@ -1058,9 +1058,9 @@ async def test_options_handles_share_spawned_state() -> None:
     ctx = _root()
     f1 = ctx.options(target="a").rpc("fn")  # root.1
     f2 = ctx.options(target="b").rpc("fn")  # root.2
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await f1
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await f2
     assert ctx._state.spawned_remote == ["root.1", "root.2"]
     assert ctx._state.effects.cache["root.1"].state == "pending"
@@ -1306,10 +1306,10 @@ async def test_future_id_raises_when_create_fails() -> None:
 @pytest.mark.asyncio
 async def test_rpc_pending_registers_todo_and_suspends() -> None:
     # A fresh remote promise is created pending; awaiting the future appends
-    # its id to ``spawned_remote`` and raises ``SuspendedError``.
+    # its id to ``spawned_remote`` and raises ``Suspended``.
     ctx = _root()
     fut = ctx.rpc("remote_fn", 1, 2)
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await fut
     assert ctx._state.spawned_remote == ["root.1"]
     assert ctx._state.effects.cache["root.1"].state == "pending"
@@ -1359,7 +1359,7 @@ def _spy_create_promise(ctx: Context) -> Iterator[list[Any]]:
 @pytest.mark.asyncio
 async def test_rpc_request_tags_and_param() -> None:
     ctx = _root()
-    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+    with _spy_create_promise(ctx) as captured, pytest.raises(Suspended):
         await ctx.rpc("remote_fn", 1, 2, k="v")
 
     [req] = captured
@@ -1386,7 +1386,7 @@ async def test_rpc_no_args_param_is_empty() -> None:
     # An empty call still carries a complete ``TaskData``: empty args/kwargs and
     # the (context-level) version 0, never a partial payload.
     ctx = _root()
-    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+    with _spy_create_promise(ctx) as captured, pytest.raises(Suspended):
         await ctx.rpc("remote_fn")
 
     assert captured[0].param.data == TaskData(
@@ -1440,7 +1440,7 @@ async def test_rpc_promise_creation_order_under_concurrency() -> None:
 @pytest.mark.asyncio
 async def test_rpc_with_options_target_sets_tag() -> None:
     ctx = _root()
-    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+    with _spy_create_promise(ctx) as captured, pytest.raises(Suspended):
         await ctx.options(target="worker-1").rpc("fn")
     assert captured[0].tags["resonate:target"] == "worker-1"
 
@@ -1449,7 +1449,7 @@ async def test_rpc_with_options_target_sets_tag() -> None:
 async def test_rpc_with_options_timeout_sets_child_deadline() -> None:
     ctx = _root()
     before = now_ms()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.options(timeout=timedelta(seconds=30)).rpc("fn")
     after = now_ms()
     record = ctx._state.effects.cache["root.1"]
@@ -1460,7 +1460,7 @@ async def test_rpc_with_options_timeout_sets_child_deadline() -> None:
 async def test_rpc_with_options_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.options(timeout=timedelta(days=365)).rpc("fn")
     assert ctx._state.effects.cache["root.1"].timeout_at == cap
 
@@ -1479,7 +1479,7 @@ async def test_rpc_on_base_context_ignores_a_discarded_options_call() -> None:
     # defaults intact, so a bare ``ctx.rpc`` carries no target (empty tag).
     ctx = _root()
     ctx.options(timeout=timedelta(seconds=5), target="x")
-    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+    with _spy_create_promise(ctx) as captured, pytest.raises(Suspended):
         await ctx.rpc("fn")
     assert captured[0].tags["resonate:target"] == ""
 
@@ -1504,7 +1504,7 @@ async def test_rpc_task_pending_while_create_promise_blocked() -> None:
         assert "root.1" not in ctx._state.effects.cache
 
         gate.set()
-        with pytest.raises(SuspendedError):
+        with pytest.raises(Suspended):
             await task
         assert ctx._state.effects.cache["root.1"].state == "pending"
 
@@ -1533,7 +1533,7 @@ async def test_rpc_releases_event_when_create_promise_raises() -> None:
 #
 # ``sleep`` is structurally identical to ``rpc`` (both go through the shared
 # ``_await_remote`` body): a fresh timer promise is created pending, awaiting
-# the future appends its id to ``spawned_remote`` and raises ``SuspendedError``.
+# the future appends its id to ``spawned_remote`` and raises ``Suspended``.
 # The differences are in the request shape (a ``resonate:timer`` tag, no param,
 # no func envelope) and that ``sleep`` takes its deadline from the duration
 # argument rather than from ``opts``.
@@ -1544,7 +1544,7 @@ async def test_rpc_releases_event_when_create_promise_raises() -> None:
 async def test_sleep_pending_registers_todo_and_suspends() -> None:
     ctx = _root()
     fut = ctx.sleep(timedelta(seconds=30))
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await fut
     assert ctx._state.spawned_remote == ["root.1"]
     assert ctx._state.effects.cache["root.1"].state == "pending"
@@ -1572,7 +1572,7 @@ async def test_sleep_presettled_resolved_returns_none() -> None:
 @pytest.mark.asyncio
 async def test_sleep_request_tags_and_timer_flag() -> None:
     ctx = _root()
-    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+    with _spy_create_promise(ctx) as captured, pytest.raises(Suspended):
         await ctx.sleep(timedelta(seconds=30))
 
     [req] = captured
@@ -1594,7 +1594,7 @@ async def test_sleep_timeout_at_is_now_plus_duration() -> None:
     # The wake time is ``now + duration``, taken straight from the argument.
     ctx = _root()
     before = now_ms()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.sleep(timedelta(seconds=30))
     after = now_ms()
     record = ctx._state.effects.cache["root.1"]
@@ -1607,7 +1607,7 @@ async def test_sleep_duration_capped_to_parent_timeout() -> None:
     # child promise (``child_timeout``).
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.sleep(timedelta(days=365))
     assert ctx._state.effects.cache["root.1"].timeout_at == cap
 
@@ -1627,7 +1627,7 @@ async def test_sleep_ignores_opts_timeout_for_duration() -> None:
     # timer's deadline at all.
     ctx = _root()
     before = now_ms()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.options(timeout=timedelta(seconds=5)).sleep(timedelta(seconds=30))
     after = now_ms()
     record = ctx._state.effects.cache["root.1"]
@@ -1641,7 +1641,7 @@ async def test_sleep_options_do_not_leak_to_base_context() -> None:
     # cannot bleed into the next entrypoint.
     ctx = _root()
     ctx.options(timeout=timedelta(seconds=5), target="x")
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.sleep(timedelta(seconds=1))
     assert ctx.opts == Opts()
 
@@ -1715,7 +1715,7 @@ async def test_sleep_releases_event_when_create_promise_raises() -> None:
 # envelope and no timer flag, meant to be resolved/rejected by some external
 # party. It shares the same ``_await_remote`` body as ``rpc``/``sleep``: a fresh
 # pending record appends its id to ``spawned_remote`` and raises
-# ``SuspendedError``; a pre-settled record short-circuits with its value. The
+# ``Suspended``; a pre-settled record short-circuits with its value. The
 # distinguishing trait is the request shape (empty param, no ``resonate:timer``,
 # no ``resonate:target``) and that the deadline comes from the explicit
 # ``timeout`` argument rather than from ``opts``.
@@ -1726,7 +1726,7 @@ async def test_sleep_releases_event_when_create_promise_raises() -> None:
 async def test_promise_pending_registers_todo_and_suspends() -> None:
     ctx = _root()
     fut = ctx.promise(timedelta(seconds=30))
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await fut
     assert ctx._state.spawned_remote == ["root.1"]
     assert ctx._state.effects.cache["root.1"].state == "pending"
@@ -1762,7 +1762,7 @@ async def test_promise_presettled_rejected_raises() -> None:
 @pytest.mark.asyncio
 async def test_promise_request_tags_and_empty_param() -> None:
     ctx = _root()
-    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+    with _spy_create_promise(ctx) as captured, pytest.raises(Suspended):
         await ctx.promise(timedelta(seconds=30))
 
     [req] = captured
@@ -1786,7 +1786,7 @@ async def test_promise_request_tags_and_empty_param() -> None:
 async def test_promise_timeout_at_is_now_plus_timeout() -> None:
     ctx = _root()
     before = now_ms()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.promise(timedelta(seconds=30))
     after = now_ms()
     record = ctx._state.effects.cache["root.1"]
@@ -1799,7 +1799,7 @@ async def test_promise_none_timeout_uses_default() -> None:
     # ``child_timeout``, well past any explicit short timeout.
     ctx = _root()
     before = now_ms()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.promise(None)
     after = now_ms()
     record = ctx._state.effects.cache["root.1"]
@@ -1811,7 +1811,7 @@ async def test_promise_none_timeout_uses_default() -> None:
 async def test_promise_timeout_capped_to_parent() -> None:
     cap = now_ms() + 5_000
     ctx = _root(timeout_at=cap)
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.promise(timedelta(days=365))
     assert ctx._state.effects.cache["root.1"].timeout_at == cap
 
@@ -1827,7 +1827,7 @@ async def test_promise_ignores_opts_timeout_for_deadline() -> None:
     # ``with_opts(timeout=...)`` must not touch the DI promise's deadline.
     ctx = _root()
     before = now_ms()
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.options(timeout=timedelta(seconds=5)).promise(timedelta(seconds=30))
     after = now_ms()
     record = ctx._state.effects.cache["root.1"]
@@ -1841,7 +1841,7 @@ async def test_promise_options_do_not_leak_to_base_context() -> None:
     # cannot bleed into the next entrypoint call.
     ctx = _root()
     ctx.options(timeout=timedelta(seconds=5), target="x")
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.promise(timedelta(seconds=1))
     assert ctx.opts == Opts()
 
@@ -1929,7 +1929,7 @@ def _detached_id(prefix: str, raw: str) -> str:
 @pytest.mark.asyncio
 async def test_detached_returns_id_without_suspending() -> None:
     # The defining property: a fresh (pending) detached promise does NOT raise
-    # SuspendedError and does NOT register a remote todo -- the future just
+    # Suspended and does NOT register a remote todo -- the future just
     # yields the child id.
     ctx = _root()
     child_id = _detached_id("root", "root.1")
@@ -2130,7 +2130,7 @@ async def test_detached_does_not_force_parent_to_suspend() -> None:
 #
 # The detached body's sole side effect is ``create_promise``; it deferred that
 # call through the creation chain on a bg task. Because the body neither
-# appends to ``spawned_remote`` nor raises ``SuspendedError``, nothing else
+# appends to ``spawned_remote`` nor raises ``Suspended``, nothing else
 # pulls it along -- so it must be registered in ``spawned_remote_tasks`` and
 # joined by ``flush_local_work`` before the parent settles. Otherwise a
 # fire-and-forget detached child whose future is never awaited could leave the
@@ -2449,10 +2449,10 @@ async def test_invoke_with_retry_propagates_suspended_without_retry() -> None:
     async def suspends(ctx: Context) -> int:
         nonlocal calls
         calls += 1
-        raise SuspendedError
+        raise Suspended
 
     df = DurableFunction(suspends)
-    with pytest.raises(SuspendedError):
+    with pytest.raises(Suspended):
         await ctx.invoke_with_retry(
             df, df.pack_args(), Constant(max_retries=9, delay=0)
         )
@@ -2536,10 +2536,15 @@ async def test_run_by_name_dispatches_opts_version() -> None:
 @pytest.mark.asyncio
 async def test_run_by_name_unregistered_raises_function_not_found() -> None:
     # Resolution happens in the synchronous body of ``run``, so an unknown name
-    # fails fast at the call site -- before any background task is spawned.
+    # fails fast at the call site -- before any background task is spawned. A
+    # registry miss on this worker is a deployment-skew condition (like the root
+    # lookup in Core), so it surfaces as an unswallowable PlatformError that
+    # releases the task, not a domain rejection -- with the FunctionNotFoundError
+    # as its cause.
     ctx = _root()  # empty registry
-    with pytest.raises(FunctionNotFoundError, match="missing"):
+    with pytest.raises(PlatformError, match="missing") as excinfo:
         ctx.run("missing")
+    assert isinstance(excinfo.value.causes[0], FunctionNotFoundError)
 
 
 # =============================================================================
@@ -2557,7 +2562,7 @@ async def test_rpc_by_object_dispatches_registered_name_and_version() -> None:
     registry = Registry()
     registry.register("remote_impl", double, 3)
     ctx = _root(registry=registry)
-    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+    with _spy_create_promise(ctx) as captured, pytest.raises(Suspended):
         await ctx.rpc(double, 5)
 
     [req] = captured
@@ -2573,7 +2578,7 @@ async def test_rpc_by_object_version_from_identity_not_opts() -> None:
     registry = Registry()
     registry.register("remote_impl", double, 2)
     ctx = _root(registry=registry)
-    with _spy_create_promise(ctx) as captured, pytest.raises(SuspendedError):
+    with _spy_create_promise(ctx) as captured, pytest.raises(Suspended):
         await ctx.options(version=9).rpc(double, 5)
 
     # The object carries its own version, so ``opts.version`` (9) is ignored.
@@ -2585,13 +2590,17 @@ async def test_rpc_by_object_unregistered_raises() -> None:
     async def stranger(ctx: Context) -> None: ...
 
     # No reverse entry: refuse to guess a dispatch name from ``__name__``. Raised
-    # synchronously at the call site, before any promise is created.
+    # synchronously at the call site, before any promise is created. Like a
+    # by-name ``run`` miss, the unregistered target is a deployment-skew
+    # condition, so it releases the task as an unswallowable PlatformError
+    # (wrapping the FunctionNotFoundError) rather than settling rejected.
     ctx = _root()  # empty registry
     with (
         _spy_create_promise(ctx) as captured,
-        pytest.raises(FunctionNotFoundError, match="stranger"),
+        pytest.raises(PlatformError, match="stranger") as excinfo,
     ):
         ctx.rpc(stranger)
+    assert isinstance(excinfo.value.causes[0], FunctionNotFoundError)
     assert captured == []  # nothing dispatched
 
 

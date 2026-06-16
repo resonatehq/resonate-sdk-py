@@ -9,7 +9,7 @@ Conventions exercised throughout:
 
 * *Every* durable function takes a :class:`Context` as its first argument,
   so the function library below follows suit.
-* Awaiting a pending remote raises :class:`~resonate.error.SuspendedError`.
+* Awaiting a pending remote raises :class:`~resonate.error.Suspended`.
 * ``execute_until_blocked_outer`` returns :data:`Status` and raises on
   failure, so the error-path tests assert ``pytest.raises``.
 
@@ -34,7 +34,7 @@ from resonate.error import (
     ApplicationError,
     FunctionNotFoundError,
     ResonateError,
-    SuspendedError,
+    Suspended,
 )
 from resonate.network import LocalNetwork
 from resonate.registry import Registry
@@ -488,9 +488,9 @@ async def test_swallowed_suspend_still_suspends(fix: CoreFixture) -> None:
     """A workflow that swallows the suspension but still has pending todos must suspend."""
 
     async def swallow(ctx: Context) -> int:
-        with contextlib.suppress(SuspendedError):
+        with contextlib.suppress(Suspended):
             fut = ctx.rpc("childZ")
-            await fut  # raises SuspendedError, suppressed
+            await fut  # raises Suspended, suppressed
         return 0
 
     fix.reg.register("swallow", swallow)

@@ -27,7 +27,7 @@ from resonate.error import (
     PlatformError,
     ResonateError,
     SerializationError,
-    SuspendedError,
+    Suspended,
 )
 from resonate.heartbeat import Heartbeat, NoopHeartbeat
 from resonate.registry import Registry
@@ -167,13 +167,21 @@ class Core(msgspec.Struct, kw_only=True):
 
                     match outcome:
                         case _ExecFulfilled(state=state, value=value):
-                            await self.sender.task_fulfill(
-                                task_id,
-                                task_version,
-                                PromiseSettleReq(
-                                    id=promise.id, state=state, value=value
-                                ),
-                            )
+                            # The fulfill is a durable server interaction like
+                            # any other durable op; a failure here surfaces
+                            # uniformly as a PlatformError, released (and
+                            # unwrapped back to its ResonateError cause) by the
+                            # outer handler below.
+                            try:
+                                await self.sender.task_fulfill(
+                                    task_id,
+                                    task_version,
+                                    PromiseSettleReq(
+                                        id=promise.id, state=state, value=value
+                                    ),
+                                )
+                            except ResonateError as exc:
+                                raise PlatformError([exc]) from exc
 
                             logger.debug(
                                 "core: task fulfilled task_id=%s promise_id=%s",
@@ -189,16 +197,22 @@ class Core(msgspec.Struct, kw_only=True):
                                 task_id,
                                 len(todos),
                             )
-                            sr = await self.sender.task_suspend(
-                                task_id,
-                                task_version,
-                                [
-                                    PromiseRegisterCallbackData(
-                                        awaited=awaited, awaiter=task_id
-                                    )
-                                    for awaited in todos
-                                ],
-                            )
+                            # Suspend is a durable server interaction too --
+                            # wrap a failure uniformly as PlatformError (see the
+                            # fulfill case above).
+                            try:
+                                sr = await self.sender.task_suspend(
+                                    task_id,
+                                    task_version,
+                                    [
+                                        PromiseRegisterCallbackData(
+                                            awaited=awaited, awaiter=task_id
+                                        )
+                                        for awaited in todos
+                                    ],
+                                )
+                            except ResonateError as exc:
+                                raise PlatformError([exc]) from exc
 
                             if not isinstance(sr, Redirect):
                                 logger.debug("core: task suspended task_id=%s", task_id)
@@ -231,7 +245,7 @@ class Core(msgspec.Struct, kw_only=True):
                         task_id,
                     )
                 if isinstance(exc, PlatformError):
-                    raise exc.cause from exc
+                    raise exc.causes[0] from exc
                 raise
         finally:
             self.heartbeat.stop(task_id)
@@ -322,7 +336,7 @@ class Core(msgspec.Struct, kw_only=True):
         run_err: Exception | None = None
         try:
             res = await root_ctx.invoke_with_retry(df, task_data, policy)
-        except SuspendedError:
+        except Suspended:
             suspended = True
         except Exception as exc:
             # User code reported failure by raising. Any ``Exception`` (a
@@ -347,7 +361,10 @@ class Core(msgspec.Struct, kw_only=True):
             )
             run_err = exc
 
-        # Flush local work and collect remote todos.
+        # Flush local work and collect remote todos. ``flush_local_work`` joins
+        # every spawned sibling and re-raises any platform failures aggregated
+        # into one ``PlatformError``, so reaching past it guarantees none
+        # occurred.
         await root_ctx.flush_local_work()
         todos = root_ctx.take_remote_todos()
 
