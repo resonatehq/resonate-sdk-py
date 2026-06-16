@@ -125,7 +125,27 @@ class Core(msgspec.Struct, kw_only=True):
         res = await self.sender.task_acquire(task_id, version, self.pid, self.ttl)
         logger.debug("core: task acquired task_id=%s", task_id)
 
-        promise = self.codec.decode_promise(res.promise)
+        # The lease is now held, but the root-promise decode happens before
+        # execute_until_blocked_outer's release boundary -- a corrupt promise
+        # (Base64DecodeError / SerializationError) would otherwise leak the
+        # lease until TTL expiry. Release immediately so re-delivery retries at
+        # once, mirroring the symmetric TaskData decode inside the inner loop.
+        try:
+            promise = self.codec.decode_promise(res.promise)
+        except ResonateError:
+            logger.exception(
+                "core: failed to decode root promise, releasing task task_id=%s",
+                task_id,
+            )
+            try:
+                await self.sender.task_release(task_id, res.task.version)
+            except ResonateError:
+                logger.exception(
+                    "core: failed to release task after decode error task_id=%s",
+                    task_id,
+                )
+            raise
+
         return await self.execute_until_blocked_outer(
             task_id, res.task.version, promise, res.preload
         )

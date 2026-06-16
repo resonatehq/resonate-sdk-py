@@ -546,6 +546,43 @@ async def test_task_release_failure_does_not_mask_original_error(
     assert fix.sender.release_attempts == 1
 
 
+@pytest.mark.asyncio
+async def test_on_message_root_decode_failure_releases_task(
+    fix: PlatformFixture,
+) -> None:
+    """A corrupt root promise releases the lease instead of leaking it.
+
+    ``on_message`` acquires the task, then decodes the root promise *before*
+    ``execute_until_blocked_outer``'s release boundary. A decode failure there
+    (Base64DecodeError / SerializationError on a corrupt promise) must still
+    release the lease so re-delivery retries at once, rather than leaving the
+    task leased until TTL expiry.
+    """
+
+    async def wf(ctx: Context) -> int:
+        return 0
+
+    fix.reg.register("wf", wf)
+    v, _, _ = await fix.create_root_task("pe-decode", "wf")
+    # Release so on_message can re-acquire under its own lease, then ignore the
+    # setup release in the assertion below.
+    await fix.sender.task_release("pe-decode", v)
+    fix.sender.release_attempts = 0
+
+    err = SerializationError(ValueError("corrupt root promise"))
+    # on_message re-raises the original ResonateError raw (the decode runs
+    # outside the PlatformError boundary), but still releases first.
+    with (
+        patch.object(fix.codec, "decode_promise", side_effect=err),
+        pytest.raises(SerializationError) as excinfo,
+    ):
+        await fix.core.on_message("pe-decode", v)
+
+    assert excinfo.value is err
+    assert fix.sender.release_attempts == 1
+    await assert_released_root_pending(fix, "pe-decode")
+
+
 # ── 4. creation-chain integrity: no deadlock past a failed link ──────────
 
 
