@@ -49,7 +49,7 @@ jobs:
         run: uv run pytest --cov --cov-branch --cov-report=xml
 
       - name: upload coverage reports to codecov
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && github.ref == 'refs/heads/main' }}
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && github.ref == 'refs/heads/main' }}
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
