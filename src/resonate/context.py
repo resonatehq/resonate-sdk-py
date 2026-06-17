@@ -20,6 +20,7 @@ from resonate.error import (
     ResonateError,
     SerializationError,
     Suspended,
+    ValidationError,
 )
 from resonate.registry import Registry
 from resonate.retry import Never, RetryPolicy
@@ -33,6 +34,12 @@ if TYPE_CHECKING:
 
 
 TargetResolver = Callable[[str | None], str]
+
+# A ``ctx.run`` output validator: receives the function's return value and
+# decides whether it is acceptable. A falsy verdict (or a raised exception)
+# drives a retry; the verdict may be awaitable (e.g. an LLM-judge). See
+# :meth:`Context.invoke_with_retry`.
+Validator = Callable[[Any], bool | Awaitable[bool]]
 
 
 class SpawnedLocal(msgspec.Struct, frozen=True, kw_only=True):
@@ -52,6 +59,15 @@ class Opts(msgspec.Struct, frozen=True, kw_only=True):
     # runtime config object, never serialized, so holding a ``RetryPolicy``
     # is fine.
     retry_policy: RetryPolicy | None = None
+
+    # Per-call output validator for ``ctx.run``'s child, set via
+    # ``ctx.options(validate=...)``. Runs on the function's return value before
+    # it is persisted; a falsy verdict (or a raised exception) drives the same
+    # retry path as an outright failure. Like ``retry_policy`` it only has teeth
+    # for a pure leaf -- a workflow's validation failure cannot be safely
+    # re-run and settles as a rejection (see :meth:`Context.invoke_with_retry`).
+    # Opts is never serialized, so holding a callable is fine.
+    validate: Validator | None = None
 
 
 class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
@@ -288,6 +304,7 @@ class Context:
         payload: Any,
         policy: RetryPolicy,
         *,
+        validate: Validator | None = None,
         coerce_args: bool = True,
     ) -> Any:
         """Execute ``df`` on this context, retrying a *pure-function* failure.
@@ -302,9 +319,22 @@ class Context:
         allows, before the failure is settled. That is what makes retrying
         safe: the only executions ever re-run have no durable side effects.
 
+        ``validate`` (the ``ctx.options(validate=...)`` hook) runs on a clean
+        return *before* the caller persists the value, turning an unacceptable
+        result into a retry: a falsy verdict becomes a ``ValidationError`` so it
+        flows through the same arm as a raised failure, and a validator that
+        itself raises does so directly. Because the check happens before the
+        ``settle_promise`` in :meth:`run`'s ``bg``, an invalid result is never
+        durably stored; and because it shares the retry arm it inherits the same
+        ``workflow`` gate -- only a pure leaf (e.g. an LLM call) is re-run, while
+        a workflow's failed validation settles as a rejection. This is the
+        intended path for non-deterministic leaves whose output must be checked
+        before it is committed.
+
         ``Suspended`` is a durable suspension, not a failure, so it is
         re-raised untouched ahead of the generic ``Exception`` arm (it *is* an
-        ``Exception``).
+        ``Exception``). A suspension unwinds out of ``invoke`` before the
+        validator is reached, so a suspended call is never validated.
 
         ``coerce_args`` is forwarded to :meth:`DurableFunction.invoke`. The root
         path leaves it ``True`` (args arrive as decoded JSON and must be
@@ -315,7 +345,14 @@ class Context:
         attempt = 0
         while True:
             try:
-                return await df.invoke(self, payload, coerce_args=coerce_args)
+                value = await df.invoke(self, payload, coerce_args=coerce_args)
+                # Validate the return value before the caller persists it. A
+                # falsy verdict raises ``ValidationError`` (from inside
+                # ``_run_validator``) so it joins the retry arm below; a validator
+                # that raises does so directly into the same arm. Skipped when no
+                # validator was supplied.
+                if validate is not None:
+                    await _run_validator(df, value, validate)
             except Exception:
                 # ``next(attempt + 1)`` consults the policy for the *upcoming*
                 # retry; ``None`` means stop (workflow, or retries exhausted),
@@ -333,6 +370,8 @@ class Context:
                 )
                 await asyncio.sleep(delay)
                 attempt += 1
+            else:
+                return value
 
     def options(
         self,
@@ -341,6 +380,7 @@ class Context:
         target: str | None = None,
         version: int = 1,
         retry_policy: RetryPolicy | None = None,
+        validate: Validator | None = None,
     ) -> Context:
         new = copy.copy(self)
         # Same-class access, not a privacy break: ``new`` is the clone being
@@ -350,6 +390,7 @@ class Context:
             target=target,
             version=version,
             retry_policy=retry_policy,
+            validate=validate,
         )
         return new
 
@@ -623,8 +664,12 @@ class Context:
                 # the function untouched -- this is what lets ``ctx.run`` accept
                 # non-serializable args. Replay re-derives the same objects, so
                 # skipping coercion keeps the live and replay paths symmetric.
+                #
+                # ``validate`` is captured from the enclosing ``run`` call's opts
+                # (fixed at dispatch, like ``policy``); it gates persistence by
+                # driving a retry on an unacceptable return value.
                 value = await child.invoke_with_retry(
-                    df, payload, policy, coerce_args=False
+                    df, payload, policy, validate=self.opts.validate, coerce_args=False
                 )
                 assert not inspect.isawaitable(value)
                 outcome = "done"
@@ -969,3 +1014,19 @@ class Context:
         # registered for; the tree's full frontier is its superset.
         self._state.spawned_remote.append(req.id)
         raise Suspended
+
+
+async def _run_validator(df: DurableFunction, value: Any, validate: Validator) -> None:
+    """Check ``value`` against ``validate``, raising on a falsy verdict.
+
+    A falsy verdict becomes a ``ValidationError`` so :meth:`invoke_with_retry`
+    treats an unacceptable result like any other failure; an awaitable verdict
+    (e.g. an LLM-judge) is awaited first; a validator that itself raises
+    propagates its own exception untouched. Factored into a named helper so
+    the ``raise`` is not inlined in the ``try`` body of the retry loop.
+    """
+    verdict = validate(value)
+    if inspect.isawaitable(verdict):
+        verdict = await verdict
+    if not verdict:
+        raise ValidationError(df.name)
