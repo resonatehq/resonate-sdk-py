@@ -108,6 +108,18 @@ class ApplicationError(ResonateError):
         super().__init__(self.message)
 
 
+class ValidationError(ResonateError):
+    """A ``ctx.options(validate=...)`` check rejected a function's return value.
+
+    A validator that returns a falsy verdict signals the result is unacceptable
+    (e.g. an LLM produced malformed output). The SDK turns that into this error
+    so it flows through the same retry path as an outright failure: a pure-leaf
+    call is retried per its policy and, once retries are exhausted (or for a
+    workflow, which never retries), this error settles as the rejection. A
+    validator that *raises* propagates its own exception instead.
+    """
+
+
 class TimeoutError(ResonateError):
     def __init__(self) -> None:
         super().__init__("timeout")

@@ -33,6 +33,7 @@ from resonate.error import (
     PlatformError,
     SerializationError,
     Suspended,
+    ValidationError,
 )
 from resonate.network import LocalNetwork
 from resonate.registry import Registry
@@ -2459,6 +2460,175 @@ async def test_invoke_with_retry_propagates_suspended_without_retry() -> None:
     assert calls == 1
 
 
+# =============================================================================
+# Context.invoke_with_retry -- ctx.options(validate=...) gates persistence
+# =============================================================================
+#
+# A validator runs on a clean return before the value is persisted: a falsy
+# verdict (or a raised exception) joins the retry arm, so a pure-leaf call --
+# e.g. an LLM endpoint -- is re-run until the output passes or the policy is
+# exhausted. The check shares the ``workflow`` gate, so a workflow's failed
+# validation never retries.
+
+
+@pytest.mark.asyncio
+async def test_validate_pass_returns_without_retry() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def leaf(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return 7
+
+    df = DurableFunction(leaf)
+    out = await ctx.invoke_with_retry(
+        df, df.pack_args(), Constant(max_retries=3, delay=0), validate=lambda v: v == 7
+    )
+    assert out == 7
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_falsy_retries_pure_leaf_until_acceptable() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def flaky_output(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return calls  # 1, 2, 3, ... -- only the third return validates
+
+    df = DurableFunction(flaky_output)
+    out = await ctx.invoke_with_retry(
+        df,
+        df.pack_args(),
+        Constant(max_retries=5, delay=0),
+        validate=lambda v: v >= 3,
+    )
+    assert out == 3
+    assert calls == 3  # rejected twice, accepted on the third attempt
+
+
+@pytest.mark.asyncio
+async def test_validate_falsy_exhausts_then_raises_validation_error() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def never_valid(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return 0
+
+    df = DurableFunction(never_valid)
+    with pytest.raises(ValidationError, match="never_valid"):
+        await ctx.invoke_with_retry(
+            df,
+            df.pack_args(),
+            Constant(max_retries=2, delay=0),
+            validate=lambda _v: False,
+        )
+    # initial + 2 retries = 3 calls.
+    assert calls == 3
+
+
+@pytest.mark.asyncio
+async def test_validate_supports_async_verdict() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def leaf(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return calls
+
+    async def judge(value: int) -> bool:
+        return value >= 2
+
+    df = DurableFunction(leaf)
+    out = await ctx.invoke_with_retry(
+        df, df.pack_args(), Constant(max_retries=3, delay=0), validate=judge
+    )
+    assert out == 2
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_validate_raising_exception_drives_retry() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def leaf(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return calls
+
+    def picky(value: int) -> bool:
+        if value < 2:
+            msg = "too small"
+            raise ValueError(msg)
+        return True
+
+    df = DurableFunction(leaf)
+    out = await ctx.invoke_with_retry(
+        df, df.pack_args(), Constant(max_retries=3, delay=0), validate=picky
+    )
+    assert out == 2
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_validate_raising_exhausted_settles_validators_own_error() -> None:
+    """When a throwing validator exhausts retries, *its* error propagates.
+
+    A falsy verdict synthesizes ``ValidationError``, but a validator that raises
+    surfaces its own exception verbatim -- so the awaiter sees exactly what the
+    validator complained about, not a generic wrapper.
+    """
+    ctx = _root()
+    calls = 0
+
+    async def leaf(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return 1
+
+    def always_raises(_value: int) -> bool:
+        msg = "bad shape"
+        raise ValueError(msg)
+
+    df = DurableFunction(leaf)
+    with pytest.raises(ValueError, match="bad shape"):
+        await ctx.invoke_with_retry(
+            df, df.pack_args(), Constant(max_retries=2, delay=0), validate=always_raises
+        )
+    assert calls == 3  # initial + 2 retries, each re-running the leaf
+
+
+@pytest.mark.asyncio
+async def test_validate_failure_on_workflow_does_not_retry() -> None:
+    ctx = _root()
+    calls = 0
+
+    async def workflow(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        # Touch a durable op so the execution is a workflow with a durable
+        # footprint -- a failed validation must settle, never re-run.
+        ctx._state.workflow = True
+        return 0
+
+    df = DurableFunction(workflow)
+    with pytest.raises(ValidationError, match="workflow"):
+        await ctx.invoke_with_retry(
+            df,
+            df.pack_args(),
+            Constant(max_retries=9, delay=0),
+            validate=lambda _v: False,
+        )
+    assert calls == 1
+
+
 # ── ctx.run inherits / overrides the context's default policy ────────────────
 
 
@@ -2495,6 +2665,44 @@ async def test_ctx_run_with_opts_retry_policy_overrides_context_default() -> Non
     with pytest.raises(ApplicationError, match="boom"):
         await ctx.options(retry_policy=Never()).run(flaky)
     assert calls == 1  # override Never -> no retry
+
+
+# ── ctx.options(validate=...).run(...) end to end ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ctx_run_validate_retries_then_persists_accepted_value() -> None:
+    """A falsy verdict re-runs the leaf; the accepted value is what gets settled."""
+    calls = 0
+
+    async def flaky_output(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return calls  # only the third return validates
+
+    ctx = _root(retry_policy=Constant(max_retries=5, delay=0))
+    out = await ctx.options(validate=lambda v: v >= 3).run(flaky_output)
+    # ``run`` returns the value read back through the *settled* record, so this
+    # also confirms the accepted value -- not a rejected earlier one -- is what
+    # was durably persisted.
+    assert out == 3
+    assert calls == 3
+
+
+@pytest.mark.asyncio
+async def test_ctx_run_validate_exhausted_settles_rejection() -> None:
+    """Exhausting retries on a never-valid output settles a ValidationError."""
+    calls = 0
+
+    async def never_valid(ctx: Context) -> int:
+        nonlocal calls
+        calls += 1
+        return 0
+
+    ctx = _root(retry_policy=Constant(max_retries=2, delay=0))
+    with pytest.raises(ValidationError, match="never_valid"):
+        await ctx.options(validate=lambda _v: False).run(never_valid)
+    assert calls == 3  # initial + 2 retries, then settled as a rejection
 
 
 # =============================================================================
