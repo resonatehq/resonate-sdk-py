@@ -1029,4 +1029,5 @@ async def _run_validator(df: DurableFunction, value: Any, validate: Validator) -
     if inspect.isawaitable(verdict):
         verdict = await verdict
     if not verdict:
-        raise ValidationError(df.name)
+        msg = f"validation failed for result of {df.name}"
+        raise ValidationError(msg)

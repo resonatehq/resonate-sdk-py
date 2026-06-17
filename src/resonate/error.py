@@ -119,10 +119,6 @@ class ValidationError(ResonateError):
     validator that *raises* propagates its own exception instead.
     """
 
-    def __init__(self, func_name: str) -> None:
-        self.func_name = func_name
-        super().__init__(f"validation failed for result of {func_name}")
-
 
 class TimeoutError(ResonateError):
     def __init__(self) -> None:
