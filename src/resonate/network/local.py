@@ -259,6 +259,7 @@ class ServerState:
         elif kind in ("task.acquire", "task.release", "task.fulfill"):
             self.try_auto_timeout(now, _str(req, "id"))
         elif kind == "task.fence":
+            self.try_auto_timeout(now, _str(req, "id"))
             self.try_auto_timeout(
                 now, _str(extract_action_data(_get(req, "action")), "id")
             )

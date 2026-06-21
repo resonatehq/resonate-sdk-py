@@ -67,18 +67,25 @@ class ResonateEffects:
     def _absorb(self, record: PromiseRecord) -> None:
         """Decode and cache a server promise record.
 
-        Promise state is monotonic (pending -> terminal, then immutable), so a
-        terminal cache entry is never overwritten by a (possibly stale) preload
-        snapshot. Records that fail to decode are skipped.
+        Records that fail to decode are skipped. The decoded record is inserted
+        monotonically (see ``_insert_monotonic``).
         """
         try:
             decoded = self.codec.decode_promise(record)
         except ResonateError:
             return
-        existing = self.cache.get(decoded.id)
+        self._insert_monotonic(decoded)
+
+    def _insert_monotonic(self, record: PromiseRecord) -> None:
+        """Insert a decoded record, preserving monotonicity.
+
+        Promise state is monotonic (pending -> terminal, then immutable), so a
+        terminal cache entry is never overwritten by a (possibly stale) record.
+        """
+        existing = self.cache.get(record.id)
         if existing is not None and existing.state != "pending":
             return
-        self.cache[decoded.id] = decoded
+        self.cache[record.id] = record
 
     async def create_promise(self, req: PromiseCreateReq) -> PromiseRecord:
         """Create a durable promise, returning the decoded record.
@@ -124,7 +131,7 @@ class ResonateEffects:
         except ResonateError as exc:
             self._stopped = True
             raise PlatformError([exc]) from exc
-        self.cache[decoded.id] = decoded
+        self._insert_monotonic(decoded)
         logger.info(
             "promise_create_response promise_id=%s invocation=%s state=%s",
             decoded.id,
@@ -174,5 +181,5 @@ class ResonateEffects:
         logger.info(
             "promise_settle_response promise_id=%s state=%s", decoded.id, decoded.state
         )
-        self.cache[decoded.id] = decoded
+        self._insert_monotonic(decoded)
         return decoded
