@@ -9,7 +9,7 @@ import msgspec
 import pytest
 
 from resonate.error import HttpError
-from resonate.network import HttpNetwork, LocalNetwork
+from resonate.network import HttpNetwork, LocalNetwork, NatsNetwork
 from resonate.network.http import DEFAULT_CONN_LIMIT
 from resonate.network.local import I64_MAX
 
@@ -471,6 +471,24 @@ def test_http_network_identity() -> None:
 def test_http_network_match_returns_poll_anycast() -> None:
     net = HttpNetwork("http://localhost:8001")
     assert net.target_resolver("my-target") == "poll://any@my-target"
+
+
+def test_nats_network_identity() -> None:
+    net = NatsNetwork("nats://localhost:4222", pid="mypid", group="mygroup")
+    assert net.pid() == "mypid"
+    assert net.group() == "mygroup"
+    assert net.unicast() == "nats://uni@mygroup/mypid"
+    assert net.anycast() == "nats://any@mygroup/mypid"
+    assert net.target_resolver("target") == "nats://any@target"
+    # Address -> subject mapping the server must mirror.
+    assert net._uni_subject == "resonate.recv.mygroup.mypid"
+    assert net._any_subject == "resonate.recv.mygroup"
+
+
+def test_nats_network_default_group() -> None:
+    net = NatsNetwork("nats://localhost:4222", pid="pid1")
+    assert net.group() == "default"
+    assert net.unicast() == "nats://uni@default/pid1"
 
 
 def test_http_network_strips_trailing_slash() -> None:

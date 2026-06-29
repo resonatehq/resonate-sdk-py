@@ -10,6 +10,9 @@ dependencies = [
     "msgspec>=0.21.1",
 ]
 
+[project.optional-dependencies]
+nats = ["nats-py>=2.6.0"]
+
 [project.urls]
 Documentation = "https://github.com/resonatehq/resonate-sdk-py#readme"
 Issues = "https://github.com/resonatehq/resonate-sdk-py/issues"
