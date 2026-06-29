@@ -29,7 +29,7 @@ examples:
 
 
 examples-nats:
-    uv run python examples/nats
+    uv run python examples/hello-world-nats
     uv run python examples/fibonacci-nats --mode run --n 12
     uv run python examples/fibonacci-nats --mode rpc --n 12
     uv run python examples/fibonacci-nats --mode mix --n 12
