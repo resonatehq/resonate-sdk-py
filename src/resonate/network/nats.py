@@ -1,26 +1,19 @@
 from __future__ import annotations
 
+import base64
 import contextlib
+import json
 import logging
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from resonate.error import NatsError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    import nats
-    import nats.errors
     from nats.aio.client import Client
-    from nats.aio.msg import Msg
     from nats.aio.subscription import Subscription
-else:
-    try:
-        import nats
-        import nats.errors
-    except ImportError:
-        nats = None
 
 logger = logging.getLogger(__name__)
 
@@ -28,64 +21,113 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # =============================================================================
 
-#: Seconds to wait for a server reply to a request before giving up.
+#: Seconds to wait for a server reply before giving up.
 DEFAULT_REQUEST_TIMEOUT_SECS = 30.0
 
-#: Subject the Resonate server listens on for request/reply API calls.
-#: ponytail: must match the server's NATS message-source subject; override via
-#: ``api_subject`` if the deployment uses a different one.
-DEFAULT_API_SUBJECT = "resonate.requests"
+#: Subject prefix the server's request stream is subscribed to. A request for
+#: ``origin`` is published to ``{api_prefix}.{base64url(origin)}``; the token is
+#: base64url-encoded so any origin maps to a single valid subject token and all
+#: publishers hash the same origin to the same JetStream partition.
+#: ponytail: must match the server's ``SubjectPrefix`` (resonate.requests).
+DEFAULT_API_PREFIX = "resonate.requests"
 
-#: Subject prefix the server publishes execute/unblock messages on. The
-#: ``nats://uni@group/pid`` / ``nats://any@group/pid`` addresses map onto
-#: ``{prefix}.{group}.{pid}`` (unicast) and ``{prefix}.{group}`` (anycast,
-#: queue-subscribed on ``group`` so exactly one group member receives it).
-#: ponytail: must match the server's address->subject mapping; override via
-#: ``subject_prefix`` if the deployment differs.
-DEFAULT_SUBJECT_PREFIX = "resonate.recv"
+#: Subject prefix the SDK subscribes on for execute/unblock messages. The
+#: ``nats://`` delivery addresses advertised via :meth:`unicast` / :meth:`anycast`
+#: round-trip through the server's ``url.Parse(host+path)`` to these subjects.
+DEFAULT_RECV_PREFIX = "resonate.recv"
+
+#: Header the server reads to learn where to publish its reply. The NATS
+#: request/reply ``reply`` subject is *not* used by resonate-on-nats.
+REPLY_HEADER = "Resonate-Reply-To"
+
+
+def _id_to_origin(id: str) -> str:
+    """Return the lineage origin: the substring before the first ``.``."""
+    dot = id.find(".")
+    return id if dot == -1 else id[:dot]
+
+
+def _routing_origin(req: dict[str, Any]) -> str:
+    """Derive the routing origin from a request, mirroring the server's client.
+
+    The origin selects which origin-state partition the server loads, so it
+    must be the lineage root of whatever id the request acts on.
+    """
+    kind = req.get("kind", "")
+    data = req.get("data") or {}
+    if kind in {
+        "promise.get",
+        "promise.create",
+        "promise.settle",
+        "task.get",
+        "task.acquire",
+        "task.release",
+        "task.suspend",
+        "task.halt",
+        "task.continue",
+        "task.fulfill",
+        "task.fence",
+    }:
+        return _id_to_origin(data.get("id", ""))
+    if kind in {"promise.register_callback", "promise.register_listener"}:
+        return _id_to_origin(data.get("awaited", ""))
+    if kind == "task.create":
+        return _id_to_origin(data["action"]["data"]["id"])
+    if kind == "task.heartbeat":
+        return _id_to_origin(data["tasks"][0]["id"])
+    return "default"
+
+
+def _publish_subject(prefix: str, origin: str) -> str:
+    token = base64.urlsafe_b64encode(origin.encode("utf-8")).rstrip(b"=")
+    return f"{prefix}.{token.decode('ascii')}"
 
 
 class NatsNetwork:
-    """:class:`Network` implementation that talks to a Resonate server over NATS.
+    """:class:`Network` implementation that talks to resonate-on-nats over NATS.
 
-    - Requests are sent via NATS request/reply on ``api_subject``.
-    - Incoming messages (execute/unblock) arrive on two subscriptions:
-      a unicast subject ``{prefix}.{group}.{pid}`` and an anycast subject
-      ``{prefix}.{group}`` queue-subscribed on ``group``.
-    - Addresses use the ``nats://`` scheme: ``nats://uni@group/id`` and
-      ``nats://any@group/id``.
+    The NATS connection lifecycle lives **outside** the SDK: pass an already
+    connected ``nats-py`` client; :meth:`stop` only tears down this network's
+    subscriptions and leaves the connection for the caller to drain/close.
 
-    Reconnection is delegated to ``nats-py`` (built-in exponential backoff),
-    so this class does not reimplement a retry loop the way
-    :class:`~resonate.network.http.HttpNetwork` must for SSE.
+    - Requests are published to ``{api_prefix}.{base64url(origin)}`` with a
+      ``Resonate-Reply-To`` header naming a private inbox; the reply arrives on
+      that inbox (the server ignores the NATS reply subject).
+    - Incoming execute/unblock messages arrive on a unicast subject
+      (``{recv_prefix}.{group}.{pid}``) and an anycast subject
+      (``{recv_prefix}.{group}``) queue-subscribed on ``group`` so exactly one
+      group member receives each anycast message.
+    - Addresses use the ``nats://`` scheme so the server's ``url.Parse`` maps
+      ``nats://{subject}`` back to ``{subject}``.
 
     Requires the optional ``nats-py`` dependency (``pip install resonate-sdk[nats]``).
     """
 
     def __init__(
         self,
-        url: str,
+        conn: Client,
         pid: str | None = None,
         group: str | None = None,
-        auth: str | None = None,
         *,
-        api_subject: str = DEFAULT_API_SUBJECT,
-        subject_prefix: str = DEFAULT_SUBJECT_PREFIX,
+        api_prefix: str = DEFAULT_API_PREFIX,
+        recv_prefix: str = DEFAULT_RECV_PREFIX,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT_SECS,
     ) -> None:
+        self._nc = conn
         self._pid = pid if pid is not None else uuid.uuid4().hex
         self._group = group if group is not None else "default"
-        self._unicast = f"nats://uni@{self._group}/{self._pid}"
-        self._anycast = f"nats://any@{self._group}/{self._pid}"
-        self._url = url
-        self._auth = auth
-        self._api_subject = api_subject
-        self._uni_subject = f"{subject_prefix}.{self._group}.{self._pid}"
-        self._any_subject = f"{subject_prefix}.{self._group}"
+        self._api_prefix = api_prefix
+        # ponytail: pid/group land in the NATS subject via the server's
+        # url.Parse host, which Go lowercases -- uuid hex pids and lowercase
+        # groups round-trip cleanly; uppercase custom values would not.
+        self._uni_subject = f"{recv_prefix}.{self._group}.{self._pid}"
+        self._any_subject = f"{recv_prefix}.{self._group}"
+        self._unicast = f"nats://{self._uni_subject}"
+        self._anycast = f"nats://{self._any_subject}"
+        self._recv_prefix = recv_prefix
         self._request_timeout = request_timeout
 
         self._subscribers: list[Callable[[str], None]] = []
-        self._nc: Client | None = None
         self._subs: list[Subscription] = []
         self._running = False
 
@@ -102,13 +144,8 @@ class NatsNetwork:
         return self._anycast
 
     async def start(self) -> None:
-        """Connect to NATS and subscribe to the unicast and anycast subjects."""
-        if nats is None:
-            msg = "NatsNetwork requires 'nats-py': pip install resonate-sdk[nats]"
-            raise NatsError(ImportError(msg))
+        """Subscribe to the unicast and anycast subjects on the shared connection."""
         self._running = True
-        self._nc = await nats.connect(self._url, token=self._auth)
-        # Unicast: only this pid; anycast: queue group so one member wins.
         self._subs = [
             await self._nc.subscribe(self._uni_subject, cb=self._on_msg),
             await self._nc.subscribe(
@@ -116,59 +153,54 @@ class NatsNetwork:
             ),
         ]
         logger.info(
-            "NATS connected: %s (uni=%s any=%s)",
-            self._url,
-            self._uni_subject,
-            self._any_subject,
+            "NATS subscribed (uni=%s any=%s)", self._uni_subject, self._any_subject
         )
 
     async def stop(self) -> None:
+        """Unsubscribe. The connection is owned by the caller and left open."""
         self._running = False
         for sub in self._subs:
             with contextlib.suppress(Exception):
                 await sub.unsubscribe()
         self._subs.clear()
-        if self._nc is not None:
-            with contextlib.suppress(Exception):
-                await self._nc.drain()
-            self._nc = None
         self._subscribers.clear()
 
     async def send(self, req: str) -> str:
-        """Send a request via NATS request/reply, returning the reply body.
-
-        ``nats-py`` transparently reconnects, but a request issued while no
-        server is subscribed (startup, restart) raises ``NoRespondersError``
-        or times out. Once :meth:`stop` runs, any send raises
-        :class:`NatsError` instead of touching a torn-down connection.
-        """
+        """Publish a request and await its reply on a private inbox."""
         logger.debug("nats_network req: %s", req)
-        if not self._running or self._nc is None:
+        if not self._running:
             raise NatsError(RuntimeError("network has been stopped"))
+
+        envelope = json.loads(req)
+        origin = _routing_origin(envelope)
+        # The server reads the origin from the head, not the subject; set both.
+        envelope.setdefault("head", {})["resonate:origin"] = origin
+        subject = _publish_subject(self._api_prefix, origin)
+        payload = json.dumps(envelope).encode("utf-8")
+
+        inbox = self._nc.new_inbox()
         try:
-            msg = await self._nc.request(
-                self._api_subject,
-                req.encode("utf-8"),
-                timeout=self._request_timeout,
-            )
-        except (nats.errors.Error, TimeoutError) as exc:
+            sub = await self._nc.subscribe(inbox, max_msgs=1)
+            await self._nc.publish(subject, payload, headers={REPLY_HEADER: inbox})
+            msg = await sub.next_msg(timeout=self._request_timeout)
+        except Exception as exc:
             raise NatsError(exc) from exc
+
         resp_str = msg.data.decode("utf-8")
         logger.debug("nats_network res: %s", resp_str)
         return resp_str
 
     def recv(self, callback: Callable[[str], None]) -> None:
-        """Register a callback for incoming messages."""
+        """Register a callback for incoming execute/unblock messages."""
         self._subscribers.append(callback)
 
     def target_resolver(self, target: str) -> str:
-        """Resolve a target name to a ``nats://`` anycast address."""
-        return f"nats://any@{target}"
+        """Resolve a target group name to its ``nats://`` anycast address."""
+        return f"nats://{self._recv_prefix}.{target}"
 
     # -- internals ------------------------------------------------------------
 
-    async def _on_msg(self, msg: Msg) -> None:
-        """NATS subscription callback: decode and fan out to subscribers."""
+    async def _on_msg(self, msg: Any) -> None:
         try:
             data = msg.data.decode("utf-8")
         except UnicodeDecodeError:

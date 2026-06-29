@@ -26,3 +26,29 @@ examples:
     uv run python examples/polling
     uv run python examples/structured-concurrency
     uv run python examples/retries
+
+
+examples-nats:
+    uv run python examples/nats
+    uv run python examples/fibonacci-nats --mode run --n 12
+    uv run python examples/fibonacci-nats --mode rpc --n 12
+    uv run python examples/fibonacci-nats --mode mix --n 12
+    uv run python examples/error-handling-nats --mode run --error none
+    uv run python examples/error-handling-nats --mode run --error taken
+    uv run python examples/error-handling-nats --mode run --error value
+    uv run python examples/error-handling-nats --mode rpc --error none
+    uv run python examples/error-handling-nats --mode rpc --error taken
+    uv run python examples/error-handling-nats --mode rpc --error value
+    uv run python examples/pipeline-nats
+    uv run python examples/rpc-nats
+    uv run python examples/saga-nats
+    uv run python examples/saga-nats --fail hotel
+    uv run python examples/saga-nats --fail charge
+    uv run python examples/versioning-nats
+    uv run python examples/human-in-the-loop-nats --decision approve
+    uv run python examples/human-in-the-loop-nats --decision reject
+    uv run python examples/recovery-nats
+    uv run python examples/detached-nats
+    uv run python examples/polling-nats
+    uv run python examples/structured-concurrency-nats
+    uv run python examples/retries-nats
