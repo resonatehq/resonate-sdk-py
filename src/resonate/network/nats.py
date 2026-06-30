@@ -59,17 +59,14 @@ def _routing_origin(req: dict[str, Any]) -> str:
         "promise.get",
         "promise.create",
         "promise.settle",
-        "task.get",
         "task.acquire",
         "task.release",
         "task.suspend",
-        "task.halt",
-        "task.continue",
         "task.fulfill",
         "task.fence",
     }:
         return _id_to_origin(data.get("id", ""))
-    if kind in {"promise.register_callback", "promise.register_listener"}:
+    if kind == "promise.register_listener":
         return _id_to_origin(data.get("awaited", ""))
     if kind == "task.create":
         return _id_to_origin(data["action"]["data"]["id"])
@@ -100,7 +97,7 @@ class NatsNetwork:
     - Addresses use the ``nats://`` scheme so the server's ``url.Parse`` maps
       ``nats://{subject}`` back to ``{subject}``.
 
-    Requires the optional ``nats-py`` dependency (``pip install resonate-sdk[nats]``).
+    Requires the optional ``nats-py`` dependency (``uv add resonate-sdk[nats]``).
     """
 
     def __init__(
@@ -109,22 +106,22 @@ class NatsNetwork:
         pid: str | None = None,
         group: str | None = None,
         *,
-        api_prefix: str = DEFAULT_API_PREFIX,
-        recv_prefix: str = DEFAULT_RECV_PREFIX,
+        server_topic: str = DEFAULT_API_PREFIX,
+        worker_topic: str = DEFAULT_RECV_PREFIX,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT_SECS,
     ) -> None:
         self._nc = conn
         self._pid = pid if pid is not None else uuid.uuid4().hex
         self._group = group if group is not None else "default"
-        self._api_prefix = api_prefix
+        self._api_prefix = server_topic
         # ponytail: pid/group land in the NATS subject via the server's
         # url.Parse host, which Go lowercases -- uuid hex pids and lowercase
         # groups round-trip cleanly; uppercase custom values would not.
-        self._uni_subject = f"{recv_prefix}.{self._group}.{self._pid}"
-        self._any_subject = f"{recv_prefix}.{self._group}"
+        self._uni_subject = f"{worker_topic}.{self._group}.{self._pid}"
+        self._any_subject = f"{worker_topic}.{self._group}"
         self._unicast = f"nats://{self._uni_subject}"
         self._anycast = f"nats://{self._any_subject}"
-        self._recv_prefix = recv_prefix
+        self._recv_prefix = worker_topic
         self._request_timeout = request_timeout
 
         self._subscribers: list[Callable[[str], None]] = []
@@ -170,14 +167,12 @@ class NatsNetwork:
         logger.debug("nats_network req: %s", req)
         if not self._running:
             raise NatsError(RuntimeError("network has been stopped"))
-
         envelope = json.loads(req)
         origin = _routing_origin(envelope)
         # The server reads the origin from the head, not the subject; set both.
         envelope.setdefault("head", {})["resonate:origin"] = origin
         subject = _publish_subject(self._api_prefix, origin)
         payload = json.dumps(envelope).encode("utf-8")
-
         inbox = self._nc.new_inbox()
         try:
             sub = await self._nc.subscribe(inbox, max_msgs=1)
