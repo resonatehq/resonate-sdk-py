@@ -1028,7 +1028,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.5" },
     { name = "msgspec", specifier = ">=0.21.1" },
     { name = "nats-py", marker = "extra == 'nats'", specifier = ">=2.6.0" },
-    { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2.0.0" },
+    { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2.0.0,<3" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'", specifier = ">=4.0.0" },
 ]
 provides-extras = ["nats", "pydantic"]
