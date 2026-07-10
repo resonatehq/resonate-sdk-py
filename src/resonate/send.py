@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 import msgspec
 
@@ -21,6 +21,8 @@ if TYPE_CHECKING:
         PromiseSettleReq,
     )
 
+T = TypeVar("T")
+
 
 # =============================================================================
 # Public result types
@@ -34,7 +36,7 @@ class TaskAcquireResult(msgspec.Struct, frozen=True, kw_only=True):
 
 
 #: Result of creating a task (same structure as acquire).
-type TaskCreateResult = TaskAcquireResult
+TaskCreateResult: TypeAlias = TaskAcquireResult
 
 
 class Redirect(msgspec.Struct, frozen=True, kw_only=True):
@@ -71,7 +73,7 @@ class PromiseSearchResult(msgspec.Struct, frozen=True, kw_only=True):
 #:
 #: The 409 response from the server carries no promise data -- callers receiving
 #: ``"conflict"`` must subscribe to the existing promise themselves.
-type TaskCreateOutcome = TaskCreateResult | Literal["conflict"]
+TaskCreateOutcome: TypeAlias = TaskCreateResult | Literal["conflict"]
 
 
 class ScheduleSearchResult(msgspec.Struct, frozen=True, kw_only=True):
@@ -382,7 +384,7 @@ def _normalize_record(raw: Any) -> Any:
     }
 
 
-def _decode_or_raise[T](raw: Any, type_: type[T], what: str) -> T:
+def _decode_or_raise(raw: Any, type_: type[T], what: str) -> T:
     """Convert parsed JSON into ``type_``, raising :class:`DecodingError` on failure."""
     try:
         return msgspec.convert(_normalize_record(raw), type=type_)
@@ -391,7 +393,7 @@ def _decode_or_raise[T](raw: Any, type_: type[T], what: str) -> T:
         raise DecodingError(msg) from exc
 
 
-def _decode_list[T](data: Any, key: str, type_: type[T]) -> list[T]:
+def _decode_list(data: Any, key: str, type_: type[T]) -> list[T]:
     """Decode the array at ``data[key]``, silently dropping records that fail to parse."""
     arr = data.get(key) if isinstance(data, dict) else None
     if not isinstance(arr, list):

@@ -248,7 +248,10 @@ class DurableFunction:
             return msgspec.convert(value, annotation)
         except (TypeError, ValueError, msgspec.MsgspecError) as exc:
             error = SerializationError(exc)
-            error.add_note(f"while binding arguments for {self.name}")
+            # ponytail: BaseException.add_note is 3.11+; set __notes__ directly
+            # so the note survives on the 3.10 floor (traceback only prints it
+            # on 3.11+, but callers read __notes__ programmatically).
+            error.__notes__ = [f"while binding arguments for {self.name}"]  # ty: ignore[unresolved-attribute]
             raise error from exc
 
 

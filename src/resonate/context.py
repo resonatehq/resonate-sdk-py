@@ -7,7 +7,15 @@ from collections.abc import Awaitable, Callable, Generator
 from contextlib import suppress
 from datetime import timedelta
 from hashlib import blake2b
-from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Concatenate,
+    Generic,
+    ParamSpec,
+    TypeVar,
+    overload,
+)
 
 import msgspec
 
@@ -28,9 +36,13 @@ from resonate.tree import Tree
 from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
 
 if TYPE_CHECKING:
+    from typing_extensions import Self
+
     from resonate.dependencies import DependencyMap
     from resonate.effects import Effects
 
+P = ParamSpec("P")
+T = TypeVar("T")
 
 TargetResolver = Callable[[str | None], str]
 
@@ -54,7 +66,7 @@ class Opts(msgspec.Struct, frozen=True, kw_only=True):
     retry_policy: RetryPolicy | None = None
 
 
-class ResonateFuture[T](msgspec.Struct, frozen=True, kw_only=True):
+class ResonateFuture(msgspec.Struct, Generic[T], frozen=True, kw_only=True):
     _id: str
     _task: asyncio.Task[T]
     _created: asyncio.Future[None]
@@ -354,7 +366,7 @@ class Context:
         )
         return new
 
-    def get_dependency[T](self, type: type[T]) -> T:
+    def get_dependency(self, type: type[T]) -> T:
         return self._state.deps.get(type)
 
     def _next_id(self) -> str:
@@ -510,14 +522,14 @@ class Context:
         )
 
     @overload
-    def run[**P, T](
+    def run(
         self,
         fn: Callable[Concatenate[Context, P], Awaitable[T]],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> ResonateFuture[T]: ...
     @overload
-    def run[**P, T](
+    def run(
         self,
         fn: Callable[Concatenate[Context, P], T],
         *args: P.args,
@@ -698,14 +710,14 @@ class Context:
     @overload
     def rpc(self, fn: str, *args: Any, **kwargs: Any) -> ResonateFuture[Any]: ...
     @overload
-    def rpc[**P, T](
+    def rpc(
         self,
         fn: Callable[Concatenate[Context, P], Awaitable[T]],
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> ResonateFuture[T]: ...
     @overload
-    def rpc[**P, T](
+    def rpc(
         self,
         fn: Callable[Concatenate[Context, P], T],
         *args: P.args,

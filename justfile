@@ -14,6 +14,7 @@ examples:
     uv run python examples/error-handling --mode rpc --error taken
     uv run python examples/error-handling --mode rpc --error value
     uv run python examples/pipeline
+    uv run python examples/pydantic
     uv run python examples/rpc
     uv run python examples/saga
     uv run python examples/saga --fail hotel

@@ -26,7 +26,7 @@ import copy
 import logging
 import os
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
+from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, overload
 
 from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor
@@ -53,12 +53,17 @@ from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskDat
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine
 
+    from typing_extensions import Self
+
     from resonate.codec import Encryptor
     from resonate.context import Context
     from resonate.heartbeat import Heartbeat
     from resonate.network import Network
     from resonate.retry import RetryPolicy
     from resonate.transport import Message
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -305,7 +310,7 @@ class Resonate:
         return new
 
     @overload
-    def register[**P, T](
+    def register(
         self,
         fn: Callable[Concatenate[Context, P], T],
         *,
@@ -314,7 +319,7 @@ class Resonate:
         retry_policy: RetryPolicy | None = None,
     ) -> Callable[Concatenate[Context, P], T]: ...
     @overload
-    def register[**P, T](
+    def register(
         self,
         fn: None = None,
         *,
@@ -362,7 +367,7 @@ class Resonate:
         return fn
 
     @overload
-    def run[**P, T](
+    def run(
         self,
         id: str,
         func: Callable[Concatenate[Context, P], Awaitable[T]],
@@ -370,7 +375,7 @@ class Resonate:
         **kwargs: P.kwargs,
     ) -> ResonateHandle[T]: ...
     @overload
-    def run[**P, T](
+    def run(
         self,
         id: str,
         func: Callable[Concatenate[Context, P], T],
@@ -381,7 +386,7 @@ class Resonate:
     def run(
         self, id: str, func: str, *args: Any, **kwargs: Any
     ) -> ResonateHandle[Any]: ...
-    def run[T](
+    def run(
         self,
         id: str,
         func: str | Callable[Concatenate[Context, ...], Any],
@@ -495,7 +500,7 @@ class Resonate:
         self, id: str, fn: str, *args: Any, **kwargs: Any
     ) -> ResonateHandle[Any]: ...
     @overload
-    def rpc[**P, T](
+    def rpc(
         self,
         id: str,
         fn: Callable[Concatenate[Context, P], Awaitable[T]],
@@ -503,7 +508,7 @@ class Resonate:
         **kwargs: P.kwargs,
     ) -> ResonateHandle[T]: ...
     @overload
-    def rpc[**P, T](
+    def rpc(
         self,
         id: str,
         fn: Callable[Concatenate[Context, P], T],

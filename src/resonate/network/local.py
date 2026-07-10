@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 import msgspec
 
@@ -23,7 +23,9 @@ I64_MAX = (1 << 63) - 1
 I64_MIN = -(1 << 63)
 
 # The lifecycle states a task can be in.
-type TaskState = Literal["pending", "acquired", "suspended", "halted", "fulfilled"]
+TaskState: TypeAlias = Literal[
+    "pending", "acquired", "suspended", "halted", "fulfilled"
+]
 
 
 # =============================================================================

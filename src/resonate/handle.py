@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 import msgspec
 
@@ -13,6 +13,8 @@ from resonate.types import PromiseState, Value
 
 if TYPE_CHECKING:
     from resonate.codec import Codec
+
+T = TypeVar("T")
 
 
 class PromiseResult(msgspec.Struct, frozen=True, kw_only=True):
@@ -61,7 +63,7 @@ class Subscription:
         return self._result
 
 
-class ResonateHandle[T]:
+class ResonateHandle(Generic[T]):
     """A handle to a durable promise, returned from ``run``, ``rpc``, and ``get``.
 
     Allows non-blocking observation and eventual awaiting of a durable promise.

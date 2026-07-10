@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, TypeVar
 
 from resonate.error import PlatformError, ResonateError, StoppedError
 from resonate.types import PromiseCreateReq, PromiseSettleReq
@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from resonate.codec import Codec
     from resonate.send import Sender
     from resonate.types import PromiseRecord
+
+T = TypeVar("T")
 
 # The validation harness keys off this logger name rather than the module
 # name, so it must stay "resonate.validation".
@@ -27,9 +29,7 @@ class Effects(Protocol):
     # every depth and scoped to exactly one execution.
 
     async def create_promise(self, req: PromiseCreateReq) -> PromiseRecord: ...
-    async def settle_promise[T](
-        self, id: str, result: T | Exception
-    ) -> PromiseRecord: ...
+    async def settle_promise(self, id: str, result: T | Exception) -> PromiseRecord: ...
 
 
 class ResonateEffects:
@@ -140,7 +140,7 @@ class ResonateEffects:
         )
         return decoded
 
-    async def settle_promise[T](self, id: str, result: T | Exception) -> PromiseRecord:
+    async def settle_promise(self, id: str, result: T | Exception) -> PromiseRecord:
         """Settle a durable promise with a result.
 
         Idempotent: a cached non-pending record is returned without touching the

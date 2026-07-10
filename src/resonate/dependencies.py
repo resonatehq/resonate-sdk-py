@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 
 class DependencyMap:
@@ -9,11 +11,11 @@ class DependencyMap:
     def __init__(self) -> None:
         self._map: dict[type, Any] = {}
 
-    def insert[T](self, value: T) -> None:
+    def insert(self, value: T) -> None:
         """Store a dependency, keyed by its concrete type."""
         self._map[type(value)] = value
 
-    def get[T](self, type: type[T]) -> T:
+    def get(self, type: type[T]) -> T:
         """Retrieve a dependency by type. Raises ``KeyError`` if not found."""
         try:
             return self._map[type]

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from resonate.error import PlatformError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+T = TypeVar("T")
 
 
 class Chain:
@@ -54,7 +56,7 @@ class Link:
         self._prev = prev
         self.done = done
 
-    async def run[T](self, work: Callable[[], Awaitable[T]]) -> T:
+    async def run(self, work: Callable[[], Awaitable[T]]) -> T:
         """Wait for the predecessor, run ``work``, then release the successor.
 
         A predecessor that failed propagates its exception through

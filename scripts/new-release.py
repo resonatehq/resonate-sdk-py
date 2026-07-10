@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import pathlib
-import tomllib
+import sys
 import webbrowser
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # 3.10 floor
+    import tomli as tomllib
+
 from typing import Any
 from urllib.parse import urlencode
 
