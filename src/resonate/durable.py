@@ -247,12 +247,7 @@ class DurableFunction:
         try:
             return msgspec.convert(value, annotation)
         except (TypeError, ValueError, msgspec.MsgspecError) as exc:
-            error = SerializationError(exc)
-            # ponytail: BaseException.add_note is 3.11+; set __notes__ directly
-            # so the note survives on the 3.10 floor (traceback only prints it
-            # on 3.11+, but callers read __notes__ programmatically).
-            error.__notes__ = [f"while binding arguments for {self.name}"]  # ty: ignore[unresolved-attribute]
-            raise error from exc
+            raise SerializationError(exc) from exc
 
 
 def _is_passthrough_annotation(annotation: Any) -> bool:
