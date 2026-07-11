@@ -172,6 +172,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aws-lambda-typing"
+version = "2.20.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/2a/14e7a3dba738265db6eddfd0c9ec1619c0c14e48fcf70627fc75fca83305/aws-lambda-typing-2.20.0.tar.gz", hash = "sha256:78b0d8ebab73b3a6b0da98a7969f4e9c4bb497298ec50f3217da8a8dfba17154", size = 19413, upload-time = "2024-04-02T09:43:03.326Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/3d/4031f5950d65e89136d20a18b5ac985d5f087c29c902f285b6e8063619e4/aws_lambda_typing-2.20.0-py3-none-any.whl", hash = "sha256:1d44264cabfeab5ac38e67ddd0c874e677b2cbbae77a42d0519df470e6bbb49b", size = 35296, upload-time = "2024-04-02T09:43:05.881Z" },
+]
+
+[[package]]
 name = "beartype"
 version = "0.22.9"
 source = { registry = "https://pypi.org/simple" }
@@ -1498,6 +1507,7 @@ pydantic-ai = [
 [package.dev-dependencies]
 dev = [
     { name = "attrs" },
+    { name = "aws-lambda-typing" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extra = ["mcp"] },
     { name = "pytest" },
@@ -1510,18 +1520,19 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.5" },
-    { name = "msgspec", specifier = ">=0.21.1" },
+    { name = "aiohttp", specifier = ">=3.13.5,<4" },
+    { name = "msgspec", specifier = ">=0.21.1,<1" },
     { name = "nats-py", marker = "extra == 'nats'", specifier = ">=2.6.0,<3" },
     { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2.0.0,<3" },
     { name = "pydantic", marker = "extra == 'pydantic-ai'", specifier = ">=2.0.0,<3" },
-    { name = "pydantic-ai-slim", marker = "extra == 'pydantic-ai'", specifier = ">=2.8" },
+    { name = "pydantic-ai-slim", marker = "extra == 'pydantic-ai'", specifier = ">=2.8,<3" },
 ]
 provides-extras = ["nats", "pydantic", "pydantic-ai"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "attrs", specifier = ">=24.0.0" },
+    { name = "aws-lambda-typing", specifier = ">=2.20.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic-ai-slim", extras = ["mcp"], specifier = ">=2.8" },
     { name = "pytest", specifier = ">=9.0.3" },
