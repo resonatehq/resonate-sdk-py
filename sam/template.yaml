@@ -1,0 +1,234 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  sam-app
+
+  Sample SAM Template for sam-app
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+
+Resources:
+  HelloWorldFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: hello-world/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          # From inside the SAM-local Docker container, ``localhost`` is the
+          # container itself, not your host. ``host.docker.internal`` reaches a
+          # ``resonate dev`` server running on the host (default port 8001).
+          RESONATE_URL: http://host.docker.internal:8001
+          # This function's own address, the target the server pushes child
+          # tasks to. Under ``sam local`` the event carries no usable host, so
+          # the shim cannot derive it -- set it to the SAM-local endpoint (the
+          # server, on the host, reaches it there). On real AWS remove this and
+          # the shim derives its URL from the request headers.
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/hello
+      Events:
+        HelloWorld:
+          Type: HttpApi # HTTP API → payload format 2.0, which the FaaS shim expects
+          Properties:
+            Path: /hello
+            Method: post
+
+  # ── Migrated examples ─────────────────────────────────────────────────────
+  # Each is one Lambda hosting a Resonate workflow, driven by pushed tasks.
+  # RESONATE_FUNCTION_URL is the SAM-local endpoint the server pushes child
+  # tasks back to; remove it on real AWS (the shim derives it from headers).
+  DetachedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: detached/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          RESONATE_URL: http://host.docker.internal:8001
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/detached
+      Events:
+        Detached:
+          Type: HttpApi
+          Properties:
+            Path: /detached
+            Method: post
+
+  FibonacciFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fibonacci/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          RESONATE_URL: http://host.docker.internal:8001
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/fibonacci
+      Events:
+        Fibonacci:
+          Type: HttpApi
+          Properties:
+            Path: /fibonacci
+            Method: post
+
+  ErrorHandlingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: error-handling/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          RESONATE_URL: http://host.docker.internal:8001
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/error-handling
+      Events:
+        ErrorHandling:
+          Type: HttpApi
+          Properties:
+            Path: /error-handling
+            Method: post
+
+  PipelineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: pipeline/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          RESONATE_URL: http://host.docker.internal:8001
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/pipeline
+      Events:
+        Pipeline:
+          Type: HttpApi
+          Properties:
+            Path: /pipeline
+            Method: post
+
+  PydanticFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: pydantic/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          RESONATE_URL: http://host.docker.internal:8001
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/pydantic
+      Events:
+        Pydantic:
+          Type: HttpApi
+          Properties:
+            Path: /pydantic
+            Method: post
+
+  PydanticAiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: pydantic-ai/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          RESONATE_URL: http://host.docker.internal:8001
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/pydantic-ai
+      Events:
+        PydanticAi:
+          Type: HttpApi
+          Properties:
+            Path: /pydantic-ai
+            Method: post
+
+  StructuredConcurrencyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: structured-concurrency/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          RESONATE_URL: http://host.docker.internal:8001
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/structured-concurrency
+      Events:
+        StructuredConcurrency:
+          Type: HttpApi
+          Properties:
+            Path: /structured-concurrency
+            Method: post
+
+  VersioningFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: versioning/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          RESONATE_URL: http://host.docker.internal:8001
+          RESONATE_FUNCTION_URL: http://127.0.0.1:3000/versioning
+      Events:
+        Versioning:
+          Type: HttpApi
+          Properties:
+            Path: /versioning
+            Method: post
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  HelloWorldApi:
+    Description: "API Gateway endpoint URL for Hello World function"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/hello"
+  HelloWorldFunction:
+    Description: "Hello World Lambda Function ARN"
+    Value: !GetAtt HelloWorldFunction.Arn
+  HelloWorldFunctionIamRole:
+    Description: "Implicit IAM Role created for Hello World function"
+    Value: !GetAtt HelloWorldFunctionRole.Arn
+  DetachedApi:
+    Description: "API endpoint URL for the detached example"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/detached"
+  FibonacciApi:
+    Description: "API endpoint URL for the fibonacci example"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/fibonacci"
+  ErrorHandlingApi:
+    Description: "API endpoint URL for the error-handling example"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/error-handling"
+  PipelineApi:
+    Description: "API endpoint URL for the pipeline example"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pipeline"
+  PydanticApi:
+    Description: "API endpoint URL for the pydantic example"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pydantic"
+  PydanticAiApi:
+    Description: "API endpoint URL for the pydantic-ai example"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pydantic-ai"
+  StructuredConcurrencyApi:
+    Description: "API endpoint URL for the structured-concurrency example"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/structured-concurrency"
+  VersioningApi:
+    Description: "API endpoint URL for the versioning example"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/versioning"

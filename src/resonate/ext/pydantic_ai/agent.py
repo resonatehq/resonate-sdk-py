@@ -38,6 +38,7 @@ from resonate.ext.pydantic_ai.context import (
 )
 from resonate.ext.pydantic_ai.model import ResonateModel
 from resonate.ext.pydantic_ai.types import BaseRunResult, RunParams, run_result_model
+from resonate.resonate import Resonate
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
@@ -76,8 +77,8 @@ if TYPE_CHECKING:
     )
 
     from resonate.context import Context
-    from resonate.resonate import Resonate
     from resonate.retry import RetryPolicy
+    from resonate.types import DurableRegistry
 
 # ``None`` isn't assignable to an arbitrary ``AgentDepsT``, so mirror Pydantic
 # AI's ``deps=None`` default through an ``Any`` singleton -- keeps the runtime
@@ -109,7 +110,7 @@ class ResonateAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     def __init__(
         self,
         wrapped: AbstractAgent[AgentDepsT, OutputDataT],
-        resonate: Resonate,
+        resonate: DurableRegistry,
         *,
         name: str | None = None,
         version: int = 1,
@@ -124,7 +125,11 @@ class ResonateAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         Args:
             wrapped: The agent to wrap.
             resonate: The Resonate instance to register the durable run
-                function on and to dispatch runs through.
+                function on and to dispatch runs through. A serverless worker
+                shim (e.g. ``resonate.faas.aws.Resonate``) is also accepted:
+                it registers -- and so executes -- the durable run function,
+                but cannot dispatch new runs, so ``run()`` outside a workflow
+                requires the full ``resonate.resonate.Resonate`` client.
             name: Unique agent name used to register the durable function.
                 Defaults to the wrapped agent's ``name``, which is then
                 required.
@@ -485,6 +490,22 @@ class ResonateAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                     spec=spec,
                 )
 
+        # Dispatching a new durable run requires the full client. A serverless
+        # worker shim satisfies construction (it registers, and so executes,
+        # the run function) but cannot *start* runs -- there the run is invoked
+        # by name from a client, and this process only executes pushed tasks.
+        # Deferred import: the worker path never needs the full client module.
+
+        resonate = self._resonate
+        if not isinstance(resonate, Resonate):
+            msg = (
+                "This agent's Resonate instance can register and execute durable runs "
+                "but not dispatch them (a serverless worker shim). Invoke the registered "
+                f"durable function '{self._name}.run' from a client using the full "
+                "`resonate.resonate.Resonate`, or call `agent.run()` inside an active workflow."
+            )
+            raise UserError(msg)
+
         self._reject_unserializable_run_arguments(
             output_type=output_type,
             model=model,
@@ -531,7 +552,6 @@ class ResonateAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         # collide with the first turn's promise and replay its result.
         run_id = id or f"{self._name}.run.{uuid4()}"
 
-        resonate = self._resonate
         if self._run_timeout is not None:
             resonate = resonate.options(timeout=self._run_timeout)
 

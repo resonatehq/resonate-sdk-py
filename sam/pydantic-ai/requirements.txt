@@ -1,0 +1,5 @@
+requests
+aiohttp>=3.13.5,<4
+msgspec>=0.21.1,<1
+pydantic>=2.0.0,<3
+pydantic-ai-slim>=2.8,<3

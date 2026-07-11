@@ -127,7 +127,9 @@ def test_handler_missing_proto_defaults_to_http(
         return "done"
 
     monkeypatch.setattr(r, "_drive", fake_drive)
-    resp = r.handler()(_event(host="127.0.0.1:3000", proto=None, path="/hello"), _CONTEXT)
+    resp = r.handler()(
+        _event(host="127.0.0.1:3000", proto=None, path="/hello"), _CONTEXT
+    )
     assert resp["statusCode"] == 200
     assert seen["function_url"] == "http://127.0.0.1:3000/hello"
 

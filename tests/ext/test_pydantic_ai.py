@@ -43,6 +43,7 @@ from resonate.ext.pydantic_ai.context import (
     set_workflow_context,
 )
 from resonate.ext.pydantic_ai.types import ModelResponseEnvelope
+from resonate.faas.aws import Resonate as FaasResonate
 from resonate.network import LocalNetwork
 from resonate.network.local import Task
 from resonate.resonate import Resonate
@@ -498,6 +499,20 @@ async def test_agent_model_is_required() -> None:
     async with local() as r:
         with pytest.raises(UserError, match="have a `model`"):
             ResonateAgent(Agent(name="modelless"), r)
+
+
+@pytest.mark.asyncio
+async def test_worker_shim_registers_but_cannot_dispatch() -> None:
+    # A serverless worker shim (the FaaS Resonate) satisfies `DurableRegistry`:
+    # constructing the agent registers its durable run function, so pushed
+    # tasks can execute it.
+    shim = FaasResonate()
+    durable = ResonateAgent(Agent(TestModel(), name="worker-only"), shim)
+    assert shim._registry.get("worker-only.run", 1) is not None
+
+    # Dispatching a new run, however, requires the full client.
+    with pytest.raises(UserError, match="but not dispatch"):
+        await durable.run("hi")
 
 
 @pytest.mark.asyncio
