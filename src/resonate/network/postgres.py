@@ -37,9 +37,18 @@ DEFAULT_DEQUEUE_BATCH = 100
 
 #: Fallback drain period. ``NOTIFY`` is fire-and-forget: a notification that
 #: races a reconnect, or a LISTEN connection that dies silently, would strand
-#: outbox rows until the server's ~5s task-retry re-emit (which only covers
-#: ``execute``, never ``unblock``). Polling on this period bounds that gap.
+#: outbox rows until the server's ~5s task-retry re-emit -- which only covers
+#: ``execute``, never ``unblock``, and only exists at all when pg_cron is
+#: installed to drive ``resonate.process_timeouts()``. Polling on this period
+#: bounds that gap.
 DEFAULT_DRAIN_INTERVAL_SECS = 5.0
+
+#: Grace period for ``Pool.close()`` during :meth:`PostgresNetwork.stop`.
+#: ``close`` waits for in-flight queries to release their connections, and no
+#: ``command_timeout`` is configured, so a query wedged on a dead-but-silent
+#: TCP connection would otherwise park shutdown forever. Past the deadline
+#: the pool is terminated and its connections dropped.
+_POOL_CLOSE_TIMEOUT_SECS = 5.0
 
 _RPC_SQL = "SELECT resonate.resonate_rpc($1::jsonb)"
 _DEQUEUE_EXECUTE_SQL = "SELECT task_id, version FROM resonate.dequeue_execute($1, $2)"
@@ -103,6 +112,12 @@ class PostgresNetwork:
       dequeue's ``FOR UPDATE SKIP LOCKED`` provides anycast semantics: group
       members share the *same* anycast address (no pid suffix, unlike
       ``poll://``) and each outbox row is delivered to exactly one of them.
+
+    ``LISTEN`` needs a direct (session-mode) connection: through a
+    transaction-mode pooler (pgbouncer, Supabase's Supavisor port) it is
+    silently inert, and delivery degrades to the fallback drain's period.
+    Point workers at the database directly; only the RPC pool is
+    pooler-compatible (see :meth:`_ensure_pool`).
 
     With ``send_only=True`` no listener or drain task is started -- for
     serverless workers (see ``resonate.faas``) that are *pushed* work over
@@ -181,7 +196,17 @@ class PostgresNetwork:
         self._listen_handle = None
         self._drain_handle = None
         if self._pool is not None:
-            await self._pool.close()
+            # ``close`` waits for in-flight queries to release their
+            # connections; bound it so a query wedged on a dead-but-silent
+            # connection cannot park shutdown forever.
+            try:
+                await asyncio.wait_for(self._pool.close(), _POOL_CLOSE_TIMEOUT_SECS)
+            except TimeoutError:
+                logger.warning(
+                    "Postgres pool close timed out after %ss, terminating",
+                    _POOL_CLOSE_TIMEOUT_SECS,
+                )
+                self._pool.terminate()
             self._pool = None
         self._subscribers.clear()
 
@@ -232,6 +257,13 @@ class PostgresNetwork:
                 if not self._running:
                     raise PostgresError(exc) from exc
                 raise
+            except RuntimeError as exc:
+                # :meth:`_ensure_pool` refusing to (re)open a pool after
+                # :meth:`stop`; wrap it so the caller unwinds cleanly. While
+                # still running it is a real bug -- re-raise unhidden.
+                if not self._running:
+                    raise PostgresError(exc) from exc
+                raise
             logger.debug("pg_network pg_res: %s", resp)
             if resp is None:
                 msg = "resonate_rpc returned NULL"
@@ -259,7 +291,9 @@ class PostgresNetwork:
 
         Once :meth:`stop` has run, this refuses to open a fresh pool so a
         retry loop racing with shutdown cannot leak a pool that nobody will
-        close.
+        close. ``_running`` is checked again *after* the ``create_pool``
+        await for the same reason: :meth:`stop` may run while the pool is
+        being created, see ``_pool is None``, and find nothing to close.
         """
         if self._pool is None:
             async with self._pool_lock:
@@ -267,12 +301,17 @@ class PostgresNetwork:
                     if not self._running:
                         msg = "network has been stopped"
                         raise RuntimeError(msg)
-                    self._pool = await asyncpg.create_pool(
+                    pool = await asyncpg.create_pool(
                         self._url,
                         min_size=1,
                         max_size=self._pool_max_size,
                         statement_cache_size=0,
                     )
+                    if not self._running:
+                        await pool.close()
+                        msg = "network has been stopped"
+                        raise RuntimeError(msg)
+                    self._pool = pool
         return self._pool
 
     async def _sleep_or_stop(self, secs: float) -> None:
@@ -379,6 +418,12 @@ class PostgresNetwork:
         functions guarantees each anycast row lands on exactly one group
         member. A full batch means more may remain, so each queue loops
         until a short batch comes back.
+
+        Delivery is kind-batched (all ``execute`` rows, then all ``unblock``
+        rows, unicast before anycast), so cross-kind ``seq`` order is *not*
+        preserved -- unlike SSE, which delivers in server order. The protocol
+        tolerates this: delivery is at-least-once, claims are idempotent, and
+        a late ``unblock`` is backstopped by the subscription refresh.
         """
         pool = await self._ensure_pool()
         for address in (self._unicast, self._anycast):
@@ -407,4 +452,9 @@ class PostgresNetwork:
     def _dispatch(self, data: str) -> None:
         logger.debug("pg_network recv: %s", data)
         for cb in list(self._subscribers):
-            cb(data)
+            try:
+                cb(data)
+            except Exception:
+                # A raising subscriber must not kill the drain loop; later
+                # subscribers and future messages still get delivered.
+                logger.exception("pg_network subscriber raised")

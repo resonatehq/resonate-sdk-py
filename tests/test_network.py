@@ -714,6 +714,28 @@ async def test_http_send_does_not_retry_server_errors(
     assert not_found.attempts == 1  # one shot -- no retry on a real HTTP response
 
 
+def test_http_dispatch_survives_raising_subscriber() -> None:
+    """A raising subscriber must not kill the SSE listener.
+
+    An exception escaping the fan-out would propagate past ``_sse_loop``'s
+    ``aiohttp.ClientError`` handler and silently kill the listener task --
+    no more incoming messages until ``stop``.
+    """
+    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    received: list[str] = []
+
+    def bad(_data: str) -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    net.recv(bad)
+    net.recv(received.append)
+
+    net._dispatch("{}")
+
+    assert received == ["{}"]
+
+
 # ---------------------------------------------------------------------------
 # network_for_url: the single scheme dispatch shared by Resonate and the
 # serverless faas shims.
@@ -977,3 +999,111 @@ async def test_postgres_drain_dispatches_both_queues_and_addresses(
     msgs = [msgspec.json.decode(raw, type=Message) for raw in received]
     assert {type(m) for m in msgs} == {ExecuteMsg, UnblockMsg}
     assert len(msgs) == 2
+
+
+@pytest.mark.asyncio
+async def test_postgres_stop_during_pool_creation_closes_fresh_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pool whose creation straddles ``stop`` must be closed, not leaked.
+
+    ``stop`` runs while ``create_pool`` is in flight: it sees ``_pool is
+    None`` and finds nothing to close. Without the post-create ``_running``
+    re-check in ``_ensure_pool``, the fresh pool would be assigned anyway --
+    live connections nobody will ever close, and a ``send`` that proceeds
+    after shutdown.
+    """
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g", send_only=True)
+    await net.start()
+
+    release = asyncio.Event()
+
+    class _Pool:
+        closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    pool = _Pool()
+
+    async def create_pool(*_args: Any, **_kwargs: Any) -> _Pool:
+        await release.wait()
+        return pool
+
+    monkeypatch.setattr(asyncpg, "create_pool", create_pool)
+
+    send_task = asyncio.create_task(net.send("{}"))
+    await asyncio.sleep(0)  # park the send inside create_pool
+    await net.stop()  # sees no pool to close
+    release.set()
+
+    with pytest.raises(PostgresError):
+        await asyncio.wait_for(send_task, timeout=2.0)
+    assert pool.closed
+    assert net._pool is None
+
+
+@pytest.mark.asyncio
+async def test_postgres_stop_terminates_pool_when_close_hangs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stop`` must not hang on a pool close that never finishes.
+
+    ``Pool.close`` waits for in-flight queries to release their connections;
+    with no ``command_timeout`` configured, a query wedged on a dead-but-silent
+    connection would park shutdown forever. Past the grace period the pool is
+    terminated instead.
+    """
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g", send_only=True)
+    await net.start()
+
+    class _WedgedPool:
+        terminated = False
+
+        async def close(self) -> None:
+            await asyncio.Event().wait()  # never completes
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+    pool = _WedgedPool()
+    monkeypatch.setattr(net, "_pool", pool)
+    monkeypatch.setattr("resonate.network.postgres._POOL_CLOSE_TIMEOUT_SECS", 0.01)
+
+    await asyncio.wait_for(net.stop(), timeout=2.0)
+
+    assert pool.terminated
+    assert net._pool is None
+
+
+@pytest.mark.asyncio
+async def test_postgres_drain_survives_raising_subscriber(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising subscriber must not kill the drain loop.
+
+    An exception escaping ``_dispatch`` would propagate past ``_drain_loop``'s
+    ``(asyncpg.PostgresError, OSError)`` handler and silently kill the task --
+    no more incoming messages until ``stop``.
+    """
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g")
+    pool = _DrainPgPool(execute_rows=[{"task_id": "t1", "version": 1}])
+
+    async def ensure() -> _DrainPgPool:
+        return pool
+
+    monkeypatch.setattr(net, "_ensure_pool", ensure)
+    net._running = True
+
+    received: list[str] = []
+
+    def bad(_data: str) -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    net.recv(bad)
+    net.recv(received.append)
+
+    await net._drain()  # must not raise
+
+    assert len(received) == 1
