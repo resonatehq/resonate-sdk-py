@@ -37,14 +37,13 @@ from resonate.error import (
 )
 from resonate.handle import ResonateHandle
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
-from resonate.network import HttpNetwork, LocalNetwork, PostgresNetwork
+from resonate.network import LocalNetwork
 from resonate.resonate import (
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_TTL,
     HEARTBEAT_INTERVAL_DIVISOR,
     Opts,
     Resonate,
-    _network_for_url,
 )
 from resonate.retry import Never
 
@@ -165,21 +164,6 @@ async def test_local_constructor_sets_defaults() -> None:
         assert r._id_prefix == ""
         assert r._ttl == DEFAULT_TTL
         assert isinstance(r._network, LocalNetwork)
-
-
-def test_url_scheme_selects_network_implementation() -> None:
-    """A postgres:// / postgresql:// DSN selects PostgresNetwork; else HTTP."""
-    dsn = "postgresql://user:pw@localhost:5432/db"
-    assert isinstance(_network_for_url(dsn, "g", "p", None), PostgresNetwork)
-    assert isinstance(
-        _network_for_url("postgres://localhost/db", "g", "p", None), PostgresNetwork
-    )
-    assert isinstance(
-        _network_for_url("http://localhost:8001", "g", "p", None), HttpNetwork
-    )
-    assert isinstance(
-        _network_for_url("https://cloud.resonatehq.io", "g", "p", None), HttpNetwork
-    )
 
 
 @pytest.mark.asyncio

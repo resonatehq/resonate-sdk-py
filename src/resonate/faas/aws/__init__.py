@@ -18,10 +18,12 @@ serverless worker cannot do:
   a worker only *executes* work handed to it. A Lambda drives one task through
   :class:`~resonate.core.Core` and reports the outcome.
 
-The per-invocation wiring (the :class:`~resonate.network.HttpNetwork` back to
-the server, the :class:`~resonate.core.Core`) is built fresh inside the
-returned handler because both the server URL and this function's own public
-URL are only known once the request arrives. Everything reusable across
+The per-invocation wiring (the send-only network back to the server, the
+:class:`~resonate.core.Core`) is built fresh inside the returned handler
+because both the server URL and this function's own public URL are only known
+once the request arrives. The network is chosen from the URL's scheme (see
+:func:`~resonate.network.network_for_url`): a Resonate server URL talks HTTP,
+while a ``postgres://`` DSN talks straight to a resonate-pg database. Everything reusable across
 invocations -- codec, registry, dependencies -- is built once at construction
 and closed over.
 
@@ -56,7 +58,7 @@ from resonate.core import Core
 from resonate.dependencies import DependencyMap
 from resonate.error import ApplicationError
 from resonate.heartbeat import NoopHeartbeat
-from resonate.network import HttpNetwork
+from resonate.network import network_for_url
 from resonate.registry import Registry
 from resonate.retry import Exponential
 from resonate.send import Sender
@@ -167,9 +169,12 @@ class Resonate:
     ) -> None:
         """Build the reusable, invocation-independent wiring.
 
-        ``url`` is the Resonate server URL used to talk *back* to the server;
-        it falls back to the ``RESONATE_URL`` env var, then to a ``serverUrl``
-        carried on the pushed message's ``head`` (see :meth:`handler`).
+        ``url`` is the address used to talk *back* to the server -- a
+        Resonate server URL, or a ``postgres://`` DSN when the server is a
+        resonate-pg database; it falls back to the ``RESONATE_URL`` env var,
+        then to a ``serverUrl`` carried on the pushed message's ``head``
+        (see :meth:`handler`). resonate-pg pushes an empty head, so in that
+        mode the constructor / env value is required.
 
         ``function_url`` is this function's own public URL, used as the anycast
         address child tasks are routed back to. When unset it is reconstructed
@@ -269,8 +274,8 @@ class Resonate:
 
         The returned coroutine-free handler processes a single ``execute``
         message per invocation: it validates the HTTP request, decodes the
-        message, builds a send-only :class:`~resonate.network.HttpNetwork` back
-        to the server and a :class:`~resonate.core.Core`, drives the task to
+        message, builds a send-only network back to the server (scheme-selected,
+        see :meth:`_drive`) and a :class:`~resonate.core.Core`, drives the task to
         ``done`` or ``suspended`` under a fresh event loop, and returns a JSON
         status. Child tasks dispatched by the workflow are routed back to this
         same function (see the resolver below), so a recursive workflow
@@ -307,7 +312,7 @@ class Resonate:
                 # its *own* view of its URL in the head (e.g. ``localhost:8001``),
                 # which is unreachable from inside a Lambda container -- the
                 # deployment knows the routable address, the server does not.
-                # HttpNetwork needs this to send acquire/fulfill/suspend back.
+                # The network needs this to send acquire/fulfill/suspend back.
                 server_url = self._url or msg.head.server_url
                 if not server_url:
                     return _response(
@@ -374,14 +379,20 @@ class Resonate:
     ) -> str:
         """Build the per-invocation wiring and run the task to a terminal state.
 
-        A send-only :class:`~resonate.network.HttpNetwork` is used because the
-        server pushes work over HTTP -- there is no poll connection to open.
+        The network is selected from ``server_url``'s scheme by the shared
+        :func:`~resonate.network.network_for_url` -- the same dispatch the full
+        client uses -- so a Resonate server URL gets an
+        :class:`~resonate.network.HttpNetwork` and a resonate-pg DSN
+        (``postgres://`` / ``postgresql://``) gets a
+        :class:`~resonate.network.PostgresNetwork`. Either way it is send-only:
+        work is pushed to this function over HTTP (by the server's poller or by
+        the database's pg_net trigger), so there is no poll connection to open.
         The resolver routes any non-URL child target back to ``function_url`` so
         recursive sub-tasks re-invoke this Lambda; explicit URL targets pass
         through unchanged.
         """
-        network = HttpNetwork(
-            url=server_url,
+        network = network_for_url(
+            server_url,
             pid=self._pid,
             group=self._group,
             auth=self._auth,

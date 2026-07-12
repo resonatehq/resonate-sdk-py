@@ -41,7 +41,7 @@ from resonate.error import (
 )
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
-from resonate.network import HttpNetwork, LocalNetwork, PostgresNetwork
+from resonate.network import LocalNetwork, network_for_url
 from resonate.promises import Promises
 from resonate.registry import Registry
 from resonate.retry import Exponential
@@ -1007,28 +1007,13 @@ def _select_network(
     auth: str | None,
 ) -> Network:
     if url is not None:
-        return _network_for_url(url, group, pid, auth)
+        return network_for_url(url, pid=pid, group=group, auth=auth)
     if network is not None:
         return network
     env_url = _resolve_env_url()
     if env_url is not None:
-        return _network_for_url(env_url, group, pid, auth)
+        return network_for_url(env_url, pid=pid, group=group, auth=auth)
     return LocalNetwork(pid=pid, group=group)
-
-
-def _network_for_url(
-    url: str, group: str | None, pid: str | None, auth: str | None
-) -> Network:
-    """Build the network implied by a URL's scheme.
-
-    A ``postgres://`` / ``postgresql://`` URL is a resonate-pg DSN and selects
-    :class:`~resonate.network.PostgresNetwork` (credentials travel inside the
-    DSN, so ``auth`` does not apply); anything else is a Resonate server URL
-    for :class:`~resonate.network.HttpNetwork`.
-    """
-    if url.startswith(("postgres://", "postgresql://")):
-        return PostgresNetwork(url, pid=pid, group=group)
-    return HttpNetwork(url=url, pid=pid, group=group, auth=auth)
 
 
 def _resolve_env_url() -> str | None:

@@ -10,7 +10,12 @@ import msgspec
 import pytest
 
 from resonate.error import HttpError, PostgresError
-from resonate.network import HttpNetwork, LocalNetwork, PostgresNetwork
+from resonate.network import (
+    HttpNetwork,
+    LocalNetwork,
+    PostgresNetwork,
+    network_for_url,
+)
 from resonate.network.http import DEFAULT_CONN_LIMIT
 from resonate.network.local import I64_MAX
 from resonate.network.postgres import (
@@ -707,6 +712,48 @@ async def test_http_send_does_not_retry_server_errors(
     body = await net.send("{}")
     assert '"status":404' in body
     assert not_found.attempts == 1  # one shot -- no retry on a real HTTP response
+
+
+# ---------------------------------------------------------------------------
+# network_for_url: the single scheme dispatch shared by Resonate and the
+# serverless faas shims.
+# ---------------------------------------------------------------------------
+
+
+def test_network_for_url_scheme_selection() -> None:
+    """A postgres:// / postgresql:// DSN selects PostgresNetwork; else HTTP."""
+    dsn = "postgresql://user:pw@localhost:5432/db"
+    assert isinstance(network_for_url(dsn, pid="p", group="g"), PostgresNetwork)
+    assert isinstance(
+        network_for_url("postgres://localhost/db", pid="p", group="g"),
+        PostgresNetwork,
+    )
+    assert isinstance(
+        network_for_url("http://localhost:8001", pid="p", group="g"), HttpNetwork
+    )
+    assert isinstance(
+        network_for_url("https://cloud.resonatehq.io", pid="p", group="g"),
+        HttpNetwork,
+    )
+
+
+@pytest.mark.asyncio
+async def test_network_for_url_send_only_starts_no_listener() -> None:
+    """``send_only=True`` propagates: neither implementation opens a listener."""
+    pg = network_for_url(
+        "postgresql://localhost:5432/db", pid="p", group="g", send_only=True
+    )
+    assert isinstance(pg, PostgresNetwork)
+    await pg.start()
+    assert pg._listen_handle is None
+    assert pg._drain_handle is None
+    await pg.stop()
+
+    http = network_for_url("http://localhost:8001", pid="p", group="g", send_only=True)
+    assert isinstance(http, HttpNetwork)
+    await http.start()
+    assert http._sse_handle is None
+    await http.stop()
 
 
 # ---------------------------------------------------------------------------

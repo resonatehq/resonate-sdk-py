@@ -10,7 +10,14 @@ from resonate.network.postgres import PostgresNetwork
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["HttpNetwork", "LocalNetwork", "NatsNetwork", "Network", "PostgresNetwork"]
+__all__ = [
+    "HttpNetwork",
+    "LocalNetwork",
+    "NatsNetwork",
+    "Network",
+    "PostgresNetwork",
+    "network_for_url",
+]
 
 
 class Network(Protocol):
@@ -29,3 +36,29 @@ class Network(Protocol):
     async def send(self, req: str) -> str: ...
     def recv(self, callback: Callable[[str], None]) -> None: ...
     def target_resolver(self, target: str) -> str: ...
+
+
+def network_for_url(
+    url: str,
+    pid: str | None = None,
+    group: str | None = None,
+    auth: str | None = None,
+    *,
+    send_only: bool = False,
+) -> Network:
+    """Build the network implied by a URL's scheme.
+
+    A ``postgres://`` / ``postgresql://`` URL is a resonate-pg DSN and selects
+    :class:`PostgresNetwork` (credentials travel inside the DSN, so ``auth``
+    does not apply); anything else is a Resonate server URL for
+    :class:`HttpNetwork`. This is the single place scheme dispatch happens:
+    the full client (:class:`resonate.resonate.Resonate`) and the serverless
+    shims (``resonate.faas``) both select their network here, so a URL means
+    the same thing everywhere.
+
+    ``send_only`` builds a network that never listens for incoming messages,
+    for serverless workers that are *pushed* work over HTTP.
+    """
+    if url.startswith(("postgres://", "postgresql://")):
+        return PostgresNetwork(url, pid=pid, group=group, send_only=send_only)
+    return HttpNetwork(url=url, pid=pid, group=group, auth=auth, send_only=send_only)

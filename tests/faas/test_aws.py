@@ -311,6 +311,58 @@ def test_with_dependency_is_readable_by_type() -> None:
     assert r._deps.get(str) == "a-client"
 
 
+# -- network selection ---------------------------------------------------------
+
+
+class _InertNetwork:
+    """Network stand-in: ``_drive`` only starts and stops it."""
+
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+
+
+class _DoneCore:
+    """Core stand-in whose ``on_message`` completes without touching a server."""
+
+    def __init__(self, **_kwargs: Any) -> None: ...
+
+    async def on_message(self, _task_id: str, _version: int) -> str:
+        return "done"
+
+
+def test_drive_selects_network_from_url_scheme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_drive`` routes the server URL through the shared ``network_for_url``.
+
+    A resonate-pg DSN in ``url`` / ``RESONATE_URL`` must yield a send-only
+    PostgresNetwork; the shim itself must not hardcode HTTP.
+    """
+    dsn = "postgresql://user:pw@db.example:5432/app"
+    r = Resonate(url=dsn)
+    seen: dict[str, Any] = {}
+
+    def fake_network_for_url(
+        url: str,
+        pid: str | None = None,
+        group: str | None = None,
+        auth: str | None = None,
+        *,
+        send_only: bool = False,
+    ) -> _InertNetwork:
+        seen["url"] = url
+        seen["send_only"] = send_only
+        return _InertNetwork()
+
+    monkeypatch.setattr("resonate.faas.aws.network_for_url", fake_network_for_url)
+    monkeypatch.setattr("resonate.faas.aws.Core", _DoneCore)
+
+    resp = r.handler()(_event(), _CONTEXT)
+    assert resp["statusCode"] == 200
+    assert _body(resp) == {"status": "completed"}
+    assert seen == {"url": dsn, "send_only": True}
+
+
 # -- send-only network --------------------------------------------------------
 
 
