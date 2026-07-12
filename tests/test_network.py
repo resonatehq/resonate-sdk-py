@@ -5,13 +5,25 @@ from typing import Any
 from unittest import mock
 
 import aiohttp
+import asyncpg
 import msgspec
 import pytest
 
-from resonate.error import HttpError
-from resonate.network import HttpNetwork, LocalNetwork
+from resonate.error import HttpError, PostgresError
+from resonate.network import (
+    HttpNetwork,
+    LocalNetwork,
+    PostgresNetwork,
+    network_for_url,
+)
 from resonate.network.http import DEFAULT_CONN_LIMIT
 from resonate.network.local import I64_MAX
+from resonate.network.postgres import (
+    _execute_envelope,
+    _outbox_channel,
+    _unblock_envelope,
+)
+from resonate.transport import ExecuteMsg, Message, UnblockMsg
 
 # -- helpers ------------------------------------------------------------------
 
@@ -700,3 +712,398 @@ async def test_http_send_does_not_retry_server_errors(
     body = await net.send("{}")
     assert '"status":404' in body
     assert not_found.attempts == 1  # one shot -- no retry on a real HTTP response
+
+
+def test_http_dispatch_survives_raising_subscriber() -> None:
+    """A raising subscriber must not kill the SSE listener.
+
+    An exception escaping the fan-out would propagate past ``_sse_loop``'s
+    ``aiohttp.ClientError`` handler and silently kill the listener task --
+    no more incoming messages until ``stop``.
+    """
+    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    received: list[str] = []
+
+    def bad(_data: str) -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    net.recv(bad)
+    net.recv(received.append)
+
+    net._dispatch("{}")
+
+    assert received == ["{}"]
+
+
+# ---------------------------------------------------------------------------
+# network_for_url: the single scheme dispatch shared by Resonate and the
+# serverless faas shims.
+# ---------------------------------------------------------------------------
+
+
+def test_network_for_url_scheme_selection() -> None:
+    """A postgres:// / postgresql:// DSN selects PostgresNetwork; else HTTP."""
+    dsn = "postgresql://user:pw@localhost:5432/db"
+    assert isinstance(network_for_url(dsn, pid="p", group="g"), PostgresNetwork)
+    assert isinstance(
+        network_for_url("postgres://localhost/db", pid="p", group="g"),
+        PostgresNetwork,
+    )
+    assert isinstance(
+        network_for_url("http://localhost:8001", pid="p", group="g"), HttpNetwork
+    )
+    assert isinstance(
+        network_for_url("https://cloud.resonatehq.io", pid="p", group="g"),
+        HttpNetwork,
+    )
+
+
+@pytest.mark.asyncio
+async def test_network_for_url_send_only_starts_no_listener() -> None:
+    """``send_only=True`` propagates: neither implementation opens a listener."""
+    pg = network_for_url(
+        "postgresql://localhost:5432/db", pid="p", group="g", send_only=True
+    )
+    assert isinstance(pg, PostgresNetwork)
+    await pg.start()
+    assert pg._listen_handle is None
+    assert pg._drain_handle is None
+    await pg.stop()
+
+    http = network_for_url("http://localhost:8001", pid="p", group="g", send_only=True)
+    assert isinstance(http, HttpNetwork)
+    await http.start()
+    assert http._sse_handle is None
+    await http.stop()
+
+
+# ---------------------------------------------------------------------------
+# PostgresNetwork: identity, channel/envelope wire compatibility with
+# resonate-pg, and send resilience (mirrors the HttpNetwork retry tests).
+# ---------------------------------------------------------------------------
+
+
+_PG_URL = "postgresql://localhost:5432/resonate"
+
+
+class _FlakyPgPool:
+    """Minimal ``asyncpg.Pool`` stand-in that fails N times then succeeds.
+
+    The real pool is built by ``_ensure_pool`` and held on the network;
+    monkey-patching that one factory keeps the rest of ``send`` exercised
+    (the retry loop, error wrapping, response return).
+    """
+
+    def __init__(
+        self,
+        fail_times: int = 0,
+        body: str = '{"head":{"status":200},"data":{}}',
+        error: Exception | None = None,
+    ) -> None:
+        self.fail_times = fail_times
+        self.body = body
+        self.error = error if error is not None else ConnectionError("down")
+        self.attempts = 0
+
+    async def fetchval(self, _sql: str, _req: str) -> str:
+        self.attempts += 1
+        if self.attempts <= self.fail_times:
+            raise self.error
+        return self.body
+
+
+class _DrainPgPool:
+    """``asyncpg.Pool`` stand-in serving one batch of outbox rows, then none."""
+
+    def __init__(
+        self,
+        execute_rows: list[dict[str, Any]] | None = None,
+        unblock_rows: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.execute_rows = list(execute_rows or [])
+        self.unblock_rows = list(unblock_rows or [])
+        self.addresses: list[str] = []
+
+    async def fetch(self, sql: str, address: str, _batch: int) -> list[dict[str, Any]]:
+        self.addresses.append(address)
+        rows = self.execute_rows if "dequeue_execute" in sql else self.unblock_rows
+        drained = list(rows)
+        rows.clear()
+        return drained
+
+
+def test_postgres_network_identity() -> None:
+    net = PostgresNetwork(_PG_URL, pid="mypid", group="mygroup")
+    assert net.pid() == "mypid"
+    assert net.group() == "mygroup"
+    assert net.unicast() == "pg://uni@mygroup/mypid"
+    # No pid suffix: every group member must advertise the *same* anycast
+    # address so the SKIP LOCKED dequeue load-balances across them.
+    assert net.anycast() == "pg://any@mygroup"
+    assert net.target_resolver("my-target") == "pg://any@my-target"
+
+
+def test_postgres_network_default_group() -> None:
+    net = PostgresNetwork(_PG_URL, pid="pid1")
+    assert net.group() == "default"
+    assert net.unicast() == "pg://uni@default/pid1"
+    assert net.anycast() == "pg://any@default"
+
+
+def test_postgres_outbox_channel_matches_server_definition() -> None:
+    """The channel derivation must match SQL ``resonate.outbox_channel``.
+
+    The golden value is ``'resonate_q_' || md5('pg://any@default')`` as
+    Postgres computes it; drifting from the SQL definition means LISTEN
+    subscribes to a channel the server never notifies.
+    """
+    assert _outbox_channel("pg://any@default") == (
+        "resonate_q_b5db7f618f10b015ebb5ffb6d9fed7b2"
+    )
+
+
+def test_postgres_envelopes_decode_as_transport_messages() -> None:
+    """Dequeued rows must re-wrap into the envelopes ``Transport.recv`` parses.
+
+    These are the same shapes resonate-pg's ``_outbox_http_body`` builds for
+    the HTTP push path.
+    """
+    execute = msgspec.json.decode(_execute_envelope("task-1", 3), type=Message)
+    assert isinstance(execute, ExecuteMsg)
+    assert execute.task_id == "task-1"
+    assert execute.version == 3
+
+    promise = (
+        '{"id":"p1","state":"resolved","param":{"headers":{},"data":null},'
+        '"value":{"headers":{},"data":"eyJ2IjoxfQ=="},"tags":{},'
+        '"timeoutAt":9007199254740991,"createdAt":1,"settledAt":2}'
+    )
+    unblock = msgspec.json.decode(_unblock_envelope(promise), type=Message)
+    assert isinstance(unblock, UnblockMsg)
+    assert unblock.promise.id == "p1"
+    assert unblock.promise.state == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_postgres_send_retries_through_connection_outage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``send`` must retry on connection-level failures and recover."""
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g")
+    flaky = _FlakyPgPool(fail_times=3)
+
+    async def ensure() -> _FlakyPgPool:
+        return flaky
+
+    monkeypatch.setattr(net, "_ensure_pool", ensure)
+    net._running = True
+    monkeypatch.setattr(net, "_sleep_or_stop", lambda _s: asyncio.sleep(0))
+
+    body = await net.send("{}")
+    assert body == '{"head":{"status":200},"data":{}}'
+    assert flaky.attempts == 4  # three failures + one success
+
+
+@pytest.mark.asyncio
+async def test_postgres_send_does_not_retry_database_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raised database error (schema missing, EXECUTE revoked) is deliberate.
+
+    Retrying cannot fix it -- it must surface once as :class:`PostgresError`.
+    """
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g")
+    flaky = _FlakyPgPool(
+        fail_times=10_000,
+        error=asyncpg.UndefinedFunctionError(
+            "function resonate.resonate_rpc(jsonb) does not exist"
+        ),
+    )
+
+    async def ensure() -> _FlakyPgPool:
+        return flaky
+
+    monkeypatch.setattr(net, "_ensure_pool", ensure)
+    net._running = True
+
+    with pytest.raises(PostgresError):
+        await net.send("{}")
+    assert flaky.attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_postgres_send_stops_retrying_after_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stop`` must unblock a ``send`` parked in the retry backoff."""
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g")
+    flaky = _FlakyPgPool(fail_times=10_000)
+
+    async def ensure() -> _FlakyPgPool:
+        return flaky
+
+    monkeypatch.setattr(net, "_ensure_pool", ensure)
+    net._running = True
+
+    send_task = asyncio.create_task(net.send("{}"))
+    # Let the retry enter its first real backoff sleep.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    await net.stop()  # signals _stop_event and flips _running
+
+    with pytest.raises(PostgresError):
+        await asyncio.wait_for(send_task, timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_postgres_send_after_stop_raises_postgres_error() -> None:
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g", send_only=True)
+    await net.start()
+    await net.stop()
+
+    with pytest.raises(PostgresError):
+        await net.send("{}")
+
+    # No pool was created during the failed ``send``.
+    assert net._pool is None
+
+
+@pytest.mark.asyncio
+async def test_postgres_drain_dispatches_both_queues_and_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A drain dequeues execute and unblock rows for unicast *and* anycast."""
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g")
+    promise = '{"id":"p1","state":"resolved","param":{"headers":{},"data":null},"value":{"headers":{},"data":null},"tags":{},"timeoutAt":1,"createdAt":1,"settledAt":1}'
+    pool = _DrainPgPool(
+        execute_rows=[{"task_id": "t1", "version": 2}],
+        unblock_rows=[{"promise": promise}],
+    )
+
+    async def ensure() -> _DrainPgPool:
+        return pool
+
+    monkeypatch.setattr(net, "_ensure_pool", ensure)
+    net._running = True
+
+    received: list[str] = []
+    net.recv(received.append)
+    await net._drain()
+
+    # Both addresses were polled for both message kinds.
+    assert set(pool.addresses) == {"pg://uni@g/pid", "pg://any@g"}
+    # Each queue's single batch was dispatched exactly once, decodable as
+    # transport messages.
+    msgs = [msgspec.json.decode(raw, type=Message) for raw in received]
+    assert {type(m) for m in msgs} == {ExecuteMsg, UnblockMsg}
+    assert len(msgs) == 2
+
+
+@pytest.mark.asyncio
+async def test_postgres_stop_during_pool_creation_closes_fresh_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pool whose creation straddles ``stop`` must be closed, not leaked.
+
+    ``stop`` runs while ``create_pool`` is in flight: it sees ``_pool is
+    None`` and finds nothing to close. Without the post-create ``_running``
+    re-check in ``_ensure_pool``, the fresh pool would be assigned anyway --
+    live connections nobody will ever close, and a ``send`` that proceeds
+    after shutdown.
+    """
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g", send_only=True)
+    await net.start()
+
+    release = asyncio.Event()
+
+    class _Pool:
+        closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    pool = _Pool()
+
+    async def create_pool(*_args: Any, **_kwargs: Any) -> _Pool:
+        await release.wait()
+        return pool
+
+    monkeypatch.setattr(asyncpg, "create_pool", create_pool)
+
+    send_task = asyncio.create_task(net.send("{}"))
+    await asyncio.sleep(0)  # park the send inside create_pool
+    await net.stop()  # sees no pool to close
+    release.set()
+
+    with pytest.raises(PostgresError):
+        await asyncio.wait_for(send_task, timeout=2.0)
+    assert pool.closed
+    assert net._pool is None
+
+
+@pytest.mark.asyncio
+async def test_postgres_stop_terminates_pool_when_close_hangs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stop`` must not hang on a pool close that never finishes.
+
+    ``Pool.close`` waits for in-flight queries to release their connections;
+    with no ``command_timeout`` configured, a query wedged on a dead-but-silent
+    connection would park shutdown forever. Past the grace period the pool is
+    terminated instead.
+    """
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g", send_only=True)
+    await net.start()
+
+    class _WedgedPool:
+        terminated = False
+
+        async def close(self) -> None:
+            await asyncio.Event().wait()  # never completes
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+    pool = _WedgedPool()
+    monkeypatch.setattr(net, "_pool", pool)
+    monkeypatch.setattr("resonate.network.postgres._POOL_CLOSE_TIMEOUT_SECS", 0.01)
+
+    await asyncio.wait_for(net.stop(), timeout=2.0)
+
+    assert pool.terminated
+    assert net._pool is None
+
+
+@pytest.mark.asyncio
+async def test_postgres_drain_survives_raising_subscriber(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising subscriber must not kill the drain loop.
+
+    An exception escaping ``_dispatch`` would propagate past ``_drain_loop``'s
+    ``(asyncpg.PostgresError, OSError)`` handler and silently kill the task --
+    no more incoming messages until ``stop``.
+    """
+    net = PostgresNetwork(_PG_URL, pid="pid", group="g")
+    pool = _DrainPgPool(execute_rows=[{"task_id": "t1", "version": 1}])
+
+    async def ensure() -> _DrainPgPool:
+        return pool
+
+    monkeypatch.setattr(net, "_ensure_pool", ensure)
+    net._running = True
+
+    received: list[str] = []
+
+    def bad(_data: str) -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    net.recv(bad)
+    net.recv(received.append)
+
+    await net._drain()  # must not raise
+
+    assert len(received) == 1

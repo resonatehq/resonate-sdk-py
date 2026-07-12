@@ -277,8 +277,16 @@ class HttpNetwork:
                     if data is None:
                         continue
                     logger.debug("http_network sse_recv: %s", data)
-                    for cb in list(self._subscribers):
-                        cb(data)
+                    self._dispatch(data)
+
+    def _dispatch(self, data: str) -> None:
+        for cb in list(self._subscribers):
+            try:
+                cb(data)
+            except Exception:
+                # A raising subscriber must not kill the SSE loop; later
+                # subscribers and future events still get delivered.
+                logger.exception("http_network subscriber raised")
 
 
 def _strip_data_prefix(line: str) -> str | None:
