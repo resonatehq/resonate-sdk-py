@@ -46,6 +46,7 @@ from resonate.resonate import (
     Resonate,
 )
 from resonate.retry import Never
+from resonate.types import Value
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -364,6 +365,60 @@ async def test_run_decodes_dataclass_result() -> None:
         result = await r.run("vec", make_vec, 3, 4).result()
         assert result == Vec(dx=3, dy=4)
         assert isinstance(result, Vec)
+
+
+@pytest.mark.asyncio
+async def test_run_concurrent_task_chains_replay_deterministically() -> None:
+    # Regression for nondeterministic child ids under concurrency (see
+    # docs/concurrent-id-determinism.md): two chains run as plain asyncio
+    # tasks, each with a second durable op gated on its first. The slow chain
+    # loses the live race but recovers instantly on replay, so a child id
+    # derived from the global call order would swap between passes and each
+    # chain would recover the *other* chain's stored value. Ids are keyed per
+    # task branch (resonate.lineage), so replay must reconstruct the values in
+    # argument order regardless of which chain settled first.
+    async def slow(ctx: Context) -> str:
+        await asyncio.sleep(0.02)
+        return "slow-result"
+
+    async def fast(ctx: Context) -> str:
+        return "fast-result"
+
+    async def mark(ctx: Context, tag: str, value: str) -> str:
+        return f"{tag}:{value}"
+
+    async def wf(ctx: Context) -> list[str]:
+        # Suspend gate: stays pending until the test resolves it, forcing a
+        # suspend after the live pass and a full replay after the resolve.
+        gate = ctx.promise(timedelta(seconds=30))
+
+        async def chain_a() -> str:
+            a = await ctx.run(slow)
+            return await ctx.run(mark, "s2", a)
+
+        async def chain_b() -> str:
+            b = await ctx.run(fast)
+            return await ctx.run(mark, "f2", b)
+
+        task_a = asyncio.create_task(chain_a())
+        task_b = asyncio.create_task(chain_b())
+        r1 = await task_a
+        r2 = await task_b
+        await gate
+        return [r1, r2]
+
+    async with local() as r:
+        r.register(wf)
+        handle = r.run("race-wf", wf)
+        # The gate is the body's first sequential durable op, so its id is the
+        # stable flat form. Give the live pass time to finish both chains and
+        # suspend on the gate, then release it to trigger the replay. (An early
+        # resolve is harmless -- the suspend then redirects into an immediate
+        # replay -- so this sleep only shapes the scenario, not correctness.)
+        await wait_for_promise(r, "race-wf.1")
+        await asyncio.sleep(0.1)
+        await r.promises.resolve("race-wf.1", Value(data="go"))
+        assert await handle.result() == ["s2:slow-result", "f2:fast-result"]
 
 
 @pytest.mark.asyncio

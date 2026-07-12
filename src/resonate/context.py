@@ -22,6 +22,7 @@ from resonate.error import (
     SerializationError,
     Suspended,
 )
+from resonate.lineage import capture_anchor, reset_spawn_counter, task_path
 from resonate.registry import Registry
 from resonate.retry import Never, RetryPolicy
 from resonate.tree import Tree
@@ -81,7 +82,6 @@ class _State:
         parent_id: str,
         func_name: str,
         timeout_at: int,
-        seq: int,
         effects: Effects,
         target_resolver: TargetResolver,
         spawned_remote: list[str],
@@ -116,7 +116,19 @@ class _State:
         self.tree = tree
 
         self.timeout_at = timeout_at
-        self.seq = seq
+
+        # Child-id sequence counters, keyed by the calling task's lineage path
+        # relative to ``anchor`` (see ``_next_id``). Sequential code only ever
+        # touches the empty-path slot, reproducing the old single-counter ids;
+        # each concurrent task branch counts in its own slot so the id a call
+        # mints does not depend on cross-task interleaving.
+        self.seqs: dict[tuple[int, ...], int] = {}
+
+        # The lineage anchor: the task path of the task this state is created
+        # in -- the same task its user body runs in (the core execution task
+        # for a root, ``ctx.run``'s background task for a child). Durable-op
+        # call sites key their ids by their path relative to this.
+        self.anchor = capture_anchor()
 
         self.effects = effects
         self.target_resolver = target_resolver
@@ -229,7 +241,6 @@ class Context:
                 parent_id=id,
                 func_name=func_name,
                 timeout_at=timeout_at,
-                seq=0,
                 effects=effects,
                 target_resolver=target_resolver,
                 spawned_locals=[],
@@ -264,7 +275,6 @@ class Context:
                 parent_id=self._state.id,
                 func_name=func_name,
                 timeout_at=timeout_at,
-                seq=0,
                 effects=self._state.effects,
                 target_resolver=self._state.target_resolver,
                 spawned_locals=[],
@@ -315,6 +325,12 @@ class Context:
         """
         attempt = 0
         while True:
+            # The user-code boundary: arm a fresh spawn-counter cell so the
+            # lineage indices tasks spawned by the body receive start at 1 on
+            # every attempt and every replay -- immune to whatever tasks the
+            # SDK or the network stack spawned from this task beforehand (see
+            # :func:`resonate.lineage.reset_spawn_counter`).
+            reset_spawn_counter()
             try:
                 return await df.invoke(self, payload, coerce_args=coerce_args)
             except Exception:
@@ -326,10 +342,11 @@ class Context:
                     raise
                 # Only a pure leaf reaches here -- a durable op would have set
                 # ``workflow`` and stopped the retry above. A pure leaf never
-                # calls ``_next_id`` (the five durable ops do), so it cannot have
-                # advanced ``seq``: it must still be 0, leaving the next attempt
-                # to re-run from a clean id-generation state.
-                assert self._state.seq == 0, (
+                # calls ``_next_id`` (the five durable ops do), so it cannot
+                # have advanced any seq counter: they must all be untouched,
+                # leaving the next attempt to re-run from a clean
+                # id-generation state.
+                assert not self._state.seqs, (
                     "retried pure-leaf must not have advanced seq"
                 )
                 await asyncio.sleep(delay)
@@ -358,8 +375,32 @@ class Context:
         return self._state.deps.get(type)
 
     def _next_id(self) -> str:
-        self._state.seq += 1
-        return f"{self._state.id}.{self._state.seq}"
+        """Mint the next child-promise id, stable across replays.
+
+        The id is a pure function of two replay-stable coordinates -- never of
+        the global order in which concurrent coroutines happen to reach their
+        durable ops (see :mod:`resonate.lineage`):
+
+        * the calling task's lineage **path** relative to this state's anchor
+          task -- the chain of ``create_task`` spawn indices, fixed by the
+          spawning code's program order;
+        * the per-path **seq** -- the call's index within its own task, fixed
+          by that task's sequential program order.
+
+        Sequential code (empty path) keeps the flat ``{id}.{seq}`` shape ids
+        have always had; a call from a spawned task mints
+        ``{id}.t{i}...t{j}.{seq}``. The ``t`` marker keeps the two segment
+        kinds from colliding: a path-full id can never equal one of a child
+        context's own minted ids (a promise id always ends in a numeric seq
+        segment, so no state's ``{id}`` prefix ever ends mid-path).
+        """
+        path = task_path(self._state.anchor)
+        seq = self._state.seqs.get(path, 0) + 1
+        self._state.seqs[path] = seq
+        if path:
+            branch = ".".join(f"t{index}" for index in path)
+            return f"{self._state.id}.{branch}.{seq}"
+        return f"{self._state.id}.{seq}"
 
     async def flush_local_work(self) -> None:
         """Wait for every eagerly spawned task on this context to finish.
