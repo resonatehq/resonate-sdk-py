@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING, Protocol
 from resonate.network.http import HttpNetwork
 from resonate.network.local import LocalNetwork
 from resonate.network.nats import NatsNetwork
+from resonate.network.postgres import PostgresNetwork
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["HttpNetwork", "LocalNetwork", "NatsNetwork", "Network"]
+__all__ = ["HttpNetwork", "LocalNetwork", "NatsNetwork", "Network", "PostgresNetwork"]
 
 
 class Network(Protocol):
@@ -17,10 +18,6 @@ class Network(Protocol):
 
     All communication between Resonate and the server (local or remote) flows
     through it as JSON strings. Methods raise on error.
-
-    Three implementations are provided: :class:`LocalNetwork` runs an in-process
-    server simulation, :class:`HttpNetwork` talks to a Resonate server over
-    HTTP, and :class:`NatsNetwork` talks to one over NATS.
     """
 
     def pid(self) -> str: ...

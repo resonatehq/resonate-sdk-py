@@ -17,6 +17,7 @@ pydantic-ai = [
     "pydantic-ai-slim>=2.8,<3",
     "pydantic>=2.0.0,<3",
 ]
+postgres = ["asyncpg>=0.31.0,<1"]
 
 [project.urls]
 Documentation = "https://github.com/resonatehq/resonate-sdk-py#readme"

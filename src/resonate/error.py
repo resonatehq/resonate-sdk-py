@@ -84,6 +84,15 @@ class NatsError(ResonateError):
         return f"nats error: {self.error}"
 
 
+class PostgresError(ResonateError):
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        super().__init__(error)
+
+    def __str__(self) -> str:
+        return f"postgres error: {self.error}"
+
+
 class Base64DecodeError(ResonateError):
     def __init__(self, error: Exception) -> None:
         self.error = error
