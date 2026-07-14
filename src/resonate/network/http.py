@@ -64,7 +64,7 @@ class HttpNetwork:
         self._auth = auth
         self._conn_limit = conn_limit if conn_limit is not None else DEFAULT_CONN_LIMIT
         # Request/response only: :meth:`start` skips the SSE listener. A
-        # serverless worker (see ``resonate.faas``) is *pushed* one execute
+        # serverless worker (see ``resonate_aws``) is *pushed* one execute
         # message per invocation over HTTP and never holds a poll connection,
         # so opening an SSE stream it would immediately tear down is pure waste.
         self._send_only = send_only

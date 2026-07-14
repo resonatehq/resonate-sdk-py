@@ -1,4 +1,4 @@
-"""Behaviour tests for :mod:`resonate.faas.aws`.
+"""Behaviour tests for :mod:`resonate_aws`.
 
 The AWS FaaS shim is a serverless worker: the Resonate server pushes one
 ``execute`` message per Lambda invocation over HTTP, and the handler drives
@@ -21,8 +21,8 @@ import msgspec
 import pytest
 
 from resonate.error import AlreadyRegisteredError, ApplicationError
-from resonate.faas.aws import Resonate, _self_routing_resolver
 from resonate.network import HttpNetwork
+from resonate_aws import Resonate, _self_routing_resolver
 
 if TYPE_CHECKING:
     from aws_lambda_typing.context import Context as LambdaContext

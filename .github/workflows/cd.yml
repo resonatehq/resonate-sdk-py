@@ -19,15 +19,20 @@ jobs:
       - name: install uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: 0.5.23
+          version: 0.11.21
 
       - name: set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      - name: verify versions are consistent and match the tag
+        run: uv run --no-project scripts/check-versions.py --tag "$GITHUB_REF_NAME"
+
       - name: build library
-        run: uv build
+        run: uv build --all-packages
 
       - name: push build artifacts to PyPI
         uses: pypa/gh-action-pypi-publish@v1.13.0
+        with:
+          skip-existing: true
