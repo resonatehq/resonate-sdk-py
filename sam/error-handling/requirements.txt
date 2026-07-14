@@ -1,3 +1,0 @@
-requests
-aiohttp>=3.13.5,<4
-msgspec>=0.21.1,<1
