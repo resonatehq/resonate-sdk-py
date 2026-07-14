@@ -52,8 +52,6 @@ class HttpNetwork:
         group: str | None = None,
         auth: str | None = None,
         conn_limit: int | None = None,
-        *,
-        send_only: bool = False,
     ) -> None:
         self._pid = pid if pid is not None else uuid.uuid4().hex
         self._group = group if group is not None else "default"
@@ -63,11 +61,6 @@ class HttpNetwork:
         self._url = url.rstrip("/")
         self._auth = auth
         self._conn_limit = conn_limit if conn_limit is not None else DEFAULT_CONN_LIMIT
-        # Request/response only: :meth:`start` skips the SSE listener. A
-        # serverless worker (see ``resonate.faas``) is *pushed* one execute
-        # message per invocation over HTTP and never holds a poll connection,
-        # so opening an SSE stream it would immediately tear down is pure waste.
-        self._send_only = send_only
 
         self._subscribers: list[Callable[[str], None]] = []
         self._session: aiohttp.ClientSession | None = None
@@ -90,16 +83,10 @@ class HttpNetwork:
         return self._anycast
 
     async def start(self) -> None:
-        """Start the SSE listener for incoming messages from the server.
-
-        In ``send_only`` mode no listener is started -- the network only marks
-        itself running so :meth:`send` is permitted -- because a serverless
-        worker receives work by HTTP push, not by polling.
-        """
+        """Start the SSE listener for incoming messages from the server."""
         self._running = True
         self._stop_event.clear()
-        if not self._send_only:
-            self._sse_handle = asyncio.create_task(self._sse_loop())
+        self._sse_handle = asyncio.create_task(self._sse_loop())
 
     async def stop(self) -> None:
         self._running = False
