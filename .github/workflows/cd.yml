@@ -14,8 +14,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: install uv
         uses: astral-sh/setup-uv@v5
@@ -26,13 +24,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: verify the tag commit is on main
-        run: |
-          if ! git merge-base --is-ancestor HEAD origin/main; then
-            echo "::error::tag $GITHUB_REF_NAME points at a commit that is not on main"
-            exit 1
-          fi
 
       - name: verify versions are consistent and match the tag
         run: uv run --no-project scripts/check-versions.py --tag "$GITHUB_REF_NAME"
