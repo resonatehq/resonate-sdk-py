@@ -1,10 +1,15 @@
 """Enforce lockstep versioning.
 
 Every workspace member must carry the same version as the root package, pin
-it exactly, and resolve it from the workspace during development. With
-``--tag v<version>`` (passed by CD from the release tag), additionally
-require the root version to match the tag -- catching a release cut without
-running ``just bump-version``.
+it exactly, match its ``requires-python``, and resolve it from the workspace
+during development. With ``--tag v<version>`` (passed by CD from the release
+tag), additionally require the root version to match the tag -- catching a
+release cut without running ``just bump``.
+
+This assumes a two-tier workspace: the root SDK plus members that each
+depend directly on it. A future member that depends on another member (or
+on nothing) needs these checks -- and bump-version.py's pin rewrite --
+extended first.
 """
 
 from __future__ import annotations
@@ -42,6 +47,15 @@ def main() -> None:
         if project["version"] != root_version:
             errors.append(
                 f"{member}: version {project['version']} != {root_name} {root_version}"
+            )
+
+        # An exact pin means the pair always installs together, so a member
+        # claiming support for a Python the root has dropped is a lie in the
+        # published metadata.
+        if project.get("requires-python") != root.get("requires-python"):
+            errors.append(
+                f"{member}: requires-python {project.get('requires-python')!r} "
+                f"!= {root_name} {root.get('requires-python')!r}"
             )
 
         pins = [_PIN.match(d.strip()) for d in project.get("dependencies", [])]

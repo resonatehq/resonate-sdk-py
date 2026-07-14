@@ -30,6 +30,9 @@ jobs:
       - name: check all packages share one version
         run: uv run --no-project scripts/check-versions.py
 
+      - name: check the lockfile is up to date
+        run: uv lock --check
+
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -54,7 +57,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: install
-        run: uv sync --all-extras --all-packages
+        run: uv sync --locked --all-extras --all-packages
 
       - name: check linting
         run: uv run ruff check
@@ -89,7 +92,7 @@ jobs:
           python-version: 3.12
 
       - name: install
-        run: uv sync --all-extras --all-packages
+        run: uv sync --locked --all-extras --all-packages
 
       - name: install just
         uses: extractions/setup-just@v3

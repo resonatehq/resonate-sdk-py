@@ -1554,11 +1554,15 @@ name = "resonate-sdk-aws"
 version = "0.7.3"
 source = { editable = "packages/resonate-sdk-aws" }
 dependencies = [
+    { name = "msgspec" },
     { name = "resonate-sdk" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "resonate-sdk", editable = "." }]
+requires-dist = [
+    { name = "msgspec", specifier = ">=0.21.1,<1" },
+    { name = "resonate-sdk", editable = "." },
+]
 
 [[package]]
 name = "rich"

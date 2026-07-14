@@ -5,16 +5,17 @@ on:
     types: [released]
 
 jobs:
-  run:
-    name: release
-
-    permissions:
-      id-token: write
-
+  # Everything that can reject a bad release happens here, before any
+  # upload: the tag must point at a commit on main, every package must
+  # carry the tag's version, and the test suite must pass. The publish
+  # job ships exactly the artifacts this job built.
+  verify:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: install uv
         uses: astral-sh/setup-uv@v5
@@ -26,11 +27,46 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: verify the tag commit is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::tag $GITHUB_REF_NAME points at a commit that is not on main"
+            exit 1
+          fi
+
       - name: verify versions are consistent and match the tag
         run: uv run --no-project scripts/check-versions.py --tag "$GITHUB_REF_NAME"
 
+      - name: install
+        run: uv sync --locked --all-extras --all-packages
+
+      - name: run tests
+        run: uv run pytest
+
       - name: build library
         run: uv build --all-packages
+
+      - name: upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+
+    permissions:
+      id-token: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
       - name: push build artifacts to PyPI
         uses: pypa/gh-action-pypi-publish@v1.13.0
