@@ -19,9 +19,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 import msgspec
 import pytest
-from resonate.faas.aws import Resonate, _self_routing_resolver
 
 from resonate.error import AlreadyRegisteredError, ApplicationError
+from resonate.faas.aws import Resonate, _self_routing_resolver
 from resonate.network import HttpNetwork
 
 if TYPE_CHECKING:
