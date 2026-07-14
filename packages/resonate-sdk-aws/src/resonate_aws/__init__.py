@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-check_lockstep_version("resonate-sdk-aws")
+check_lockstep_version(__package__)
 
 #: Default per-task lease duration. Five minutes, matching the TypeScript FaaS
 #: shim. A serverless worker cannot heartbeat, so the server holds the lease

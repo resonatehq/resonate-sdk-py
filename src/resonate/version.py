@@ -15,12 +15,23 @@ import importlib.metadata
 import warnings
 
 
-def check_lockstep_version(distribution: str) -> None:
-    """Warn when *distribution*'s installed version differs from resonate-sdk.
+def check_lockstep_version(package: str | None) -> None:
+    """Warn when *package*'s installed version differs from resonate-sdk.
 
-    Silently returns when either distribution is not installed (e.g. running
-    from source), since there is nothing meaningful to compare.
+    *package* is the caller's import package name (pass ``__package__``); the
+    distribution name is resolved at runtime, so members don't hardcode their
+    own ``resonate-sdk-*`` dist name.
+
+    Silently returns when *package* is None, its distribution can't be
+    resolved, or either distribution is not installed (e.g. running from
+    source), since there is nothing meaningful to compare.
     """
+    if package is None:
+        return
+    dists = importlib.metadata.packages_distributions().get(package)
+    if not dists:
+        return
+    distribution = dists[0]
     try:
         sdk = importlib.metadata.version("resonate-sdk")
         member = importlib.metadata.version(distribution)

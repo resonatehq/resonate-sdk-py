@@ -31,7 +31,9 @@ def main() -> None:
         sys.exit(2)
     version = sys.argv[1]
 
-    root_name = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["name"]
+    root_name = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"][
+        "name"
+    ]
 
     # uv validates the version against PEP 440 and rewrites the TOML in place.
     run(["uv", "version", version, "--frozen"])
@@ -52,7 +54,9 @@ def main() -> None:
 
     run(["uv", "lock"])
     run([sys.executable, str(pathlib.Path(__file__).with_name("check-versions.py"))])
-    sys.stdout.write(f"\nAll packages at {version}. Commit, then tag v{version} to release.\n")
+    sys.stdout.write(
+        f"\nAll packages at {version}. Commit, then tag v{version} to release.\n"
+    )
 
 
 if __name__ == "__main__":
