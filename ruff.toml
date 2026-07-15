@@ -1,4 +1,3 @@
-src = ["src", "tests", "packages/*/src", "packages/*/tests"]
 target-version = "py312"
 
 [lint]

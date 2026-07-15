@@ -47,8 +47,5 @@ dev = [
     "aws-lambda-typing>=2.20.0",
 ]
 
-[tool.pytest.ini_options]
-testpaths = ["tests", "packages/*/tests"]
-
 [tool.coverage.run]
 source = ["resonate", "resonate_aws"]

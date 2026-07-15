@@ -11,9 +11,9 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import UserError
 from pydantic_ai.models.test import TestModel
+from resonate_aws import Resonate
 
 from resonate.ext.pydantic_ai import ResonateAgent
-from resonate_aws import Resonate
 
 
 @pytest.mark.asyncio
