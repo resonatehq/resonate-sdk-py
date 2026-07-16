@@ -27,11 +27,14 @@ jobs:
         with:
           version: 0.11.21
 
-      - name: check all packages share one version
-        run: uv run --no-project scripts/check-versions.py
-
       - name: check the lockfile is up to date
         run: uv lock --check
+
+      # The version checker runs in the project environment (packaging
+      # and pyproject-metadata are dev dependencies), which uv run syncs
+      # from the lockfile -- proven current by the step above.
+      - name: check versions and cross-package constraints
+        run: uv run --locked scripts/check-versions.py
 
   test:
     runs-on: ${{ matrix.os }}

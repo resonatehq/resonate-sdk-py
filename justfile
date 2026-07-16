@@ -2,9 +2,10 @@ default:
     just --list
 
 
-# set one version across the workspace; commit, then tag v<version> to release
-bump version:
-    uv run --no-project scripts/bump-version.py {{version}}
+# bump one package's version (defaults to the core sdk); commit, then tag v<core version> to release
+bump version package="resonate-sdk":
+    uv version {{version}} --package {{package}}
+    uv run scripts/check-versions.py
 
 
 examples:

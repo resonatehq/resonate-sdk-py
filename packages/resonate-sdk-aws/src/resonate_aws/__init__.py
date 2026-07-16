@@ -61,7 +61,7 @@ from resonate.registry import Registry
 from resonate.retry import Exponential
 from resonate.send import Sender
 from resonate.transport import ExecuteData, Transport
-from resonate.version import check_lockstep_version
+from resonate.version import check_version_compatibility
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-check_lockstep_version(__package__)
+check_version_compatibility(__package__)
 
 #: Default per-task lease duration. Five minutes, matching the TypeScript FaaS
 #: shim. A serverless worker cannot heartbeat, so the server holds the lease
