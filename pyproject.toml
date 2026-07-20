@@ -46,7 +46,6 @@ dev = [
     "pydantic-ai-slim[mcp]>=2.8",
     "aws-lambda-typing>=2.20.0",
     "packaging>=24",
-    "pyproject-metadata>=0.9",
 ]
 
 [tool.coverage.run]

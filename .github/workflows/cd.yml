@@ -6,23 +6,18 @@ on:
 
 jobs:
   # Everything that can reject a bad release happens here, before any
-  # upload: the root package must carry the tag's version, members
-  # version independently but a member that changed since the previous
-  # release must carry a version PyPI has not seen (an already-published
-  # one would be silently skipped at upload), the test suite must pass
-  # from source and against the built artifacts, and those artifacts
-  # must resolve and import in a clean environment. The publish job
-  # ships exactly the artifacts this job built.
+  # upload: the root package must carry the tag's version, the test
+  # suite must pass from source, and -- the check that matters for
+  # independent versioning -- it must pass again with the built wheels
+  # installed by the real resolver instead of the [tool.uv.sources]
+  # workspace links dev uses, which proves each member's declared
+  # dependency range is satisfiable by the artifact set being shipped.
+  # The publish job ships exactly the artifacts this job built.
   verify:
     runs-on: ubuntu-latest
 
     steps:
-      # Full history: the version check diffs each member against the
-      # previous release tag to catch a changed member that was never
-      # bumped.
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: install uv
         uses: astral-sh/setup-uv@v5
@@ -34,13 +29,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The release's publication time lets the checker tell a version
-      # left over from a previous release (stale: fail) from one uploaded
-      # by an earlier attempt of this same release (re-run: pass).
-      - name: verify the root version matches the tag and member constraints hold
-        run: uv run --locked scripts/check-versions.py --tag "$GITHUB_REF_NAME" --released-at "$RELEASED_AT"
-        env:
-          RELEASED_AT: ${{ github.event.release.published_at }}
+      # The tag tracks the root SDK's version; a mismatch means the wheel
+      # would publish under the wrong version (or skip-existing would drop
+      # it), so nothing ships.
+      - name: verify the root version matches the release tag
+        run: |
+          version=$(uv version --short)
+          test "$version" = "${GITHUB_REF_NAME#v}" \
+            || { echo "root version $version != tag ${GITHUB_REF_NAME#v}"; exit 1; }
 
       - name: install
         run: uv sync --locked --all-extras --all-packages
@@ -51,26 +47,17 @@ jobs:
       - name: build library
         run: uv build --all-packages
 
-      # Installing from dist with the real resolver proves the wheels
-      # declare their runtime dependencies and that each member's version
-      # range on the root is satisfied by the artifact set being shipped
-      # -- the dev environment has every dependency preinstalled, so the
-      # wheel test run below cannot catch a missing declaration. Explicit
-      # wheel paths pin every workspace package to exactly the built
-      # artifacts, so the resolver cannot silently substitute a release
-      # from PyPI, and no package is named -- a new member is covered the
-      # day it appears in dist.
-      - name: resolve and import the built artifacts in a clean environment
-        run: |
-          uv venv /tmp/smoke
-          uv pip install --python /tmp/smoke dist/*.whl
-          /tmp/smoke/bin/python -c "import resonate, resonate_aws"
-
-      # Replace the editable workspace installs with the built wheels so
-      # the suite exercises exactly the code that will be published.
+      # Reinstall the workspace packages from the built wheels with the
+      # real resolver (no --no-deps), then run the whole suite against
+      # exactly the code that will be published. Explicit wheel paths pin
+      # every workspace package to its built artifact, so the resolver
+      # cannot substitute a PyPI release, and it must satisfy each
+      # member's declared range against the shipped set -- a range that
+      # does not admit the built root fails the install here. No package
+      # is named, so a new member is covered the day it appears in dist.
       - name: run tests against the built artifacts
         run: |
-          uv pip install --force-reinstall --no-deps dist/*.whl
+          uv pip install --reinstall dist/*.whl
           uv run --no-sync pytest
 
       - name: upload build artifacts

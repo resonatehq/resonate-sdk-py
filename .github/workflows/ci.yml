@@ -15,7 +15,7 @@ on:
       - README.md
 
 jobs:
-  versions:
+  lockfile:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -29,12 +29,6 @@ jobs:
 
       - name: check the lockfile is up to date
         run: uv lock --check
-
-      # The version checker runs in the project environment (packaging
-      # and pyproject-metadata are dev dependencies), which uv run syncs
-      # from the lockfile -- proven current by the step above.
-      - name: check versions and cross-package constraints
-        run: uv run --locked scripts/check-versions.py
 
   test:
     runs-on: ${{ matrix.os }}

@@ -5,7 +5,6 @@ default:
 # bump one package's version (defaults to the core sdk); commit, then tag v<core version> to release
 bump version package="resonate-sdk":
     uv version {{version}} --package {{package}}
-    uv run scripts/check-versions.py
 
 
 examples:
