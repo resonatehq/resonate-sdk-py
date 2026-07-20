@@ -1,12 +1,6 @@
 default:
     just --list
 
-
-# bump one package's version (defaults to the core sdk); commit, then tag v<core version> to release
-bump version package="resonate-sdk":
-    uv version {{version}} --package {{package}}
-
-
 examples:
     uv run python examples/hello-world
     uv run python examples/fibonacci --mode run --n 12
