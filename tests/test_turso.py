@@ -963,6 +963,65 @@ async def test_each_origin_gets_its_own_database_file(tmp_path: Path) -> None:
         await network.stop()
 
 
+async def test_a_second_process_picks_up_work_it_never_created(tmp_path: Path) -> None:
+    """The whole point of the tenant-global database.
+
+    A worker that has never heard of this workflow finds it through the message
+    index, opens the origin database the id names, and claims the task.
+    """
+    creator = TursoNetwork(
+        TursoLocalDriver(str(tmp_path)),
+        prefix="shared-",
+        group="creators",
+        tick_seconds=0.005,
+    )
+    worker = TursoNetwork(
+        TursoLocalDriver(str(tmp_path)),
+        prefix="shared-",
+        group="workers",
+        tick_seconds=0.005,
+    )
+    await creator.start()
+    await worker.start()
+    try:
+        inbox = Inbox(worker)
+
+        # Targeted at the worker group, so only the worker may claim it.
+        ok(
+            await send(
+                creator,
+                "promise.create",
+                {
+                    "id": "handoff",
+                    "timeoutAt": now_ms() + 60_000,
+                    "param": {"data": "payload"},
+                    "tags": {"resonate:target": creator.target_resolver("workers")},
+                },
+            )
+        )
+
+        msg = await inbox.next(lambda m: m["kind"] == "execute")
+        assert msg["data"]["task"] == {"id": "handoff", "version": 0}
+
+        # The worker opens the origin database for the first time and claims it.
+        acquired = ok(
+            await send(
+                worker,
+                "task.acquire",
+                {"id": "handoff", "version": 0, "pid": "worker-1", "ttl": 30_000},
+            )
+        )
+        assert acquired["promise"]["param"]["data"] == "payload"
+
+        # And the creator sees the claim, because both read the same database.
+        seen = ok(await send(creator, "task.get", {"id": "handoff"}))["task"]
+        assert seen["state"] == "acquired"
+        assert seen["pid"] == "worker-1"
+    finally:
+        await creator.stop()
+        await worker.stop()
+
+
 async def test_promises_in_different_origins_do_not_see_each_other(
     net: TursoNetwork,
 ) -> None:

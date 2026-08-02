@@ -87,6 +87,11 @@ class TursoDriver(Protocol):
 
 _UNSAFE_NAMES = frozenset({"", ".", ".."})
 
+#: How long a connection waits for the write lock before giving up. Several
+#: processes may share one origin database, and a request is a short
+#: transaction, so queueing beats failing.
+BUSY_TIMEOUT_MS = 5000
+
 
 def database_path(directory: str, name: str, suffix: str = ".db") -> str:
     """Map a logical database name to a filesystem path.
@@ -214,7 +219,15 @@ class TursoLocalDriver:
             else database_path(self._directory, name, self._suffix)
         )
         conn = await turso.aio.connect(path, isolation_level=None)
-        return _Connection(conn)
+        wrapped = _Connection(conn)
+        # WAL so readers do not block the writer, and a busy timeout so two
+        # processes sharing the directory queue for the write lock instead of
+        # failing outright -- the same pragmas the Resonate Server's SQLite
+        # backend sets.
+        if path != ":memory:":
+            await wrapped.execute("PRAGMA journal_mode = WAL")
+        await wrapped.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        return wrapped
 
 
 # =============================================================================
@@ -247,7 +260,9 @@ class TursoSyncDriver:
     ) -> None:
         self._directory = directory
         self._url_for: Callable[[str], str] = (
-            (lambda name, prefix=url: f"{prefix}{name}") if isinstance(url, str) else url
+            (lambda name, prefix=url: f"{prefix}{name}")
+            if isinstance(url, str)
+            else url
         )
         self._auth_token = auth_token
         self._client_name = client_name
@@ -268,4 +283,8 @@ class TursoSyncDriver:
             isolation_level=None,
             **self._options,
         )
-        return _Connection(conn, replicates=True)
+        wrapped = _Connection(conn, replicates=True)
+        # Only the busy timeout: the sync engine owns this database's journal
+        # mode, so setting it here would fight the replica machinery.
+        await wrapped.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        return wrapped

@@ -350,15 +350,17 @@ class OriginServer:
         timeout_at = data["timeoutAt"]
         tags: dict[str, str] = data.get("tags") or {}
 
+        # Validation precedes the lookup: the server validates on deserialize, so
+        # a malformed request is a 400 whether or not the promise happens to exist.
+        invalid = validate_create(promise_id, timeout_at, tags)
+        if invalid is not None:
+            return Outcome(kind, 400, invalid)
+
         existing = await self._get_promise(promise_id)
         if existing is not None:
             return Outcome(
                 kind, 200, {"promise": to_promise_record(project(existing, self._now))}
             )
-
-        invalid = validate_create(promise_id, timeout_at, tags)
-        if invalid is not None:
-            return Outcome(kind, 400, invalid)
 
         target, _branch, timer, external = _tag_columns(tags)
 
@@ -552,13 +554,13 @@ class OriginServer:
 
         promise_id = a["id"]
         timeout_at = a["timeoutAt"]
+        invalid = validate_create(promise_id, timeout_at, tags)
+        if invalid is not None:
+            return Outcome(kind, 400, invalid)
+
         existing = await self._get_promise(promise_id)
 
         if existing is None:
-            invalid = validate_create(promise_id, timeout_at, tags)
-            if invalid is not None:
-                return Outcome(kind, 400, invalid)
-
             _target, _, timer, _external = _tag_columns(tags)
 
             if timeout_at > self._now:
