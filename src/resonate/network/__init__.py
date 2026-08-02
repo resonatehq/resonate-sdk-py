@@ -9,6 +9,11 @@ from resonate.network.nats import NatsNetwork
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+# `resonate.network.turso` is deliberately not imported here: it needs the
+# optional `turso` package, and importing it eagerly would make every
+# `resonate.network` import depend on it. Import it directly:
+#
+#     from resonate.network.turso import TursoNetwork, TursoSyncDriver
 __all__ = ["HttpNetwork", "LocalNetwork", "NatsNetwork", "Network"]
 
 
@@ -18,9 +23,11 @@ class Network(Protocol):
     All communication between Resonate and the server (local or remote) flows
     through it as JSON strings. Methods raise on error.
 
-    Three implementations are provided: :class:`LocalNetwork` runs an in-process
+    Four implementations are provided: :class:`LocalNetwork` runs an in-process
     server simulation, :class:`HttpNetwork` talks to a Resonate server over
-    HTTP, and :class:`NatsNetwork` talks to one over NATS.
+    HTTP, :class:`NatsNetwork` talks to one over NATS, and
+    :class:`~resonate.network.turso.TursoNetwork` talks to no server at all --
+    it runs the protocol itself against Turso databases, one per workflow.
     """
 
     def pid(self) -> str: ...
