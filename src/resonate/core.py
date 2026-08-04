@@ -30,6 +30,7 @@ from resonate.error import (
     Suspended,
 )
 from resonate.heartbeat import Heartbeat, NoopHeartbeat
+from resonate.lineage import install_task_lineage
 from resonate.registry import Registry
 from resonate.retry import Never, RetryPolicy
 from resonate.send import Redirect, Sender
@@ -285,6 +286,13 @@ class Core(msgspec.Struct, kw_only=True):
         caller owns those. Encodes return values through the codec so the caller
         has a single, uniform fulfill path.
         """
+        # Track asyncio-task lineage on this loop before the body can spawn
+        # anything: child-promise ids are keyed per task branch (see
+        # :mod:`resonate.lineage` / ``Context._next_id``), which is what keeps
+        # them replay-stable when the body runs durable ops concurrently.
+        # Idempotent, so re-entry from the redirect loop is free.
+        install_task_lineage()
+
         # 1. Decode TaskData from the (already-decoded) promise param.
         try:
             task_data = self.codec.convert(promise.param.data, TaskData)

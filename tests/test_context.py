@@ -1038,9 +1038,10 @@ def test_options_sibling_handles_are_mutually_isolated() -> None:
 
 
 def test_options_handles_share_id_sequence() -> None:
-    # ``_next_id`` mutates the shared ``_state.seq``, so ids advance across every
-    # handle minted off the same base: the opts are per-handle, the sequence is
-    # not. A broken impl that copied state per handle would re-mint ``root.1``.
+    # ``_next_id`` mutates the shared ``_state.seqs``, so ids advance across
+    # every handle minted off the same base: the opts are per-handle, the
+    # sequence is not. A broken impl that copied state per handle would re-mint
+    # ``root.1``.
     ctx = _root()
     assert ctx.options(target="x")._next_id() == "root.1"
     assert ctx.options(version=2)._next_id() == "root.2"
