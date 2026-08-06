@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -11,9 +12,12 @@ import pytest_asyncio
 from resonate import PROTOCOL_VERSION, now_ms
 from resonate.network.turso import TursoLocalDriver, TursoNetwork, origin_of
 from resonate.network.turso.cron import CronError, cron_occurrences, next_cron
+from resonate.resonate import Resonate
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
+
+    from resonate.context import Context
 
 pytestmark = pytest.mark.asyncio
 
@@ -1216,3 +1220,85 @@ async def test_a_due_schedule_fires_into_the_origin_its_id_names(
     ]
     assert promise["param"]["data"] == "tick"
     assert promise["tags"]["resonate:schedule"] == "every-minute"
+
+
+# =============================================================================
+# END TO END
+# =============================================================================
+#
+# Everything above drives the network directly at the protocol level. These
+# drive the SDK: a registered function, invoked durably, running to completion
+# against Turso databases with no server anywhere.
+
+
+async def _leaf(ctx: Context, tag: str) -> str:
+    return tag
+
+
+async def _order(ctx: Context, customer: str, amount: int) -> str:
+    ref = await ctx.run(_leaf, f"CH-{amount}")
+    await ctx.sleep(timedelta(milliseconds=30))
+    return f"{customer}:{ref}"
+
+
+async def _job(ctx: Context) -> str:
+    a = await ctx.run(_leaf, "step1")
+    await ctx.sleep(timedelta(milliseconds=200))
+    b = await ctx.run(_leaf, "step2")
+    return f"{a}+{b}"
+
+
+def _worker(
+    directory: str, pid: str, prefix: str, retry_timeout: int = 2000
+) -> Resonate:
+    r = Resonate(
+        network=TursoNetwork(
+            TursoLocalDriver(directory),
+            prefix=prefix,
+            pid=pid,
+            tick_seconds=0.02,
+            retry_timeout=retry_timeout,
+        ),
+    )
+    r.register(_order)
+    r.register(_job)
+    r.register(_leaf)
+    return r
+
+
+async def test_a_workflow_runs_to_completion_and_can_be_reattached_to(
+    tmp_path: Path,
+) -> None:
+    a = _worker(str(tmp_path), "proc-a", "e2e-")
+    b = _worker(str(tmp_path), "proc-b", "e2e-")
+    try:
+        handle = a.run("order-1", _order, "acme", 100)
+        assert await handle.result() == "acme:CH-100"
+
+        # A second client over the same databases sees the settled result.
+        again = await b.get("order-1")
+        assert await again.result() == "acme:CH-100"
+    finally:
+        await b.stop()
+        await a.stop()
+
+
+async def test_a_workflow_abandoned_mid_flight_is_finished_by_another_process(
+    tmp_path: Path,
+) -> None:
+    # The recovery claim, end to end: A dies while its workflow is asleep, and
+    # B -- which has never seen this workflow -- picks it up off the tenant
+    # timeout index and runs it to completion.
+    a = _worker(str(tmp_path), "proc-a", "rec-", retry_timeout=300)
+    b: Resonate | None = None
+    try:
+        a.run("job-1", _job)
+        await asyncio.sleep(0.12)
+        await a.stop()
+
+        b = _worker(str(tmp_path), "proc-b", "rec-", retry_timeout=300)
+        handle = await b.get("job-1")
+        assert await handle.result() == "step1+step2"
+    finally:
+        if b is not None:
+            await b.stop()
