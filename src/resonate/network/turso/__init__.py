@@ -17,11 +17,28 @@ process to hold as a local replica.
 
 One database is shared: ``<prefix><timeout_database>``, the tenant database. It
 holds what no single workflow owns -- the index of armed timers across all
-origins, the index of undelivered messages, and schedules. Both indexes are
-mirrors, republished from the origin databases after every commit and
-re-validated against them before use. The tenant database is how a process finds
-work in a workflow it has never seen: it polls the message index for its own
-address, and it sweeps the timeout index for expired timers.
+origins, and schedules. The timer index is a mirror, republished from the origin
+databases after every commit and re-validated against them before use. It is how
+a process finds work in a workflow it has never seen.
+
+**Messages are not stored.** When a transition emits an ``execute`` or
+``unblock``, the message is handed to the local Resonate client as soon as the
+transaction commits -- no outbox, no queue, no routing table. This is the whole
+of message transport, and it means delivery is in-process: the node that ran the
+transition is the node that gets the message.
+
+Reaching a *different* process therefore goes through time, not through a queue.
+A dispatched task carries a durable retry timer; if nobody claims it, the timer
+comes due, and whichever process sweeps the tenant timeout index re-emits the
+execute and delivers it to its own client. Recovery is the timer, which is
+exactly why the timeout database is the one thing shared.
+
+The consequence to know: ``resonate:target`` is advisory here. The address is
+recorded on the promise and echoed in the message, but nothing routes by it -- a
+message goes to whoever did the work. In a homogeneous fleet, where every process
+registers the same functions, that is what you want. In a heterogeneous one,
+where only some processes can run a given function, this network does not
+deliver work to the right group.
 
 **Concurrency.** A task lease already gives a workflow one writer at a time,
 which is the arrangement this design is built for. Within a process, requests
@@ -57,6 +74,7 @@ from resonate.network.turso.server import (
     DEFAULT_RETRY_TIMEOUT,
     OriginServer,
     Outcome,
+    OutgoingMessage,
     ScheduleStore,
     expand_promise_id,
     origin_of,
@@ -129,7 +147,6 @@ class TursoNetwork:
         retry_timeout: int = DEFAULT_RETRY_TIMEOUT,
         max_open_databases: int = 64,
         batch_size: int = 100,
-        message_ttl: int = 86_400_000,
     ) -> None:
         self._pid = pid if pid is not None else uuid.uuid4().hex
         self._group = group if group is not None else "default"
@@ -141,11 +158,9 @@ class TursoNetwork:
         self._tick_seconds = tick_seconds
         self._retry_timeout = retry_timeout
         self._batch_size = batch_size
-        self._message_ttl = message_ttl
 
         self._subscribers: list[Callable[[str], None]] = []
         self._tick_handle: asyncio.Task[None] | None = None
-        self._wake = asyncio.Event()
         self._stopped = False
 
     # -------------------------------------------------------------------------
@@ -175,7 +190,6 @@ class TursoNetwork:
 
     async def stop(self) -> None:
         self._stopped = True
-        self._wake.set()
         handle = self._tick_handle
         self._tick_handle = None
         if handle is not None:
@@ -291,20 +305,52 @@ class TursoNetwork:
         now: int,
         fn: Callable[[OriginServer], Awaitable[Any]],
     ) -> Any:
-        """Run one transaction against an origin database, then publish it.
+        """Run one transaction against an origin, publish its timers, deliver its messages.
 
-        The flush is outside the transaction because it writes a different
-        database; see :meth:`TursoStore.flush` for why that is safe.
+        Both follow-ups are outside the transaction. The flush writes a
+        different database, which a transaction cannot span (see
+        :meth:`TursoStore.flush`). The delivery must not happen until the state
+        change is durable, and must not happen while this origin's lock is held
+        -- a subscriber is free to call back into :meth:`send` for the same
+        workflow, and would deadlock against the lock its own message was
+        delivered under.
         """
+        outgoing: list[OutgoingMessage] = []
         async with self._store.lock(origin):
             conn = await self._store.origin(origin)
             async with conn.transaction() as tx:
-                result = await fn(OriginServer(tx, now, self._retry_timeout))
+                server = OriginServer(tx, now, self._retry_timeout)
+                result = await fn(server)
+                # Read inside the transaction, delivered after it commits: a
+                # rolled-back transaction raises before reaching the dispatch
+                # below, so no message is ever delivered for a state change that
+                # did not land.
+                outgoing = server.take_messages()
             await self._store.flush(origin, conn)
-        # Messages this process produced for itself are delivered on the next
-        # tick; nudge it so a local hand-off does not wait out the interval.
-        self._wake.set()
+        self._dispatch(outgoing)
         return result
+
+    def _dispatch(self, messages: list[OutgoingMessage]) -> None:
+        """Hand messages to the local Resonate client.
+
+        Deferred by a turn of the event loop so a subscriber that reacts by
+        issuing another request cannot re-enter the call that produced its
+        message. This is the whole of message transport: nothing is stored, and
+        nothing is routed anywhere else.
+        """
+        if not messages or not self._subscribers:
+            return
+        subscribers = list(self._subscribers)
+        encoded = [json.dumps(m.message) for m in messages]
+
+        def deliver() -> None:
+            if self._stopped:
+                return
+            for payload in encoded:
+                for callback in subscribers:
+                    callback(payload)
+
+        asyncio.get_running_loop().call_soon(deliver)
 
     async def _in_tenant_schedules(
         self, kind: str, data: dict[str, Any], now: int
@@ -326,60 +372,28 @@ class TursoNetwork:
         return outcome
 
     # -------------------------------------------------------------------------
-    # TICK: message delivery, timer sweep, schedule firing
+    # TICK: timer sweep and schedule firing
     # -------------------------------------------------------------------------
+    #
+    # Messages are not ticked -- they go straight to the client when the
+    # transaction that produced them commits. What the tick does is fire due
+    # timers, and that is also how work reaches a *different* process: an
+    # unclaimed task's retry timer is durable and indexed tenant-wide, so
+    # whichever process sweeps it re-emits the execute and delivers it locally.
 
     async def _tick_loop(self) -> None:
         with contextlib.suppress(asyncio.CancelledError):
             while not self._stopped:
                 await self._tick(now_ms())
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(self._wake.wait(), self._tick_seconds)
-                self._wake.clear()
+                await asyncio.sleep(self._tick_seconds)
 
     async def _tick(self, now: int) -> None:
         try:
             await self._sweep_timeouts(now)
             await self._fire_schedules(now)
-            await self._deliver(now)
         except Exception:
             if not self._stopped:
                 logger.warning("turso tick failed", exc_info=True)
-
-    async def _deliver(self, now: int) -> None:
-        """Claim messages addressed to this process and hand them to subscribers.
-
-        The claim is destructive and transactional, so two processes in the same
-        group split the anycast stream rather than both running the task. If this
-        process dies between claiming and acting, the task's retry timer
-        redispatches it -- delivery is at-least-once, and the version fence makes
-        the duplicate harmless.
-        """
-        tenant = await self._store.tenant()
-        await tenant.pull()
-
-        async with tenant.transaction() as tx:
-            claimed = await tx.execute(
-                """
-                DELETE FROM messages WHERE seq IN (
-                  SELECT seq FROM messages WHERE address IN (?, ?) ORDER BY seq ASC LIMIT ?
-                ) RETURNING payload
-                """,
-                [self._unicast, self._anycast, self._batch_size],
-            )
-            # Bound the table: a message addressed to an http:// listener or to a
-            # group with no live member is nobody's to claim.
-            await tx.execute(
-                "DELETE FROM messages WHERE created_at < ? AND address NOT IN (?, ?)",
-                [now - self._message_ttl, self._unicast, self._anycast],
-            )
-        if claimed:
-            await tenant.push()
-
-        subscribers = list(self._subscribers)
-        for row in claimed:
-            for callback in subscribers:
-                callback(row["payload"])
 
     async def _sweep_timeouts(self, now: int) -> None:
         """Fire every timer the tenant index says is due.
@@ -523,7 +537,7 @@ class TursoNetwork:
         """Empty every database this network has open. Test support only."""
         tenant = await self._store.tenant()
         async with tenant.transaction() as tx:
-            for table in ("messages", "timeouts", "schedules"):
+            for table in ("timeouts", "schedules"):
                 await tx.execute(f"DELETE FROM {table}")  # noqa: S608
         # Origin databases are created on demand and never enumerated, so only
         # the ones this process has open can be cleared. A caller wanting a clean
@@ -554,9 +568,6 @@ class TursoNetwork:
                 listeners = await tx.execute(
                     "SELECT promise_id, address FROM listeners ORDER BY promise_id, address"
                 )
-                outbox = await tx.execute(
-                    "SELECT address, payload FROM outbox ORDER BY seq"
-                )
 
         return Outcome(
             "debug.snap",
@@ -579,9 +590,8 @@ class TursoNetwork:
                     {"id": r["id"], "type": r["kind"], "timeout": r["timeout_at"]}
                     for r in task_timeouts
                 ],
-                "messages": [
-                    {"address": r["address"], "message": json.loads(r["payload"])}
-                    for r in outbox
-                ],
+                # Always empty: messages are handed to the client on commit
+                # and never held, so there is no pending set to snapshot.
+                "messages": [],
             },
         )

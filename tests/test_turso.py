@@ -552,14 +552,18 @@ async def test_suspend_registers_callbacks_and_settling_resumes(
     )
     assert ok(await send(net, "task.get", {"id": "wf"}))["task"]["state"] == "suspended"
 
-    inbox.clear()
     await send(
         net,
         "promise.settle",
         {"id": "wf.child", "state": "resolved", "value": {"data": "child"}},
     )
 
-    msg = await inbox.next(lambda m: m["kind"] == "execute")
+    # Match the resumed version rather than "any execute": the create-time
+    # dispatch of version 0 is also in this inbox, and messages are handed over a
+    # turn of the event loop after their commit, so the two can interleave.
+    msg = await inbox.next(
+        lambda m: m["kind"] == "execute" and m["data"]["task"]["version"] == 1
+    )
     assert msg["data"]["task"] == {"id": "wf", "version": 1}
 
     resumed = ok(await send(net, "task.get", {"id": "wf"}))["task"]
@@ -964,29 +968,32 @@ async def test_each_origin_gets_its_own_database_file(tmp_path: Path) -> None:
 
 
 async def test_a_second_process_picks_up_work_it_never_created(tmp_path: Path) -> None:
-    """The whole point of the tenant-global database.
+    """The whole recovery story now that messages are not queued.
 
-    A worker that has never heard of this workflow finds it through the message
-    index, opens the origin database the id names, and claims the task.
+    The creator delivers the execute to itself and does nothing with it. The task
+    stays pending, its retry timer comes due, and the worker -- which has never
+    heard of this workflow -- finds it in the tenant timeout index, opens the
+    origin database the id names, and gets the execute delivered locally.
     """
     creator = TursoNetwork(
         TursoLocalDriver(str(tmp_path)),
         prefix="shared-",
-        group="creators",
-        tick_seconds=0.005,
+        # Nothing swept by the creator, so the worker is the only sweeper.
+        tick_seconds=3600,
+        retry_timeout=100,
     )
     worker = TursoNetwork(
         TursoLocalDriver(str(tmp_path)),
         prefix="shared-",
-        group="workers",
         tick_seconds=0.005,
+        retry_timeout=100,
     )
     await creator.start()
     await worker.start()
     try:
         inbox = Inbox(worker)
+        creator_inbox = Inbox(creator)
 
-        # Targeted at the worker group, so only the worker may claim it.
         ok(
             await send(
                 creator,
@@ -995,11 +1002,16 @@ async def test_a_second_process_picks_up_work_it_never_created(tmp_path: Path) -
                     "id": "handoff",
                     "timeoutAt": now_ms() + 60_000,
                     "param": {"data": "payload"},
-                    "tags": {"resonate:target": creator.target_resolver("workers")},
+                    "tags": {"resonate:target": creator.target_resolver("default")},
                 },
             )
         )
 
+        # The creating process gets its own message, immediately and in process.
+        local = await creator_inbox.next(lambda m: m["kind"] == "execute")
+        assert local["data"]["task"] == {"id": "handoff", "version": 0}
+
+        # The worker gets it too, once the retry timer it swept comes due.
         msg = await inbox.next(lambda m: m["kind"] == "execute")
         assert msg["data"]["task"] == {"id": "handoff", "version": 0}
 
@@ -1020,6 +1032,30 @@ async def test_a_second_process_picks_up_work_it_never_created(tmp_path: Path) -
     finally:
         await creator.stop()
         await worker.stop()
+
+
+async def test_a_message_reaches_the_client_with_no_table_backing_it(
+    quiet: TursoNetwork,
+) -> None:
+    inbox = Inbox(quiet)
+    await send(
+        quiet,
+        "promise.create",
+        {
+            "id": "wf",
+            "timeoutAt": now_ms() + 60_000,
+            "param": {},
+            "tags": {"resonate:target": TARGET},
+        },
+    )
+
+    # Delivered with no tick in between -- the network's tick interval is set
+    # past the life of this test, so nothing but the commit could have done it.
+    await inbox.next(lambda m: m["kind"] == "execute")
+
+    # And the snapshot confirms nothing is queued anywhere.
+    snap = ok(await send(quiet, "debug.snap", {}, **{"resonate:origin": "wf"}))
+    assert snap["messages"] == []
 
 
 async def test_promises_in_different_origins_do_not_see_each_other(

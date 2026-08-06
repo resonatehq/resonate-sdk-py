@@ -96,6 +96,13 @@ class _Resume(NamedTuple):
     awaiter: str
 
 
+class OutgoingMessage(NamedTuple):
+    """A message a transition emitted, waiting to be handed to the client."""
+
+    address: str
+    message: dict[str, Any]
+
+
 # =============================================================================
 # PURE HELPERS
 # =============================================================================
@@ -259,6 +266,8 @@ class OriginServer:
         self._now = now
         self._retry_timeout = retry_timeout
         self._deferred: list[_Resume] = []
+        #: Messages this transaction emitted, keyed for collapse-on-set.
+        self._outgoing: dict[str, OutgoingMessage] = {}
 
     async def apply(self, req: dict[str, Any]) -> Outcome:
         """Apply one request, then drain the resume obligations it scheduled.
@@ -392,7 +401,7 @@ class OriginServer:
                     await self._set_task_timeout(
                         promise_id, TASK_TIMEOUT_RETRY, self._now + self._retry_timeout
                     )
-                    await self._set_message(target, _execute(promise_id, 0))
+                    self._set_message(target, _execute(promise_id, 0))
 
             return Outcome(kind, 200, {"promise": to_promise_record(row)})
 
@@ -951,7 +960,7 @@ class OriginServer:
 
         settled = {**row, "state": state, "settled_at": row["timeout_at"]}
         for address in listeners:
-            await self._set_message(address, _unblock(to_promise_record(settled)))
+            self._set_message(address, _unblock(to_promise_record(settled)))
         for awaiter in callbacks:
             self._defer(_Resume(promise_id, awaiter))
 
@@ -1124,7 +1133,7 @@ class OriginServer:
         }
 
         for address in listeners:
-            await self._set_message(address, _unblock(to_promise_record(settled)))
+            self._set_message(address, _unblock(to_promise_record(settled)))
         for awaiter in callbacks:
             self._defer(_Resume(row["id"], awaiter))
 
@@ -1134,9 +1143,7 @@ class OriginServer:
         """Emit the execute message for a task whose promise carries a target."""
         if promise["target"] is None:
             return
-        await self._set_message(
-            promise["target"], _execute(task["id"], task["version"])
-        )
+        self._set_message(promise["target"], _execute(task["id"], task["version"]))
 
     async def _preload(self, promise_id: str) -> list[dict[str, Any]]:
         """Promises sharing this one's ``resonate:branch``, so the caller can skip round trips."""
@@ -1313,20 +1320,28 @@ class OriginServer:
         """Disarm every timer on a task, matching the spec's ``delTaskTimeout``."""
         await self._tx.execute("DELETE FROM task_timeouts WHERE id = ?", [task_id])
 
-    async def _set_message(self, address: str, msg: dict[str, Any]) -> None:
-        """Append to the outbox, collapsing on the message key.
+    def _set_message(self, address: str, msg: dict[str, Any]) -> None:
+        """Record a message the transition emitted, collapsing on the message key.
 
-        A newer execute for a task supersedes the older one, so a receiver never
+        A newer execute for a task supersedes the older one, so the client never
         sees a stale version.
+
+        Messages are held in memory for the duration of the transaction and
+        handed to the client once it commits -- they are not state, so nothing
+        writes them to a table.
         """
-        await self._tx.execute(
-            """
-            INSERT INTO outbox (msg_key, address, payload, created_at) VALUES (?, ?, ?, ?)
-            ON CONFLICT (msg_key) DO UPDATE SET address = excluded.address,
-              payload = excluded.payload, created_at = excluded.created_at
-            """,
-            [_message_key(address, msg), address, json.dumps(msg), self._now],
-        )
+        self._outgoing[_message_key(address, msg)] = OutgoingMessage(address, msg)
+
+    def take_messages(self) -> list[OutgoingMessage]:
+        """Take the messages this transaction produced, in emission order.
+
+        Called by the network *after* the commit: a rolled-back transaction
+        never reaches here, so a message is only ever delivered for a state
+        change that actually landed.
+        """
+        messages = list(self._outgoing.values())
+        self._outgoing.clear()
+        return messages
 
 
 def _execute(task_id: str, version: int) -> dict[str, Any]:
