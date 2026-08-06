@@ -65,6 +65,17 @@ class TursoStore:
         self._open_lock = asyncio.Lock()
         #: Serializes work per origin so a request and a flush never interleave.
         self._locks: dict[str, asyncio.Lock] = {}
+        #: The timer set this process last published per origin.
+        #:
+        #: The tenant database is the one file every node in the fleet writes,
+        #: which makes it the fleet's only global write bottleneck. Most requests
+        #: do not move a timer -- reads never do, and plenty of writes do not
+        #: either -- so publishing unconditionally saturates that file for no
+        #: reason. Comparing against what we last published turns those into no
+        #: tenant write at all. A stale skip is possible if another node rewrote
+        #: this origin's rows underneath us; that is the same drift the index
+        #: already tolerates, and the next real change republishes the slice.
+        self._published: dict[str, str] = {}
         self._closed = False
 
     # -------------------------------------------------------------------------
@@ -147,6 +158,11 @@ class TursoStore:
         async with conn.transaction() as tx:
             timeouts = await _read_timeouts(tx)
 
+        # Nothing moved: leave the shared file alone.
+        fingerprint = "".join(sorted(f"{i} {k} {t}" for i, k, t in timeouts))
+        if self._published.get(origin) == fingerprint:
+            return
+
         tenant = await self.tenant()
         async with tenant.transaction() as tx:
             await tx.execute("DELETE FROM timeouts WHERE origin = ?", [origin])
@@ -159,6 +175,8 @@ class TursoStore:
                     [origin, timeout_id, kind, timeout_at],
                 )
         await tenant.push()
+        # Recorded only after the write lands, so a failed publish is retried.
+        self._published[origin] = fingerprint
 
     async def discard(self) -> None:
         """Close every open connection, leaving the store usable.
@@ -169,6 +187,7 @@ class TursoStore:
         connections: list[TursoConnection] = list(self._origins.values())
         self._origins.clear()
         self._locks.clear()
+        self._published.clear()
         if self._tenant is not None:
             connections.append(self._tenant)
             self._tenant = None
@@ -220,17 +239,19 @@ async def _migrate(conn: TursoConnection, statements: tuple[str, ...]) -> None:
     for sql in statements:
         await conn.execute(sql)
 
+    # Claim the version stamp idempotently. Several processes routinely open the
+    # same database for the first time at the same moment, and a
+    # read-then-insert loses that race against the unique constraint on
+    # ``meta.key``.
+    await conn.execute(
+        "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT (key) DO NOTHING",
+        [str(SCHEMA_VERSION)],
+    )
+
     rows: list[dict[str, Any]] = await conn.execute(
         "SELECT value FROM meta WHERE key = 'schema_version'"
     )
-    if not rows:
-        await conn.execute(
-            "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
-            [str(SCHEMA_VERSION)],
-        )
-        return
-
-    found = int(rows[0]["value"])
+    found = int(rows[0]["value"]) if rows else SCHEMA_VERSION
     if found > SCHEMA_VERSION:
         msg = (
             f"Turso database is at schema version {found}, "

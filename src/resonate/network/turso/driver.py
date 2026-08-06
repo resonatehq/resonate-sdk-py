@@ -200,10 +200,11 @@ async def _rows(cursor: Any) -> list[TursoRow]:
 class TursoLocalDriver:
     """Embedded, local-only databases: no replication.
 
-    This is the single-node arrangement -- several processes on one machine
-    sharing a directory of databases -- and the one tests use. Pass
-    ``directory=":memory:"`` to keep every database in memory; each name still
-    gets its own isolated database.
+    **One process only.** Turso takes an exclusive file lock when it opens a
+    database, so a second process opening the same file fails outright with
+    "File is locked by another process" -- a shared directory is not a way to
+    run a fleet. Use it for a single node, for tests, and for ``":memory:"``,
+    which keeps every database in memory while still isolating them by name.
     """
 
     def __init__(self, directory: str, *, suffix: str = ".db") -> None:
@@ -220,13 +221,12 @@ class TursoLocalDriver:
         )
         conn = await turso.aio.connect(path, isolation_level=None)
         wrapped = _Connection(conn)
-        # WAL so readers do not block the writer, and a busy timeout so two
-        # processes sharing the directory queue for the write lock instead of
-        # failing outright -- the same pragmas the Resonate Server's SQLite
-        # backend sets.
+        # Busy timeout first: switching to WAL takes an exclusive lock of its
+        # own, so arming the timeout afterwards leaves that very statement
+        # unprotected against a concurrent opener.
+        await wrapped.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
         if path != ":memory:":
             await wrapped.execute("PRAGMA journal_mode = WAL")
-        await wrapped.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
         return wrapped
 
 

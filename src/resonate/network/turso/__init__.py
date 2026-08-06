@@ -40,13 +40,21 @@ registers the same functions, that is what you want. In a heterogeneous one,
 where only some processes can run a given function, this network does not
 deliver work to the right group.
 
-**Concurrency.** A task lease already gives a workflow one writer at a time,
-which is the arrangement this design is built for. Within a process, requests
-against an origin are serialized. Across processes writing the same origin
-database concurrently through embedded replicas, the sync engine resolves at the
-row level and the protocol's version fences reject the loser's stale writes --
-but a caller who needs strict linearizability across writers should enable the
-client's remote-writes mode.
+**Concurrency -- read this before deploying a fleet.** Only the single-node
+arrangement is verified. Within one process this works: requests against an
+origin are serialized, workflows run, and a workflow abandoned mid-flight is
+recovered off the timeout index.
+
+Running several nodes has not been made to work. :class:`TursoLocalDriver`
+cannot do it at all -- Turso takes an exclusive file lock, so the second process
+cannot even open the database. :class:`TursoSyncDriver`, where each node holds
+its own replica and they converge through Turso Cloud, is the arrangement this
+design is actually for and has never been run against a real remote.
+
+The design also concentrates fleet-wide write traffic on the tenant database,
+since every origin publishes its timers there. :meth:`TursoStore.flush` skips
+the write when an origin's timers are unchanged, which removes most of it, but
+that file remains the one global bottleneck.
 """
 
 from __future__ import annotations
