@@ -50,6 +50,14 @@ equivalent. Multi-node use needs this closed first -- either by routing messages
 to their address, or by having a waiter poll the promise it is blocked on rather
 than waiting to be told.
 
+**Compare-and-swap.** Every fenced action is a read-compare-write inside one
+``BEGIN IMMEDIATE`` transaction -- a genuine CAS, atomic against whichever
+database applies it. What decides soundness across nodes is where the write
+lands: the default embedded-replica mode applies it to each node's own copy and
+merges later, so two nodes can both win the same acquire. ``pyturso`` does not
+yet expose a remote-writes option, so a fleet on this SDK must keep one writer
+per workflow.
+
 **Concurrency -- read this before deploying a fleet.** Only the single-node
 arrangement is verified. Within one process this works: requests against an
 origin are serialized, workflows run, and a workflow abandoned mid-flight is
