@@ -40,6 +40,16 @@ registers the same functions, that is what you want. In a heterogeneous one,
 where only some processes can run a given function, this network does not
 deliver work to the right group.
 
+**Known limitation, measured.** A result computed on one node does not reach the
+node waiting for it. ``run(...)`` waits by registering a listener carrying its
+own unicast address; if a timer resumed the workflow elsewhere, that node emits
+the ``unblock`` and delivers it to itself. Two nodes, one migrating workflow:
+done at +165ms, caller notified at +60004ms. ``execute`` escapes this because a
+retry timer re-emits it and any node can claim it; ``unblock`` has no
+equivalent. Multi-node use needs this closed first -- either by routing messages
+to their address, or by having a waiter poll the promise it is blocked on rather
+than waiting to be told.
+
 **Concurrency -- read this before deploying a fleet.** Only the single-node
 arrangement is verified. Within one process this works: requests against an
 origin are serialized, workflows run, and a workflow abandoned mid-flight is
