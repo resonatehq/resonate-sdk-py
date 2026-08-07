@@ -15,7 +15,9 @@ resonate = Resonate.remote(
     network=TursoNetwork(
         TursoSyncDriver(
             "/var/lib/resonate",
-            "libsql://acme-",              # remote database is `acme-<origin>`
+            # A Turso Cloud database lives at `<name>-<org>.<region>.turso.io`,
+            # so the flat prefix form cannot address it -- pass a callable.
+            lambda name: f"libsql://{name}-acme.aws-us-west-2.turso.io",
             auth_token=os.environ["TURSO_AUTH_TOKEN"],
         ),
         prefix="acme-",                    # local database is `acme-<origin>`
@@ -26,6 +28,29 @@ resonate = Resonate.remote(
 ```
 
 Install the optional client with `pip install resonate-sdk[turso]`.
+
+## Turso Cloud provisioning (measured)
+
+Measured against a real Turso Cloud account (`aws-us-west-2`, free plan,
+August 2026), with the TypeScript SDK's identical driver arrangement:
+
+* **Databases are not auto-created.** A sync connect to a name that does not
+  exist fails with `status=404, body=Host not found`. Every origin database —
+  and the tenant database — must be created first, via the platform API
+  (`POST /v1/organizations/<org>/databases`) or the `turso` CLI.
+* **Creation is cheap and immediate:** 359–558ms per database (median 384ms
+  over 16 creates), and a fresh database accepted a sync connect 528ms after
+  the create call, first attempt. A create-if-missing step can wrap the
+  driver, at the price of one platform round trip on a workflow's first touch.
+* **Plan limits are the real constraint:** the free plan caps an organization
+  at 100 databases; paid plans advertise unlimited databases and meter
+  storage, rows, and sync traffic instead — and sync traffic (every replica
+  bootstrap, push, and pull) is the axis this design leans on.
+
+Fallbacks if per-workflow creation is unacceptable: a pool of N pre-created
+databases with origins hashed into them (`hash_origin` is exported), or one
+database per tenant with an `origin` column — each giving up some of the
+isolation that makes per-workflow CAS cheap.
 
 ## One database per workflow
 
@@ -169,9 +194,17 @@ mixed-language fleet shards identically.
 
 Nodes do not share a disk for their origins — each has its own directory. What
 they must share is the timer index, since that is the one place a node learns
-that work exists at all. That is the arrangement `TursoSyncDriver` is for, and
-it has never been run against a real remote, so the fleet story below is what is
-*known*, not what is guaranteed.
+that work exists at all. That is the arrangement `TursoSyncDriver` is for.
+
+**Convergence through a real remote works — measured** (with the TypeScript
+SDK's identical arrangement against Turso Cloud, `aws-us-west-2`): a committed
+write is visible to another replica's pull in ~190–220ms median (p90
+270–400ms, worst observed 1.1s); a workflow parked on a 4s durable sleep by a
+node that then stopped was discovered through the tenant index, resumed, and
+completed by the surviving node with ~2s overhead over the sleep; workflows
+abandoned by killed processes were recovered by later unrelated nodes; and at
+quiescence the tenant index exactly matched the union of origin databases —
+no missing entries, no stale entries.
 
 **Protocol correctness under contention holds.** Three nodes, each with its own
 network, racing on the same workflows with timer-driven migration between them:
@@ -192,28 +225,27 @@ Two more things a fleet meets:
   origin's timers have not moved, which removes most of the traffic, but the
   bottleneck is structural.
 
-* **Compare-and-swap works — point the writes at one place.** Every fenced
-  action (`task.acquire` and friends) is a read-compare-write inside a single
-  `BEGIN IMMEDIATE` transaction. That is a genuine CAS, atomic against whichever
-  database applies it, and `busy_timeout` makes competing writers queue rather
-  than fail.
+* **Compare-and-swap does not survive replication — measured, and worse than
+  feared.** Every fenced action (`task.acquire` and friends) is a
+  read-compare-write inside a single `BEGIN IMMEDIATE` transaction — a genuine
+  CAS against the one database that applies it, and no CAS at all across
+  nodes. Measured with the TypeScript SDK against Turso Cloud: two nodes
+  racing `task.acquire` for the same `{id, version: 0}` through the same
+  remote both won **50 times out of 50**. With each CAS applied to its own
+  replica there is nothing to contend with, so a simultaneous race *always*
+  double-wins.
 
-  What breaks it is not the database, it is *where the write lands*. In the
-  default embedded-replica mode each node applies its CAS to its own local
-  replica and the copies merge afterwards, so two nodes can both win the same
-  acquire and both believe they hold the task. Set remote writes and writes execute on the remote instead — one serialization
-  point, and the fence is sound again.
+  Remote writes are not an escape hatch either. `pyturso` does not expose the
+  option, and the TypeScript client's `remoteWrites: true` was measured
+  broken: still 50/50 double wins, 11–13s per acquire, and an independent
+  replica read the remote as untouched afterwards — the flag neither
+  serializes the transaction remotely nor lands its writes
+  (`@tursodatabase/sync` 0.7.2). The earlier revision of this document held
+  the TypeScript flag up as the fix; that was wrong.
 
-  And because state is partitioned one database per workflow, that serialization
-  is *per workflow*, not global: two different workflows never contend for the
-  same writer. The partition is what buys linearizable CAS without a global
-  lock.
-
-  **`pyturso` does not expose a remote-writes option today** — its
-  `connect` takes no such flag. So in this SDK a workflow written by two nodes
-  at once is genuinely unsound, and a fleet must keep one writer per workflow
-  until the client offers it. The TypeScript SDK has `remoteWrites` on
-  `tursoSyncDriver`.
+  **The only sound arrangement is one writer per workflow** — static sharding
+  with `shard`/`owner_of`, where routing and sweeping agree on a single owner
+  and the CAS runs on the one replica that ever writes that origin.
 
 ## What the schema follows
 
@@ -276,15 +308,30 @@ TypeScript SDK pins `tz: "UTC"` for the same reason, so a mixed fleet agrees.
   to the local client like any other message, but nothing makes the HTTP call —
   there is no server to make it. Treat these as unsupported.
 
-## Concurrency (superseded — see above)
+## When the cloud is written: `push_on`
 
-A task lease already gives a workflow one writer at a time, which is the
-arrangement this design is built for. Within a process, requests against an
-origin are serialized. Across processes writing the same origin concurrently
-through embedded replicas, the sync engine resolves at the row level and the
-protocol's version fences reject the loser's stale writes — but a caller who
-needs strict linearizability across concurrent writers to one workflow should
-enable the client's remote-writes mode.
+A task lease gives a workflow one writer for the span of a tenure, which makes
+per-request uploads mostly wasted motion: nobody else may read the workflow's
+intermediate steps before the tenure ends. `push_on` on `TursoNetwork` makes
+that explicit:
+
+* `"boundary"` (default) — writes stay on the local replica until a moment
+  another process could ever need to read from: the task fulfills, suspends,
+  releases, or halts; work becomes visible to the fleet (`task.create`, a root
+  or targeted `promise.create`); or the root promise settles. Sweep-driven
+  recovery transitions always push. The trade is recovery granularity: a node
+  that crashes mid-tenure is recovered from its last boundary, and the durable
+  steps since then are re-executed — at-least-once per tenure segment instead
+  of per step.
+
+* `"request"` — the old behavior: push after every committed write. Recovery
+  loses at most one request; the cloud sees every durable step as it lands.
+
+A timer index entry may briefly advertise state the remote cannot serve yet
+(the entry is published before the boundary push). That is safe by the same
+rule that makes every index entry safe: a consumer re-validates against the
+origin database and treats "not armed yet" like any stale entry — it costs a
+wasted open per sweep until the boundary push lands, and nothing else.
 
 ## Tests
 

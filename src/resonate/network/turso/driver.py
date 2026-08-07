@@ -243,8 +243,11 @@ class TursoSyncDriver:
     and converges with everyone else through the remote.
 
     ``url`` is either a prefix (the remote database is ``f"{url}{name}"``) or a
-    callable for full control. A Turso Cloud deployment typically names one
-    remote database per workflow, so the prefix form is usually enough.
+    callable for full control. A Turso Cloud database lives at
+    ``<name>-<org>.<region>.turso.io`` -- a shape no flat prefix can produce --
+    so a Turso Cloud deployment needs the callable:
+    ``lambda name: f"libsql://{name}-{org}.{region}.turso.io"``. The database
+    must already exist; Turso Cloud does not create one on first connect.
     """
 
     def __init__(

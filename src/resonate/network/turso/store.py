@@ -145,7 +145,9 @@ class TursoStore:
     # FLUSH
     # -------------------------------------------------------------------------
 
-    async def flush(self, origin: str, conn: TursoConnection) -> None:
+    async def flush(
+        self, origin: str, conn: TursoConnection, *, push_origin: bool = True
+    ) -> None:
         """Publish an origin's armed timers to the tenant index.
 
         Called after every committed write against an origin. Reading the whole
@@ -153,13 +155,22 @@ class TursoStore:
         tracking deltas -- is deliberate: a workflow's live timer set is small,
         and a full replace cannot drift, whereas a missed delta would silently
         strand a timer forever.
+
+        ``push_origin`` is False for requests inside a task's tenure: the lease
+        already gives the workflow one writer, so intermediate durable steps
+        stay on the local replica and the upload happens once, at the boundary
+        (complete or suspend). An index entry published while the origin is
+        still unpushed is safe -- a consumer re-validates against the origin
+        and treats "not armed yet" exactly like any other stale entry -- it
+        just wastes an open per sweep until the boundary push lands.
         """
         if self._closed:
             return
 
-        # Local writes first: the tenant index must never advertise a timer whose
+        # Local writes first: the tenant index should not advertise a timer whose
         # origin database the remote cannot yet serve to whoever picks it up.
-        await conn.push()
+        if push_origin:
+            await conn.push()
 
         async with conn.transaction() as tx:
             timeouts = await _read_timeouts(tx)

@@ -52,11 +52,11 @@ than waiting to be told.
 
 **Compare-and-swap.** Every fenced action is a read-compare-write inside one
 ``BEGIN IMMEDIATE`` transaction -- a genuine CAS, atomic against whichever
-database applies it. What decides soundness across nodes is where the write
-lands: the default embedded-replica mode applies it to each node's own copy and
-merges later, so two nodes can both win the same acquire. ``pyturso`` does not
-yet expose a remote-writes option, so a fleet on this SDK must keep one writer
-per workflow.
+database applies it, and no CAS at all across nodes: embedded-replica mode
+applies it to each node's own copy and merges later, and two nodes racing the
+same acquire through a real Turso Cloud remote both won 50 times out of 50
+(measured with the TypeScript SDK; its ``remoteWrites`` flag was measured
+broken too). A fleet must keep one writer per workflow -- static sharding.
 
 **Concurrency -- read this before deploying a fleet.** Only the single-node
 arrangement is verified. Within one process this works: requests against an
@@ -82,7 +82,7 @@ import contextlib
 import json
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from resonate import PROTOCOL_VERSION, now_ms
 from resonate.error import DecodingError
@@ -179,6 +179,7 @@ class TursoNetwork:
         batch_size: int = 100,
         timeout_driver: TursoDriver | None = None,
         shard: tuple[int, int] | None = None,
+        push_on: Literal["boundary", "request"] = "boundary",
     ) -> None:
         """Run the protocol against Turso databases.
 
@@ -202,6 +203,18 @@ class TursoNetwork:
         wants. Routing requests to the owning node is the caller's job; use
         :func:`owner_of` for it, so routing and sweeping agree. Unset (the
         default) means this node owns everything.
+
+        ``push_on`` decides when an origin database is uploaded to the remote,
+        on drivers that replicate. ``"boundary"`` (the default) pushes at the
+        points another process could ever need to read from: a task ends its
+        tenure (fulfill, suspend, release, halt), work becomes visible to the
+        fleet (``task.create``, a root or targeted ``promise.create``), or the
+        root promise settles. The intermediate durable steps a task records
+        while it holds the lease stay on the local replica -- the lease already
+        guarantees one writer, so nobody else can need them before the
+        boundary. The trade: a crash mid-tenure recovers from the last
+        boundary, not the last step. ``"request"`` pushes after every committed
+        write, the most conservative cadence.
         """
         if shard is not None:
             index, count = shard
@@ -226,6 +239,7 @@ class TursoNetwork:
         self._tick_seconds = tick_seconds
         self._retry_timeout = retry_timeout
         self._batch_size = batch_size
+        self._push_on = push_on
 
         self._subscribers: list[Callable[[str], None]] = []
         self._tick_handle: asyncio.Task[None] | None = None
@@ -365,13 +379,44 @@ class TursoNetwork:
         async def run(server: OriginServer) -> Outcome:
             return await server.apply(req)
 
-        return await self._in_origin(origin, now, run)
+        return await self._in_origin(origin, now, run, push_origin=self._push_now(req))
+
+    def _push_now(self, req: dict[str, Any]) -> bool:
+        """Decide whether this request's flush uploads the origin database.
+
+        Under ``push_on="boundary"``, only at the points another process could
+        ever need to read from -- see ``push_on`` in :class:`TursoNetwork`. The
+        child creates and settles that record a task's intermediate durable
+        steps stay local until the task's next boundary; the lease guarantees
+        nobody else is writing this workflow in the meantime, and the sweep
+        transitions (which do not come through here) always push.
+        """
+        if self._push_on == "request":
+            return True
+        kind = req["kind"]
+        data = req.get("data") or {}
+        if kind in {
+            "task.create",
+            "task.fulfill",
+            "task.suspend",
+            "task.release",
+            "task.halt",
+        }:
+            return True
+        if kind == "promise.create":
+            tags = data.get("tags") or {}
+            return data["id"] == origin_of(data["id"]) or "resonate:target" in tags
+        if kind == "promise.settle":
+            return data["id"] == origin_of(data["id"])
+        return False
 
     async def _in_origin(
         self,
         origin: str,
         now: int,
         fn: Callable[[OriginServer], Awaitable[Any]],
+        *,
+        push_origin: bool = True,
     ) -> Any:
         """Run one transaction against an origin, publish its timers, deliver its messages.
 
@@ -394,7 +439,7 @@ class TursoNetwork:
                 # below, so no message is ever delivered for a state change that
                 # did not land.
                 outgoing = server.take_messages()
-            await self._store.flush(origin, conn)
+            await self._store.flush(origin, conn, push_origin=push_origin)
         self._dispatch(outgoing)
         return result
 
