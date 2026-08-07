@@ -119,6 +119,31 @@ def origin_of(promise_id: str) -> str:
     return head
 
 
+def hash_origin(origin: str) -> int:
+    """Hash an origin to a stable 32-bit value (FNV-1a).
+
+    Every node in a sharded fleet must agree on this, which is why it ships here
+    rather than being left to the caller: the SDK uses it to sweep only its own
+    timers, and the caller's router uses it to send a request to the node that
+    owns the workflow. Two answers would mean two nodes running one workflow.
+
+    Bit-for-bit identical to ``hashOrigin`` in the TypeScript SDK, so a mixed
+    fleet shards the same way. That is why the input is consumed as UTF-16 code
+    units rather than code points: JavaScript's ``charCodeAt`` yields code units,
+    and an id outside the BMP would otherwise hash differently in the two SDKs.
+    """
+    h = 2166136261
+    for unit in memoryview(origin.encode("utf-16-le")).cast("H"):
+        h ^= unit
+        h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) & 0xFFFFFFFF
+    return h
+
+
+def owner_of(origin: str, count: int) -> int:
+    """Return which of ``count`` shards owns ``origin``."""
+    return hash_origin(origin) % count
+
+
 def address_valid(address: str) -> bool:
     """Report whether an address is deliverable: HTTP, or a poll address naming a group."""
     return address.startswith(("http://", "https://")) or (

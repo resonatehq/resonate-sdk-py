@@ -35,7 +35,7 @@ by the caller rather than computed by the engine. ``external`` is the spec's
 from __future__ import annotations
 
 #: Bumped when the physical layout changes in a way old rows cannot satisfy.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 ORIGIN_SCHEMA: tuple[str, ...] = (
     """
@@ -135,16 +135,22 @@ TENANT_SCHEMA: tuple[str, ...] = (
     # The tenant-global timeout index. ``kind`` widens the origin database's own
     # encoding so promise and task timers share one due-time ordering:
     #   0 = promise timeout, 1 = task retry, 2 = task lease.
+    #
+    # ``origin_hash`` is ``hash_origin(origin)``, stored so a sharded fleet can
+    # select its own slice in SQL — ``WHERE origin_hash % count = index`` —
+    # rather than reading every due timer and discarding most of them. It is a
+    # property of the origin alone, so it stays valid when the fleet is resized.
     """
     CREATE TABLE IF NOT EXISTS timeouts (
       origin TEXT NOT NULL,
+      origin_hash INTEGER NOT NULL,
       id TEXT NOT NULL,
       kind INTEGER NOT NULL,
       timeout_at INTEGER NOT NULL,
       PRIMARY KEY (origin, id, kind)
     )
     """,
-    "CREATE INDEX IF NOT EXISTS idx_timeouts_due ON timeouts (timeout_at, origin)",
+    "CREATE INDEX IF NOT EXISTS idx_timeouts_due ON timeouts (timeout_at, origin_hash)",
     # Schedules are tenant-scoped: a schedule's promise id is a template, so the
     # promises it fires may land in many origins.
     """

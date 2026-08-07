@@ -105,6 +105,10 @@ Three consequences worth knowing:
   shared queue again) or a waiter that polls the promise it is blocked on
   instead of waiting to be told.
 
+  **Static sharding avoids it** — see below. If every workflow has one owner and
+  callers are routed to that owner, the node that finishes a workflow is the node
+  that was waiting on it, and the message never has to cross a process.
+
 * **First dispatch is local.** Creating a targeted promise hands the execute to
   the creating process. If that process is a client that cannot run the
   function, the task simply stays pending until its retry timer hands it to a
@@ -122,11 +126,51 @@ A driver maps a logical database name to physical storage. Two ship:
 Both use the optional `pyturso` package, imported lazily. Implement the
 `TursoDriver` protocol for anything else — it has one method, `open(name)`.
 
+`TursoLocalDriver` takes an **exclusive file lock** on open: a second process
+opening the same file fails outright. It is a single-process driver — right for
+a node's own origin databases, wrong for anything the fleet shares.
+
+Origins and the tenant database need not use the same driver. `timeout_driver`
+opens the tenant database when it lives elsewhere:
+
+```python
+TursoNetwork(
+    TursoLocalDriver("/var/lib/resonate/node-0"),      # mine alone
+    timeout_driver=TursoSyncDriver(..., "libsql://acme-"),  # shared by the fleet
+)
+```
+
+## Sharding a fleet
+
+`shard=(index, count)` gives a node a fixed slice of the workflows:
+
+```python
+TursoNetwork(driver, shard=(0, 2))
+```
+
+The node then sweeps only timers whose origin it owns —
+`hash_origin(origin) % count == index` — filtered in SQL against the shared
+index, not in memory after reading everyone's.
+
+This turns "any node may pick up any workflow" into "every workflow has exactly
+one owner", which buys three things: a workflow stops migrating mid-flight, one
+owner means one writer (which is what the CAS fences want), and the `unblock`
+problem above stops mattering, because the node that finishes a workflow is the
+node that was waiting on it.
+
+The caller must route requests to the owning node using the same function —
+`owner_of(origin_of(promise_id), count)`, exported for exactly this. The hash
+lives in the SDK rather than in the caller so that routing and sweeping cannot
+disagree; the TypeScript SDK's `hashOrigin` computes the same values (it is
+FNV-1a over UTF-16 code units in both), and both suites pin the same vector. A
+mixed-language fleet shards identically.
+
 ## Running more than one node
 
-Nodes do not share a disk — each has its own directory, and they converge
-through the remote. That is the arrangement `TursoSyncDriver` is for, and it
-has never been run against a real remote, so the fleet story below is what is
+Nodes do not share a disk for their origins — each has its own directory. What
+they must share is the timer index, since that is the one place a node learns
+that work exists at all. That is the arrangement `TursoSyncDriver` is for, and
+it has never been run against a real remote, so the fleet story below is what is
 *known*, not what is guaranteed.
 
 **Protocol correctness under contention holds.** Three nodes, each with its own
@@ -135,10 +179,11 @@ all workflows completed with correct results, work spread across all three
 nodes, **zero** durable steps executed by more than one node, and **zero**
 disagreement between nodes on any result. The version fences do their job.
 
-**Liveness does not.** See the `unblock` bullet above: a workflow finished by
-one node does not notify the node waiting for it, so a fleet pays 60 seconds
-where a single node pays milliseconds. This is the blocking issue for
-multi-node use.
+**Unsharded, liveness does not.** See the `unblock` bullet above: a workflow
+finished by one node does not notify the node waiting for it, so a fleet pays 60
+seconds where a single node pays milliseconds. Static sharding sidesteps this
+rather than fixing it — the owner is the waiter — so a fleet that rebalances or
+steals work still meets it.
 
 Two more things a fleet meets:
 

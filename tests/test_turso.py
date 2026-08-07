@@ -10,7 +10,13 @@ import pytest
 import pytest_asyncio
 
 from resonate import PROTOCOL_VERSION, now_ms
-from resonate.network.turso import TursoLocalDriver, TursoNetwork, origin_of
+from resonate.network.turso import (
+    TursoLocalDriver,
+    TursoNetwork,
+    hash_origin,
+    origin_of,
+    owner_of,
+)
 from resonate.network.turso.cron import CronError, cron_occurrences, next_cron
 from resonate.resonate import Resonate
 
@@ -118,6 +124,32 @@ async def test_origin_of_is_the_id_up_to_the_first_dot() -> None:
     assert origin_of("foo.1") == "foo"
     assert origin_of("foo.1.2") == "foo"
     assert origin_of("") == ""
+
+
+async def test_hash_origin_matches_the_vector_shared_with_the_typescript_sdk() -> None:
+    # Pinned, not computed. Every node in a fleet must agree on this --
+    # including nodes running the TypeScript SDK, whose ``hashOrigin`` asserts
+    # the same vector -- so a change that quietly reshuffles ownership has to
+    # fail here first.
+    assert hash_origin("order-0") == 713018330
+    assert hash_origin("order-1") == 729795949
+    assert hash_origin("order-2") == 679463092
+    assert hash_origin("acme") == 1174237615
+    assert hash_origin("x.y") == 3335537014
+    assert hash_origin("") == 2166136261
+
+
+async def test_owner_of_spreads_origins_over_the_fleet_and_is_stable() -> None:
+    assert owner_of("order-0", 2) == 0
+    assert owner_of("order-1", 2) == 1
+    assert len({owner_of(i, 3) for i in "abcdefgh"}) > 1
+
+
+async def test_a_shard_that_cannot_index_the_fleet_is_rejected() -> None:
+    for shard in ((2, 2), (-1, 2), (0, 0)):
+        with pytest.raises(ValueError, match="Invalid shard"):
+            TursoNetwork(TursoLocalDriver(":memory:"), shard=shard)
+    TursoNetwork(TursoLocalDriver(":memory:"), shard=(1, 2))
 
 
 # =============================================================================
@@ -1036,6 +1068,101 @@ async def test_a_second_process_picks_up_work_it_never_created(tmp_path: Path) -
     finally:
         await creator.stop()
         await worker.stop()
+
+
+async def test_a_sharded_node_sweeps_only_the_origins_it_owns(
+    tmp_path: Path,
+) -> None:
+    """The point of ``shard``.
+
+    Both nodes read one timeout index holding both slices; each must act on its
+    own and leave the other's alone, or two nodes drive one workflow.
+    """
+    ids = ["alpha", "beta", "gamma", "delta"]
+    mine = [i for i in ids if owner_of(i, 2) == 0]
+    theirs = [i for i in ids if owner_of(i, 2) == 1]
+    # A useless test if the hash happens to send everything one way.
+    assert mine
+    assert theirs
+
+    # Creates the work but never sweeps, so every execute below was swept.
+    creator = TursoNetwork(
+        TursoLocalDriver(str(tmp_path)),
+        prefix="shard-",
+        tick_seconds=3600,
+        retry_timeout=50,
+    )
+    node0 = TursoNetwork(
+        TursoLocalDriver(str(tmp_path)),
+        prefix="shard-",
+        tick_seconds=0.005,
+        retry_timeout=50,
+        shard=(0, 2),
+    )
+    await creator.start()
+    await node0.start()
+    try:
+        inbox = Inbox(node0)
+        for promise_id in ids:
+            ok(
+                await send(
+                    creator,
+                    "promise.create",
+                    {
+                        "id": promise_id,
+                        "timeoutAt": now_ms() + 60_000,
+                        "param": {},
+                        "tags": {"resonate:target": creator.target_resolver("default")},
+                    },
+                )
+            )
+
+        # Everything this node owns arrives...
+        for promise_id in mine:
+            await inbox.next(
+                lambda m, want=promise_id: (
+                    m["kind"] == "execute" and m["data"]["task"]["id"] == want
+                )
+            )
+        # ...and nothing else ever does, though its timer is equally overdue.
+        await asyncio.sleep(0.3)
+        seen = {m["data"]["task"]["id"] for m in executes(inbox)}
+        assert seen == set(mine)
+        assert not seen & set(theirs)
+    finally:
+        await node0.stop()
+        await creator.stop()
+
+
+async def test_the_tenant_database_can_live_on_a_driver_of_its_own(
+    tmp_path: Path,
+) -> None:
+    # A fleet shares the timeout index but not its origins, so the two sides
+    # must be able to point at different storage.
+    origins = tmp_path / "origins"
+    timers = tmp_path / "timers"
+    origins.mkdir()
+    timers.mkdir()
+    network = TursoNetwork(
+        TursoLocalDriver(str(origins)),
+        timeout_driver=TursoLocalDriver(str(timers)),
+        prefix="split-",
+        timeout_database="timers",
+        tick_seconds=3600,
+    )
+    await network.start()
+    try:
+        ok(
+            await send(
+                network,
+                "promise.create",
+                {"id": "wf", "timeoutAt": now_ms() + 60_000, "param": {}, "tags": {}},
+            )
+        )
+        assert [p.name for p in origins.glob("*.db")] == ["split-wf.db"]
+        assert [p.name for p in timers.glob("*.db")] == ["split-timers.db"]
+    finally:
+        await network.stop()
 
 
 async def test_a_message_reaches_the_client_with_no_table_backing_it(

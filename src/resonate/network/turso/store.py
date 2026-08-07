@@ -22,6 +22,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from resonate.network.turso.schema import ORIGIN_SCHEMA, SCHEMA_VERSION, TENANT_SCHEMA
+from resonate.network.turso.server import hash_origin
 
 if TYPE_CHECKING:
     from resonate.network.turso.driver import (
@@ -52,8 +53,13 @@ class TursoStore:
         prefix: str,
         timeout_database: str,
         max_open_databases: int = 64,
+        timeout_driver: TursoDriver | None = None,
     ) -> None:
         self._driver = driver
+        #: Opens the tenant database; defaults to ``driver``. Origins are owned
+        #: by one node, while the timeout index is written by all of them, so
+        #: the two can need different storage -- see ``TursoNetwork``.
+        self._timeout_driver = timeout_driver or driver
         self._prefix = prefix
         self._timeout_database = timeout_database
         self._max_open = max_open_databases
@@ -87,7 +93,7 @@ class TursoStore:
             return self._tenant
         async with self._tenant_lock:
             if self._tenant is None:
-                conn = await self._driver.open(
+                conn = await self._timeout_driver.open(
                     f"{self._prefix}{self._timeout_database}"
                 )
                 await _migrate(conn, TENANT_SCHEMA)
@@ -166,13 +172,17 @@ class TursoStore:
         tenant = await self.tenant()
         async with tenant.transaction() as tx:
             await tx.execute("DELETE FROM timeouts WHERE origin = ?", [origin])
+            origin_hash = hash_origin(origin)
             for timeout_id, kind, timeout_at in timeouts:
                 await tx.execute(
                     """
-                    INSERT INTO timeouts (origin, id, kind, timeout_at) VALUES (?, ?, ?, ?)
-                    ON CONFLICT (origin, id, kind) DO UPDATE SET timeout_at = excluded.timeout_at
+                    INSERT INTO timeouts (origin, origin_hash, id, kind, timeout_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (origin, id, kind) DO UPDATE SET
+                      timeout_at = excluded.timeout_at,
+                      origin_hash = excluded.origin_hash
                     """,
-                    [origin, timeout_id, kind, timeout_at],
+                    [origin, origin_hash, timeout_id, kind, timeout_at],
                 )
         await tenant.push()
         # Recorded only after the write lands, so a failed publish is retried.
@@ -259,10 +269,16 @@ async def _migrate(conn: TursoConnection, statements: tuple[str, ...]) -> None:
         )
         raise SchemaVersionError(msg)
     if found < SCHEMA_VERSION:
-        # Every version so far has only added or dropped tables, and the DDL
-        # above is idempotent, so catching up is just restamping. A table this
-        # version no longer uses is left in place rather than dropped -- an
-        # older SDK sharing the database still reads it.
+        # The timeout table is a pure mirror of the origin databases, so an
+        # upgrade that changes its shape can simply drop and rebuild it rather
+        # than migrate: the next flush of each origin republishes its slice.
+        # Nothing else in either schema has changed shape, and the DDL above is
+        # idempotent, so the rest of catching up is just restamping. A table
+        # this version no longer uses is left in place rather than dropped --
+        # an older SDK sharing the database still reads it.
+        await conn.execute("DROP TABLE IF EXISTS timeouts")
+        for sql in statements:
+            await conn.execute(sql)
         await conn.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",
             [str(SCHEMA_VERSION)],

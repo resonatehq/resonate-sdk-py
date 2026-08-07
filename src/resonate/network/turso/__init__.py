@@ -103,7 +103,9 @@ from resonate.network.turso.server import (
     OutgoingMessage,
     ScheduleStore,
     expand_promise_id,
+    hash_origin,
     origin_of,
+    owner_of,
     to_schedule_record,
 )
 from resonate.network.turso.store import (
@@ -128,7 +130,9 @@ __all__ = [
     "TursoRow",
     "TursoSyncDriver",
     "database_path",
+    "hash_origin",
     "origin_of",
+    "owner_of",
 ]
 
 logger = logging.getLogger(__name__)
@@ -173,14 +177,52 @@ class TursoNetwork:
         retry_timeout: int = DEFAULT_RETRY_TIMEOUT,
         max_open_databases: int = 64,
         batch_size: int = 100,
+        timeout_driver: TursoDriver | None = None,
+        shard: tuple[int, int] | None = None,
     ) -> None:
+        """Run the protocol against Turso databases.
+
+        ``timeout_driver`` opens the tenant database when it lives somewhere
+        other than the origins, and defaults to ``driver``. The two have
+        opposite access patterns: origin databases are owned -- under static
+        sharding exactly one node ever touches a given workflow -- whereas the
+        timeout index is written by every node, because that is the point of it.
+        A driver fine for the first can be wrong for the second, so they split.
+
+        ``shard`` is this node's ``(index, count)`` slice of a sharded fleet.
+        Set it and the node sweeps only the timers of origins it owns --
+        ``hash_origin(origin) % count == index``. Every node must agree on
+        ``count`` and on the hash, which is why the hash ships here as
+        :func:`hash_origin` rather than being left to the caller.
+
+        That turns "any node may pick up any workflow" into "each workflow has
+        exactly one owner", which is worth having: a workflow stops migrating
+        between nodes mid-flight, so it stops contending with itself, and one
+        owner means one writer -- which is what the protocol's compare-and-swap
+        wants. Routing requests to the owning node is the caller's job; use
+        :func:`owner_of` for it, so routing and sweeping agree. Unset (the
+        default) means this node owns everything.
+        """
+        if shard is not None:
+            index, count = shard
+            if count < 1 or not (0 <= index < count):
+                msg = f"Invalid shard {index}/{count}: need 0 <= index < count"
+                raise ValueError(msg)
+        self._shard = shard
+
         self._pid = pid if pid is not None else uuid.uuid4().hex
         self._group = group if group is not None else "default"
         # A task targets the group; a callback or listener targets this process.
         self._unicast = f"poll://uni@{self._group}/{self._pid}"
         self._anycast = f"poll://any@{self._group}"
 
-        self._store = TursoStore(driver, prefix, timeout_database, max_open_databases)
+        self._store = TursoStore(
+            driver,
+            prefix,
+            timeout_database,
+            max_open_databases,
+            timeout_driver=timeout_driver,
+        )
         self._tick_seconds = tick_seconds
         self._retry_timeout = retry_timeout
         self._batch_size = batch_size
@@ -431,9 +473,16 @@ class TursoNetwork:
         tenant = await self._store.tenant()
         await tenant.pull()
 
+        # A sharded node takes only its own slice, in SQL, so a crowded index
+        # does not fill its batch with timers belonging to someone else.
+        shard_filter = " AND origin_hash % ? = ?" if self._shard else ""
+        shard_args = [self._shard[1], self._shard[0]] if self._shard else []
         due: list[TursoRow] = await tenant.execute(
-            "SELECT origin, id, kind FROM timeouts WHERE timeout_at <= ? ORDER BY timeout_at ASC LIMIT ?",
-            [now, self._batch_size],
+            # S608: the only interpolation is the fixed literal above; the
+            # shard itself is bound, not spliced.
+            f"SELECT origin, id, kind FROM timeouts WHERE timeout_at <= ?{shard_filter} "  # noqa: S608
+            "ORDER BY timeout_at ASC LIMIT ?",
+            [now, *shard_args, self._batch_size],
         )
         if not due:
             return
