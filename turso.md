@@ -243,9 +243,21 @@ Two more things a fleet meets:
   (`@tursodatabase/sync` 0.7.2). The earlier revision of this document held
   the TypeScript flag up as the fix; that was wrong.
 
-  **The only sound arrangement is one writer per workflow** — static sharding
-  with `shard`/`owner_of`, where routing and sweeping agree on a single owner
-  and the CAS runs on the one replica that ever writes that origin.
+  **On the sync driver the only sound arrangement is one writer per
+  workflow** — static sharding with `shard`/`owner_of`, where routing and
+  sweeping agree on a single owner and the CAS runs on the one replica that
+  ever writes that origin.
+
+  **A sound CAS does exist one protocol over — measured.** The same Turso
+  Cloud database also serves Hrana, the server-side transaction protocol, and
+  a `BEGIN IMMEDIATE` read-compare-write raced from two clients there yields
+  exactly one winner, 20/20, with the loser observing the winner's write
+  (~150–190ms per winning acquire; measured with `@libsql/client` and
+  `@tursodatabase/serverless` in the TypeScript repo, `experiments/exp-c.ts`).
+  A driver that runs origin transactions server-side — e.g. over
+  `libsql-client` for Python — would make a fleet sound in any topology, no
+  sharding required, at ~150ms per transition; sharding becomes a latency
+  optimization rather than a correctness requirement.
 
 ## What the schema follows
 
