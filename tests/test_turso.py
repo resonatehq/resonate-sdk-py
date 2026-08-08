@@ -1429,3 +1429,79 @@ async def test_a_workflow_abandoned_mid_flight_is_finished_by_another_process(
     finally:
         if b is not None:
             await b.stop()
+
+
+# =============================================================================
+# REVIEW REGRESSIONS
+# =============================================================================
+
+
+async def test_eviction_under_concurrency_neither_deadlocks_nor_drops_requests() -> (
+    None
+):
+    # Regression: eviction used to acquire the evicted origin's per-origin
+    # lock while holding the global open lock -- the reverse of every
+    # request's lock order -- an AB-BA deadlock that wedged the whole network
+    # once more than max_open_databases distinct origins were in play.
+    net = await _network(max_open_databases=1, tick_seconds=3600)
+    try:
+
+        async def create(i: int) -> dict[str, Any]:
+            return await send(
+                net,
+                "promise.create",
+                {
+                    "id": f"evict{i}",
+                    "timeoutAt": now_ms() + 60_000,
+                    "param": {},
+                    "tags": {},
+                },
+            )
+
+        results = await asyncio.wait_for(
+            asyncio.gather(*(create(i) for i in range(12))), timeout=10
+        )
+        assert [r["head"]["status"] for r in results] == [200] * 12
+    finally:
+        await net.stop()
+
+
+async def test_a_declared_origin_that_is_a_full_id_is_normalized(
+    quiet: TursoNetwork,
+) -> None:
+    # The engine cores stamp the resonate:origin header with the full task id,
+    # not its origin; routing must normalize it, or a dotted id becomes the
+    # name of a phantom database.
+    ok(
+        await send(
+            quiet,
+            "promise.create",
+            {
+                "id": "wf",
+                "timeoutAt": now_ms() + 60_000,
+                "param": {},
+                "tags": {"resonate:target": TARGET},
+            },
+        )
+    )
+    acquired = await send(
+        quiet,
+        "task.acquire",
+        {"id": "wf", "version": 0, "pid": "p1", "ttl": 30_000},
+        **{"resonate:origin": "wf.some.dotted.task"},
+    )
+    assert acquired["head"]["status"] == 200
+
+
+async def test_a_declared_origin_that_contradicts_the_id_is_refused(
+    quiet: TursoNetwork,
+) -> None:
+    # Honoring a header that disagrees with the id's origin would write one
+    # workflow's state into another workflow's database.
+    response = await send(
+        quiet,
+        "promise.get",
+        {"id": "wf"},
+        **{"resonate:origin": "other"},
+    )
+    assert response["head"]["status"] == 400

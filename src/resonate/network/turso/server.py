@@ -293,6 +293,12 @@ class OriginServer:
         self._deferred: list[_Resume] = []
         #: Messages this transaction emitted, keyed for collapse-on-set.
         self._outgoing: dict[str, OutgoingMessage] = {}
+        #: True when this transaction changed state a *different* process may
+        #: need before the current tenure's next boundary: settling an external
+        #: promise (the public resolve/reject API -- the caller holds no lease)
+        #: or waking a suspended task. Under ``push_on="boundary"`` the network
+        #: pushes when this is set, regardless of the request kind.
+        self._sync_needed = False
 
     async def apply(self, req: dict[str, Any]) -> Outcome:
         """Apply one request, then drain the resume obligations it scheduled.
@@ -1074,6 +1080,9 @@ class OriginServer:
                 resume.awaiter, TASK_TIMEOUT_RETRY, self._now + self._retry_timeout
             )
             await self._dispatch_task(promise, task)
+            # A suspended task re-entered circulation: any node may claim it,
+            # so the state it resumes from must be servable from the remote.
+            self._sync_needed = True
             return
 
         if task["state"] in {"pending", "acquired", "halted"}:
@@ -1130,6 +1139,11 @@ class OriginServer:
         listeners = await self._get_listeners(row["id"])
         callbacks = await self._get_callbacks(row["id"])
         headers, data = _encode_value(value)
+
+        # An external promise may be settled by a process holding no lease (the
+        # public resolve/reject API); nothing in that caller's future pushes.
+        if row.get("external"):
+            self._sync_needed = True
 
         await self._tx.execute(
             "UPDATE promises SET state = ?, value_headers = ?, value_data = ?, settled_at = ? WHERE id = ?",
@@ -1368,6 +1382,12 @@ class OriginServer:
         self._outgoing.clear()
         return messages
 
+    def take_sync_needed(self) -> bool:
+        """Whether this transaction requires a boundary push -- see ``_sync_needed``."""
+        value = self._sync_needed
+        self._sync_needed = False
+        return value
+
 
 def _execute(task_id: str, version: int) -> dict[str, Any]:
     return {
@@ -1548,7 +1568,11 @@ def validate_create(
     origin = tags.get("resonate:origin")
     if origin is not None:
         if "." in origin:
-            return "resonate:origin must not contain '.'"
+            return (
+                "resonate:origin must not contain '.': re-rooted (detached) "
+                "lineages are not supported by TursoNetwork -- the origin "
+                "partition cannot represent them"
+            )
         if promise_id != origin and not promise_id.startswith(f"{origin}."):
             return "Promise ID must be prefixed by resonate:origin"
 

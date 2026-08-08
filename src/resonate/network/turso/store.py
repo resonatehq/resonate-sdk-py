@@ -17,6 +17,7 @@ it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
@@ -96,11 +97,23 @@ class TursoStore:
                 conn = await self._timeout_driver.open(
                     f"{self._prefix}{self._timeout_database}"
                 )
-                await _migrate(conn, TENANT_SCHEMA)
+                try:
+                    await _migrate(conn, TENANT_SCHEMA)
+                except BaseException:
+                    with contextlib.suppress(Exception):
+                        await conn.close()
+                    raise
                 self._tenant = conn
             return self._tenant
 
     async def origin(self, origin: str) -> TursoConnection:
+        # LOCK ORDER: a per-origin lock may be held by our caller, and closing
+        # an eviction victim needs the victim's per-origin lock -- so nothing
+        # here may await a per-origin lock while holding _open_lock, or two
+        # requests deadlock in an AB-BA cycle (caller holds lock(Z), waits on
+        # _open_lock; opener holds _open_lock, waits on lock(Z)). Victims are
+        # therefore popped under _open_lock but closed after it is released.
+        victims: list[tuple[str, TursoConnection]] = []
         async with self._open_lock:
             conn = self._origins.get(origin)
             if conn is not None:
@@ -108,24 +121,29 @@ class TursoStore:
                 return conn
 
             conn = await self._driver.open(f"{self._prefix}{origin}")
-            await _migrate(conn, ORIGIN_SCHEMA)
+            try:
+                await _migrate(conn, ORIGIN_SCHEMA)
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    await conn.close()
+                raise
             self._origins[origin] = conn
-            await self._evict()
-            return conn
-
-    async def _evict(self) -> None:
-        while len(self._origins) > self._max_open:
-            name, conn = self._origins.popitem(last=False)
-            # Evict behind the per-origin lock so an in-flight transaction is
-            # never closed out from under itself.
+            while len(self._origins) > self._max_open:
+                victims.append(self._origins.popitem(last=False))
+        for name, victim in victims:
+            # Close behind the per-origin lock so an in-flight transaction is
+            # never closed out from under itself. The lock object itself is
+            # never removed from _locks: a waiter may already hold a reference,
+            # and handing a later request a fresh lock would let two requests
+            # run the same origin's transaction+flush pair concurrently.
             async with self.lock(name):
                 try:
-                    await conn.close()
+                    await victim.close()
                 except Exception:
                     logger.warning(
                         "turso close failed for origin %s", name, exc_info=True
                     )
-            self._locks.pop(name, None)
+        return conn
 
     def lock(self, origin: str) -> asyncio.Lock:
         """Exclusive access to an origin within this process.
@@ -280,16 +298,29 @@ async def _migrate(conn: TursoConnection, statements: tuple[str, ...]) -> None:
         )
         raise SchemaVersionError(msg)
     if found < SCHEMA_VERSION:
-        # The timeout table is a pure mirror of the origin databases, so an
-        # upgrade that changes its shape can simply drop and rebuild it rather
-        # than migrate: the next flush of each origin republishes its slice.
-        # Nothing else in either schema has changed shape, and the DDL above is
-        # idempotent, so the rest of catching up is just restamping. A table
-        # this version no longer uses is left in place rather than dropped --
-        # an older SDK sharing the database still reads it.
-        await conn.execute("DROP TABLE IF EXISTS timeouts")
+        # The timeout table is a mirror of the origin databases, but it is
+        # also the fleet's only discovery mechanism: an origin whose workflows
+        # are all quiescent gets no flush until something touches it, and
+        # nothing touches it except a sweep -- which finds it through this
+        # very table. So an upgrade must carry the rows across, not drop them:
+        # stale-shaped rows are safe (every consumer re-validates against the
+        # origin database), missing rows strand workflows forever. (Guarded:
+        # origin databases run this same path and have no timeouts table. A
+        # future version that reshapes the carried columns must adjust the
+        # copy below in the same change.)
+        mirror = await conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'timeouts'"
+        )
+        if mirror:
+            await conn.execute("ALTER TABLE timeouts RENAME TO timeouts_old")
         for sql in statements:
             await conn.execute(sql)
+        if mirror:
+            await conn.execute(
+                "INSERT OR IGNORE INTO timeouts (origin, origin_hash, id, kind, timeout_at) "
+                "SELECT origin, origin_hash, id, kind, timeout_at FROM timeouts_old"
+            )
+            await conn.execute("DROP TABLE timeouts_old")
         await conn.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",
             [str(SCHEMA_VERSION)],

@@ -322,39 +322,58 @@ class TursoNetwork:
         if kind in _SCHEDULE_KINDS:
             return await self._in_tenant_schedules(kind, data, now)
 
+        # The resonate:origin header may carry a full promise or task id rather
+        # than a bare origin -- the engine cores stamp it with the task's id --
+        # so it is normalized through origin_of before use. For a request that
+        # also names an id, a header disagreeing with that id's origin is
+        # refused outright: honoring it would write one workflow's state into
+        # another workflow's database.
+        def routed(id_: str) -> str | Outcome:
+            origin = origin_of(id_)
+            if declared is not None and origin_of(declared) != origin:
+                return Outcome(
+                    kind,
+                    400,
+                    f"resonate:origin {declared!r} does not match the origin of id {id_!r}",
+                )
+            return origin
+
         if kind in _BY_ID_KINDS:
-            return await self._in_origin_apply(
-                declared or origin_of(data["id"]), now, req
-            )
+            route = routed(data["id"])
+            if isinstance(route, Outcome):
+                return route
+            return await self._in_origin_apply(route, now, req)
 
         if kind in {"promise.register_callback", "promise.register_listener"}:
-            return await self._in_origin_apply(
-                declared or origin_of(data["awaited"]), now, req
-            )
+            route = routed(data["awaited"])
+            if isinstance(route, Outcome):
+                return route
+            return await self._in_origin_apply(route, now, req)
 
         if kind == "task.create":
-            return await self._in_origin_apply(
-                declared or origin_of(data["action"]["data"]["id"]), now, req
-            )
+            route = routed(data["action"]["data"]["id"])
+            if isinstance(route, Outcome):
+                return route
+            return await self._in_origin_apply(route, now, req)
 
         if kind == "promise.search":
             origin = declared or (data.get("tags") or {}).get("resonate:origin")
             if origin is None:
                 return Outcome(kind, 501, _SEARCH_UNSUPPORTED.format(what="promise"))
-            return await self._in_origin_apply(origin, now, req)
+            return await self._in_origin_apply(origin_of(origin), now, req)
 
         if kind == "task.search":
             if declared is None:
                 return Outcome(kind, 501, _SEARCH_UNSUPPORTED.format(what="task"))
-            return await self._in_origin_apply(declared, now, req)
+            return await self._in_origin_apply(origin_of(declared), now, req)
 
         if kind == "task.heartbeat":
             # The only request that fans out: its task list may span workflows,
-            # so it is split into one transaction per origin. Each is
-            # independent -- a heartbeat refreshes leases and can partially
-            # apply without breaking any invariant.
-            if declared is not None:
-                return await self._in_origin_apply(declared, now, req)
+            # so it is split into one transaction per origin, always by each
+            # task's own origin -- a declared header cannot be trusted to cover
+            # a list that may span workflows. Each transaction is independent:
+            # a heartbeat refreshes leases and can partially apply without
+            # breaking any invariant.
             tasks = data.get("tasks") or []
             for origin in dict.fromkeys(origin_of(t["id"]) for t in tasks):
                 scoped = {
@@ -395,12 +414,16 @@ class TursoNetwork:
             return True
         kind = req["kind"]
         data = req.get("data") or {}
+        # task.continue is release's mirror -- a halted task re-enters
+        # circulation with a fresh retry timer, outside any lease tenure -- so
+        # it is a boundary for exactly the reason release is.
         if kind in {
             "task.create",
             "task.fulfill",
             "task.suspend",
             "task.release",
             "task.halt",
+            "task.continue",
         }:
             return True
         if kind == "promise.create":
@@ -429,6 +452,7 @@ class TursoNetwork:
         delivered under.
         """
         outgoing: list[OutgoingMessage] = []
+        sync_needed = False
         async with self._store.lock(origin):
             conn = await self._store.origin(origin)
             async with conn.transaction() as tx:
@@ -439,7 +463,10 @@ class TursoNetwork:
                 # below, so no message is ever delivered for a state change that
                 # did not land.
                 outgoing = server.take_messages()
-            await self._store.flush(origin, conn, push_origin=push_origin)
+                sync_needed = server.take_sync_needed()
+            await self._store.flush(
+                origin, conn, push_origin=push_origin or sync_needed
+            )
         self._dispatch(outgoing)
         return result
 

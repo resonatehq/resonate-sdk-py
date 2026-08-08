@@ -2,6 +2,33 @@
 
 `TursoNetwork` is a `Network` with no server behind it.
 
+## Production readiness (reviewed 2026-08-08)
+
+An adversarial review — seven independent dimensions over both SDKs, every
+finding re-verified against the code by a refuter before it counted — preceded
+this release. Twelve findings were confirmed (two critical, among them an
+AB-BA deadlock in this SDK's connection eviction that could wedge a whole
+node); all are fixed on this branch, with regression tests for the criticals.
+Status by concern:
+
+| Concern | Status |
+|---|---|
+| Single-node correctness (full suites) | ✅ tested |
+| Sharded fleet — one owner per workflow | ✅ measured |
+| Convergence through Turso Cloud | ✅ measured (with the TS SDK's identical arrangement) |
+| Turso Cloud provisioning (no auto-create; API create ~384ms) | ✅ measured |
+| Boundary uploads (`push_on="boundary"`) | ✅ implemented, reviewed, tested |
+| Origin routing (`resonate:origin` header normalized and validated) | ✅ fixed under review, regression-tested |
+| **Cross-node CAS without sharding** | ❓ **open question** — embedded-replica CAS is measured unsound; server-side Hrana transactions are measured sound but not yet integrated as a driver |
+| Detached (re-rooted) lineages | ✖ unsupported by design (see below) |
+
+Deployment checklist: shard the fleet (`shard`, route with `owner_of`) — one
+writer per workflow is the correctness boundary until the CAS question closes;
+create databases before first connect (Turso Cloud does not auto-create);
+configure Python logging (this module logs failures through the standard
+`logging` module, logger name `resonate.network.turso`); rotate group tokens
+(`auth_token` accepts a callable).
+
 Every other network in this SDK is a transport: it carries a request to a
 Resonate Server and carries the response back. This one is not. There is no
 server; the SDK *is* the server, and the durable state lives in Turso databases
@@ -319,6 +346,14 @@ TypeScript SDK pins `tz: "UTC"` for the same reason, so a mixed fleet agrees.
 * **`http://` listener addresses.** An `unblock` for one is emitted and handed
   to the local client like any other message, but nothing makes the HTTP call —
   there is no server to make it. Treat these as unsupported.
+
+* **Detached (re-rooted) lineages.** A detached child's `resonate:origin` tag
+  is its own dotted id, re-rooting the lineage. The origin partition cannot
+  represent a root whose id contains `.` — database selection is
+  `origin_of(id)`, which would split the detached workflow and its children
+  across databases — so `promise.create` refuses the tag with a 400 naming
+  this limitation. Start detached work as a genuine root instead (a fresh
+  un-dotted id).
 
 ## When the cloud is written: `push_on`
 
