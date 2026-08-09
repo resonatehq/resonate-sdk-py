@@ -210,6 +210,19 @@ owner means one writer (which is what the CAS fences want), and the `unblock`
 problem above stops mattering, because the node that finishes a workflow is the
 node that was waiting on it.
 
+**The count is fleet state, not node config.** Ownership is
+`hash_origin(origin) % count`, so a node using a different `count` from its
+peers is silently destructive in both directions: origins no node claims keep
+their timers due forever (parked workflows never resume, and nothing logs), and
+origins two nodes claim recreate the unsound multi-writer arrangement. A sharded
+node therefore stamps its count in the tenant database at startup and raises
+`ShardCountMismatchError` if the fleet records a different one.
+
+Resharding is consequently not a rolling operation. Stop the fleet, relocate or
+share the origin databases if they are node-local (a resize moves workflows to
+nodes that hold no copy of them), start one node with `reshard=True` to claim
+the new count, then start the rest normally.
+
 The caller must route requests to the owning node using the same function —
 `owner_of(origin_of(promise_id), count)`, exported for exactly this. The hash
 lives in the SDK rather than in the caller so that routing and sweeping cannot
@@ -379,6 +392,28 @@ A timer index entry may briefly advertise state the remote cannot serve yet
 rule that makes every index entry safe: a consumer re-validates against the
 origin database and treats "not armed yet" like any stale entry — it costs a
 wasted open per sweep until the boundary push lands, and nothing else.
+
+## Operational gotchas (all paid for)
+
+* **`close()` on a replica can hang** while a pull is in flight, which makes
+  `network.stop()` hang with it. A supervisor with a kill timeout will SIGKILL
+  the process on every deploy; race `stop()` against a timeout if you need a
+  prompt exit. The network marks itself stopped and cancels its tick before
+  closing connections, so the node is already inert when the hang happens.
+
+* **A swept origin can lose its connection mid-fire** (`turso close failed for
+  origin ...`, or a sweep warning) when the store evicts it. The sweep retries
+  next tick and the fleet self-heals; the warning is noise unless it repeats
+  for the same origin indefinitely.
+
+* **The store does not reopen after `stop()`.** Requests arriving after a stop
+  raise `StoreClosedError` rather than silently reopening databases nothing
+  will ever close. Build a new `TursoNetwork` to restart.
+
+* **Failures are reported through the standard `logging` module**, logger name
+  `resonate.network.turso`. A fleet whose sweeper is broken looks exactly like
+  a fleet with no work to do, so configure logging at WARNING or below before
+  concluding that a quiet node is an idle one.
 
 ## Tests
 

@@ -18,7 +18,11 @@ restricted the match is their *union*, not their intersection.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
+
+#: ASCII digits only -- see the note on ``_DECIMAL`` in ``server.py``.
+_DECIMAL = re.compile(r"^[0-9]+$")
 
 #: Field bounds, in the order they appear in an expression.
 _BOUNDS: tuple[tuple[int, int], ...] = (
@@ -26,7 +30,10 @@ _BOUNDS: tuple[tuple[int, int], ...] = (
     (0, 23),  # hour
     (1, 31),  # day of month
     (1, 12),  # month
-    (0, 6),  # day of week, Sunday = 0
+    # Day of week. 7 is a legal input meaning Sunday, so it has to be inside
+    # the field's range or a range like `5-7` builds an empty set instead of
+    # Fri-Sun; the normalization below folds 7 back onto 0.
+    (0, 7),
 )
 
 _MONTH_NAMES = {
@@ -69,7 +76,10 @@ def _parse_field(raw: str, index: int) -> frozenset[int]:
         body, _, step_raw = part.partition("/")
         step = 1
         if step_raw:
-            if not step_raw.isdigit() or int(step_raw) == 0:
+            # ASCII digits only: ``isdigit`` also accepts superscripts, which
+            # ``int`` then rejects with a ValueError that would escape as
+            # something other than CronError.
+            if not _DECIMAL.match(step_raw) or int(step_raw) == 0:
                 msg = f"invalid step {step_raw!r} in {raw!r}"
                 raise CronError(msg)
             step = int(step_raw)
@@ -107,8 +117,6 @@ def _parse_value(raw: str, index: int) -> int:
         return _MONTH_NAMES[text]
     if index == 4 and text in _DAY_NAMES:
         return _DAY_NAMES[text]
-    if text == "7" and index == 4:
-        return 0
     try:
         return int(text)
     except ValueError as exc:

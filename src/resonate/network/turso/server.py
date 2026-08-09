@@ -47,6 +47,7 @@ registered in one transaction.
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from resonate.network.turso.cron import CronError, next_cron
@@ -151,9 +152,16 @@ def address_valid(address: str) -> bool:
     )
 
 
+#: ASCII digits only. ``str.isdigit`` is true for superscripts (``int`` then
+#: raises) and for non-ASCII decimal digits like ``٣٠`` (``int`` accepts them,
+#: while the TypeScript SDK's ``/^\d+$/`` does not) -- a mixed fleet must agree
+#: on what a tag means, and a malformed tag must never raise out of a request.
+_DECIMAL = re.compile(r"^[0-9]+$")
+
+
 def _parse_delay(raw: str | None) -> int | None:
     """Total decimal parse; a malformed tag yields ``None`` rather than raising."""
-    if raw is None or not raw.isdigit():
+    if raw is None or not _DECIMAL.match(raw):
         return None
     return int(raw)
 
@@ -202,6 +210,13 @@ def _tag_columns(tags: dict[str, str]) -> tuple[str | None, str | None, int, int
         else 0
     )
     return target, tags.get("resonate:branch"), timer, external
+
+
+#: :func:`project` expressed in SQL, so a search can filter on the state it
+#: will actually report. Binds one parameter, ``now``. Keep the two in step.
+_PROJECTED_PROMISE_STATE = """(CASE WHEN state = 'pending' AND ? >= timeout_at
+     THEN (CASE WHEN timer = 1 THEN 'resolved' ELSE 'rejected_timedout' END)
+     ELSE state END)"""
 
 
 def project(row: TursoRow, now: int) -> TursoRow:
@@ -537,8 +552,15 @@ class OriginServer:
         clauses: list[str] = []
         args: list[Any] = []
         if state is not None:
-            clauses.append("state = ?")
-            args.append(state)
+            # Filter on the PROJECTED state, the same function the returned
+            # records are mapped through below. Filtering the stored column
+            # would make the result contradict the query -- a pending row past
+            # its deadline comes back reporting rejected_timedout -- and for an
+            # internal promise, permanently: no durable timeout is armed for
+            # one, so its stored row never converges. In SQL rather than after
+            # the fact so LIMIT and the cursor still paginate correctly.
+            clauses.append(f"{_PROJECTED_PROMISE_STATE} = ?")
+            args.extend([self._now, state])
         if cursor is not None:
             clauses.append("id > ?")
             args.append(cursor)
@@ -933,20 +955,38 @@ class OriginServer:
         clauses: list[str] = []
         args: list[Any] = []
         if state is not None:
-            clauses.append("state = ?")
-            args.append(state)
+            # A task bound to a logically dead promise is ``fulfilled`` by
+            # projection -- which is what ``task.get`` reports -- so the filter
+            # has to say the same thing, or a search and a get disagree about
+            # one task.
+            clauses.append(
+                "(CASE WHEN p.state = 'pending' AND ? < p.timeout_at "
+                "THEN t.state ELSE 'fulfilled' END) = ?"
+            )
+            args.extend([self._now, state])
         if cursor is not None:
-            clauses.append("id > ?")
+            clauses.append("t.id > ?")
             args.append(cursor)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = await self._tx.execute(
-            f"SELECT * FROM tasks {where} ORDER BY id ASC LIMIT ?",  # noqa: S608
+            f"SELECT t.* FROM tasks t JOIN promises p ON p.id = t.id {where} "  # noqa: S608
+            "ORDER BY t.id ASC LIMIT ?",
             [*args, size],
         )
 
-        tasks = [
-            to_task_record(row, await self._count_resumes(row["id"])) for row in rows
-        ]
+        # Project each row too, so the payload matches the filter.
+        tasks = []
+        for row in rows:
+            promise = await self._get_promise(row["id"])
+            if promise is None:
+                continue
+            if live(promise, self._now):
+                tasks.append(to_task_record(row, await self._count_resumes(row["id"])))
+            else:
+                # Same projection ``task.get`` applies: a task whose promise is
+                # logically dead is fulfilled, with no resumes outstanding.
+                fulfilled = {**row, "state": "fulfilled", "pid": None, "ttl": None}
+                tasks.append(to_task_record(fulfilled, 0))
         data: dict[str, Any] = {"tasks": tasks}
         if len(rows) == size:
             data["cursor"] = rows[-1]["id"]

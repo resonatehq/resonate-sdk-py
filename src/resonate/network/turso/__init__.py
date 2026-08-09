@@ -58,16 +58,19 @@ same acquire through a real Turso Cloud remote both won 50 times out of 50
 (measured with the TypeScript SDK; its ``remoteWrites`` flag was measured
 broken too). A fleet must keep one writer per workflow -- static sharding.
 
-**Concurrency -- read this before deploying a fleet.** Only the single-node
-arrangement is verified. Within one process this works: requests against an
-origin are serialized, workflows run, and a workflow abandoned mid-flight is
-recovered off the timeout index.
+**Concurrency -- read this before deploying a fleet.** Within one process this
+works: requests against an origin are serialized, workflows run, and a workflow
+abandoned mid-flight is recovered off the timeout index.
 
-Running several nodes has not been made to work. :class:`TursoLocalDriver`
-cannot do it at all -- Turso takes an exclusive file lock, so the second process
-cannot even open the database. :class:`TursoSyncDriver`, where each node holds
-its own replica and they converge through Turso Cloud, is the arrangement this
-design is actually for and has never been run against a real remote.
+Across processes, shard. :class:`TursoLocalDriver` cannot be shared at all --
+Turso takes an exclusive file lock, so the second process cannot even open the
+database. :class:`TursoSyncDriver`, where each node holds its own replica and
+they converge through Turso Cloud, is the arrangement this design is for, and
+convergence itself is measured (a committed write reaches another replica in
+~200ms median; a workflow abandoned by one node is recovered and completed by
+another). What is *not* sound is two nodes writing one workflow -- see the
+compare-and-swap note above -- so every workflow must have exactly one owner:
+set ``shard`` and route with :func:`owner_of`.
 
 The design also concentrates fleet-wide write traffic on the tenant database,
 since every origin publishes its timers there. :meth:`TursoStore.flush` skips
@@ -122,6 +125,7 @@ __all__ = [
     "TIMEOUT_PROMISE",
     "TIMEOUT_TASK_LEASE",
     "TIMEOUT_TASK_RETRY",
+    "ShardCountMismatchError",
     "TursoConnection",
     "TursoDriver",
     "TursoExecutor",
@@ -136,6 +140,11 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class ShardCountMismatchError(RuntimeError):
+    """Raised when a node's shard count disagrees with the rest of the fleet."""
+
 
 _SCHEDULE_KINDS = frozenset(
     {"schedule.get", "schedule.create", "schedule.delete", "schedule.search"}
@@ -180,6 +189,7 @@ class TursoNetwork:
         timeout_driver: TursoDriver | None = None,
         shard: tuple[int, int] | None = None,
         push_on: Literal["boundary", "request"] = "boundary",
+        reshard: bool = False,
     ) -> None:
         """Run the protocol against Turso databases.
 
@@ -240,6 +250,7 @@ class TursoNetwork:
         self._retry_timeout = retry_timeout
         self._batch_size = batch_size
         self._push_on = push_on
+        self._reshard = reshard
 
         self._subscribers: list[Callable[[str], None]] = []
         self._tick_handle: asyncio.Task[None] | None = None
@@ -266,9 +277,78 @@ class TursoNetwork:
 
     async def start(self) -> None:
         self._stopped = False
-        await self._store.tenant()
+        tenant = await self._store.tenant()
+        await self._check_shard_agreement(tenant)
+        self._warn_if_unsharded_replica(tenant)
         if self._tick_handle is None:
             self._tick_handle = asyncio.create_task(self._tick_loop())
+
+    async def _check_shard_agreement(self, tenant: TursoConnection) -> None:
+        """Refuse to join a fleet that disagrees about how many shards there are.
+
+        Ownership is ``hash_origin(origin) % count``, so ``count`` is not a
+        local setting -- it is a property of the fleet, and a node using the
+        wrong one is silently destructive in both directions: origins no node
+        claims keep their timers due forever (parked workflows never resume,
+        crash recovery never runs, nothing logs), and origins two nodes claim
+        recreate the unsound multi-writer arrangement.
+
+        Only *sharded* nodes take part. An unsharded node owns everything,
+        which is right for a single node and for a process that submits work
+        without claiming any, and wrong next to a sharded fleet -- but that
+        cannot be told apart from configuration, so it is warned about rather
+        than refused.
+
+        Resharding is therefore deliberately not a rolling operation: stop the
+        fleet, ``DELETE FROM meta WHERE key = 'shard_count'`` in the tenant
+        database, then start every node on the new count.
+        """
+        if self._shard is None:
+            return
+        count = str(self._shard[1])
+        if self._reshard:
+            # Deliberate resize: claim the new count for the fleet. The
+            # operator is asserting that every other node is stopped.
+            await tenant.execute(
+                "INSERT INTO meta (key, value) VALUES ('shard_count', ?) "
+                "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                [count],
+            )
+            return
+        await tenant.execute(
+            "INSERT INTO meta (key, value) VALUES ('shard_count', ?) "
+            "ON CONFLICT (key) DO NOTHING",
+            [count],
+        )
+        rows = await tenant.execute("SELECT value FROM meta WHERE key = 'shard_count'")
+        agreed = str(rows[0]["value"]) if rows else count
+        if agreed != count:
+            msg = (
+                f"Shard count mismatch: this node is configured for {count} shard(s), "
+                f"but the tenant database records a fleet of {agreed}. Every node "
+                "must agree -- ownership is hash_origin(origin) % count, so a "
+                "disagreement leaves some workflows owned by nobody and others by "
+                "two nodes. To reshard: stop the fleet, start one node with "
+                "reshard=True, then start the rest on the new count."
+            )
+            raise ShardCountMismatchError(msg)
+
+    def _warn_if_unsharded_replica(self, tenant: TursoConnection) -> None:
+        """Warn when this node replicates but claims every origin.
+
+        One node owning everything is a perfectly good single-node deployment
+        -- hence a warning and not an error. But a *second* node deployed the
+        same way is the arrangement measured to let two nodes both win one
+        ``task.acquire``, and the config gives no hint of it: ``shard`` reads
+        like an optimization.
+        """
+        if self._shard is not None or not getattr(tenant, "replicates", False):
+            return
+        logger.warning(
+            "turso network is replicating but unsharded: safe for a single node, but a "
+            "second node sharing this tenant will double-execute fenced actions "
+            "(measured). Set shard= and route with owner_of -- see turso.md."
+        )
 
     async def stop(self) -> None:
         self._stopped = True
@@ -464,9 +544,20 @@ class TursoNetwork:
                 # did not land.
                 outgoing = server.take_messages()
                 sync_needed = server.take_sync_needed()
-            await self._store.flush(
-                origin, conn, push_origin=push_origin or sync_needed
-            )
+            # The transaction has committed. Its messages describe durable
+            # state and are owed to the client whether or not the mirror write
+            # lands -- the index is eventual by construction and the next flush
+            # republishes it, whereas a dropped ``unblock`` has nothing to
+            # re-emit it (settlement already deleted the listener rows). So
+            # dispatch first, then let the flush failure reach the caller.
+            try:
+                await self._store.flush(
+                    origin, conn, push_origin=push_origin or sync_needed
+                )
+            except BaseException:
+                self._dispatch(outgoing)
+                outgoing = []
+                raise
         self._dispatch(outgoing)
         return result
 

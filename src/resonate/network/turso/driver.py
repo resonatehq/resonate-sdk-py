@@ -131,6 +131,16 @@ class _Connection:
         self._replicates = replicates
         self._lock = asyncio.Lock()
 
+    @property
+    def replicates(self) -> bool:
+        """Whether this connection syncs with a remote.
+
+        Read by the network to warn about arrangements that are only sound for
+        a single node. A custom driver that does not expose it simply is not
+        warned about.
+        """
+        return self._replicates
+
     async def _execute_unlocked(
         self, sql: str, args: Sequence[Any] = ()
     ) -> list[TursoRow]:

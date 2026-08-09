@@ -17,7 +17,13 @@ from resonate.network.turso import (
     origin_of,
     owner_of,
 )
-from resonate.network.turso.cron import CronError, cron_occurrences, next_cron
+from resonate.network.turso.cron import (
+    CronError,
+    CronExpression,
+    cron_occurrences,
+    next_cron,
+)
+from resonate.network.turso.server import _parse_delay
 from resonate.resonate import Resonate
 
 if TYPE_CHECKING:
@@ -1505,3 +1511,23 @@ async def test_a_declared_origin_that_contradicts_the_id_is_refused(
         **{"resonate:origin": "other"},
     )
     assert response["head"]["status"] == 400
+
+
+async def test_a_day_of_week_range_ending_in_sunday_as_7_is_not_empty() -> None:
+    # `7` is a legal day-of-week meaning Sunday. It used to be folded to 0
+    # during parsing, which made `5-7` build range(5, 1) -- an empty set, so
+    # the schedule silently never fired.
+    assert sorted(CronExpression("0 0 * * 5-7")._fields[4]) == [0, 5, 6]
+    assert sorted(CronExpression("0 0 * * 7")._fields[4]) == [0]
+    assert sorted(CronExpression("0 0 * * 6-7")._fields[4]) == [0, 6]
+
+
+async def test_a_malformed_delay_tag_is_rejected_rather_than_raising() -> None:
+    # str.isdigit() accepts superscripts that int() rejects, and non-ASCII
+    # digits the TypeScript SDK's /^\d+$/ does not -- a mixed fleet has to
+    # agree, and a bad tag must not raise out of a request.
+    assert _parse_delay("30") == 30
+    assert _parse_delay("²") is None  # superscript two
+    assert _parse_delay("٣٠") is None  # Arabic-Indic 30
+    assert _parse_delay("abc") is None
+    assert _parse_delay(None) is None

@@ -22,6 +22,7 @@ import logging
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
+from resonate import now_ms
 from resonate.network.turso.schema import ORIGIN_SCHEMA, SCHEMA_VERSION, TENANT_SCHEMA
 from resonate.network.turso.server import hash_origin
 
@@ -35,6 +36,37 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+_MISSING = object()
+
+
+def _has_waiters(lock: asyncio.Lock) -> bool:
+    """Whether anyone is blocked on ``lock``.
+
+    ``asyncio.Lock`` exposes no public predicate, and ``locked()`` alone is not
+    one: ``release()`` clears the locked flag *before* the woken waiter runs,
+    so there is a real window where the lock reads unlocked while a waiter
+    still holds a reference to this object. Dropping it then would hand the
+    next request a different lock for the same origin and let both run.
+
+    Every unexpected shape therefore answers True -- keeping a lock costs one
+    map entry, dropping a live one costs correctness.
+    """
+    waiters = getattr(lock, "_waiters", _MISSING)
+    if waiters is _MISSING:
+        return True
+    if waiters is None:
+        return False
+    try:
+        return len(waiters) > 0
+    except TypeError:  # pragma: no cover - defensive
+        return True
+
+
+#: How long a "nothing moved, skip the tenant write" decision stays good.
+#: See ``TursoStore._published``.
+REPUBLISH_AFTER_MS = 60_000
+
 #: The tenant index's timeout kinds, widening the origin database's encoding.
 TIMEOUT_PROMISE = 0
 TIMEOUT_TASK_RETRY = 1
@@ -43,6 +75,13 @@ TIMEOUT_TASK_LEASE = 2
 
 class SchemaVersionError(RuntimeError):
     """The database was written by a newer SDK than this one."""
+
+
+class StoreClosedError(RuntimeError):
+    """The store was closed; open a new network rather than reusing this one."""
+
+    def __init__(self) -> None:
+        super().__init__("TursoStore is closed")
 
 
 class TursoStore:
@@ -82,7 +121,13 @@ class TursoStore:
         #: tenant write at all. A stale skip is possible if another node rewrote
         #: this origin's rows underneath us; that is the same drift the index
         #: already tolerates, and the next real change republishes the slice.
-        self._published: dict[str, str] = {}
+        #: Each entry carries when it was published: "unchanged" is not a safe
+        #: answer forever. If this origin's slice goes missing from the index by
+        #: a route this process cannot see, the fingerprint still matches, the
+        #: republish is skipped, and -- since the sweep finds work only through
+        #: the index -- the timers never fire, so the fingerprint never changes.
+        #: Expiring the entry bounds that strand to ``REPUBLISH_AFTER_MS``.
+        self._published: dict[str, tuple[str, int]] = {}
         self._closed = False
 
     # -------------------------------------------------------------------------
@@ -90,6 +135,8 @@ class TursoStore:
     # -------------------------------------------------------------------------
 
     async def tenant(self) -> TursoConnection:
+        if self._closed:
+            raise StoreClosedError
         if self._tenant is not None:
             return self._tenant
         async with self._tenant_lock:
@@ -113,6 +160,11 @@ class TursoStore:
         # requests deadlock in an AB-BA cycle (caller holds lock(Z), waits on
         # _open_lock; opener holds _open_lock, waits on lock(Z)). Victims are
         # therefore popped under _open_lock but closed after it is released.
+        # Total, not just checked in `flush`: reopening after close would leak
+        # a connection nothing will ever close, and would let a request that
+        # raced `stop()` commit writes the mirror never learns about.
+        if self._closed:
+            raise StoreClosedError
         victims: list[tuple[str, TursoConnection]] = []
         async with self._open_lock:
             conn = self._origins.get(origin)
@@ -129,20 +181,38 @@ class TursoStore:
                 raise
             self._origins[origin] = conn
             while len(self._origins) > self._max_open:
-                victims.append(self._origins.popitem(last=False))
+                name, victim = self._origins.popitem(last=False)
+                # `flush` only ever runs against a connection from `origin()`,
+                # so an origin is open whenever it publishes: dropping the
+                # fingerprint here bounds `_published` by max_open_databases
+                # instead of one entry per origin ever touched. A dropped entry
+                # costs one redundant republish, which the mirror tolerates.
+                self._published.pop(name, None)
+                victims.append((name, victim))
         for name, victim in victims:
             # Close behind the per-origin lock so an in-flight transaction is
             # never closed out from under itself. The lock object itself is
             # never removed from _locks: a waiter may already hold a reference,
             # and handing a later request a fresh lock would let two requests
             # run the same origin's transaction+flush pair concurrently.
-            async with self.lock(name):
+            lock = self.lock(name)
+            async with lock:
                 try:
                     await victim.close()
                 except Exception:
                     logger.warning(
                         "turso close failed for origin %s", name, exc_info=True
                     )
+            # One database per workflow means one lock per workflow *ever
+            # seen*, which is unbounded in a process running short-lived
+            # workflows -- the LRU bounds connections, not this. Dropping it is
+            # only safe with nobody queued: identity has to stay stable while a
+            # holder or waiter exists (two requests on different lock objects
+            # for one origin would interleave), and `_lock_waiters` is exactly
+            # that test. A later request for a quiet origin starts a fresh
+            # chain, which is fine.
+            if not lock.locked() and not _has_waiters(lock):
+                self._locks.pop(name, None)
         return conn
 
     def lock(self, origin: str) -> asyncio.Lock:
@@ -195,7 +265,12 @@ class TursoStore:
 
         # Nothing moved: leave the shared file alone.
         fingerprint = "".join(sorted(f"{i} {k} {t}" for i, k, t in timeouts))
-        if self._published.get(origin) == fingerprint:
+        last = self._published.get(origin)
+        if (
+            last is not None
+            and last[0] == fingerprint
+            and now_ms() - last[1] < REPUBLISH_AFTER_MS
+        ):
             return
 
         tenant = await self.tenant()
@@ -215,7 +290,7 @@ class TursoStore:
                 )
         await tenant.push()
         # Recorded only after the write lands, so a failed publish is retried.
-        self._published[origin] = fingerprint
+        self._published[origin] = (fingerprint, now_ms())
 
     async def discard(self) -> None:
         """Close every open connection, leaving the store usable.
@@ -223,16 +298,26 @@ class TursoStore:
         The next access reopens. Distinct from :meth:`close`, which also marks
         the store shut down so a late flush cannot resurrect it.
         """
-        connections: list[TursoConnection] = list(self._origins.values())
+        entries = list(self._origins.items())
         self._origins.clear()
-        self._locks.clear()
         self._published.clear()
-        if self._tenant is not None:
-            connections.append(self._tenant)
-            self._tenant = None
-        for conn in connections:
+        # The locks map is deliberately NOT cleared: a coroutine may be waiting
+        # on one right now, and handing a later request a fresh lock for the
+        # same origin would let two run their transaction-and-flush pairs
+        # concurrently -- the interleaving the lock exists to prevent.
+        for name, conn in entries:
+            # Behind the per-origin lock, for the same reason eviction is: an
+            # in-flight transaction must never be closed out from under itself.
+            async with self.lock(name):
+                try:
+                    await conn.close()
+                except Exception:
+                    logger.debug("turso close failed", exc_info=True)
+        # Tenant last: an origin's closing flush may still publish to it.
+        tenant, self._tenant = self._tenant, None
+        if tenant is not None:
             try:
-                await conn.close()
+                await tenant.close()
             except Exception:
                 logger.debug("turso close failed", exc_info=True)
 
