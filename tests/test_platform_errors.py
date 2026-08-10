@@ -302,7 +302,7 @@ async def test_fire_and_forget_settle_failure_releases_task(
     """A platform error with *no* awaiter must not be lost: flush re-raises it."""
 
     async def wf(ctx: Context) -> int:
-        ctx.run(leaf)  # fire-and-forget; settle of "pe-ff.1" will fail
+        ctx.run(leaf)  # fire-and-forget; settle of "pe-ff:1" will fail
         return 0
 
     fix.reg.register("wf", wf)
@@ -315,7 +315,7 @@ async def test_fire_and_forget_settle_failure_releases_task(
 
     assert isinstance(excinfo.value.__cause__, PlatformError)
     # The child's settle never landed.
-    child = await fix.promise_get_raw("pe-ff.1")
+    child = await fix.promise_get_raw("pe-ff:1")
     assert child.state == "pending"
     await assert_released_root_pending(fix, "pe-ff")
 
@@ -334,8 +334,8 @@ async def test_first_platform_error_wins_with_multiple_failures(
     """
 
     async def wf(ctx: Context) -> int:
-        ctx.run(leaf)  # "pe-multi.1" -- its settle fails
-        ctx.run(leaf)  # "pe-multi.2" -- its settle fails too
+        ctx.run(leaf)  # "pe-multi:1" -- its settle fails
+        ctx.run(leaf)  # "pe-multi:2" -- its settle fails too
         return 0
 
     fix.reg.register("wf", wf)
@@ -372,8 +372,8 @@ async def test_first_platform_error_stops_further_durable_work(
             raise fix.sender.error
 
     async def wf(ctx: Context) -> int:
-        ctx.run(leaf)  # "pe-stop.1" -- its create fails first
-        ctx.run(leaf)  # "pe-stop.2" -- must never reach the server
+        ctx.run(leaf)  # "pe-stop:1" -- its create fails first
+        ctx.run(leaf)  # "pe-stop:2" -- must never reach the server
         return 0
 
     fix.reg.register("wf", wf)

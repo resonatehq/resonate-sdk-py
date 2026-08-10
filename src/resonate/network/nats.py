@@ -42,9 +42,9 @@ REPLY_HEADER = "Resonate-Reply-To"
 
 
 def _id_to_origin(id: str) -> str:
-    """Return the lineage origin: the substring before the first ``.``."""
-    dot = id.find(".")
-    return id if dot == -1 else id[:dot]
+    """Return the lineage origin (promiseId): the substring before the first ``:``."""
+    sep = id.find(":")
+    return id if sep == -1 else id[:sep]
 
 
 def _routing_origin(req: dict[str, Any]) -> str:

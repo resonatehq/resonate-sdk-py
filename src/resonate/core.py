@@ -338,7 +338,7 @@ class Core(msgspec.Struct, kw_only=True):
             origin_id=promise.tags.get("resonate:origin", promise.id),
             # The id-generation prefix from ``resonate:prefix``. Unlike origin it
             # is propagated *unchanged* across ``detached`` re-roots, so every
-            # recursion level mints ``{prefix}.{16hex}`` off the same fixed prefix
+            # recursion level mints ``{prefix}:{16hex}`` off the same fixed prefix
             # instead of off its own grown id -- this is what bounds recursive
             # detached ids. Falls back to ``promise.id`` when absent (genuine
             # top-level root / tag-less promise), matching the origin fallback.

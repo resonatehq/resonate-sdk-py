@@ -244,7 +244,7 @@ async def test_suspends_on_pending_remote(fix: CoreFixture) -> None:
     status = await fix.core.execute_until_blocked_outer("p1-wait", v, promise, preload)
     assert status == "suspended"
 
-    child = await fix.promise_get_raw("p1-wait.1")
+    child = await fix.promise_get_raw("p1-wait:1")
     assert child.state == "pending"
 
 
@@ -299,19 +299,19 @@ async def test_execute_until_blocked_with_preload(fix: CoreFixture) -> None:
     fix.reg.register("readPre", wf_read_preloaded)
 
     # Pre-resolve the child the workflow will read. ctx.rpc generates the child
-    # id "p1-pre.1". Children are codec-encoded on the wire just like root
+    # id "p1-pre:1". Children are codec-encoded on the wire just like root
     # promises, so pre-settle with codec.encode to match.
     enc_val = fix.codec.encode(99)
     await fix.sender.promise_create(
-        PromiseCreateReq(id="p1-pre.1", timeout_at=FAR_FUTURE)
+        PromiseCreateReq(id="p1-pre:1", timeout_at=FAR_FUTURE)
     )
     await fix.sender.promise_settle(
-        PromiseSettleReq(id="p1-pre.1", state="resolved", value=enc_val)
+        PromiseSettleReq(id="p1-pre:1", state="resolved", value=enc_val)
     )
 
     # Feed the preloaded child to Effects via the preload arg too, exercising
     # the seed-at-construction path.
-    pre = await fix.sender.promise_get("p1-pre.1")
+    pre = await fix.sender.promise_get("p1-pre:1")
     preload = [pre]
 
     status = await fix.core.execute_until_blocked_outer("p1-pre", v, promise, preload)

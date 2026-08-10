@@ -566,7 +566,7 @@ def _forbidden_model() -> FunctionModel:
 @pytest.mark.asyncio
 async def test_model_request_replay_is_served_from_journal() -> None:
     stored = ModelResponseEnvelope(response=_text_response("from the journal"))
-    ctx = _root([_resolved("root.1", stored)])
+    ctx = _root([_resolved("root:1", stored)])
 
     model = ResonateModel(
         _forbidden_model(), retry_policy=None, get_event_stream_handler=lambda: None
@@ -585,7 +585,7 @@ async def test_model_request_replay_is_served_from_journal() -> None:
 @pytest.mark.asyncio
 async def test_model_request_stream_replay_is_served_from_journal() -> None:
     stored = ModelResponseEnvelope(response=_text_response("streamed from the journal"))
-    ctx = _root([_resolved("root.1", stored)])
+    ctx = _root([_resolved("root:1", stored)])
 
     handler_calls = 0
 
@@ -653,9 +653,9 @@ async def test_replay_continues_from_last_completed_step() -> None:
             parts=[ToolCallPart(tool_name="get_weather", args={"city": "SF"})]
         )
     )
-    # The first model request is `root.1`; leaving `root.2` unsettled forces the
+    # The first model request is `root:1`; leaving `root:2` unsettled forces the
     # second request to run live.
-    ctx = _root([_resolved("root.1", step_one)])
+    ctx = _root([_resolved("root:1", step_one)])
 
     model_calls = 0
     tool_calls: list[str] = []
@@ -774,7 +774,7 @@ async def test_mcp_toolset_is_wrapped_and_checkpointed() -> None:
 @pytest.mark.asyncio
 async def test_mcp_call_tool_replay_is_served_from_journal() -> None:
     stored = ToolResultEnvelope(result="42")
-    ctx = _root([_resolved("root.1", stored)])
+    ctx = _root([_resolved("root:1", stored)])
 
     toolset = StubMCPToolset(id="calculator")
     durable_toolset = ResonateMCPToolset(toolset)

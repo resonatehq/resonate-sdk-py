@@ -99,7 +99,7 @@ class _State:
         # (which ``detached`` resets to the child's own id, starting a new
         # lineage), while ``prefix_id`` propagates *unchanged* across
         # ``detached`` re-roots. That keeps recursive ``detached`` ids bounded:
-        # every level mints ``{prefix}.{16hex}`` off the same fixed prefix
+        # every level mints ``{prefix}:{16hex}`` off the same fixed prefix
         # rather than off its own grown id (see :meth:`Context.detached`). For
         # any non-detached context the two are equal.
         self.prefix_id = prefix_id
@@ -213,7 +213,7 @@ class Context:
         # ``prefix_id`` is the id-generation prefix, carried through the
         # ``resonate:prefix`` tag. Unlike the lineage origin it is propagated
         # *unchanged* across ``detached`` re-roots -- which is what keeps
-        # recursive ``detached`` ids bounded (``{prefix}.{16hex}``, one segment
+        # recursive ``detached`` ids bounded (``{prefix}:{16hex}``, one segment
         # past the fixed prefix) rather than growing a segment per level. For a
         # genuine top-level root it equals ``id`` (and ``origin_id``).
         #
@@ -359,7 +359,13 @@ class Context:
 
     def _next_id(self) -> str:
         self._state.seq += 1
-        return f"{self._state.id}.{self._state.seq}"
+        # The id is ``<promiseId>:<lineage>``: a single ``:`` separates the
+        # promiseId (the lineage origin) from the lineage, and ``.`` separates
+        # lineage segments. So the first segment minted off a bare promiseId
+        # (``id == origin_id``) uses ``:`` (``root`` -> ``root:1``) and every
+        # deeper segment uses ``.`` (``root:1`` -> ``root:1.1``).
+        sep = ":" if self._state.id == self._state.origin_id else "."
+        return f"{self._state.id}{sep}{self._state.seq}"
 
     async def flush_local_work(self) -> None:
         """Wait for every eagerly spawned task on this context to finish.
@@ -775,13 +781,14 @@ class Context:
         link = self._state.chain.link()
 
         # Mint the id off ``prefix_id`` -- set at the top and propagated unchanged
-        # forever -- as ``{prefix}.d{16hex}``, so recursion stays bounded at one
-        # segment past the prefix instead of growing a segment per level. The
-        # ``d`` marks the segment as a detached child (vs an rpc child's numeric
-        # ``.{seq}``). ``resonate:origin`` is the child's own id (a fresh lineage
-        # root: ``origin == id == branch``); ``resonate:prefix`` (set in
-        # ``_global_req``) carries the same prefix forward to the next level.
-        child_id = f"{self._state.prefix_id}.d{_hash_id(self._next_id())}"
+        # forever -- as ``{prefix}:d{16hex}``, so recursion stays bounded at one
+        # segment past the prefix instead of growing a segment per level. The ``:``
+        # is the promiseId->lineage boundary and the ``d`` marks the segment as a
+        # detached child (vs an rpc child's numeric ``:{seq}``). ``resonate:origin``
+        # is the child's own id (a fresh lineage root: ``origin == id == branch``);
+        # ``resonate:prefix`` (set in ``_global_req``) carries the same prefix
+        # forward to the next level.
+        child_id = f"{self._state.prefix_id}:d{_hash_id(self._next_id())}"
         req = self._global_req(
             child_id,
             self.opts.timeout,
