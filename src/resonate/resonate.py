@@ -157,6 +157,9 @@ class Resonate:
     :class:`~resonate.network.LocalNetwork`. A URL or explicit remote network
     gets an :class:`~resonate.heartbeat.AsyncHeartbeat`; local mode gets a
     :class:`~resonate.heartbeat.NoopHeartbeat`.
+
+    Group selection precedence: ``group`` > ``RESONATE_GROUP`` env >
+    ``"default"``.
     """
 
     def __init__(
@@ -1013,6 +1016,7 @@ def _select_network(
     pid: str | None,
     auth: str | None,
 ) -> Network:
+    group = group if group is not None else _resolve_env_group()
     if url is not None:
         return HttpNetwork(url=url, pid=pid, group=group, auth=auth)
     if network is not None:
@@ -1021,6 +1025,17 @@ def _select_network(
     if env_url is not None:
         return HttpNetwork(url=env_url, pid=pid, group=group, auth=auth)
     return LocalNetwork(pid=pid, group=group)
+
+
+def _resolve_env_group() -> str | None:
+    """Resolve the worker group from ``RESONATE_GROUP``.
+
+    Lets a deployment place a worker in a group the application was not
+    written to know about. The Resonate server's ``modal://`` transport uses
+    this: it gives each sandbox its own group and passes it in the
+    environment, so an unmodified worker connects where the server expects it.
+    """
+    return os.environ.get("RESONATE_GROUP") or None
 
 
 def _resolve_env_url() -> str | None:
