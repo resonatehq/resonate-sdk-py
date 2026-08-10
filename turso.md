@@ -19,7 +19,7 @@ Status by concern:
 | Turso Cloud provisioning (no auto-create; API create ~384ms) | ✅ measured |
 | Boundary uploads (`push_on="boundary"`) | ✅ implemented, reviewed, tested |
 | Origin routing (`resonate:origin` header normalized and validated) | ✅ fixed under review, regression-tested |
-| **Cross-node CAS without sharding** | ❓ **open question** — embedded-replica CAS is measured unsound; server-side Hrana transactions are measured sound but not yet integrated as a driver |
+| **Cross-node CAS without sharding** | ⚠️ **answered, not yet shipped** — a guard trigger makes the push a real CAS (measured 20/20 single-winner unsharded in the TS repo); needs server-side provisioning, a replica-reset path, and a push per write. Static sharding remains the shipped recommendation. |
 | Detached (re-rooted) lineages | ✖ unsupported by design (see below) |
 
 Deployment checklist: shard the fleet (`shard`, route with `owner_of`) — one
@@ -283,10 +283,35 @@ Two more things a fleet meets:
   (`@tursodatabase/sync` 0.7.2). The earlier revision of this document held
   the TypeScript flag up as the fix; that was wrong.
 
-  **On the sync driver the only sound arrangement is one writer per
-  workflow** — static sharding with `shard`/`owner_of`, where routing and
-  sweeping agree on a single owner and the CAS runs on the one replica that
-  ever writes that origin.
+  **A guard trigger makes the push itself the compare-and-swap — measured.**
+  A version row whose trigger rejects any update that is not exactly +1:
+
+  ```sql
+  CREATE TABLE cas_table (key TEXT PRIMARY KEY, value);
+  CREATE TRIGGER cas_table_conflict
+  BEFORE UPDATE ON cas_table
+  WHEN CAST(NEW.value AS INTEGER) != CAST(OLD.value AS INTEGER) + 1
+  BEGIN SELECT RAISE(ROLLBACK, 'unexpected existing row state'); END;
+  ```
+
+  A writer bumps the row inside its transaction and pushes; the remote applies
+  pushes one at a time, so a node that staked a version another already landed
+  trips the trigger and its push is rejected with `SQLITE_CONSTRAINT`, whole
+  and atomically. Two unsharded nodes racing `task.acquire` then produce
+  exactly one winner, 20 times out of 20 (measured in the TypeScript repo,
+  `experiments/exp-e.ts`; the same arrangement without the guard double-wins
+  50/50). Caveats: the trigger must be installed **server-side** at
+  provisioning (DDL pushed from a replica does not register one on the
+  remote), a rejected push wedges the replica until its local files are
+  deleted and re-bootstrapped (~420ms; there is no revert API), and the fence
+  costs a remote round trip per write, so it is in tension with
+  `push_on="boundary"`.
+
+  Two sound arrangements, then, trading opposite ways: **static sharding**
+  keeps writes at local-disk latency and fixes one owner per workflow; **a
+  guard trigger** lets any node write any workflow at a round trip per write.
+  Sharding stays the default; the guard is what would make work-stealing and
+  unsharded fleets possible.
 
   **A sound CAS does exist one protocol over — measured.** The same Turso
   Cloud database also serves Hrana, the server-side transaction protocol, and
