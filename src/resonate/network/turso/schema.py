@@ -10,9 +10,11 @@ a single-database transaction.
 
 **Tenant database** -- one per tenant, shared by every origin. It holds the
 things no single workflow owns: the timeout index (so a sweeper can find due
-timers without opening every origin database) and schedules (which are
-tenant-scoped by definition -- their promise ids are templates, so a schedule
-belongs to no one origin).
+timers without opening every origin database).
+
+Schedules were tenant-scoped too and are not implemented: ``schedule.*`` answers
+501. An older database may still carry an unused ``schedules`` table, which is
+left alone rather than dropped.
 
 **Messages are not stored.** ``execute`` and ``unblock`` are handed to the local
 Resonate client the moment the transaction that produced them commits; they
@@ -151,21 +153,4 @@ TENANT_SCHEMA: tuple[str, ...] = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_timeouts_due ON timeouts (timeout_at, origin_hash)",
-    # Schedules are tenant-scoped: a schedule's promise id is a template, so the
-    # promises it fires may land in many origins.
-    """
-    CREATE TABLE IF NOT EXISTS schedules (
-      id TEXT PRIMARY KEY,
-      cron TEXT NOT NULL,
-      promise_id TEXT NOT NULL,
-      promise_timeout INTEGER NOT NULL,
-      promise_param_headers TEXT,
-      promise_param_data TEXT,
-      promise_tags TEXT NOT NULL DEFAULT '{}',
-      created_at INTEGER NOT NULL,
-      next_run_at INTEGER NOT NULL,
-      last_run_at INTEGER
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules (next_run_at, id)",
 )

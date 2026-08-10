@@ -17,7 +17,7 @@ process to hold as a local replica.
 
 One database is shared: ``<prefix><timeout_database>``, the tenant database. It
 holds what no single workflow owns -- the index of armed timers across all
-origins, and schedules. The timer index is a mirror, republished from the origin
+origins. The timer index is a mirror, republished from the origin
 databases after every commit and re-validated against them before use. It is how
 a process finds work in a workflow it has never seen.
 
@@ -89,7 +89,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from resonate import PROTOCOL_VERSION, now_ms
 from resonate.error import DecodingError
-from resonate.network.turso.cron import CronError, cron_occurrences, next_cron
 from resonate.network.turso.driver import (
     TursoConnection,
     TursoDriver,
@@ -104,12 +103,9 @@ from resonate.network.turso.server import (
     OriginServer,
     Outcome,
     OutgoingMessage,
-    ScheduleStore,
-    expand_promise_id,
     hash_origin,
     origin_of,
     owner_of,
-    to_schedule_record,
 )
 from resonate.network.turso.store import (
     TIMEOUT_PROMISE,
@@ -342,7 +338,7 @@ class TursoNetwork:
             return await self._debug(kind, data, declared, now)
 
         if kind in _SCHEDULE_KINDS:
-            return await self._in_tenant_schedules(kind, data, now)
+            return Outcome(kind, 501, "Schedules are not implemented by TursoNetwork.")
 
         # The resonate:origin header may carry a full promise or task id rather
         # than a bare origin -- the engine cores stamp it with the task's id --
@@ -525,27 +521,8 @@ class TursoNetwork:
 
         asyncio.get_running_loop().call_soon(deliver)
 
-    async def _in_tenant_schedules(
-        self, kind: str, data: dict[str, Any], now: int
-    ) -> Outcome:
-        tenant = await self._store.tenant()
-        async with tenant.transaction() as tx:
-            schedules = ScheduleStore(tx, now)
-            if kind == "schedule.get":
-                outcome = await schedules.get(data["id"])
-            elif kind == "schedule.create":
-                outcome = await schedules.create(data)
-            elif kind == "schedule.delete":
-                outcome = await schedules.delete(data["id"])
-            else:
-                outcome = await schedules.search(
-                    data.get("tags"), data.get("limit"), data.get("cursor")
-                )
-        await tenant.push()
-        return outcome
-
     # -------------------------------------------------------------------------
-    # TICK: timer sweep and schedule firing
+    # TICK: timer sweep
     # -------------------------------------------------------------------------
     #
     # Messages are not ticked -- they go straight to the client when the
@@ -563,7 +540,6 @@ class TursoNetwork:
     async def _tick(self, now: int) -> None:
         try:
             await self._sweep_timeouts(now)
-            await self._fire_schedules(now)
         except Exception:
             if not self._stopped:
                 logger.warning("turso tick failed", exc_info=True)
@@ -622,65 +598,6 @@ class TursoNetwork:
                     "turso timeout sweep failed for origin %s", origin, exc_info=True
                 )
 
-    async def _fire_schedules(self, now: int) -> None:
-        """Create the promises due schedules should have fired.
-
-        A schedule lives in the tenant database but the promises it fires belong
-        to whichever origin their expanded id names, so this cannot be one
-        transaction. It does not need to be: the expanded id is per-occurrence,
-        so re-firing after a crash finds the promise already there and writes
-        nothing, and the schedule is advanced only once every occurrence is in.
-        """
-        tenant = await self._store.tenant()
-        due = await ScheduleStore(tenant, now).due()
-
-        for row in due:
-            record = to_schedule_record(row)
-            since = (
-                row["last_run_at"]
-                if row["last_run_at"] is not None
-                else row["next_run_at"] - 1
-            )
-            try:
-                occurrences = cron_occurrences(record["cron"], since, now)
-            except CronError:
-                logger.warning(
-                    "turso skipped schedule %s: unparseable cron expression", row["id"]
-                )
-                continue
-            if not occurrences:
-                continue
-
-            for at in occurrences:
-                promise_id = expand_promise_id(record["promiseId"], record["id"], at)
-                await self._in_origin_apply(
-                    origin_of(promise_id),
-                    at,
-                    {
-                        "kind": "promise.create",
-                        "head": {
-                            "corrId": f"sched-{record['id']}-{at}",
-                            "version": PROTOCOL_VERSION,
-                        },
-                        "data": {
-                            "id": promise_id,
-                            "timeoutAt": at + record["promiseTimeout"],
-                            "param": record["promiseParam"],
-                            "tags": {
-                                **record["promiseTags"],
-                                "resonate:schedule": record["id"],
-                            },
-                        },
-                    },
-                )
-
-            last = occurrences[-1]
-            async with tenant.transaction() as tx:
-                await ScheduleStore(tx, now).advance(
-                    row["id"], last, next_cron(record["cron"], last)
-                )
-            await tenant.push()
-
     # -------------------------------------------------------------------------
     # DEBUG
     # -------------------------------------------------------------------------
@@ -717,8 +634,7 @@ class TursoNetwork:
         """Empty every database this network has open. Test support only."""
         tenant = await self._store.tenant()
         async with tenant.transaction() as tx:
-            for table in ("timeouts", "schedules"):
-                await tx.execute(f"DELETE FROM {table}")  # noqa: S608
+            await tx.execute("DELETE FROM timeouts")
         # Origin databases are created on demand and never enumerated, so only
         # the ones this process has open can be cleared. A caller wanting a clean
         # slate across processes should point the driver at a fresh directory or

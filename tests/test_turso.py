@@ -17,12 +17,6 @@ from resonate.network.turso import (
     origin_of,
     owner_of,
 )
-from resonate.network.turso.cron import (
-    CronError,
-    CronExpression,
-    cron_occurrences,
-    next_cron,
-)
 from resonate.network.turso.server import _parse_delay
 from resonate.resonate import Resonate
 
@@ -160,54 +154,6 @@ async def test_a_shard_that_cannot_index_the_fleet_is_rejected() -> None:
 
 # =============================================================================
 # CRON
-# =============================================================================
-
-
-async def test_cron_next_is_strictly_after_and_in_utc() -> None:
-    # 2024-01-01T00:00:00Z
-    base = 1_704_067_200_000
-    assert next_cron("* * * * *", base) == base + 60_000
-    assert next_cron("0 0 * * *", base) == base + 86_400_000
-    # Sunday 2024-01-07T00:00:00Z is the first Sunday after the base.
-    assert next_cron("0 0 * * 0", base) == base + 6 * 86_400_000
-
-
-async def test_cron_supports_ranges_lists_and_steps() -> None:
-    base = 1_704_067_200_000
-    assert next_cron("*/15 * * * *", base) == base + 15 * 60_000
-    assert next_cron("5,10 0 * * *", base) == base + 5 * 60_000
-    assert next_cron("0 2-4 * * *", base) == base + 2 * 3_600_000
-    # Sunday is both 0 and 7.
-    assert next_cron("0 0 * * 7", base) == next_cron("0 0 * * 0", base)
-
-
-async def test_cron_finds_a_sparse_occurrence() -> None:
-    # 2023-01-01T00:00:00Z; the next 29 February is in 2024.
-    base = 1_672_531_200_000
-    assert next_cron("0 0 29 2 *", base) == 1_709_164_800_000  # 2024-02-29T00:00:00Z
-
-
-async def test_cron_rejects_malformed_expressions() -> None:
-    for expression in (
-        "* * * *",
-        "60 * * * *",
-        "* * * * 9",
-        "*/0 * * * *",
-        "5-1 * * * *",
-    ):
-        with pytest.raises(CronError):
-            next_cron(expression, 0)
-
-
-async def test_cron_occurrences_are_bounded_and_ordered() -> None:
-    base = 1_704_067_200_000
-    got = cron_occurrences("* * * * *", base, base + 5 * 60_000)
-    assert got == [base + i * 60_000 for i in range(1, 6)]
-    assert len(cron_occurrences("* * * * *", base, base + 10_000_000, cap=7)) == 7
-
-
-# =============================================================================
-# PROMISES
 # =============================================================================
 
 
@@ -1285,74 +1231,25 @@ async def test_a_heartbeat_spanning_origins_refreshes_every_one(
 # =============================================================================
 
 
-async def test_schedule_create_get_delete(quiet: TursoNetwork) -> None:
-    created = ok(
-        await send(
-            quiet,
+async def test_every_schedule_request_answers_501(quiet: TursoNetwork) -> None:
+    # Schedules are the one tenant-scoped part of the protocol and are not
+    # implemented here; they answer 501 rather than half-working.
+    requests = [
+        (
             "schedule.create",
             {
-                "id": "nightly",
-                "cron": "0 0 * * *",
-                "promiseId": "job.{{.timestamp}}",
-                "promiseTimeout": 60_000,
-                "promiseParam": {},
-                "promiseTags": {"resonate:target": TARGET},
-            },
-        )
-    )
-    assert created["schedule"]["id"] == "nightly"
-    assert created["schedule"]["nextRunAt"] > now_ms()
-
-    got = ok(await send(quiet, "schedule.get", {"id": "nightly"}))
-    assert got["schedule"]["cron"] == "0 0 * * *"
-
-    ok(await send(quiet, "schedule.delete", {"id": "nightly"}))
-    gone = await send(quiet, "schedule.get", {"id": "nightly"})
-    assert gone["head"]["status"] == 404
-
-
-async def test_a_schedule_without_a_target_is_refused(quiet: TursoNetwork) -> None:
-    res = await send(
-        quiet,
-        "schedule.create",
-        {
-            "id": "bad",
-            "cron": "* * * * *",
-            "promiseId": "job.{{.timestamp}}",
-            "promiseTimeout": 60_000,
-            "promiseParam": {},
-            "promiseTags": {},
-        },
-    )
-    assert res["head"]["status"] == 400
-
-
-async def test_a_due_schedule_fires_into_the_origin_its_id_names(
-    quiet: TursoNetwork,
-) -> None:
-    ok(
-        await send(
-            quiet,
-            "schedule.create",
-            {
-                "id": "every-minute",
+                "id": "s",
                 "cron": "* * * * *",
-                "promiseId": "job.{{.id}}",
-                "promiseTimeout": 3_600_000,
-                "promiseParam": {"data": "tick"},
-                "promiseTags": {"resonate:target": TARGET},
+                "promiseId": "wf.{{.timestamp}}",
+                "promiseTimeout": 1000,
             },
-        )
-    )
-
-    # Two minutes on, the schedule is due.
-    await send(quiet, "debug.tick", {"time": now_ms() + 120_000})
-
-    promise = ok(await send(quiet, "promise.get", {"id": "job.every-minute"}))[
-        "promise"
+        ),
+        ("schedule.get", {"id": "s"}),
+        ("schedule.search", {}),
+        ("schedule.delete", {"id": "s"}),
     ]
-    assert promise["param"]["data"] == "tick"
-    assert promise["tags"]["resonate:schedule"] == "every-minute"
+    for kind, data in requests:
+        assert (await send(quiet, kind, data))["head"]["status"] == 501
 
 
 # =============================================================================
@@ -1511,15 +1408,6 @@ async def test_a_declared_origin_that_contradicts_the_id_is_refused(
         **{"resonate:origin": "other"},
     )
     assert response["head"]["status"] == 400
-
-
-async def test_a_day_of_week_range_ending_in_sunday_as_7_is_not_empty() -> None:
-    # `7` is a legal day-of-week meaning Sunday. It used to be folded to 0
-    # during parsing, which made `5-7` build range(5, 1) -- an empty set, so
-    # the schedule silently never fired.
-    assert sorted(CronExpression("0 0 * * 5-7")._fields[4]) == [0, 5, 6]
-    assert sorted(CronExpression("0 0 * * 7")._fields[4]) == [0]
-    assert sorted(CronExpression("0 0 * * 6-7")._fields[4]) == [0, 6]
 
 
 async def test_a_malformed_delay_tag_is_rejected_rather_than_raising() -> None:
