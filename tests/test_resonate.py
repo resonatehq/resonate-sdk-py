@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-import os
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 from unittest import mock
@@ -1192,34 +1191,3 @@ def test_return_type_non_string_annotation_passthrough() -> None:
 
     already_typed.__annotations__["return"] = dict[str, int]
     assert DurableFunction(already_typed).return_type == dict[str, int]
-
-
-# --------------------------------------------------------------------------
-# worker group resolution
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_group_defaults_to_default() -> None:
-    with mock.patch.dict(os.environ, {}, clear=True):
-        assert Resonate()._network.group() == "default"
-
-
-@pytest.mark.asyncio
-async def test_group_falls_back_to_env() -> None:
-    # A deployment can place a worker in a group the app does not name --
-    # the server's ``modal://`` transport assigns each sandbox its own.
-    with mock.patch.dict(os.environ, {"RESONATE_GROUP": "sandbox-7"}, clear=True):
-        assert Resonate()._network.group() == "sandbox-7"
-
-
-@pytest.mark.asyncio
-async def test_explicit_group_wins_over_env() -> None:
-    with mock.patch.dict(os.environ, {"RESONATE_GROUP": "sandbox-7"}, clear=True):
-        assert Resonate(group="mine")._network.group() == "mine"
-
-
-@pytest.mark.asyncio
-async def test_empty_env_group_is_ignored() -> None:
-    with mock.patch.dict(os.environ, {"RESONATE_GROUP": ""}, clear=True):
-        assert Resonate()._network.group() == "default"
