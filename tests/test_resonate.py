@@ -65,7 +65,6 @@ async def local(
     pid: str | None = None,
     ttl: timedelta | None = None,
     encryptor: Encryptor | None = None,
-    prefix: str | None = None,
     max_concurrent_tasks: int | None = None,
 ) -> AsyncIterator[Resonate]:
     """Yield a local-mode Resonate, stopping it (and its refresh task) on exit."""
@@ -78,7 +77,6 @@ async def local(
         pid=pid,
         ttl=ttl,
         encryptor=encryptor,
-        prefix=prefix,
         max_concurrent_tasks=max_concurrent_tasks,
         retry_policy=Never(),
     )
@@ -161,7 +159,6 @@ async def add_via_child(ctx: Context, x: int, y: int) -> int:
 async def test_local_constructor_sets_defaults() -> None:
     async with local() as r:
         assert r._pid == "default"
-        assert r._id_prefix == ""
         assert r._ttl == DEFAULT_TTL
         assert isinstance(r._network, LocalNetwork)
 
@@ -172,19 +169,6 @@ async def test_config_with_custom_pid_and_group() -> None:
         assert r._pid == "worker-1"
         assert "worker-1" in r._network.unicast()
         assert "workers" in r._network.unicast()
-
-
-@pytest.mark.asyncio
-async def test_config_with_prefix() -> None:
-    async with local(prefix="myapp", ttl=timedelta(seconds=30)) as r:
-        assert r._id_prefix == "myapp:"
-        assert r._ttl == timedelta(seconds=30)
-
-
-@pytest.mark.asyncio
-async def test_config_with_empty_prefix() -> None:
-    async with local(prefix="") as r:
-        assert r._id_prefix == ""
 
 
 @pytest.mark.asyncio
@@ -375,14 +359,6 @@ async def test_run_rejected_workflow_raises() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_with_prefix_prepends_id() -> None:
-    async with local(prefix="app") as r:
-        r.register(noop)
-        h = r.run("my-id", noop)
-        assert await h.id() == "app:my-id"
-
-
-@pytest.mark.asyncio
 async def test_run_unregistered_raises_synchronously() -> None:
     async with local() as r:
 
@@ -554,14 +530,6 @@ async def test_rpc_does_not_require_registration() -> None:
         # The promise is created even though no function is registered locally.
         record = await wait_for_promise(r, "rpc-1")
         assert record.state == "pending"
-
-
-@pytest.mark.asyncio
-async def test_rpc_with_prefix() -> None:
-    async with local(prefix="svc") as r:
-        h = r.rpc("rpc-2", "remote", ())
-        assert await h.id() == "svc:rpc-2"
-        await wait_for_promise(r, "svc:rpc-2")
 
 
 @pytest.mark.asyncio
@@ -859,15 +827,6 @@ async def test_get_existing_returns_handle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_with_prefix_prepends() -> None:
-    async with local(prefix="ns") as r:
-        r.rpc("p1", "remote")
-        await wait_for_promise(r, "ns:p1")
-        handle = await r.get("p1")
-        assert await handle.id() == "ns:p1"
-
-
-@pytest.mark.asyncio
 async def test_get_pending_promise_returns_unsettled_handle() -> None:
     # get on a still-pending promise returns a handle that is not yet done.
     async with local() as r:
@@ -923,24 +882,6 @@ async def test_multiple_handles_same_id_all_resolve() -> None:
         h2 = await r.get("multi")
         assert await h1.result() == 5
         assert await h2.result() == 5
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  id prefix consistency
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-@pytest.mark.asyncio
-async def test_prefix_applied_consistently_to_run_rpc_get() -> None:
-    async with local(prefix="p") as r:
-        r.register(add)
-        h1 = r.run("id1", add, 1, 1)
-        assert await h1.id() == "p:id1"
-        h2 = r.rpc("id2", "remote")
-        assert await h2.id() == "p:id2"
-        await wait_for_promise(r, "p:id2")
-        h3 = await r.get("id2")
-        assert await h3.id() == "p:id2"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

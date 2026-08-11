@@ -608,7 +608,6 @@ async def test_chain_failure_rejects_created_so_successors_do_not_deadlock() -> 
     ctx = Context.root(
         id="r",
         origin_id="r",
-        prefix_id="r",
         timeout_at=FAR_FUTURE,
         func_name="f",
         effects=effects,

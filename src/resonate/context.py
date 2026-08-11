@@ -76,7 +76,6 @@ class _State:
         self,
         id: str,
         origin_id: str,
-        prefix_id: str,
         branch_id: str,
         parent_id: str,
         func_name: str,
@@ -93,16 +92,6 @@ class _State:
     ) -> None:
         self.id = id
         self.origin_id = origin_id
-
-        # The id-generation prefix, carried through the ``resonate:prefix`` tag.
-        # Distinct from ``origin_id``: ``origin_id`` is the lineage origin
-        # (which ``detached`` resets to the child's own id, starting a new
-        # lineage), while ``prefix_id`` propagates *unchanged* across
-        # ``detached`` re-roots. That keeps recursive ``detached`` ids bounded:
-        # every level mints ``{prefix}:{16hex}`` off the same fixed prefix
-        # rather than off its own grown id (see :meth:`Context.detached`). For
-        # any non-detached context the two are equal.
-        self.prefix_id = prefix_id
 
         self.branch_id = branch_id
         self.parent_id = parent_id
@@ -195,7 +184,6 @@ class Context:
         cls,
         id: str,
         origin_id: str,
-        prefix_id: str,
         timeout_at: int,
         func_name: str,
         effects: Effects,
@@ -209,22 +197,10 @@ class Context:
         # (top-level run, ``rpc``, or ``detached``). For a genuine top-level
         # root it equals ``id``; a ``detached`` child resets it to its *own*
         # id, starting a fresh lineage.
-        #
-        # ``prefix_id`` is the id-generation prefix, carried through the
-        # ``resonate:prefix`` tag. Unlike the lineage origin it is propagated
-        # *unchanged* across ``detached`` re-roots -- which is what keeps
-        # recursive ``detached`` ids bounded (``{prefix}:{16hex}``, one segment
-        # past the fixed prefix) rather than growing a segment per level. For a
-        # genuine top-level root it equals ``id`` (and ``origin_id``).
-        #
-        # The caller resolves both from the dispatching promise's tags; a
-        # re-root must never silently fall back to ``id``, so both are
-        # required rather than defaulted.
         return cls(
             state=_State(
                 id=id,
                 origin_id=origin_id,
-                prefix_id=prefix_id,
                 branch_id=id,
                 parent_id=id,
                 func_name=func_name,
@@ -259,7 +235,6 @@ class Context:
             state=_State(
                 id=id,
                 origin_id=self._state.origin_id,
-                prefix_id=self._state.prefix_id,
                 branch_id=id,
                 parent_id=self._state.id,
                 func_name=func_name,
@@ -491,12 +466,8 @@ class Context:
         sleep from a bare promise. Tags are inserted in a fixed order so the
         serialized form is deterministic.
 
-        ``resonate:prefix`` is *always* this context's :attr:`prefix_id` -- the
-        prefix is set once at the top (``resonate.run``/``rpc``) and propagates
-        down unchanged forever, including across ``detached`` re-roots, so it
-        never tracks the (possibly diverging) lineage origin. ``origin`` defaults
-        to ``origin_id``; only :meth:`detached` overrides it, setting origin to
-        the child's own id to start a fresh lineage.
+        ``origin`` defaults to ``origin_id``; only :meth:`detached` overrides
+        it, setting origin to the child's own id to start a fresh lineage.
         """
         resolved_origin = origin if origin is not None else self._state.origin_id
         tags = {"resonate:scope": "global"}
@@ -505,7 +476,6 @@ class Context:
         tags["resonate:branch"] = id
         tags["resonate:parent"] = self._state.id
         tags["resonate:origin"] = resolved_origin
-        tags["resonate:prefix"] = self._state.prefix_id
         if timer:
             tags["resonate:timer"] = "true"
         return PromiseCreateReq(
@@ -578,8 +548,6 @@ class Context:
                 "resonate:branch": self._state.branch_id,
                 "resonate:parent": self._state.id,
                 "resonate:origin": self._state.origin_id,
-                # Prefix is set at the top and propagates down unchanged forever.
-                "resonate:prefix": self._state.prefix_id,
             },
         )
 
@@ -780,15 +748,11 @@ class Context:
         self._state.workflow = True
         link = self._state.chain.link()
 
-        # Mint the id off ``prefix_id`` -- set at the top and propagated unchanged
-        # forever -- as ``{prefix}:d{16hex}``, so recursion stays bounded at one
-        # segment past the prefix instead of growing a segment per level. The ``:``
+        # Mint the id off the parent id as ``{parent_id}:d{16hex}``. The ``:``
         # is the promiseId->lineage boundary and the ``d`` marks the segment as a
         # detached child (vs an rpc child's numeric ``:{seq}``). ``resonate:origin``
-        # is the child's own id (a fresh lineage root: ``origin == id == branch``);
-        # ``resonate:prefix`` (set in ``_global_req``) carries the same prefix
-        # forward to the next level.
-        child_id = f"{self._state.prefix_id}:d{_hash_id(self._next_id())}"
+        # is the child's own id (a fresh lineage root: ``origin == id == branch``).
+        child_id = f"{self._state.origin_id}:d{_hash_id(self._next_id())}"
         req = self._global_req(
             child_id,
             self.opts.timeout,

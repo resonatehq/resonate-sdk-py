@@ -170,7 +170,6 @@ class Resonate:
         token: str | None = None,
         encryptor: Encryptor | None = None,
         heartbeat: Heartbeat | None = None,
-        prefix: str | None = None,
         max_concurrent_tasks: int | None = None,
         retry_policy: RetryPolicy | None = None,
     ) -> None:
@@ -187,9 +186,6 @@ class Resonate:
             else Exponential(delay=1, max_delay=(1 << 63) - 1, factor=2, max_retries=30)
         )
 
-        resolved_prefix = (
-            prefix if prefix is not None else os.environ.get("RESONATE_PREFIX")
-        )
         auth = token if token is not None else os.environ.get("RESONATE_TOKEN")
 
         net = _select_network(url, network, group, pid, auth)
@@ -227,7 +223,6 @@ class Resonate:
         # handle minted by :meth:`options` (a shallow copy) shares it by
         # reference automatically.
         self._ttl = resolved_ttl
-        self._id_prefix = f"{resolved_prefix}:" if resolved_prefix else ""
         self._network = net
         self._pid = net_pid
         self._codec = codec
@@ -433,9 +428,8 @@ class Resonate:
         if df is None:
             raise FunctionNotFoundError(name, version)
 
-        prefixed_id = self._prefix_id(id)
         req = self._build_root_promise_create_req(
-            prefixed_id,
+            id,
             name,
             df.pack_args(*args, **kwargs),
             version,
@@ -444,7 +438,7 @@ class Resonate:
         )
 
         created: asyncio.Future[None] = asyncio.Future()
-        sub, is_new = self._subscribe(prefixed_id)
+        sub, is_new = self._subscribe(id)
 
         async def _() -> None:
             """Background body for :meth:`run`: create the task, then run it.
@@ -488,7 +482,7 @@ class Resonate:
         # the arguments above -- the sole owner of this function's
         # serialization -- so the top-level decode resolves the annotation the
         # same way the recovery decode does, including for callable instances.
-        return ResonateHandle(prefixed_id, sub, self._codec, df.return_type, created)
+        return ResonateHandle(id, sub, self._codec, df.return_type, created)
 
     @overload
     def rpc(
@@ -539,7 +533,6 @@ class Resonate:
         string to dispatch an unregistered target.
         """
         opts = self.opts
-        prefixed_id = self._prefix_id(id)
 
         # Unlike :meth:`run`, the dispatched function may not run in this
         # process, so the args are always packed raw into ``Args`` (no local
@@ -562,7 +555,7 @@ class Resonate:
             return_type = df.return_type if df is not None else Any
 
         req = self._build_root_promise_create_req(
-            prefixed_id,
+            id,
             name,
             Args(args=args, kwargs=kwargs),
             version,
@@ -571,7 +564,7 @@ class Resonate:
         )
 
         created: asyncio.Future[None] = asyncio.Future()
-        sub, is_new = self._subscribe(prefixed_id)
+        sub, is_new = self._subscribe(id)
 
         async def _() -> None:
             """Background body for :meth:`rpc`: create the promise.
@@ -591,7 +584,7 @@ class Resonate:
                 await self._register_and_settle(req.id, sub)
 
         self._spawn(_())
-        return ResonateHandle(prefixed_id, sub, self._codec, return_type, created)
+        return ResonateHandle(id, sub, self._codec, return_type, created)
 
     async def get(self, id: str) -> ResonateHandle[Any]:
         """Return a handle for an existing promise.
@@ -605,8 +598,6 @@ class Resonate:
         settled value passes through undecoded rather than asking the caller for
         a type.
         """
-        id = self._prefix_id(id)
-
         sub, is_new = self._subscribe(id)
         if is_new:
             try:
@@ -652,7 +643,7 @@ class Resonate:
         await self.schedules.create(
             id=id,
             cron=cron,
-            promise_id=f"{self._id_prefix}{{{{.id}}}}.{{{{.timestamp}}}}",
+            promise_id="{{.id}}.{{.timestamp}}",
             promise_timeout=_timeout_ms(promise_timeout),
             promise_param=Value(
                 data=TaskData(
@@ -708,9 +699,6 @@ class Resonate:
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _prefix_id(self, id: str) -> str:
-        return f"{self._id_prefix}{id}" if self._id_prefix else id
-
     def _registered_key(
         self, fn: Callable[Concatenate[Context, ...], Any]
     ) -> tuple[str, int]:
@@ -746,7 +734,7 @@ class Resonate:
 
     def _build_root_promise_create_req(
         self,
-        prefixed_id: str,
+        id: str,
         func_name: str,
         packed: Args,
         version: int,
@@ -768,7 +756,7 @@ class Resonate:
         timeout = timeout if timeout is not None else DEFAULT_TOP_LEVEL_TIMEOUT
 
         return PromiseCreateReq(
-            id=prefixed_id,
+            id=id,
             timeout_at=now_ms() + _timeout_ms(timeout),
             param=Value(
                 data=TaskData(
@@ -779,12 +767,9 @@ class Resonate:
                 )
             ),
             tags={
-                "resonate:origin": prefixed_id,
-                # A genuine top-level root is its own lineage origin and its own
-                # id-generation prefix, so prefix == origin == id here.
-                "resonate:prefix": prefixed_id,
-                "resonate:branch": prefixed_id,
-                "resonate:parent": prefixed_id,
+                "resonate:origin": id,
+                "resonate:branch": id,
+                "resonate:parent": id,
                 "resonate:scope": "global",
                 "resonate:target": self._resolve_target(target),
             },

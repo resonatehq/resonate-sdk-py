@@ -58,7 +58,6 @@ def _context() -> Context:
     return Context.root(
         id="root",
         origin_id="root",
-        prefix_id="root",
         timeout_at=I64_MAX,
         func_name="root",
         effects=effects,

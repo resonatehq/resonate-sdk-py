@@ -91,7 +91,6 @@ def _root(
     return Context.root(
         id="root",
         origin_id="root",
-        prefix_id="root",
         timeout_at=timeout_at,
         func_name="root",
         effects=effects,
@@ -1380,8 +1379,6 @@ async def test_rpc_request_tags_and_param() -> None:
         "resonate:branch": "root:1",
         "resonate:parent": "root",
         "resonate:origin": "root",
-        # Non-detached: prefix mirrors origin.
-        "resonate:prefix": "root",
     }
     # ``TaskData`` flattens func + args + kwargs + version; ``args`` is the live
     # tuple here (it serializes to a JSON array on the wire). The codec
@@ -1592,7 +1589,6 @@ async def test_sleep_request_tags_and_timer_flag() -> None:
         "resonate:branch": "root:1",
         "resonate:parent": "root",
         "resonate:origin": "root",
-        "resonate:prefix": "root",
         "resonate:timer": "true",
     }
     # A timer promise carries no param payload (unlike rpc's func envelope).
@@ -1784,7 +1780,6 @@ async def test_promise_request_tags_and_empty_param() -> None:
         "resonate:branch": "root:1",
         "resonate:parent": "root",
         "resonate:origin": "root",
-        "resonate:prefix": "root",
     }
     assert "resonate:timer" not in req.tags
     assert "resonate:target" not in req.tags
@@ -1925,15 +1920,15 @@ async def test_promise_releases_event_when_create_promise_raises() -> None:
 # but is fire-and-forget: it is NOT registered in ``spawned_remote``, the
 # workflow never suspends on it, and the returned future resolves to the child
 # *id* rather than a remote result. The id lives outside the structured
-# ``{id}:{seq}``/``{id}.{seq}`` namespace -- it is ``{prefix}:d{blake2b 16 hex of the raw seq}``
+# ``{id}:{seq}``/``{id}.{seq}`` namespace -- it is ``{parent_id}:d{blake2b 16 hex of the raw seq}``
 # (the ``d`` marks it a detached segment) -- so it is deterministic across replay
 # yet distinct from awaited children.
 # =============================================================================
 
 
-def _detached_id(prefix: str, raw: str) -> str:
-    """Return the id ``detached`` derives for raw seq id ``raw`` under ``prefix``."""
-    return f"{prefix}:d{_hash_id(raw)}"
+def _detached_id(parent_id: str, raw: str) -> str:
+    """Return the id ``detached`` derives for raw seq id ``raw`` under ``parent_id``."""
+    return f"{parent_id}:d{_hash_id(raw)}"
 
 
 @pytest.mark.asyncio
@@ -1951,14 +1946,14 @@ async def test_detached_returns_id_without_suspending() -> None:
 
 
 @pytest.mark.asyncio
-async def test_detached_id_is_prefix_rooted_hash() -> None:
-    # The id is ``{prefix}:d{16-hex}`` -- prefix-rooted, not parent-rooted, and
-    # outside the ``root:1`` structured namespace.
+async def test_detached_id_is_parent_rooted_hash() -> None:
+    # The id is ``{parent_id}:d{16-hex}`` -- parent-rooted, not lineage-rooted,
+    # and outside the ``root:1`` structured namespace.
     ctx = _root()
     child_id = await ctx.detached("remote_fn")
     assert child_id == _detached_id("root", "root:1")
     assert child_id != "root:1"
-    # A ``d`` marker plus 16 lowercase hex chars after the prefix segment.
+    # A ``d`` marker plus 16 lowercase hex chars after the parent segment.
     _, _, suffix = child_id.partition(":")
     assert suffix[0] == "d"
     assert len(suffix) == 17
@@ -1989,15 +1984,13 @@ async def test_detached_request_tags_and_param() -> None:
     # A detached promise carries the remote (rpc-style) tag set: global scope, a
     # resolved target, and -- like every child -- branch == its own id. Unlike
     # every other creator, detached starts a fresh lineage: ``resonate:origin``
-    # is its OWN id (== branch), while ``resonate:prefix`` keeps the parent's
-    # propagated prefix ("root") so recursive detached ids stay bounded.
+    # is its OWN id (== branch).
     assert req.tags == {
         "resonate:scope": "global",
         "resonate:target": "",
         "resonate:branch": child_id,
         "resonate:parent": "root",
         "resonate:origin": child_id,
-        "resonate:prefix": "root",
     }
     # Like rpc, detached dispatches a flattened ``TaskData`` (args is the live
     # tuple, serialized to a JSON array on the wire).
