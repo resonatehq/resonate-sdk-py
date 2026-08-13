@@ -449,11 +449,17 @@ class ServerState:
         )
         record = promise.to_record()
         self.promises[promise_id] = promise
-        self.set_p_timeout(promise_id, timeout_at)
 
         # Auto-create task and dispatch execute when target tag is present.
         address = tags.get("resonate:target")
         if address is not None:
+            # Only a promise carrying an address is expired by the tick loop.
+            # A target-less promise (a bare ``ctx.promise``) is never timed out
+            # by the scheduler, so a durable timer has to carry a target to fire
+            # at all -- see ``Context.sleep``. Scheduling one here regardless
+            # would make this simulation *more* permissive than the server,
+            # which is invisible to every test that only asserts success.
+            self.set_p_timeout(promise_id, timeout_at)
             delay = _parse_int(tags.get("resonate:delay"))
             deferred = delay is not None and now < delay
             self.tasks[promise_id] = Task(

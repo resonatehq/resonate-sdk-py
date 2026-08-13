@@ -8,6 +8,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from resonate.error import NatsError
+from resonate.ids import origin_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,10 +42,9 @@ DEFAULT_RECV_PREFIX = "resonate.recv"
 REPLY_HEADER = "Resonate-Reply-To"
 
 
-def _id_to_origin(id: str) -> str:
-    """Return the lineage origin: the substring before the first ``.``."""
-    dot = id.find(".")
-    return id if dot == -1 else id[:dot]
+#: The lineage origin of an id -- see :mod:`resonate.ids`. Aliased here because
+#: it is what selects the server's origin-state partition (below).
+_id_to_origin = origin_of
 
 
 def _routing_origin(req: dict[str, Any]) -> str:

@@ -9,6 +9,7 @@ import aiohttp
 import msgspec
 import pytest
 
+from resonate import now_ms
 from resonate.error import HttpError
 from resonate.network import HttpNetwork, LocalNetwork
 from resonate.network.http import DEFAULT_CONN_LIMIT
@@ -760,3 +761,68 @@ async def test_http_send_after_stop_raises_even_if_never_started(
 
     with pytest.raises(HttpError):
         await net.send("{}")
+
+
+# -- scheduler invariant: only target promises are timed out --------------------
+#
+# Mirrors the server's ``promise.pendingHasTimeout`` invariant: a pending
+# promise carrying ``resonate:target`` always has a timeout scheduled, and one
+# without a target must NOT. Divergence here is invisible in ordinary tests --
+# a simulation that schedules timeouts for *every* promise simply lets more
+# things succeed than the real server does -- so it is asserted directly.
+
+
+def _create(net: LocalNetwork, id: str, timeout_at: int, tags: dict[str, str]) -> Any:
+    return send(
+        net,
+        {
+            "kind": "promise.create",
+            "head": {"corrId": id, "version": "2025-01-15"},
+            "data": {"id": id, "timeoutAt": timeout_at, "param": {}, "tags": tags},
+        },
+    )
+
+
+def test_only_promises_with_a_target_are_scheduled_for_timeout() -> None:
+    async def run() -> None:
+        net = LocalNetwork()
+        deadline = now_ms() + 60_000
+        await _create(net, "no-target", deadline, {"resonate:scope": "global"})
+        await _create(
+            net,
+            "with-target",
+            deadline,
+            {"resonate:scope": "global", "resonate:target": "poll://any@default"},
+        )
+
+        scheduled = {pt.id for pt in net.state.p_timeouts}
+        assert "with-target" in scheduled
+        assert "no-target" not in scheduled
+
+    asyncio.run(run())
+
+
+def test_tick_expires_only_the_targeted_promise() -> None:
+    async def run() -> None:
+        net = LocalNetwork()
+        deadline = now_ms() + 60_000
+        await _create(net, "bare", deadline, {"resonate:scope": "global"})
+        await _create(
+            net,
+            "timer",
+            deadline,
+            {
+                "resonate:scope": "global",
+                "resonate:target": "poll://any@default",
+                "resonate:timer": "true",
+            },
+        )
+
+        net.state.tick(deadline + 1)
+
+        # The timer fires -- and ``resonate:timer`` settles it RESOLVED, which
+        # is what wakes a sleeping workflow. The bare promise is left alone.
+        assert net.state.promises["timer"].state == "resolved"
+        assert net.state.promises["bare"].state == "pending"
+
+    asyncio.run(run())

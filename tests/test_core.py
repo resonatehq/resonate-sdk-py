@@ -28,8 +28,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor
-from resonate.core import Core, identity_target_resolver
+from resonate.core import Core, _ExecFulfilled, identity_target_resolver
+from resonate.effects import ResonateEffects
 from resonate.error import (
     ApplicationError,
     FunctionNotFoundError,
@@ -244,7 +246,7 @@ async def test_suspends_on_pending_remote(fix: CoreFixture) -> None:
     status = await fix.core.execute_until_blocked_outer("p1-wait", v, promise, preload)
     assert status == "suspended"
 
-    child = await fix.promise_get_raw("p1-wait.1")
+    child = await fix.promise_get_raw("p1-wait:1")
     assert child.state == "pending"
 
 
@@ -299,19 +301,19 @@ async def test_execute_until_blocked_with_preload(fix: CoreFixture) -> None:
     fix.reg.register("readPre", wf_read_preloaded)
 
     # Pre-resolve the child the workflow will read. ctx.rpc generates the child
-    # id "p1-pre.1". Children are codec-encoded on the wire just like root
+    # id "p1-pre:1". Children are codec-encoded on the wire just like root
     # promises, so pre-settle with codec.encode to match.
     enc_val = fix.codec.encode(99)
     await fix.sender.promise_create(
-        PromiseCreateReq(id="p1-pre.1", timeout_at=FAR_FUTURE)
+        PromiseCreateReq(id="p1-pre:1", timeout_at=FAR_FUTURE)
     )
     await fix.sender.promise_settle(
-        PromiseSettleReq(id="p1-pre.1", state="resolved", value=enc_val)
+        PromiseSettleReq(id="p1-pre:1", state="resolved", value=enc_val)
     )
 
     # Feed the preloaded child to Effects via the preload arg too, exercising
     # the seed-at-construction path.
-    pre = await fix.sender.promise_get("p1-pre.1")
+    pre = await fix.sender.promise_get("p1-pre:1")
     preload = [pre]
 
     status = await fix.core.execute_until_blocked_outer("p1-pre", v, promise, preload)
@@ -528,3 +530,85 @@ async def test_fire_and_forget_local_suspension(fix: CoreFixture) -> None:
 # record resolves inline and never registers a remote todo, so the workflow
 # can't ask to suspend on a settled awaited). The server-side redirect response
 # itself is covered by test_network.py.
+
+
+# ── Timer tasks (durable sleep) ─────────────────────────────────────────
+#
+# A ``resonate:timer`` promise is a durable sleep: the wake IS its deadline,
+# and ``resonate:timer`` makes timing out settle it *resolved*. It carries a
+# ``resonate:target`` only because the server refuses to schedule a deadline
+# for a promise without one -- which also spawns a task, dispatched right
+# away rather than at the wake. That task names no function, so Core must
+# neither run it nor hand it back (a release is re-dispatched immediately,
+# which would spin): it drops it and lets the deadline do the waking.
+
+
+async def _create_timer_promise(
+    fix: CoreFixture, id: str, *, timeout_at: int
+) -> PromiseRecord:
+    """Create a timer promise the way ``ctx.sleep`` does, and return its task."""
+    await fix.sender.promise_create(
+        PromiseCreateReq(
+            id=id,
+            timeout_at=timeout_at,
+            tags={
+                "resonate:branch": id,
+                "resonate:target": "any",
+                "resonate:timer": "true",
+            },
+        )
+    )
+    return await fix.promise_get_raw(id)
+
+
+@pytest.mark.asyncio
+async def test_not_yet_due_timer_task_is_dropped(fix: CoreFixture) -> None:
+    promise = await _create_timer_promise(fix, "t-pending", timeout_at=FAR_FUTURE)
+    assert promise.state == "pending"
+
+    status = await fix.core.execute_until_blocked_outer("t-pending", 0, promise, [])
+
+    assert status == "suspended"
+    # Still pending: the sleep was not ended early by a fulfill.
+    assert (await fix.promise_get_raw("t-pending")).state == "pending"
+    # Dropped before the lease was taken, so nothing is heartbeating a task
+    # this worker is not working on.
+    assert fix.hb.started == 0
+
+
+@pytest.mark.asyncio
+async def test_due_timer_reports_settlement_without_decoding(fix: CoreFixture) -> None:
+    # A delivery already in flight when the deadline settled the promise. A
+    # timer's empty param holds no TaskData, so this has to short-circuit
+    # before the decode rather than fail on it. (Driven through the inner:
+    # settling a root promise on LocalNetwork auto-fulfills its task, so the
+    # outer's "acquired task + settled promise" pairing is not constructible --
+    # the same reason the ordinary short-circuit branch is untested here.)
+    await _create_timer_promise(fix, "t-due", timeout_at=FAR_FUTURE)
+    await fix.sender.promise_settle(
+        PromiseSettleReq(id="t-due", state="resolved", value=fix.codec.encode(None))
+    )
+    settled = await fix.promise_get_raw("t-due")
+
+    outcome = await fix.core.execute_until_blocked_inner(
+        settled,
+        ResonateEffects(fix.sender, fix.codec, "t-due", 0, []),
+    )
+
+    assert isinstance(outcome, _ExecFulfilled)
+    assert outcome.state == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_timer_promise_deadline_is_scheduled_by_the_server(
+    fix: CoreFixture,
+) -> None:
+    # The point of the target: the server only schedules a timeout for a
+    # promise that carries one, so a target-less timer would never fire.
+    now = now_ms()
+    await _create_timer_promise(fix, "t-fires", timeout_at=now + 50)
+    fix.net.state.tick(now + 100)
+    fired = await fix.promise_get_raw("t-fires")
+    # ``resonate:timer`` settles a timed-out promise RESOLVED -- that
+    # settlement is what wakes every sleeper suspended on it.
+    assert fired.state == "resolved"
