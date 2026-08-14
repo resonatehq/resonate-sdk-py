@@ -5,7 +5,7 @@ directly, raises on rejection, and raises
 :class:`~resonate.error.Suspended` when a dependency is still pending.
 
 The harness builds a root :class:`~resonate.context.Context` over a real
-:class:`~resonate.network.LocalNetwork` (as :mod:`tests.test_durable` does), so
+:class:`~resonate.connections.LocalConnection` (as :mod:`tests.test_durable` does), so
 ``create_promise``/``settle_promise`` exercise the actual durability boundary.
 """
 
@@ -23,6 +23,8 @@ import pytest
 
 from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor, _encode_error
+from resonate.connections import LocalConnection
+from resonate.connections.local import Task
 from resonate.context import Context, Opts, _hash_id
 from resonate.dependencies import DependencyMap
 from resonate.durable import DurableFunction
@@ -34,8 +36,6 @@ from resonate.error import (
     SerializationError,
     Suspended,
 )
-from resonate.network import LocalNetwork
-from resonate.network.local import Task
 from resonate.registry import Registry
 from resonate.retry import Constant, Never
 from resonate.send import Sender
@@ -67,7 +67,7 @@ def _root(
     retry_policy: RetryPolicy | None = None,
     registry: Registry | None = None,
 ) -> Context:
-    """Build a root ``Context`` over a fresh ``LocalNetwork``.
+    """Build a root ``Context`` over a fresh ``LocalConnection``.
 
     ``retry_policy`` defaults to ``None`` -> ``Never`` (the engine-layer default),
     so a failing pure leaf settles on the first attempt; pass a policy to exercise
@@ -77,7 +77,7 @@ def _root(
     durable ops resolve to not-found; pass one (with functions registered) to
     exercise by-name ``run`` / by-object ``rpc`` resolution.
     """
-    net = LocalNetwork()
+    net = LocalConnection()
     net.state.tasks["root"] = Task(
         id="root",
         state="acquired",
