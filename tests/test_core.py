@@ -1,7 +1,7 @@
 """Behaviour tests for :mod:`resonate.core`.
 
 These run against a *real* server simulation -- the in-process
-:class:`~resonate.network.LocalNetwork` driven through the real
+:class:`~resonate.connections.LocalConnection` driven through the real
 :class:`~resonate.send.Sender` / :class:`~resonate.transport.Transport` -- so
 the contract is "real server, real wire".
 
@@ -14,10 +14,10 @@ Conventions exercised throughout:
   failure, so the error-path tests assert ``pytest.raises``.
 
 Two groups are intentionally omitted: the **short-circuit** branch (settling a
-root promise on LocalNetwork auto-fulfills its task, so "acquired task +
+root promise on LocalConnection auto-fulfills its task, so "acquired task +
 already-settled root promise" can't be constructed) and the **redirect loop**
 (needs an awaited promise settled at the exact instant ``task.suspend`` lands
--- a race LocalNetwork can't produce deterministically). See the NOTE comments
+-- a race LocalConnection can't produce deterministically). See the NOTE comments
 inline.
 """
 
@@ -30,6 +30,7 @@ import pytest
 
 from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor
+from resonate.connections import LocalConnection
 from resonate.core import Core, _ExecFulfilled, identity_target_resolver
 from resonate.effects import ResonateEffects
 from resonate.error import (
@@ -38,7 +39,6 @@ from resonate.error import (
     ResonateError,
     Suspended,
 )
-from resonate.network import LocalNetwork
 from resonate.registry import Registry
 from resonate.send import Sender
 from resonate.transport import Transport
@@ -76,11 +76,11 @@ class TrackingHeartbeat:
 
 
 class CoreFixture:
-    """Wires a LocalNetwork + Sender + Codec + Registry + Core."""
+    """Wires a LocalConnection + Sender + Codec + Registry + Core."""
 
     def __init__(self) -> None:
         self.pid = "core-test-pid"
-        self.net = LocalNetwork(pid=self.pid)
+        self.net = LocalConnection(pid=self.pid)
         self.sender = Sender(Transport(self.net), None)
         self.codec = Codec(NoopEncryptor())
         self.reg = Registry()
@@ -324,9 +324,9 @@ async def test_execute_until_blocked_with_preload(fix: CoreFixture) -> None:
 
 
 # NOTE: Short-circuit tests are intentionally omitted from this
-# LocalNetwork-driven suite. The
+# LocalConnection-driven suite. The
 # short-circuit branch fires when Core encounters an acquired task whose root
-# promise is already settled -- but on LocalNetwork, settling a root promise
+# promise is already settled -- but on LocalConnection, settling a root promise
 # also auto-fulfills the task, so "acquired task + settled root promise" can't
 # be constructed against this server. The branch is a read-only code path in
 # Core._execute_until_blocked_inner (``if promise.state != "pending"``).
@@ -435,7 +435,7 @@ async def test_heartbeat_stopped_after_user_exception(fix: CoreFixture) -> None:
 @pytest.mark.asyncio
 async def test_noop_heartbeat_does_not_interfere() -> None:
     pid = "noop-pid"
-    net = LocalNetwork(pid=pid)
+    net = LocalConnection(pid=pid)
     sender = Sender(Transport(net), None)
     codec = Codec(NoopEncryptor())
     reg = Registry()
@@ -526,7 +526,7 @@ async def test_fire_and_forget_local_suspension(fix: CoreFixture) -> None:
 # NOTE: Redirect-loop tests are intentionally omitted. Triggering a redirect
 # from a real workflow requires an
 # awaited promise to be settled at the exact moment Core's task.suspend lands --
-# a race LocalNetwork cannot produce deterministically (awaiting a settled
+# a race LocalConnection cannot produce deterministically (awaiting a settled
 # record resolves inline and never registers a remote todo, so the workflow
 # can't ask to suspend on a settled awaited). The server-side redirect response
 # itself is covered by test_network.py.
@@ -581,7 +581,7 @@ async def test_due_timer_reports_settlement_without_decoding(fix: CoreFixture) -
     # A delivery already in flight when the deadline settled the promise. A
     # timer's empty param holds no TaskData, so this has to short-circuit
     # before the decode rather than fail on it. (Driven through the inner:
-    # settling a root promise on LocalNetwork auto-fulfills its task, so the
+    # settling a root promise on LocalConnection auto-fulfills its task, so the
     # outer's "acquired task + settled promise" pairing is not constructible --
     # the same reason the ordinary short-circuit branch is untested here.)
     await _create_timer_promise(fix, "t-due", timeout_at=FAR_FUTURE)

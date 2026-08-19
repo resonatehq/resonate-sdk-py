@@ -223,7 +223,7 @@ def _parse_promise_state(value: Any) -> PromiseState:
 
 
 class ServerState:
-    """The in-process server state machine driving :class:`LocalNetwork`.
+    """The in-process server state machine driving :class:`LocalConnection`.
 
     It owns promises, tasks, schedules, pending timeouts, and the queue of
     outgoing messages produced while applying a request or ticking.
@@ -1113,16 +1113,19 @@ class ServerState:
 
 
 # =============================================================================
-# LOCAL NETWORK
+# LOCAL CONNECTION
 # =============================================================================
 
 
-class LocalNetwork:
-    """In-process :class:`Network` backed by a :class:`ServerState` simulation.
+class LocalConnection:
+    """In-process connection backed by a :class:`ServerState` simulation.
 
-    Useful for running workflows without a Resonate server. A background tick
-    loop advances time once per second; outgoing messages are dispatched to
-    callbacks registered via :meth:`recv` as asyncio tasks.
+    Implements both :class:`~resonate.connections.Network` and
+    :class:`~resonate.connections.Source`, so a single instance serves as network
+    and source at once. Useful for running workflows without a Resonate
+    server. A background tick loop advances time once per second; outgoing
+    messages are dispatched to callbacks registered via :meth:`recv` as
+    asyncio tasks.
     """
 
     def __init__(self, pid: str | None = None, group: str | None = None) -> None:

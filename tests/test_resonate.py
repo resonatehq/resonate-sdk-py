@@ -11,7 +11,7 @@ Key API properties exercised here:
 * ``get`` stays ``async`` (a lookup whose listener registration surfaces a 404).
 
 Like the rest of the suite these run against the real in-process
-:class:`~resonate.network.LocalNetwork` driven through the real
+:class:`~resonate.connections.LocalConnection` driven through the real
 :class:`~resonate.send.Sender` / :class:`~resonate.transport.Transport` -- "real
 server, real wire", no mocks.
 """
@@ -22,12 +22,13 @@ import asyncio
 import contextlib
 import dataclasses
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest import mock
 
 import msgspec
 import pytest
 
+from resonate.connections import LocalConnection
 from resonate.durable import DurableFunction
 from resonate.error import (
     AlreadyRegisteredError,
@@ -37,7 +38,6 @@ from resonate.error import (
 )
 from resonate.handle import ResonateHandle
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
-from resonate.network import LocalNetwork
 from resonate.resonate import (
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_TTL,
@@ -160,15 +160,15 @@ async def test_local_constructor_sets_defaults() -> None:
     async with local() as r:
         assert r._pid == "default"
         assert r._ttl == DEFAULT_TTL
-        assert isinstance(r._network, LocalNetwork)
+        assert isinstance(r._network, LocalConnection)
 
 
 @pytest.mark.asyncio
 async def test_config_with_custom_pid_and_group() -> None:
     async with local(pid="worker-1", group="workers") as r:
         assert r._pid == "worker-1"
-        assert "worker-1" in r._network.unicast()
-        assert "workers" in r._network.unicast()
+        assert "worker-1" in r._source.unicast()
+        assert "workers" in r._source.unicast()
 
 
 @pytest.mark.asyncio
@@ -178,18 +178,18 @@ async def test_default_ttl_is_one_minute() -> None:
 
 
 @pytest.mark.asyncio
-async def test_network_identity_local_mode() -> None:
+async def test_source_identity_local_mode() -> None:
     async with local() as r:
-        assert r._network.unicast().startswith("local://uni@")
-        assert r._network.anycast().startswith("local://any@")
-        assert r._network.group() == "default"
-        assert r._network.pid() == "default"
+        assert r._source.unicast().startswith("local://uni@")
+        assert r._source.anycast().startswith("local://any@")
+        assert r._source.group() == "default"
+        assert r._source.pid() == "default"
 
 
 @pytest.mark.asyncio
 async def test_target_resolver_returns_local_anycast() -> None:
     async with local() as r:
-        assert r._network.target_resolver("my-target") == "local://any@my-target"
+        assert r._source.target_resolver("my-target") == "local://any@my-target"
 
 
 @pytest.mark.asyncio
@@ -234,7 +234,7 @@ async def test_heartbeat_interval_is_a_third_of_the_ttl() -> None:
 
 
 class _FakeNetwork:
-    """Minimal non-Local :class:`~resonate.network.Network` for heartbeat tests."""
+    """Minimal non-Local dual-role connection (``Network`` + ``Source``)."""
 
     def pid(self) -> str:
         return "fake"
@@ -256,6 +256,258 @@ class _FakeNetwork:
     def recv(self, callback: Callable[[str], None]) -> None: ...
     def target_resolver(self, target: str) -> str:
         return f"fake://any@{target}"
+
+
+class _SendOnlyNetwork:
+    """Minimal :class:`~resonate.connections.Network` with no source half."""
+
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    async def send(self, req: str) -> str:
+        return "{}"
+
+
+class _FakeSource:
+    """Minimal :class:`~resonate.connections.Source` for construction tests."""
+
+    def __init__(self, pid: str = "src", group: str = "grp") -> None:
+        self._pid = pid
+        self._group = group
+
+    def pid(self) -> str:
+        return self._pid
+
+    def group(self) -> str:
+        return self._group
+
+    def unicast(self) -> str:
+        return f"fake://uni@{self._group}/{self._pid}"
+
+    def anycast(self) -> str:
+        return f"fake://any@{self._group}/{self._pid}"
+
+    def target_resolver(self, target: str) -> str:
+        return f"fake://any@{target}"
+
+    def recv(self, callback: Callable[[str], None]) -> None: ...
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+
+
+@pytest.mark.asyncio
+async def test_explicit_network_and_sources() -> None:
+    """``Resonate(network=..., sources=[...])`` wires both halves explicitly."""
+    net = _SendOnlyNetwork()
+    src = _FakeSource(pid="worker-9", group="workers")
+    r = Resonate(network=net, sources=[src])
+    try:
+        assert r._network is net
+        assert r._source is src
+        # Identity comes from the primary source.
+        assert r._pid == "worker-9"
+        assert r._resolve_target(None) == "fake://any@workers"
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_dual_role_network_doubles_as_source() -> None:
+    """A network that is also a source (NATS/local style) needs no ``sources=``."""
+    net = _FakeNetwork()
+    r = Resonate(network=net)
+    try:
+        assert r._network is net
+        assert r._source is net
+        # Deduplicated: the one connection is started/stopped exactly once.
+        assert r._connections == [net]
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_first_source_is_primary() -> None:
+    a = _FakeSource(pid="a")
+    b = _FakeSource(pid="b")
+    r = Resonate(network=_SendOnlyNetwork(), sources=[a, b])
+    try:
+        assert r._source is a
+        assert r._pid == "a"
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_send_only_network_without_sources_raises() -> None:
+    with pytest.raises(ValueError, match="sources"):
+        Resonate(network=_SendOnlyNetwork())
+
+
+@pytest.mark.asyncio
+async def test_empty_sources_raises() -> None:
+    with pytest.raises(ValueError, match="source"):
+        Resonate(network=_FakeNetwork(), sources=[])
+
+
+@pytest.mark.asyncio
+async def test_sources_without_network_raises() -> None:
+    with pytest.raises(ValueError, match="network"):
+        Resonate(sources=[_FakeSource()])
+
+
+@pytest.mark.asyncio
+async def test_source_passed_as_network_raises_type_error() -> None:
+    """A source-only object as ``network`` fails fast, naming what's missing.
+
+    Without the guard the mistake surfaces only as an ``AttributeError`` in a
+    fire-and-forget background task -- logged, not raised -- and the first
+    handle hangs forever.
+    """
+    with pytest.raises(TypeError, match=r"_FakeSource.*missing: send"):
+        Resonate(network=cast("Any", _FakeSource()))
+
+
+@pytest.mark.asyncio
+async def test_network_passed_as_source_raises_type_error() -> None:
+    """A send-only object inside ``sources`` is rejected by index."""
+    with pytest.raises(TypeError, match=r"sources\[1\].*_SendOnlyNetwork.*recv"):
+        Resonate(
+            network=_FakeNetwork(),
+            sources=[_FakeSource(), cast("Any", _SendOnlyNetwork())],
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Multiple sources
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# One Resonate instance listening on several sources at once. The network is a
+# real LocalConnection (real server state, real wire) passed as network *only*
+# -- with explicit ``sources`` it never delivers push messages itself -- so
+# every push in these tests provably arrives through an injected source.
+
+
+class _InjectableSource(_FakeSource):
+    """A :class:`_FakeSource` whose push messages tests inject by hand."""
+
+    def __init__(self, pid: str = "src", group: str = "grp") -> None:
+        super().__init__(pid, group)
+        self.callbacks: list[Callable[[str], None]] = []
+        self.started = False
+        self.stopped = False
+
+    def recv(self, callback: Callable[[str], None]) -> None:
+        self.callbacks.append(callback)
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    def inject(self, raw: str) -> None:
+        """Deliver a raw push message as if it arrived on this source."""
+        for cb in self.callbacks:
+            cb(raw)
+
+
+@contextlib.asynccontextmanager
+async def multi_source(
+    pid: str = "pid1", group: str = "default"
+) -> AsyncIterator[
+    tuple[Resonate, LocalConnection, _InjectableSource, _InjectableSource]
+]:
+    """Yield a Resonate over a real LocalConnection with two injectable sources."""
+    net = LocalConnection(pid=pid, group=group)
+    primary = _InjectableSource(pid=pid, group=group)
+    # A distinct pid: a second source is its own delivery channel, and the
+    # listener test relies on the two unicast addresses being distinguishable.
+    secondary = _InjectableSource(pid=f"{pid}-b", group=group)
+    r = Resonate(network=net, sources=[primary, secondary], retry_policy=Never())
+    try:
+        yield r, net, primary, secondary
+    finally:
+        await r.stop()
+
+
+async def _wait_until(condition: Callable[[], bool], tries: int = 500) -> None:
+    for _ in range(tries):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    msg = "condition never became true"
+    raise AssertionError(msg)
+
+
+@pytest.mark.asyncio
+async def test_execute_arriving_on_secondary_source_drives_execution() -> None:
+    """An ``execute`` delivered on a *secondary* source runs the task end-to-end."""
+    async with multi_source() as (r, net, _primary, secondary):
+        r.register(add)
+        r.rpc("multi-src-exec", add, 1, 2)
+        await wait_for_promise(r, "multi-src-exec")
+        # The promise's target resolves through the primary source's fake
+        # scheme, which nothing listens on -- the task sits pending until a
+        # source hands us an execute message.
+        assert net.state.tasks["multi-src-exec"].state == "pending"
+
+        secondary.inject(
+            '{"kind":"execute","data":{"task":{"id":"multi-src-exec","version":0}}}'
+        )
+
+        await _wait_until(
+            lambda: net.state.promises["multi-src-exec"].state == "resolved"
+        )
+        assert net.state.tasks["multi-src-exec"].state == "fulfilled"
+
+
+@pytest.mark.asyncio
+async def test_unblock_arriving_on_secondary_source_settles_handle() -> None:
+    """An ``unblock`` delivered on a *secondary* source settles a waiting handle."""
+    async with multi_source() as (r, _net, _primary, secondary):
+        r.register(add)
+        handle = r.rpc("multi-src-unblock", add, 20, 22)
+        await wait_for_promise(r, "multi-src-unblock")
+
+        # "NDI=" is base64("42") -- a resolved value in wire form.
+        secondary.inject(
+            '{"kind":"unblock","data":{"promise":{"id":"multi-src-unblock",'
+            '"state":"resolved","value":{"data":"NDI="},"timeoutAt":123}}}'
+        )
+
+        assert await handle.result() == 42
+
+
+@pytest.mark.asyncio
+async def test_listener_registers_the_primary_source_unicast() -> None:
+    """``promise.register_listener`` advertises the primary source's address."""
+    async with multi_source(group="workers") as (r, net, primary, secondary):
+        r.register(add)
+        r.rpc("multi-src-listener", add, 1, 2)
+        await wait_for_promise(r, "multi-src-listener")
+
+        await _wait_until(
+            lambda: bool(net.state.promises["multi-src-listener"].subscribers)
+        )
+        subscribers = net.state.promises["multi-src-listener"].subscribers
+        assert subscribers == {primary.unicast()}
+        assert secondary.unicast() not in subscribers
+
+
+@pytest.mark.asyncio
+async def test_every_source_is_started_wired_and_stopped() -> None:
+    """All sources participate in recv wiring and the start/stop lifecycle."""
+    async with multi_source() as (_r, _net, primary, secondary):
+        # recv was wired on both sources (before start).
+        assert len(primary.callbacks) == 1
+        assert len(secondary.callbacks) == 1
+        # Both were started by the constructor's fire-and-forget spawn.
+        await _wait_until(lambda: primary.started and secondary.started)
+        assert not primary.stopped
+        assert not secondary.stopped
+
+    # Leaving the context stops the instance -- and with it every source.
+    assert primary.stopped
+    assert secondary.stopped
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -12,7 +12,7 @@ Before the root promise exists (top-level ``resonate.run`` / ``resonate.rpc``),
 failures stay plain :class:`~resonate.error.ResonateError` instances.
 
 Like :mod:`tests.test_core`, these run against the in-process
-:class:`~resonate.network.LocalNetwork` through the real Sender/Transport;
+:class:`~resonate.connections.LocalConnection` through the real Sender/Transport;
 platform failures are injected by a delegating sender wrapper that fails
 ``promise.create`` / ``promise.settle`` on demand.
 """
@@ -27,6 +27,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from resonate.codec import Codec, NoopEncryptor
+from resonate.connections import LocalConnection
 from resonate.context import Context
 from resonate.core import Core, identity_target_resolver
 from resonate.dependencies import DependencyMap
@@ -39,7 +40,6 @@ from resonate.error import (
     SerializationError,
     ServerError,
 )
-from resonate.network import LocalNetwork
 from resonate.registry import Registry
 from resonate.resonate import Resonate
 from resonate.retry import Constant
@@ -127,11 +127,11 @@ class FailingSender(Sender):
 
 
 class PlatformFixture:
-    """LocalNetwork + FailingSender + Codec + Registry + Core."""
+    """LocalConnection + FailingSender + Codec + Registry + Core."""
 
     def __init__(self) -> None:
         self.pid = "platform-test-pid"
-        self.net = LocalNetwork(pid=self.pid)
+        self.net = LocalConnection(pid=self.pid)
         self.sender = FailingSender(Transport(self.net))
         self.codec = Codec(NoopEncryptor())
         self.reg = Registry()
@@ -602,7 +602,7 @@ async def test_on_message_root_decode_failure_releases_task(
 
 @pytest.mark.asyncio
 async def test_chain_failure_rejects_created_so_successors_do_not_deadlock() -> None:
-    sender = FailingSender(Transport(LocalNetwork(pid="chain-pid")))
+    sender = FailingSender(Transport(LocalConnection(pid="chain-pid")))
     sender.fail_promise_create = True
     effects = ResonateEffects(sender, Codec(NoopEncryptor()), "r", 1, [])
     ctx = Context.root(

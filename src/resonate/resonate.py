@@ -30,6 +30,13 @@ from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
 from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor
+from resonate.connections import (
+    HttpConnection,
+    LocalConnection,
+    Network,
+    Source,
+    SSEConnection,
+)
 from resonate.context import Opts
 from resonate.core import Core
 from resonate.dependencies import DependencyMap
@@ -42,7 +49,6 @@ from resonate.error import (
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.ids import validate_root_id
-from resonate.network import HttpNetwork, LocalNetwork
 from resonate.promises import Promises
 from resonate.registry import Registry
 from resonate.retry import Exponential
@@ -52,12 +58,11 @@ from resonate.transport import ExecuteMsg, Transport, UnblockMsg
 from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Coroutine
+    from collections.abc import Awaitable, Callable, Coroutine, Sequence
 
     from resonate.codec import Encryptor
     from resonate.context import Context
     from resonate.heartbeat import Heartbeat
-    from resonate.network import Network
     from resonate.retry import RetryPolicy
     from resonate.transport import Message
 
@@ -153,10 +158,22 @@ class Resonate:
     at runtime (subscriptions, background tasks, stopping) lives on the shared
     :class:`_Runtime` and is visible across every handle.
 
-    Network selection precedence: ``url`` > ``network`` > ``RESONATE_URL`` env
-    (with a ``RESONATE_HOST``/``RESONATE_PORT`` fallback) > an in-process
-    :class:`~resonate.network.LocalNetwork`. A URL or explicit remote network
-    gets an :class:`~resonate.heartbeat.AsyncHeartbeat`; local mode gets a
+    Server communication is split across two protocols: exactly one
+    :class:`~resonate.connections.Network` carries requests, and one or more
+    :class:`~resonate.connections.Source` channels deliver push messages
+    (``Resonate(network=network, sources=[source, ...])``). The first source
+    is the *primary* source: its unicast address is advertised for listener
+    registration and its resolver mints ``resonate:target`` addresses. A
+    connection implementing both protocols (e.g.
+    :class:`~resonate.connections.NatsConnection`) passed as ``network`` without
+    explicit ``sources`` doubles as the sole source.
+
+    Connection selection precedence: ``url`` > ``network`` > ``RESONATE_URL``
+    env (with a ``RESONATE_HOST``/``RESONATE_PORT`` fallback) > an in-process
+    :class:`~resonate.connections.LocalConnection`. A URL selects
+    :class:`~resonate.connections.HttpConnection` +
+    :class:`~resonate.connections.SSEConnection`. A remote network gets an
+    :class:`~resonate.heartbeat.AsyncHeartbeat`; local mode gets a
     :class:`~resonate.heartbeat.NoopHeartbeat`.
     """
 
@@ -165,6 +182,7 @@ class Resonate:
         *,
         url: str | None = None,
         network: Network | None = None,
+        sources: Sequence[Source] | None = None,
         group: str | None = None,
         pid: str | None = None,
         ttl: timedelta | None = None,
@@ -189,10 +207,13 @@ class Resonate:
 
         auth = token if token is not None else os.environ.get("RESONATE_TOKEN")
 
-        net = _select_network(url, network, group, pid, auth)
-        net_pid = net.pid()
+        net, srcs = _select_connections(url, network, sources, group, pid, auth)
+        # The primary source: its identity drives the SDK's pid/group and its
+        # addresses are the ones advertised to the server.
+        source = srcs[0]
+        net_pid = source.pid()
 
-        transport = Transport(net)
+        transport = Transport(net, srcs)
         codec = Codec(encryptor if encryptor is not None else NoopEncryptor())
         registry = Registry()
         sender = Sender(transport, auth)
@@ -200,7 +221,7 @@ class Resonate:
 
         if heartbeat is not None:
             hb = heartbeat
-        elif isinstance(net, LocalNetwork):
+        elif isinstance(net, LocalConnection):
             hb = NoopHeartbeat()
         else:
             interval_ms = max(safe_ttl // HEARTBEAT_INTERVAL_DIVISOR, 1)
@@ -225,6 +246,12 @@ class Resonate:
         # reference automatically.
         self._ttl = resolved_ttl
         self._network = net
+        self._source = source
+        #: Every distinct connection, sources first, then the network -- the
+        #: lifecycle (start/stop) order. Deduplicated by identity so a
+        #: dual-role connection serving as both network and source is started
+        #: and stopped exactly once.
+        self._connections: list[Network | Source] = list(dict.fromkeys([*srcs, net]))
         self._pid = net_pid
         self._codec = codec
         self._registry = registry
@@ -246,13 +273,15 @@ class Resonate:
         #: overriding handle is minted via :meth:`options`.
         self.opts = Opts()
 
-        # Wire push-message dispatch BEFORE starting the network so the initial
-        # frames are not missed.
+        # Wire push-message dispatch BEFORE starting any connection so the
+        # initial frames are not missed (and so a dual-role connection knows
+        # it has receivers when it starts).
         transport.recv(self._on_message)
 
-        # Start the network (fire-and-forget; HttpNetwork reconnects via SSE
-        # backoff, LocalNetwork never fails here).
-        self._spawn(net.start())
+        # Start every connection (fire-and-forget; SSEConnection reconnects
+        # via backoff, LocalConnection never fails here).
+        for conn in self._connections:
+            self._spawn(conn.start())
         self._runtime.refresh_handle = asyncio.create_task(self._run_refresh())
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -603,7 +632,7 @@ class Resonate:
         if is_new:
             try:
                 record = await self._sender.promise_register_listener(
-                    id, self._network.unicast()
+                    id, self._source.unicast()
                 )
             except ResonateError:
                 if self._runtime.subs.get(id) is sub and not sub.settled():
@@ -668,15 +697,16 @@ class Resonate:
         return ResonateSchedule(id, self.schedules)
 
     async def stop(self) -> None:
-        """Tear down background jobs and the network. Idempotent.
+        """Tear down background jobs and every connection. Idempotent.
 
-        Order matters. The network is stopped **first** -- this cancels its
-        internal SSE/tick loop and clears its subscribers, which is what makes
-        the subsequent join bounded: an in-flight job that re-dispatches work
-        (e.g. a failed execution releasing its task, which the server would
-        otherwise immediately re-deliver as a fresh ``execute`` message) finds
-        nobody listening, so the spawn chain terminates instead of looping
-        forever. With the source of new jobs closed, we then **join** every
+        Order matters. The connections are stopped **first**, sources before
+        the network -- this cancels their SSE/tick loops and clears their
+        subscribers, which is what makes the subsequent join bounded: an
+        in-flight job that re-dispatches work (e.g. a failed execution
+        releasing its task, which the server would otherwise immediately
+        re-deliver as a fresh ``execute`` message) finds nobody listening, so
+        the spawn chain terminates instead of looping forever. With the
+        source of new jobs closed, we then **join** every
         remaining in-flight background job -- promise creation, the run/rpc
         bodies, and workflow execution -- so no work is abandoned mid-flight.
         Draining iteratively covers a job that spawns a child after the
@@ -693,8 +723,9 @@ class Resonate:
         if handle is not None:
             handle.cancel()
 
-        with contextlib.suppress(ResonateError):
-            await self._network.stop()
+        for conn in self._connections:
+            with contextlib.suppress(ResonateError):
+                await conn.stop()
 
         while self._runtime.bg_tasks:
             await asyncio.gather(*self._runtime.bg_tasks, return_exceptions=True)
@@ -729,16 +760,17 @@ class Resonate:
     def _resolve_target(self, target: str | None) -> str:
         """Resolve a routing target.
 
-        Empty falls back to the network group; a URL passes through unchanged; a
-        bare name runs through the network resolver. Doubles as the
-        :class:`~resonate.context.TargetResolver` handed to :class:`Core`.
+        Empty falls back to the primary source's group; a URL passes through
+        unchanged; a bare name runs through the primary source's resolver.
+        Doubles as the :class:`~resonate.context.TargetResolver` handed to
+        :class:`Core`.
         """
-        resolved = target if target is not None else self._network.group()
+        resolved = target if target is not None else self._source.group()
 
         if "://" in resolved:
             return resolved
 
-        return self._network.target_resolver(resolved)
+        return self._source.target_resolver(resolved)
 
     def _build_root_promise_create_req(
         self,
@@ -834,7 +866,7 @@ class Resonate:
         """
         try:
             record = await self._sender.promise_register_listener(
-                id, self._network.unicast()
+                id, self._source.unicast()
             )
         except ServerError as exc:
             if exc.code == 404:
@@ -962,7 +994,7 @@ class Resonate:
         with contextlib.suppress(asyncio.CancelledError):
             while True:
                 await asyncio.sleep(_SUBSCRIPTION_REFRESH_SECS)
-                addr = self._network.unicast()
+                addr = self._source.unicast()
 
                 for id, sub in list(self._runtime.subs.items()):
                     if not sub.settled():
@@ -1002,21 +1034,103 @@ def _safe_ttl_ms(ttl: timedelta) -> int:
     return ms if ms > 0 else (1 << 50)
 
 
-def _select_network(
+#: The methods each protocol requires, for diagnostic messages only -- the
+#: authoritative definitions are the protocols themselves
+#: (:class:`~resonate.connections.Network`,
+#: :class:`~resonate.connections.Source`).
+_PROTOCOL_METHODS: dict[type, tuple[str, ...]] = {
+    Network: ("send", "start", "stop"),
+    Source: (
+        "pid",
+        "group",
+        "unicast",
+        "anycast",
+        "target_resolver",
+        "recv",
+        "start",
+        "stop",
+    ),
+}
+
+
+def _missing_methods(obj: object, proto: type) -> str:
+    """Name the protocol methods ``obj`` lacks, for a guard's error message."""
+    missing = [
+        m for m in _PROTOCOL_METHODS[proto] if not callable(getattr(obj, m, None))
+    ]
+    return ", ".join(missing) if missing else "<none>"
+
+
+def _select_connections(
     url: str | None,
     network: Network | None,
+    sources: Sequence[Source] | None,
     group: str | None,
     pid: str | None,
     auth: str | None,
-) -> Network:
+) -> tuple[Network, list[Source]]:
+    """Resolve the network and the (non-empty) list of sources.
+
+    Precedence: ``url`` > ``network`` > ``RESONATE_URL`` env > local. A URL
+    selects :class:`HttpConnection`, paired with an :class:`SSEConnection`
+    against the same server unless explicit ``sources`` are given. An
+    explicit ``network`` that also implements :class:`Source` (e.g.
+    :class:`~resonate.connections.NatsConnection`,
+    :class:`~resonate.connections.LocalConnection`) doubles as the sole source
+    when none are given; a send-only network requires explicit ``sources``.
+
+    A ``network``/``sources`` argument that does not satisfy its protocol is
+    rejected up front with :class:`TypeError`. Without the guard the mistake
+    surfaces as an ``AttributeError`` inside a fire-and-forget background
+    task -- logged, not raised -- leaving handles hanging with no diagnosis.
+    The check is structural (method presence), so it is a smoke test, not a
+    signature-level contract; static typing remains the full enforcement.
+    """
+    if network is not None and not isinstance(network, Network):
+        msg = (
+            f"network ({type(network).__name__}) does not implement the "
+            f"Network protocol (missing: {_missing_methods(network, Network)})"
+        )
+        raise TypeError(msg)
+    for i, src in enumerate(sources if sources is not None else ()):
+        if not isinstance(src, Source):
+            msg = (
+                f"sources[{i}] ({type(src).__name__}) does not implement the "
+                f"Source protocol (missing: {_missing_methods(src, Source)})"
+            )
+            raise TypeError(msg)
+
+    if url is None and network is None:
+        url = _resolve_env_url()
+
+    srcs: list[Source]
     if url is not None:
-        return HttpNetwork(url=url, pid=pid, group=group, auth=auth)
-    if network is not None:
-        return network
-    env_url = _resolve_env_url()
-    if env_url is not None:
-        return HttpNetwork(url=env_url, pid=pid, group=group, auth=auth)
-    return LocalNetwork(pid=pid, group=group)
+        net: Network = HttpConnection(url=url, auth=auth)
+        if sources is not None:
+            srcs = list(sources)
+        else:
+            srcs = [SSEConnection(url=url, pid=pid, group=group, auth=auth)]
+    elif network is not None:
+        net = network
+        if sources is not None:
+            srcs = list(sources)
+        elif isinstance(network, Source):
+            srcs = [network]
+        else:
+            msg = "network provides no message source; pass sources=[...] alongside it"
+            raise ValueError(msg)
+    else:
+        if sources is not None:
+            msg = "sources requires a network (or url)"
+            raise ValueError(msg)
+        local = LocalConnection(pid=pid, group=group)
+        net = local
+        srcs = [local]
+
+    if not srcs:
+        msg = "at least one source is required"
+        raise ValueError(msg)
+    return net, srcs
 
 
 def _resolve_env_url() -> str | None:

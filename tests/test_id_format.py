@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from resonate.connections import LocalConnection
+from resonate.connections.nats import _id_to_origin
 from resonate.error import InvalidIdError, ServerError
 from resonate.ids import join_id, origin_of, validate_root_id
-from resonate.network import LocalNetwork
-from resonate.network.nats import _id_to_origin
 from resonate.resonate import Resonate
 from resonate.retry import Never
 
@@ -114,7 +114,7 @@ async def _workflow(id: str) -> AsyncIterator[dict[str, Any]]:
         for _ in range(100):
             await asyncio.sleep(0)
         net = r._network
-        assert isinstance(net, LocalNetwork)
+        assert isinstance(net, LocalConnection)
         yield dict(net.state.promises)
     finally:
         await r.stop()
