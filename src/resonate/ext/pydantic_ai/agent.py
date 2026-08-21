@@ -552,9 +552,9 @@ class ResonateAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         # deliberately *not*
         # used as the fallback: it spans many runs, so a follow-up turn would
         # collide with the first turn's promise and replay its result.
-        # ``-`` joins the parts, never ``.`` or ``:``: the run id becomes the
-        # ``resonate:origin`` of every promise this run creates, and the server
-        # requires an origin to be a single bare segment (see
+        # ``-`` joins the parts, never ``:``: the run id becomes the
+        # ``resonate:origin`` of every promise this run creates, and the origin
+        # is everything before an id's first ``:`` (see
         # :func:`resonate.ids.validate_root_id`).
         run_id = id or f"{self._name}-run-{uuid4()}"
 

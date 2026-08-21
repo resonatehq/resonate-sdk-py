@@ -47,7 +47,6 @@ def server_validate(id: str, tags: Mapping[str, str]) -> None:
     assert "\0" not in id, "null_bytes"
 
     if (o := tags.get("resonate:origin")) is not None:
-        assert "." not in o, f"dot_in_origin: origin={o!r}"
         assert ":" not in o, f"colon_in_origin: origin={o!r}"
         assert id == o or id.startswith(f"{o}:"), (
             f"origin_prefix: id={id!r} is not prefixed by origin={o!r}"
@@ -124,11 +123,15 @@ async def _workflow(id: str) -> AsyncIterator[dict[str, Any]]:
 
 
 @pytest.mark.asyncio
-async def test_every_created_promise_passes_server_validation() -> None:
-    async with _workflow("wf") as promises:
+@pytest.mark.parametrize("root", ["wf", "my.app.workflow"])
+async def test_every_created_promise_passes_server_validation(root: str) -> None:
+    # A dotted root is a caller's prerogative: '.' is only read below the
+    # origin, so every id minted under it still validates.
+    async with _workflow(root) as promises:
         assert len(promises) > 1
         for id, promise in promises.items():
             server_validate(id, promise.tags)
+        assert {origin(id) for id in promises} == {root}
 
 
 @pytest.mark.asyncio
@@ -188,18 +191,23 @@ def test_origin_of_matches_the_servers_origin() -> None:
         assert origin_of(id) == origin(id)
 
 
-@pytest.mark.parametrize("id", ["a.b", "a:b", "a.b:c", "", "a\0b"])
+@pytest.mark.parametrize("id", ["a:b", "a.b:c", "", "a\0b"])
 def test_validate_root_id_rejects_reserved_separators(id: str) -> None:
-    # Both separators are reserved in a root id: it becomes the origin of its
-    # whole lineage. See the two tests below for what each one actually breaks.
+    # ':' is the one reserved separator in a root id: it becomes the origin of
+    # its whole lineage. See the test below for what it actually breaks.
     with pytest.raises(InvalidIdError):
         validate_root_id(id)
 
 
-def test_a_dot_in_a_root_id_is_rejected_by_the_server() -> None:
-    # '.' cannot even create the root: the origin tag would hold one.
-    with pytest.raises(AssertionError, match="dot_in_origin"):
-        server_validate("a.b", {"resonate:origin": "a.b"})
+def test_a_dot_in_a_root_id_is_accepted() -> None:
+    # '.' only separates lineage segments *below* the origin, which is read
+    # after the origin has been split off at the first ':'. A dotted root is
+    # therefore unambiguous, and the server takes it.
+    assert validate_root_id("my.app.workflow") == "my.app.workflow"
+    id = join_id("my.app.workflow", "1")
+    assert id == "my.app.workflow:1"
+    assert origin_of(id) == "my.app.workflow"
+    server_validate(id, {"resonate:origin": "my.app.workflow"})
 
 
 def test_a_colon_in_a_root_id_is_rejected_by_the_server() -> None:
@@ -210,7 +218,7 @@ def test_a_colon_in_a_root_id_is_rejected_by_the_server() -> None:
         server_validate("a:b", {"resonate:origin": "a:b"})
 
 
-@pytest.mark.parametrize("id", ["a", "a-b", "a_b", "wf-1786636678653183000"])
+@pytest.mark.parametrize("id", ["a", "a-b", "a_b", "a.b", "wf-1786636678653183000"])
 def test_validate_root_id_accepts_bare_ids(id: str) -> None:
     assert validate_root_id(id) == id
 
@@ -222,11 +230,11 @@ async def test_run_and_rpc_reject_an_invalid_root_id() -> None:
     try:
         # Raised at the call site, before anything reaches the server.
         with pytest.raises(InvalidIdError):
-            r.run("bad.id", top, 1)
+            r.run("bad:id", top, 1)
         with pytest.raises(InvalidIdError):
             r.rpc("bad:id", "top", 1)
         with pytest.raises(InvalidIdError):
-            await r.schedule("bad.id", "* * * * *", "top")
+            await r.schedule("bad:id", "* * * * *", "top")
         # ``get`` is a lookup, not a create: it takes any id, including a
         # child's, so it must NOT validate. A missing one 404s rather than
         # raising InvalidIdError.

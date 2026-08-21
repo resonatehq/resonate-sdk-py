@@ -676,10 +676,10 @@ class Resonate:
             id=validate_root_id(id),
             cron=cron,
             # The server stamps the *whole* templated id onto the fired
-            # promise's ``resonate:origin`` tag, so the template must join with
-            # a plain ``-``: a ``.`` would make every child of a scheduled run
-            # rejected (``dot_in_origin``) and a ``:`` would hide the timestamp
-            # below the origin, collapsing every firing onto one lineage.
+            # promise's ``resonate:origin`` tag, so the template joins with a
+            # plain ``-``: ``.`` would survive there too (it is legal in an
+            # origin), but a ``:`` would hide the timestamp below the origin,
+            # collapsing every firing onto one lineage.
             promise_id="{{.id}}-{{.timestamp}}",
             promise_timeout=_timeout_ms(promise_timeout),
             promise_param=Value(

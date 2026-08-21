@@ -15,8 +15,11 @@ reads them back with :func:`origin_of`, both of which mirror the server's own
 rules (``src/types.rs``).
 
 A root id is supplied by the caller and becomes the origin of its whole
-lineage, so :func:`validate_root_id` keeps both separators out of it, exactly
-as the server does for the origin tag itself.
+lineage, so :func:`validate_root_id` keeps ``:`` out of it, exactly as the
+server does for the origin tag itself. ``.`` is *not* reserved there: it only
+separates segments below the origin, and the origin is recovered by splitting
+on the first ``:``, so a dotted root (``my.app.workflow``) survives the round
+trip intact.
 """
 
 from __future__ import annotations
@@ -61,12 +64,16 @@ def origin_of(id: str) -> str:
 def validate_root_id(id: str) -> str:
     """Return a caller-supplied root id (``run`` / ``rpc`` / ``schedule``), or raise.
 
-    Both separators are **reserved**: a root becomes the origin of its whole
-    lineage, and the server rejects an origin containing either one outright
-    (``dot_in_origin`` / ``colon_in_origin``). ``.`` because it separates
-    lineage segments; ``:`` because the origin is everything before an id's
-    *first* ``:``, so an origin holding one could never be split back out of
-    any id.
+    Only ``:`` is **reserved**: a root becomes the origin of its whole lineage,
+    the origin is everything before an id's *first* ``:``, so an origin holding
+    one could never be split back out of any id. The server rejects it outright
+    (``colon_in_origin``).
+
+    ``.`` is allowed. It separates lineage segments *below* the origin, which is
+    only ever read after the origin has been split off, so a dotted root id
+    (``my.app.workflow``) is unambiguous::
+
+        my.app.workflow -> my.app.workflow:1 -> my.app.workflow:1.1
 
     Raises:
         ~resonate.error.InvalidIdError: caught here, at the call site that named
@@ -80,11 +87,11 @@ def validate_root_id(id: str) -> str:
     if "\0" in id:
         msg = "id must not contain null bytes"
         raise InvalidIdError(id, msg)
-    for sep in (LINEAGE_SEP, ORIGIN_SEP):
-        if sep in id:
-            msg = (
-                f"id must not contain {sep!r}: it is reserved as a lineage"
-                " separator in the ids the SDK mints below this one"
-            )
-            raise InvalidIdError(id, msg)
+    if ORIGIN_SEP in id:
+        msg = (
+            f"id must not contain {ORIGIN_SEP!r}: it separates the origin from"
+            " the lineage in the ids the SDK mints below this one, so an id"
+            " holding one could never be split back out"
+        )
+        raise InvalidIdError(id, msg)
     return id
