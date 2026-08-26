@@ -408,7 +408,7 @@ class Sender:
 
     # -- internal helpers -----------------------------------------------------
 
-    def _make_head(self, origin: str | None = None) -> Head:
+    def _make_head(self) -> Head:
         """Build an envelope head; ``origin`` is set on top-level requests only.
 
         A nested action envelope is routed by the head of the request carrying
@@ -418,7 +418,6 @@ class Sender:
             corr_id=self._corr_id(),
             version=PROTOCOL_VERSION,
             auth=self.auth,
-            origin=origin,
         )
 
     def _decode_lenient[T](self, raw: list[Any], type_: type[T], what: str) -> list[T]:
@@ -499,7 +498,7 @@ class Sender:
         lineage (a search, a schedule) routes by :data:`DEFAULT_ORIGIN`.
         """
         origin = origin_of(routes_by) if routes_by else "default"
-        head = self._make_head(origin)
+        head = self._make_head()
         corr_id = head.corr_id
         envelope = Envelope(kind=kind, head=head, data=data)
         body = msgspec.json.encode(envelope).decode("utf-8")
@@ -548,7 +547,6 @@ class Head(
     corr_id: str
     version: str
     auth: str | None = None
-    origin: str | None = msgspec.field(name=ORIGIN_HEADER, default=None)
 
 
 class Envelope(msgspec.Struct, frozen=True, kw_only=True):

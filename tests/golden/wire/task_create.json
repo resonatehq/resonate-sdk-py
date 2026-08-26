@@ -26,7 +26,6 @@
   },
   "head": {
     "corrId": "sr-golden",
-    "resonate:origin": "wf-1",
     "version": "2026-04-01"
   },
   "kind": "task.create"
