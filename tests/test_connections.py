@@ -20,7 +20,7 @@ from resonate.timing import now_ms
 
 async def send(net: LocalConnection, req: Any) -> Any:
     """Encode ``req``, send it through ``net``, and decode the response."""
-    resp = await net.send(msgspec.json.encode(req).decode("utf-8"), "test")
+    resp = await net.send(msgspec.json.encode(req).decode("utf-8"))
     return msgspec.json.decode(resp)
 
 
@@ -600,7 +600,7 @@ async def test_http_send_retries_through_connection_outage(
     # Collapse the backoff sleep so the test stays fast.
     monkeypatch.setattr(net, "_sleep_or_stop", lambda _s: asyncio.sleep(0))
 
-    body = await net.send("{}", "root")
+    body = await net.send("{}")
     assert body == '{"head":{"status":200},"data":{}}'
     assert flaky.attempts == 4  # three failures + one success
 
@@ -621,7 +621,7 @@ async def test_http_send_stops_retrying_after_stop(
     monkeypatch.setattr(net, "_ensure_session", lambda: flaky)
     net._running = True
 
-    send_task = asyncio.create_task(net.send("{}", "root"))
+    send_task = asyncio.create_task(net.send("{}"))
     # Let the retry enter its first real backoff sleep.
     await asyncio.sleep(0)
     await asyncio.sleep(0)
@@ -668,7 +668,7 @@ async def test_http_send_after_stop_raises_http_error_not_runtime_error(
     net._running = False
 
     with pytest.raises(ConnectorError):
-        await net.send("{}", "root")
+        await net.send("{}")
 
 
 @pytest.mark.asyncio
@@ -686,7 +686,7 @@ async def test_http_send_does_not_open_a_session_after_stop() -> None:
     assert net._session is None
 
     with pytest.raises(ConnectorError):
-        await net.send("{}", "root")
+        await net.send("{}")
 
     # No session was created during the failed ``send``.
     assert net._session is None
@@ -711,7 +711,7 @@ async def test_http_send_does_not_retry_server_errors(
     net._running = True
     monkeypatch.setattr(net, "_sleep_or_stop", mock.AsyncMock())
 
-    body = await net.send("{}", "root")
+    body = await net.send("{}")
     assert '"status":404' in body
     assert not_found.attempts == 1  # one shot -- no retry on a real HTTP response
 
@@ -745,7 +745,7 @@ async def test_http_send_before_start_does_not_raise_stopped_error(
     assert not net._stopped, "_stopped must be False before stop() is ever called"
 
     # send() must NOT raise "network has been stopped" here.
-    body = await net.send("{}", "root")
+    body = await net.send("{}")
     assert body == '{"head":{"status":200},"data":{}}'
 
     start_task.cancel()
@@ -772,7 +772,7 @@ async def test_http_send_after_stop_raises_even_if_never_started(
     assert net._stopped
 
     with pytest.raises(ConnectorError):
-        await net.send("{}", "root")
+        await net.send("{}")
 
 
 # -- scheduler invariant: only target promises are timed out --------------------

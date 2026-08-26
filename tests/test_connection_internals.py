@@ -193,7 +193,7 @@ async def test_http_send_backoff_delays_are_exactly_the_policy_schedule() -> Non
 
     net._session = cast("Any", _Session())
     try:
-        assert await net.send("{}", "root") == "{}"
+        assert await net.send("{}") == "{}"
         assert sleeper.delays == [1.0, 2.0, 4.0]
     finally:
         net._session = None

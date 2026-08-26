@@ -295,5 +295,5 @@ def test_recording_network_is_a_working_double() -> None:
     body = msgspec.json.encode(
         {"kind": "task.release", "head": {"corrId": "c1"}, "data": {}}
     ).decode("utf-8")
-    resp = asyncio.run(net.send(body, "test"))
+    resp = asyncio.run(net.send(body))
     assert msgspec.json.decode(resp)["head"]["corrId"] == "c1"

@@ -12,10 +12,10 @@ root) and :class:`ConnectorError` (what a transport raises -- see below).
 The split is by *who raises it*. A connector -- NATS, or something that does
 not exist yet -- raises :class:`ConnectorError` and needs nothing else, so that
 is all ``resonate-base`` ships. :class:`InvalidIdError` is defined here rather
-than there because the formats that raise it -- the promise id, and the
-``poll://`` addresses this SDK's own source advertises -- belong to whoever
-defines them, not to the seam: a connector moves opaque strings and names its
-destinations however its substrate does. It is also the one open point in the vocabulary:
+than there because the format that raises it -- the promise id -- belongs to
+whoever defines it, not to the seam: a connector moves opaque strings and names
+its destinations however its substrate does, so no connector raises this about
+an address of its own. It is also the one open point in the vocabulary:
 because it names the category rather than each transport, :data:`SenderError`
 below can stay closed and exhaustively type-checked while the set of connectors
 stays open.
@@ -49,10 +49,12 @@ __all__ = [
 
 
 class InvalidIdError(ResonateError):
-    """A caller-supplied id or address the server's format cannot carry.
+    """A caller-supplied id the server's format cannot carry.
 
-    See :func:`resonate.ids.validate_root_id` and the ``poll://`` address
-    checks in :mod:`resonate.connections.sse`.
+    See :func:`resonate.ids.validate_root_id`. Addresses are *not* in scope:
+    connector address minting is total by design (see
+    :func:`resonate.connections.sse.unicast`), and a malformed one is the
+    server's judgement to make.
     """
 
     def __init__(self, id: str, reason: str) -> None:

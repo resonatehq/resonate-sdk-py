@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
-from resonate.error import InvalidIdError
 from resonate.retry import ExponentialBackoff
 from resonate.timing import sleep
 
@@ -41,40 +40,21 @@ UNICAST = "uni"
 #: Userinfo marking an address that reaches any one member of a group.
 ANYCAST = "any"
 
-#: Characters that would change how ``url.Parse`` splits an address, so they
-#: cannot appear in a group or pid.
-_RESERVED = "@/:?#"
-
-
-def _check(part: str, what: str) -> str:
-    """Return ``part``, or refuse an address the server would silently drop.
-
-    Case matters: the group and pid land in the URL **host**, which Go
-    lowercases while parsing, so an address minted with an uppercase group does
-    not round trip -- and nothing raises. The server accepts it, stores it, and
-    the message is simply never delivered; the task then sits until its lease
-    lapses, forever. Folding the case here would hide the mistake just as well,
-    so this refuses instead, at the point the name was chosen.
-    """
-    if not part:
-        msg = f"{what} must not be empty"
-        raise InvalidIdError(part, msg)
-    if any(c in part for c in _RESERVED):
-        msg = f"{what} must not contain any of {_RESERVED!r}"
-        raise InvalidIdError(part, msg)
-    if part != part.lower():
-        msg = f"{what} must be lowercase (the server lowercases the URL host)"
-        raise InvalidIdError(part, msg)
-    return part
-
 
 def unicast(group: str, pid: str) -> str:
     """Mint the address that reaches one process alone.
 
+    Total by design -- like every connector's address minting (see
+    :meth:`resonate_nats.NatsConnection.unicast`), it only formats. An address
+    is opaque to the SDK and to the server alike: the server parses it, and a
+    malformed one it declines to deliver to, which is observable. The SDK does
+    not front-run that judgement -- an incorrect group simply mints an incorrect
+    address.
+
     >>> unicast("workers", "7f3a")
     'poll://uni@workers/7f3a'
     """
-    return f"{SCHEME}://{UNICAST}@{_check(group, 'group')}/{_check(pid, 'pid')}"
+    return f"{SCHEME}://{UNICAST}@{group}/{pid}"
 
 
 def resolve_target(target: str) -> str:
@@ -84,10 +64,16 @@ def resolve_target(target: str) -> str:
     names a concrete process, while a routing target names a *group* whose
     members whoever resolves it does not know.
 
+    Total, for the same reason as :func:`unicast` -- and doubly so here, since a
+    target is resolved lazily while a durable op (``rpc``/``sleep``/``detached``)
+    builds its request. Raising there would be caught by the workflow's own error
+    boundary and permanently reject the durable promise. So an incorrect target
+    just mints an incorrect address, recoverable by fixing it and re-dispatching.
+
     >>> resolve_target("workers")
     'poll://any@workers'
     """
-    return f"{SCHEME}://{ANYCAST}@{_check(target, 'target')}"
+    return f"{SCHEME}://{ANYCAST}@{target}"
 
 
 # =============================================================================

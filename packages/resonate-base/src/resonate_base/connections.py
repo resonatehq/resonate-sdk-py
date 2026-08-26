@@ -19,15 +19,15 @@ class Network(Protocol):
     response. Methods raise :class:`~resonate_base.error.ConnectorError` when
     the substrate fails.
 
-    ``send`` takes the request *and* the ``origin`` it routes by -- the lineage
-    the request acts on, which is what selects the server's origin-state
-    partition. A substrate that shards (one NATS subject per partition, say)
-    needs that value to place the request, and getting it out of the payload
-    would mean knowing both the envelope layout and the promise id format. So
-    the SDK, which owns both, hands it over already resolved. Two consequences
+    ``send`` takes the request and the ``headers`` that travel with it. The
+    lineage ``origin`` the request routes by -- the value that selects the
+    server's origin-state partition -- rides in ``headers`` under the
+    ``resonate:origin`` key. A substrate that shards (one NATS subject per
+    partition, say) reads it from there to place the request, so it never has
+    to know the envelope layout or the promise id format. Two consequences
     worth stating plainly: ``req`` stays opaque -- a connector never has to
-    parse it -- and every request has an origin, so there is no "unrouted"
-    case to handle.
+    parse it -- and every request carries an origin header, so there is no
+    "unrouted" case to handle.
 
     A ``Resonate`` instance uses exactly one network, optionally paired with
     :class:`Source` push channels.
@@ -35,7 +35,7 @@ class Network(Protocol):
 
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
-    async def send(self, req: str, origin: str) -> str: ...
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str: ...
 
 
 @runtime_checkable

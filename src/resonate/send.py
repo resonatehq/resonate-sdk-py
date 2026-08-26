@@ -4,7 +4,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import msgspec
-from resonate_base import PROTOCOL_VERSION
+from resonate_base import ORIGIN_HEADER, PROTOCOL_VERSION
 
 from resonate.codec import dec_hook
 from resonate.error import DecodingError, ServerError
@@ -142,16 +142,13 @@ class TaskHeartbeating(Protocol):
     async def task_heartbeat(self, pid: str, tasks: list[TaskRef]) -> None: ...
 
 
-#: Head field carrying the lineage origin the request routes by. The server
-#: reads it to pick the origin-state partition -- on the NATS transport it is
-#: the head, not the subject, that decides. The same value is handed to
-#: :meth:`~resonate_base.connections.Network.send` as an argument, for the
-#: connector's own routing; this one is for the server.
-ORIGIN_HEADER = "resonate:origin"
-
-#: The origin of a request that acts on no particular lineage -- a search, a
-#: schedule operation. Mirrors the server's own default partition.
-DEFAULT_ORIGIN = "default"
+#: ``ORIGIN_HEADER`` and ``DEFAULT_ORIGIN`` are imported from
+#: :mod:`resonate_base` -- the wire owns both. ``ORIGIN_HEADER`` is the envelope
+#: head field the server reads to pick the origin-state partition and the
+#: ``headers`` key the origin rides under into
+#: :meth:`~resonate_base.connections.Network.send`, for a sharding connector's
+#: own routing. ``DEFAULT_ORIGIN`` is where a request that acts on no
+#: particular lineage (a search, a schedule) routes.
 
 
 def default_corr_id() -> str:
@@ -496,18 +493,17 @@ class Sender:
         origin-state partition -- the promise the request acts on, or the
         promise being awaited. It is resolved to an origin here, once, and then
         travels two ways: on the head, which is where the server reads it, and
-        as an argument to :meth:`~resonate.transport.Transport.send`, which is
-        where a sharding connector reads it. Neither the server nor the
-        connector has to know how a promise id is built. A request that acts on
-        no particular lineage (a search, a schedule) routes by
-        :data:`DEFAULT_ORIGIN`.
+        in the ``headers`` under :data:`ORIGIN_HEADER`, which is where a
+        sharding connector reads it. Neither the server nor the connector has
+        to know how a promise id is built. A request that acts on no particular
+        lineage (a search, a schedule) routes by :data:`DEFAULT_ORIGIN`.
         """
-        origin = origin_of(routes_by) if routes_by else DEFAULT_ORIGIN
+        origin = origin_of(routes_by) if routes_by else "default"
         head = self._make_head(origin)
         corr_id = head.corr_id
         envelope = Envelope(kind=kind, head=head, data=data)
         body = msgspec.json.encode(envelope).decode("utf-8")
-        resp = await self.transport.send(kind, corr_id, body, origin)
+        resp = await self.transport.send(kind, corr_id, body, {ORIGIN_HEADER: origin})
 
         status = resp.head.status
         if status >= _ERROR_STATUS and not (allow_409 and status == _CONFLICT_STATUS):

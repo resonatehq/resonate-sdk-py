@@ -65,14 +65,14 @@ def test_response_defaults_every_field() -> None:
 @pytest.mark.asyncio
 async def test_status_is_read_off_a_typed_field() -> None:
     transport = Transport(StubNetwork(envelope("k", "c", {}, status=204)))
-    resp = await transport.send("k", "c", "{}", "root")
+    resp = await transport.send("k", "c", "{}")
     assert resp.head.status == 204
 
 
 @pytest.mark.asyncio
 async def test_a_missing_status_defaults_to_200() -> None:
     transport = Transport(StubNetwork(envelope("k", "c", {})))
-    assert (await transport.send("k", "c", "{}", "root")).head.status == 200
+    assert (await transport.send("k", "c", "{}")).head.status == 200
 
 
 @pytest.mark.asyncio
@@ -81,7 +81,7 @@ async def test_a_non_object_response_is_a_decoding_error() -> None:
     for body in ("[]", "null", '"a string"', "42"):
         transport = Transport(StubNetwork(body))
         with pytest.raises(DecodingError):
-            await transport.send("k", "c", "{}", "root")
+            await transport.send("k", "c", "{}")
 
 
 @pytest.mark.asyncio
@@ -91,7 +91,7 @@ async def test_a_non_integer_status_is_a_decoding_error() -> None:
         StubNetwork('{"kind":"k","head":{"corrId":"c","status":"oops"},"data":{}}')
     )
     with pytest.raises(DecodingError):
-        await transport.send("k", "c", "{}", "root")
+        await transport.send("k", "c", "{}")
 
 
 # ── Status mapping ─────────────────────────────────────────────────
@@ -305,14 +305,14 @@ def test_correlation_ids_are_unique_per_call() -> None:
 async def test_a_mismatched_corr_id_is_rejected() -> None:
     transport = Transport(StubNetwork(envelope("k", "someone-elses", {})))
     with pytest.raises(ServerError, match="corrId mismatch"):
-        await transport.send("k", "mine", "{}", "root")
+        await transport.send("k", "mine", "{}")
 
 
 @pytest.mark.asyncio
 async def test_a_mismatched_kind_is_rejected() -> None:
     transport = Transport(StubNetwork(envelope("other.kind", "c", {})))
     with pytest.raises(ServerError, match="kind mismatch"):
-        await transport.send("expected.kind", "c", "{}", "root")
+        await transport.send("expected.kind", "c", "{}")
 
 
 @pytest.mark.asyncio

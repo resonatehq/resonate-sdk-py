@@ -25,7 +25,7 @@ def test_send_and_validate_envelope_format() -> None:
         }
     ).decode("utf-8")
 
-    resp = asyncio.run(transport.send("promise.create", "env123", body, "root"))
+    resp = asyncio.run(transport.send("promise.create", "env123", body))
     assert resp.kind == "promise.create"
     assert resp.head.corr_id == "env123"
     assert resp.head.status == 200  # defaulted: the server omitted it
@@ -35,14 +35,14 @@ def test_send_and_validate_envelope_format() -> None:
 def test_send_passes_body_to_network() -> None:
     net = StubNetwork(envelope("k", "c", {}))
     transport = Transport(net)
-    asyncio.run(transport.send("k", "c", "the-body", "root"))
+    asyncio.run(transport.send("k", "c", "the-body"))
     assert net.sent == ["the-body"]
 
 
 def test_send_kind_mismatch() -> None:
     transport = Transport(StubNetwork(envelope("other.kind", "c", {})))
     with pytest.raises(ServerError) as exc:
-        asyncio.run(transport.send("expected.kind", "c", "{}", "root"))
+        asyncio.run(transport.send("expected.kind", "c", "{}"))
     assert exc.value.code == 500
     assert "expected 'expected.kind', got 'other.kind'" in exc.value.message
 
@@ -50,7 +50,7 @@ def test_send_kind_mismatch() -> None:
 def test_send_corr_id_mismatch() -> None:
     transport = Transport(StubNetwork(envelope("k", "wrong", {})))
     with pytest.raises(ServerError) as exc:
-        asyncio.run(transport.send("k", "right", "{}", "root"))
+        asyncio.run(transport.send("k", "right", "{}"))
     assert exc.value.code == 500
     assert "expected 'right', got 'wrong'" in exc.value.message
 
@@ -58,14 +58,14 @@ def test_send_corr_id_mismatch() -> None:
 def test_send_invalid_json_response() -> None:
     transport = Transport(StubNetwork("not json"))
     with pytest.raises(DecodingError):
-        asyncio.run(transport.send("k", "c", "{}", "root"))
+        asyncio.run(transport.send("k", "c", "{}"))
 
 
 def test_send_missing_fields_treated_as_empty() -> None:
     # A response with no kind/corrId fails validation against a non-empty kind.
     transport = Transport(StubNetwork("{}"))
     with pytest.raises(ServerError):
-        asyncio.run(transport.send("k", "c", "{}", "root"))
+        asyncio.run(transport.send("k", "c", "{}"))
 
 
 # -- recv ---------------------------------------------------------------------

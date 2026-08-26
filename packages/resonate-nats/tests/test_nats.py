@@ -11,6 +11,7 @@ import base64
 from typing import Any, cast
 
 import pytest
+from resonate_base import ORIGIN_HEADER
 from resonate_base.error import ConnectorError
 from resonate_nats import NatsConnection, _publish_subject
 
@@ -189,7 +190,7 @@ async def test_send_publishes_the_origin_routed_subject_and_reply_header() -> No
     await conn.start()
 
     req = '{"kind":"task.acquire","head":{"resonate:origin":"root"},"data":{"id":"root:1"}}'
-    resp = await conn.send(req, "root")
+    resp = await conn.send(req, {ORIGIN_HEADER: "root"})
 
     assert resp == '{"kind":"reply"}'
     assert len(client.published) == 1
@@ -209,7 +210,9 @@ async def test_send_before_start_raises_nats_error() -> None:
     conn = NatsConnection(client)
 
     with pytest.raises(ConnectorError):
-        await conn.send('{"kind":"task.acquire","data":{"id":"root"}}', "root")
+        await conn.send(
+            '{"kind":"task.acquire","data":{"id":"root"}}', {ORIGIN_HEADER: "root"}
+        )
     assert client.published == []
 
 
@@ -221,7 +224,9 @@ async def test_send_after_stop_raises_nats_error_without_touching_the_client() -
     await conn.stop()
 
     with pytest.raises(ConnectorError):
-        await conn.send('{"kind":"task.acquire","data":{"id":"root"}}', "root")
+        await conn.send(
+            '{"kind":"task.acquire","data":{"id":"root"}}', {ORIGIN_HEADER: "root"}
+        )
     assert client.published == []
 
 
@@ -234,7 +239,9 @@ async def test_send_wraps_a_publish_failure_in_nats_error() -> None:
     await conn.start()
 
     with pytest.raises(ConnectorError) as excinfo:
-        await conn.send('{"kind":"task.acquire","data":{"id":"root"}}', "root")
+        await conn.send(
+            '{"kind":"task.acquire","data":{"id":"root"}}', {ORIGIN_HEADER: "root"}
+        )
     assert isinstance(excinfo.value.error, OSError)
 
 
@@ -246,7 +253,9 @@ async def test_send_wraps_a_reply_timeout_in_nats_error() -> None:
     await conn.start()
 
     with pytest.raises(ConnectorError) as excinfo:
-        await conn.send('{"kind":"task.acquire","data":{"id":"root"}}', "root")
+        await conn.send(
+            '{"kind":"task.acquire","data":{"id":"root"}}', {ORIGIN_HEADER: "root"}
+        )
     assert isinstance(excinfo.value.error, TimeoutError)
 
 
@@ -289,7 +298,7 @@ async def test_send_routes_by_the_origin_it_is_given_not_by_the_payload() -> Non
     conn = NatsConnection(client)
     await conn.start()
 
-    await conn.send('{"kind":"promise.search","data":{}}', "default")
+    await conn.send('{"kind":"promise.search","data":{}}', {ORIGIN_HEADER: "default"})
 
     assert client.published[0]["subject"] == _publish_subject(
         "resonate.requests", "default"

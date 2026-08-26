@@ -1197,11 +1197,15 @@ class LocalConnection:
                 await handle
         self._subscribers.clear()
 
-    async def send(self, req: str, origin: str) -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
         """Apply a request to the in-process server state.
 
-        ``origin`` is unused: this simulation holds one undivided state, so
-        there is no partition to select.
+        The lineage origin rides in ``headers`` under ``resonate:origin`` but is
+        unused: this simulation holds one undivided state, so there is no
+        partition to select.
+
+        ``headers`` are unused in the local simulation but accepted for protocol
+        compatibility.
         """
         try:
             req_json = msgspec.json.decode(req)

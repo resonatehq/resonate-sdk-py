@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import msgspec
+from resonate_base import ORIGIN_HEADER
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -37,9 +38,9 @@ class StubNetwork:
     def __init__(self, response: str = "") -> None:
         self.response = response
         self.sent: list[str] = []
-        #: The routing origin passed alongside each request, in step with
-        #: ``sent`` -- so a test can assert *where* a request was routed
-        #: without decoding its body.
+        #: The routing origin read from each request's ``resonate:origin``
+        #: header, in step with ``sent`` -- so a test can assert *where* a
+        #: request was routed without decoding its body.
         self.origins: list[str] = []
         self.callbacks: list[Callable[[str], None]] = []
         self.started = 0
@@ -64,9 +65,9 @@ class StubNetwork:
 
     # -- traffic --------------------------------------------------------------
 
-    async def send(self, req: str, origin: str = "") -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
         self.sent.append(req)
-        self.origins.append(origin)
+        self.origins.append((headers or {}).get(ORIGIN_HEADER, ""))
         self._raise_if_armed()
         return self.response
 
@@ -117,9 +118,9 @@ class ScriptedNetwork(StubNetwork):
             raise AssertionError(msg)
         self.responses = list(responses)
 
-    async def send(self, req: str, origin: str = "") -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
         self.sent.append(req)
-        self.origins.append(origin)
+        self.origins.append((headers or {}).get(ORIGIN_HEADER, ""))
         self._raise_if_armed()
         index = min(len(self.sent) - 1, len(self.responses) - 1)
         return self.responses[index]
@@ -132,9 +133,9 @@ class RecordingNetwork(StubNetwork):
     releases, listener registrations.
     """
 
-    async def send(self, req: str, origin: str = "") -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
         self.sent.append(req)
-        self.origins.append(origin)
+        self.origins.append((headers or {}).get(ORIGIN_HEADER, ""))
         self._raise_if_armed()
         decoded = msgspec.json.decode(req)
         return envelope(decoded["kind"], decoded["head"]["corrId"], {})
@@ -147,9 +148,9 @@ class FailingNetwork(StubNetwork):
         super().__init__()
         self.error = error
 
-    async def send(self, req: str, origin: str = "") -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
         self.sent.append(req)
-        self.origins.append(origin)
+        self.origins.append((headers or {}).get(ORIGIN_HEADER, ""))
         raise self.error
 
 
@@ -204,7 +205,7 @@ class FakeNetwork(FakeSource):
         super().__init__(pid, group)
         self.sent: list[str] = []
 
-    async def send(self, req: str, origin: str = "") -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
         self.sent.append(req)
         return "{}"
 
@@ -219,6 +220,6 @@ class SendOnlyNetwork:
 
     async def stop(self) -> None: ...
 
-    async def send(self, req: str, origin: str = "") -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
         self.sent.append(req)
         return "{}"

@@ -78,7 +78,7 @@ class StubNetwork:
     def resolve_target(self, target: str) -> str:
         return target
 
-    async def send(self, req: str, origin: str = "") -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
         self.send_count += 1
         req_json = msgspec.json.decode(req)
 

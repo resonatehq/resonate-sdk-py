@@ -6,7 +6,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from resonate_base import ConnectorError
+from resonate_base import ORIGIN_HEADER, ConnectorError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -126,7 +126,8 @@ class NatsConnection:
     drain/close.
 
     - Requests are published to ``{api_prefix}.{base64url(origin)}`` -- the
-      origin the SDK hands to :meth:`send` -- with a ``Resonate-Reply-To``
+      origin the SDK puts in the ``resonate:origin`` header handed to
+      :meth:`send` -- with a ``Resonate-Reply-To``
       header naming a private inbox; the reply arrives on that inbox (the
       server ignores the NATS reply subject). The request body itself is never
       parsed: it is bytes to be moved.
@@ -211,23 +212,31 @@ class NatsConnection:
         self._subs.clear()
         self._subscribers.clear()
 
-    async def send(self, req: str, origin: str) -> str:
-        """Publish a request to ``origin``'s partition, await its reply.
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
+        """Publish a request to its origin's partition, await its reply.
 
-        ``origin`` arrives resolved, so this never opens ``req``: the body is
-        published exactly as the SDK serialized it -- no decode, no re-encode,
-        and no second copy of the SDK's envelope layout living here to drift
-        out of step with it.
+        The routing origin rides in ``headers`` under ``resonate:origin``,
+        already resolved, so this never opens ``req``: the body is published
+        exactly as the SDK serialized it -- no decode, no re-encode, and no
+        second copy of the SDK's envelope layout living here to drift out of
+        step with it.
+
+        ``headers`` are the request headers -- the origin key plus any
+        caller-supplied NATS message headers -- merged alongside the
+        reply-inbox header this method sets on every publish.
         """
         logger.debug("nats_connection req: %s", req)
         if not self._running:
             raise ConnectorError(RuntimeError("connection has been stopped"))
+        origin = (headers or {}).get(ORIGIN_HEADER, "default")
         subject = _publish_subject(self._api_prefix, origin)
         payload = req.encode("utf-8")
         inbox = self._nc.new_inbox()
+        publish_headers = dict(headers) if headers else {}
+        publish_headers[REPLY_HEADER] = inbox
         try:
             sub = await self._nc.subscribe(inbox, max_msgs=1)
-            await self._nc.publish(subject, payload, headers={REPLY_HEADER: inbox})
+            await self._nc.publish(subject, payload, headers=publish_headers)
             msg = await sub.next_msg(timeout=self._request_timeout)
         except Exception as exc:
             raise ConnectorError(exc) from exc

@@ -1,11 +1,14 @@
 """The ``poll://`` address format, pinned.
 
 These are :mod:`resonate.connections.sse`'s own addresses, not a format the SDK
-imposes -- a connector names its destinations however its substrate does. They
-get a suite of their own anyway because of *how* they fail: a malformed address
-raises nowhere. The server accepts it, stores it, and then never delivers, so
-the task sits until its lease lapses and is re-queued, forever. Nothing in a
-connector's own tests would notice.
+imposes -- a connector names its destinations however its substrate does, and
+minting is *total*: like every connector (see
+:meth:`resonate_nats.NatsConnection.resolve_target`), these only format a
+string. An address is opaque to the SDK and to the server alike; a malformed one
+is the server's to decline, not the SDK's to refuse -- an incorrect group simply
+mints an incorrect address. Refusing at mint time is especially wrong for
+:func:`resolve_target`, which runs lazily inside a durable op: raising there is
+caught by the workflow's own error boundary and permanently rejects the promise.
 """
 
 from __future__ import annotations
@@ -13,7 +16,6 @@ from __future__ import annotations
 import pytest
 
 from resonate.connections.sse import ANYCAST, UNICAST, resolve_target, unicast
-from resonate.error import InvalidIdError
 
 
 def test_unicast_names_a_concrete_process() -> None:
@@ -33,27 +35,42 @@ def test_the_two_forms_differ_only_in_kind() -> None:
 
 
 @pytest.mark.parametrize(
-    "group",
-    ["", "has@sign", "has/slash", "has:colon", "has?query", "has#frag"],
+    ("group", "expected"),
+    [
+        ("", "poll://uni@/pid"),
+        ("has@sign", "poll://uni@has@sign/pid"),
+        ("has/slash", "poll://uni@has/slash/pid"),
+        ("has:colon", "poll://uni@has:colon/pid"),
+        ("Workers", "poll://uni@Workers/pid"),
+    ],
 )
-def test_a_group_that_would_change_the_url_split_is_refused(group: str) -> None:
-    with pytest.raises(InvalidIdError):
-        unicast(group, "pid")
+def test_unicast_formats_verbatim_without_refusing(group: str, expected: str) -> None:
+    """Minting is total: a group that would confuse the server is passed through.
 
-
-def test_uppercase_is_refused_rather_than_folded() -> None:
-    """The server lowercases the URL host, so an uppercase group cannot round trip.
-
-    Folding it silently here would produce a valid-looking address pointing at
-    a group nobody listens on -- the exact silent drop these checks prevent.
+    The SDK does not front-run the server's parse -- an incorrect group mints an
+    incorrect address, which the server declines to deliver to. Loud refusal
+    here would break the connector-seam contract that addresses are opaque.
     """
-    with pytest.raises(InvalidIdError, match="lowercase"):
-        unicast("Workers", "7f3a")
-
-    with pytest.raises(InvalidIdError, match="lowercase"):
-        resolve_target("Workers")
+    assert unicast(group, "pid") == expected
 
 
-def test_an_empty_pid_is_refused() -> None:
-    with pytest.raises(InvalidIdError):
-        unicast("workers", "")
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("workers", "poll://any@workers"),
+        ("Workers", "poll://any@Workers"),
+        ("", "poll://any@"),
+        ("has/slash", "poll://any@has/slash"),
+    ],
+)
+def test_resolve_target_formats_verbatim_without_refusing(
+    target: str, expected: str
+) -> None:
+    """Resolution is total -- doubly so, since it runs inside a durable op.
+
+    Raising while a durable op builds its request would be caught by the
+    workflow's own error boundary and permanently reject the promise. So an
+    incorrect target just mints an incorrect address, recoverable by fixing it
+    and re-dispatching.
+    """
+    assert resolve_target(target) == expected

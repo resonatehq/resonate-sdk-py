@@ -18,10 +18,10 @@ class OpaqueConnection:
     """
 
     def __init__(self) -> None:
-        self.sent: list[tuple[str, str]] = []
+        self.sent: list[tuple[str, dict[str, str] | None]] = []
 
-    async def send(self, req: str, origin: str) -> str:
-        self.sent.append((req, origin))
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
+        self.sent.append((req, headers))
         return "{}"
 
     def unicast(self) -> str:
@@ -52,7 +52,7 @@ def test_the_two_halves_are_independent() -> None:
     """
 
     class SendOnly:
-        async def send(self, req: str, origin: str) -> str:
+        async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
             return "{}"
 
         async def start(self) -> None: ...
@@ -80,12 +80,13 @@ def test_the_seam_carries_no_id_or_address_vocabulary() -> None:
 
     The promise id format and the ``poll://`` address helpers used to live
     here. They are SDK formats -- a connector routes by the ``origin`` it is
-    handed and addresses its substrate in its own namespace -- so importing
-    them from base must stay impossible.
+    handed (in the ``resonate:origin`` header) and addresses its substrate in
+    its own namespace -- so importing them from base must stay impossible.
     """
     assert sorted(resonate_base.__all__) == [
         "ConnectorError",
         "Network",
+        "ORIGIN_HEADER",
         "PROTOCOL_VERSION",
         "ResonateError",
         "Source",
