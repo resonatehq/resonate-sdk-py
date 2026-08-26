@@ -37,26 +37,21 @@ class StubNetwork:
     def __init__(self, response: str = "") -> None:
         self.response = response
         self.sent: list[str] = []
+        #: The routing origin passed alongside each request, in step with
+        #: ``sent`` -- so a test can assert *where* a request was routed
+        #: without decoding its body.
+        self.origins: list[str] = []
         self.callbacks: list[Callable[[str], None]] = []
         self.started = 0
         self.stopped = 0
         self._next_error: BaseException | None = None
 
-    # -- Source identity ------------------------------------------------------
-
-    def pid(self) -> str:
-        return "test"
-
-    def group(self) -> str:
-        return "default"
+    # -- Source addressing ----------------------------------------------------
 
     def unicast(self) -> str:
         return "local://uni@default/test"
 
-    def anycast(self) -> str:
-        return "local://any@default/test"
-
-    def target_resolver(self, target: str) -> str:
+    def resolve_target(self, target: str) -> str:
         return f"local://any@{target}"
 
     # -- lifecycle ------------------------------------------------------------
@@ -69,8 +64,9 @@ class StubNetwork:
 
     # -- traffic --------------------------------------------------------------
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, origin: str = "") -> str:
         self.sent.append(req)
+        self.origins.append(origin)
         self._raise_if_armed()
         return self.response
 
@@ -121,8 +117,9 @@ class ScriptedNetwork(StubNetwork):
             raise AssertionError(msg)
         self.responses = list(responses)
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, origin: str = "") -> str:
         self.sent.append(req)
+        self.origins.append(origin)
         self._raise_if_armed()
         index = min(len(self.sent) - 1, len(self.responses) - 1)
         return self.responses[index]
@@ -135,8 +132,9 @@ class RecordingNetwork(StubNetwork):
     releases, listener registrations.
     """
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, origin: str = "") -> str:
         self.sent.append(req)
+        self.origins.append(origin)
         self._raise_if_armed()
         decoded = msgspec.json.decode(req)
         return envelope(decoded["kind"], decoded["head"]["corrId"], {})
@@ -149,8 +147,9 @@ class FailingNetwork(StubNetwork):
         super().__init__()
         self.error = error
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, origin: str = "") -> str:
         self.sent.append(req)
+        self.origins.append(origin)
         raise self.error
 
 
@@ -172,19 +171,10 @@ class FakeSource:
         self.started = False
         self.stopped = False
 
-    def pid(self) -> str:
-        return self._pid
-
-    def group(self) -> str:
-        return self._group
-
     def unicast(self) -> str:
         return f"fake://uni@{self._group}/{self._pid}"
 
-    def anycast(self) -> str:
-        return f"fake://any@{self._group}/{self._pid}"
-
-    def target_resolver(self, target: str) -> str:
+    def resolve_target(self, target: str) -> str:
         return f"fake://any@{target}"
 
     def recv(self, callback: Callable[[str], None]) -> None:
@@ -214,7 +204,7 @@ class FakeNetwork(FakeSource):
         super().__init__(pid, group)
         self.sent: list[str] = []
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, origin: str = "") -> str:
         self.sent.append(req)
         return "{}"
 
@@ -229,6 +219,6 @@ class SendOnlyNetwork:
 
     async def stop(self) -> None: ...
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, origin: str = "") -> str:
         self.sent.append(req)
         return "{}"

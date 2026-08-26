@@ -128,16 +128,21 @@ class Transport:
         self._sources = tuple(sources)
         self._observer = observer
 
-    async def send(self, kind: str, corr_id: str, body: str) -> Response:
+    async def send(self, kind: str, corr_id: str, body: str, origin: str) -> Response:
         """Send an already-serialized request, returning the parsed response.
 
         Parses at the edge: the raw JSON is decoded straight into
         :class:`Response`, so callers receive a typed value whose ``status``
         and ``corrId`` have already been validated.
+
+        ``origin`` is the lineage the request routes by, passed through to the
+        connection alongside the body (see
+        :meth:`~resonate_base.connections.Network.send`) so a sharding
+        substrate never has to open the payload.
         """
         logger.debug("transport send_req: %s", body)
 
-        resp_str = await self._network.send(body)
+        resp_str = await self._network.send(body, origin)
         logger.debug("transport send_res: %s", resp_str)
 
         try:

@@ -85,8 +85,12 @@ class HttpConnection:
             await self._session.close()
             self._session = None
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, origin: str) -> str:
         """Send a request to the Resonate server via ``POST /``.
+
+        ``origin`` is unused: every request goes to the one endpoint, and the
+        server reads the partition off the envelope head. It exists on the seam
+        for substrates that shard, like NATS.
 
         Transport-level connection failures are retried with exponential
         backoff (``1s → 60s``), so the SDK survives the server being down at

@@ -19,6 +19,7 @@
   },
   "head": {
     "corrId": "sr-golden",
+    "resonate:origin": "t1",
     "version": "2026-04-01"
   },
   "kind": "task.fulfill"

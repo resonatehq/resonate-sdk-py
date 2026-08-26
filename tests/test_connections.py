@@ -20,7 +20,7 @@ from resonate.timing import now_ms
 
 async def send(net: LocalConnection, req: Any) -> Any:
     """Encode ``req``, send it through ``net``, and decode the response."""
-    resp = await net.send(msgspec.json.encode(req).decode("utf-8"))
+    resp = await net.send(msgspec.json.encode(req).decode("utf-8"), "test")
     return msgspec.json.decode(resp)
 
 
@@ -211,13 +211,10 @@ def test_task_fence_rejects_wrong_version() -> None:
     asyncio.run(run())
 
 
-def test_local_network_identity() -> None:
+def test_local_network_addresses() -> None:
     net = LocalConnection(pid="mypid", group="mygroup")
-    assert net.pid() == "mypid"
-    assert net.group() == "mygroup"
     assert net.unicast() == "local://uni@mygroup/mypid"
-    assert net.anycast() == "local://any@mygroup/mypid"
-    assert net.target_resolver("target") == "local://any@target"
+    assert net.resolve_target("target") == "local://any@target"
 
 
 def test_promise_create_with_target_creates_task_and_dispatches_execute() -> None:
@@ -501,22 +498,18 @@ async def test_http_session_connector_limit_override() -> None:
 # -- SSEConnection (push-message source) ----------------------------------------
 
 
-def test_sse_connection_identity() -> None:
+def test_sse_connection_addresses() -> None:
     src = SSEConnection("http://localhost:8001", pid="mypid", group="mygroup")
-    assert src.pid() == "mypid"
-    assert src.group() == "mygroup"
     assert src.unicast() == "poll://uni@mygroup/mypid"
-    assert src.anycast() == "poll://any@mygroup/mypid"
 
 
-def test_sse_connection_match_returns_poll_anycast() -> None:
+def test_sse_connection_resolves_a_target_to_a_poll_anycast_address() -> None:
     src = SSEConnection("http://localhost:8001")
-    assert src.target_resolver("my-target") == "poll://any@my-target"
+    assert src.resolve_target("my-target") == "poll://any@my-target"
 
 
 def test_sse_connection_default_group() -> None:
     src = SSEConnection("http://localhost:8001", pid="pid1")
-    assert src.group() == "default"
     assert src.unicast() == "poll://uni@default/pid1"
 
 
@@ -607,7 +600,7 @@ async def test_http_send_retries_through_connection_outage(
     # Collapse the backoff sleep so the test stays fast.
     monkeypatch.setattr(net, "_sleep_or_stop", lambda _s: asyncio.sleep(0))
 
-    body = await net.send("{}")
+    body = await net.send("{}", "root")
     assert body == '{"head":{"status":200},"data":{}}'
     assert flaky.attempts == 4  # three failures + one success
 
@@ -628,7 +621,7 @@ async def test_http_send_stops_retrying_after_stop(
     monkeypatch.setattr(net, "_ensure_session", lambda: flaky)
     net._running = True
 
-    send_task = asyncio.create_task(net.send("{}"))
+    send_task = asyncio.create_task(net.send("{}", "root"))
     # Let the retry enter its first real backoff sleep.
     await asyncio.sleep(0)
     await asyncio.sleep(0)
@@ -675,7 +668,7 @@ async def test_http_send_after_stop_raises_http_error_not_runtime_error(
     net._running = False
 
     with pytest.raises(ConnectorError):
-        await net.send("{}")
+        await net.send("{}", "root")
 
 
 @pytest.mark.asyncio
@@ -693,7 +686,7 @@ async def test_http_send_does_not_open_a_session_after_stop() -> None:
     assert net._session is None
 
     with pytest.raises(ConnectorError):
-        await net.send("{}")
+        await net.send("{}", "root")
 
     # No session was created during the failed ``send``.
     assert net._session is None
@@ -718,7 +711,7 @@ async def test_http_send_does_not_retry_server_errors(
     net._running = True
     monkeypatch.setattr(net, "_sleep_or_stop", mock.AsyncMock())
 
-    body = await net.send("{}")
+    body = await net.send("{}", "root")
     assert '"status":404' in body
     assert not_found.attempts == 1  # one shot -- no retry on a real HTTP response
 
@@ -752,7 +745,7 @@ async def test_http_send_before_start_does_not_raise_stopped_error(
     assert not net._stopped, "_stopped must be False before stop() is ever called"
 
     # send() must NOT raise "network has been stopped" here.
-    body = await net.send("{}")
+    body = await net.send("{}", "root")
     assert body == '{"head":{"status":200},"data":{}}'
 
     start_task.cancel()
@@ -779,7 +772,7 @@ async def test_http_send_after_stop_raises_even_if_never_started(
     assert net._stopped
 
     with pytest.raises(ConnectorError):
-        await net.send("{}")
+        await net.send("{}", "root")
 
 
 # -- scheduler invariant: only target promises are timed out --------------------

@@ -73,7 +73,7 @@ def test_sub_envelope_serializes_nested_action() -> None:
 
 async def _raw_send(net: LocalConnection, req: Any) -> Any:
     """Send a raw envelope and return its decoded ``data`` portion."""
-    resp_str = await net.send(msgspec.json.encode(req).decode("utf-8"))
+    resp_str = await net.send(msgspec.json.encode(req).decode("utf-8"), "test")
     resp = msgspec.json.decode(resp_str)
     return resp.get("data", resp) if isinstance(resp, dict) else resp
 
@@ -240,17 +240,8 @@ class CapturingNetwork:
     def __init__(self) -> None:
         self.sent: list[str] = []
 
-    def pid(self) -> str:
-        return "test-pid"
-
-    def group(self) -> str:
-        return "default"
-
     def unicast(self) -> str:
         return "local://uni@default/test-pid"
-
-    def anycast(self) -> str:
-        return "local://any@default/test-pid"
 
     async def start(self) -> None: ...
 
@@ -258,10 +249,10 @@ class CapturingNetwork:
 
     def recv(self, callback: Callable[[str], None]) -> None: ...
 
-    def target_resolver(self, target: str) -> str:
+    def resolve_target(self, target: str) -> str:
         return f"local://any@{target}"
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, origin: str = "") -> str:
         self.sent.append(req)
         parsed = msgspec.json.decode(req)
         kind = parsed["kind"]

@@ -1,3 +1,14 @@
+"""The ``poll://`` source: Server-Sent Events against a Resonate server.
+
+This module owns the ``poll`` scheme end to end -- the listener *and* the
+addresses it advertises. Address shape is a connector's own business: the
+server parses an address with Go's ``url.Parse``, dispatches on the scheme, and
+hands everything to the right of it back to whoever minted it. So there is no
+SDK-wide address format to conform to, and none of this is shared with, say,
+:class:`resonate_nats.NatsConnection`, which advertises a bare NATS subject
+because that already is an address in its own namespace.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,8 +18,8 @@ import uuid
 from typing import TYPE_CHECKING
 
 import aiohttp
-from resonate_base import addresses
 
+from resonate.error import InvalidIdError
 from resonate.retry import ExponentialBackoff
 from resonate.timing import sleep
 
@@ -23,6 +34,60 @@ logger = logging.getLogger(__name__)
 #: URL scheme of the delivery addresses this source advertises. The server
 #: dispatches on it to pick SSE long-polling as the delivery mechanism.
 SCHEME = "poll"
+
+#: Userinfo marking an address that reaches exactly one process.
+UNICAST = "uni"
+
+#: Userinfo marking an address that reaches any one member of a group.
+ANYCAST = "any"
+
+#: Characters that would change how ``url.Parse`` splits an address, so they
+#: cannot appear in a group or pid.
+_RESERVED = "@/:?#"
+
+
+def _check(part: str, what: str) -> str:
+    """Return ``part``, or refuse an address the server would silently drop.
+
+    Case matters: the group and pid land in the URL **host**, which Go
+    lowercases while parsing, so an address minted with an uppercase group does
+    not round trip -- and nothing raises. The server accepts it, stores it, and
+    the message is simply never delivered; the task then sits until its lease
+    lapses, forever. Folding the case here would hide the mistake just as well,
+    so this refuses instead, at the point the name was chosen.
+    """
+    if not part:
+        msg = f"{what} must not be empty"
+        raise InvalidIdError(part, msg)
+    if any(c in part for c in _RESERVED):
+        msg = f"{what} must not contain any of {_RESERVED!r}"
+        raise InvalidIdError(part, msg)
+    if part != part.lower():
+        msg = f"{what} must be lowercase (the server lowercases the URL host)"
+        raise InvalidIdError(part, msg)
+    return part
+
+
+def unicast(group: str, pid: str) -> str:
+    """Mint the address that reaches one process alone.
+
+    >>> unicast("workers", "7f3a")
+    'poll://uni@workers/7f3a'
+    """
+    return f"{SCHEME}://{UNICAST}@{_check(group, 'group')}/{_check(pid, 'pid')}"
+
+
+def resolve_target(target: str) -> str:
+    """Mint the address that reaches any one member of ``target``'s group.
+
+    No pid, and that is the asymmetry with :func:`unicast`: a unicast address
+    names a concrete process, while a routing target names a *group* whose
+    members whoever resolves it does not know.
+
+    >>> resolve_target("workers")
+    'poll://any@workers'
+    """
+    return f"{SCHEME}://{ANYCAST}@{_check(target, 'target')}"
 
 
 # =============================================================================
@@ -76,9 +141,14 @@ class SSEConnection:
     """:class:`~resonate_base.connections.Source` implementation over Server-Sent Events.
 
     Incoming messages (execute/unblock) are received via SSE on
-    ``GET /poll/{group}/{pid}`` of a Resonate server. Addresses use the
-    canonical form described in :mod:`resonate_base.addresses` under the
-    ``poll`` scheme: ``poll://uni@group/pid`` and ``poll://any@group/pid``.
+    ``GET /poll/{group}/{pid}`` of a Resonate server. Its addresses are the
+    ones this module mints: ``poll://uni@group/pid`` for this process, and
+    ``poll://any@{group}`` for a routing target.
+
+    ``pid`` and ``group`` identify this listener to the server.
+    :class:`~resonate.resonate.Resonate` passes its own, so the addresses
+    advertised here and the pid the SDK acquires tasks under always agree;
+    constructed standalone they default to a fresh uuid and ``"default"``.
 
     This is the push-message half only; requests to the server are sent
     through a separate :class:`~resonate_base.connections.Network` (typically
@@ -105,8 +175,7 @@ class SSEConnection:
         self._sleeper = sleeper
         self._pid = pid if pid is not None else uuid.uuid4().hex
         self._group = group if group is not None else "default"
-        self._unicast = addresses.unicast(SCHEME, self._group, self._pid)
-        self._anycast = addresses.anycast(SCHEME, self._group, self._pid)
+        self._unicast = unicast(self._group, self._pid)
         # Strip trailing slash(es) from url.
         self._url = url.rstrip("/")
         self._auth = auth
@@ -120,17 +189,12 @@ class SSEConnection:
         # open a fresh session after shutdown.
         self._stopped: bool = False
 
-    def pid(self) -> str:
-        return self._pid
-
-    def group(self) -> str:
-        return self._group
-
     def unicast(self) -> str:
         return self._unicast
 
-    def anycast(self) -> str:
-        return self._anycast
+    def resolve_target(self, target: str) -> str:
+        """Resolve a target name to a ``poll://`` anycast address."""
+        return resolve_target(target)
 
     async def start(self) -> None:
         """Start the SSE listener for incoming messages from the server."""
@@ -154,10 +218,6 @@ class SSEConnection:
     def recv(self, callback: Callable[[str], None]) -> None:
         """Register a callback for incoming SSE messages."""
         self._subscribers.append(callback)
-
-    def target_resolver(self, target: str) -> str:
-        """Resolve a target name to a ``poll://`` anycast address."""
-        return addresses.resolve_target(SCHEME, target)
 
     # -- internals ------------------------------------------------------------
 
