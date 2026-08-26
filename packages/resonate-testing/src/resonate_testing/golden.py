@@ -68,19 +68,19 @@ def assert_golden(name: str, actual: str) -> None:
 
     if os.environ.get(_UPDATE_ENV):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(normalized)
+        path.write_text(normalized, encoding="utf-8", newline="\n")
         return
 
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(normalized)
+        path.write_text(normalized, encoding="utf-8", newline="\n")
         msg = (
             f"golden {name!r} did not exist and has been written to {path}. "
             f"Read it, confirm it is correct, and commit it."
         )
         raise AssertionError(msg)
 
-    expected = path.read_text()
+    expected = path.read_text(encoding="utf-8")
     if expected != normalized:
         msg = (
             f"golden {name!r} mismatch.\n"
