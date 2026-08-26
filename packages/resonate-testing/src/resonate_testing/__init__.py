@@ -1,4 +1,4 @@
-"""Shared vocabulary for the SDK's own test suite.
+"""Shared vocabulary for the Resonate SDK's own test suites.
 
 Most of what tests need is public and lives in :mod:`resonate.testing` -- the
 same helpers an application gets. This package adds only the pieces that are
@@ -12,8 +12,8 @@ before getting on with the test.
 
 from __future__ import annotations
 
-from tests.support.golden import assert_golden, golden_path
-from tests.support.network import (
+from resonate_testing.golden import assert_golden, golden_path
+from resonate_testing.network import (
     FailingNetwork,
     FakeNetwork,
     FakeSource,

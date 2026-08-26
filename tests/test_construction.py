@@ -20,13 +20,13 @@ from datetime import timedelta
 from typing import Any, cast
 
 import pytest
+from resonate_testing import FakeNetwork, FakeSource
 
 from resonate.connections import HttpConnection, LocalConnection, SSEConnection
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.resonate import Resonate, _resolve_env_url
 from resonate.testing import FakeClock, instant_sleeper, local_resonate
 from resonate.types import Args
-from tests.support import FakeNetwork, FakeSource
 
 # ═══════════════════════════════════════════════════════════════
 #  URL resolution -- a pure function over a mapping

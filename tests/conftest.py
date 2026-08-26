@@ -8,10 +8,12 @@ order-independent and safe to parallelize.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
+from resonate_testing import golden
 
 from resonate.codec import Codec, NoopEncryptor
 from resonate.registry import Registry
@@ -26,6 +28,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from resonate.resonate import Resonate
+
+# Golden files for this suite live in tests/golden; resonate_testing.golden has
+# no opinion on where, so each suite points it there once, before any test runs.
+golden.GOLDEN_DIR = Path(__file__).parent / "golden"
 
 
 @pytest.fixture

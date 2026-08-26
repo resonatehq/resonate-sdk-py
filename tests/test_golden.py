@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import msgspec
 import pytest
+from resonate_testing import StubNetwork, assert_golden, envelope, golden as golden_mod
 
 from resonate.context import Context
 from resonate.send import Sender
@@ -31,7 +32,6 @@ from resonate.types import (
     PromiseSettleReq,
     Value,
 )
-from tests.support import StubNetwork, assert_golden, envelope, golden as golden_mod
 
 if TYPE_CHECKING:
     from pathlib import Path
