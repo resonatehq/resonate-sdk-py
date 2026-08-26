@@ -41,7 +41,6 @@ ignore = [
 
 [lint.isort]
 combine-as-imports = true
-known-first-party = ["resonate", "resonate_aws", "resonate_base", "resonate_nats", "resonate_testing"]
 required-imports = ["from __future__ import annotations"]
 
 [lint.flake8-type-checking]

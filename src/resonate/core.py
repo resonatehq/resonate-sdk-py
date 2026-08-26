@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Literal
 
 import msgspec
+from resonate_base.ids import origin_of
 
 from resonate.codec import Codec
 from resonate.context import Context, TargetResolver
@@ -42,7 +43,6 @@ from resonate.types import (
     TaskData,
     Value,
 )
-from resonate_base.ids import origin_of
 
 if TYPE_CHECKING:
     from resonate.types import PromiseRecord, Status

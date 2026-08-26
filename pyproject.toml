@@ -67,4 +67,4 @@ asyncio_mode = "strict"
 addopts = "--import-mode=importlib"
 
 [tool.coverage.run]
-source = ["resonate", "resonate_aws", "resonate_base", "resonate_nats"]
+source = ["resonate", "packages/*"]

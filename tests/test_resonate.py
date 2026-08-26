@@ -27,6 +27,7 @@ from unittest import mock
 
 import msgspec
 import pytest
+from resonate_testing import FakeNetwork, FakeSource, SendOnlyNetwork
 
 from resonate.connections import LocalConnection
 from resonate.durable import DurableFunction
@@ -47,7 +48,6 @@ from resonate.resonate import (
     Resonate,
 )
 from resonate.retry import Never
-from resonate_testing import FakeNetwork, FakeSource, SendOnlyNetwork
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable

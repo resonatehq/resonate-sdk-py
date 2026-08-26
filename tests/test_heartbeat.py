@@ -13,12 +13,12 @@ from typing import Any
 
 import msgspec
 import pytest
+from resonate_testing import RecordingNetwork
 
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.send import Sender
 from resonate.testing import ManualSleeper
 from resonate.transport import Transport
-from resonate_testing import RecordingNetwork
 
 # -- Test harness -------------------------------------------------------------
 

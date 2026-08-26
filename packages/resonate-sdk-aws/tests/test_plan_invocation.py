@@ -19,7 +19,6 @@ import json
 from typing import Any, cast
 
 import pytest
-
 from resonate_aws import Invocation, Rejected, plan_invocation
 
 

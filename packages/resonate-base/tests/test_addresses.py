@@ -10,7 +10,6 @@ f-string repeated in each connection.
 from __future__ import annotations
 
 import pytest
-
 from resonate_base import addresses
 from resonate_base.error import InvalidIdError
 

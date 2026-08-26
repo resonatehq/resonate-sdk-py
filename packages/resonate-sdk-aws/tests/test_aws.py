@@ -19,11 +19,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 import msgspec
 import pytest
+from resonate_aws import Resonate, _self_routing_resolver
+from resonate_base.connections import Source
 
 from resonate.connections import HttpConnection
 from resonate.error import AlreadyRegisteredError, ApplicationError
-from resonate_aws import Resonate, _self_routing_resolver
-from resonate_base.connections import Source
 
 if TYPE_CHECKING:
     from aws_lambda_typing.context import Context as LambdaContext

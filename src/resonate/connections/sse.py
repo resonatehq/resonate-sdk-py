@@ -7,10 +7,10 @@ import uuid
 from typing import TYPE_CHECKING
 
 import aiohttp
+from resonate_base import addresses
 
 from resonate.retry import ExponentialBackoff
 from resonate.timing import sleep
-from resonate_base import addresses
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable

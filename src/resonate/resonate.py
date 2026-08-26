@@ -28,6 +28,9 @@ import os
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
+from resonate_base.connections import Network, Source
+from resonate_base.ids import validate_root_id
+
 from resonate.codec import Codec, NoopEncryptor
 from resonate.connections import HttpConnection, LocalConnection, SSEConnection
 from resonate.context import Opts
@@ -50,8 +53,6 @@ from resonate.send import Sender
 from resonate.timing import now_ms, sleep
 from resonate.transport import ExecuteMsg, Transport, UnblockMsg
 from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
-from resonate_base.connections import Network, Source
-from resonate_base.ids import validate_root_id
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence

@@ -11,7 +11,6 @@ import json
 from typing import Any, cast
 
 import pytest
-
 from resonate_base.error import ConnectorError
 from resonate_nats import (
     NatsConnection,

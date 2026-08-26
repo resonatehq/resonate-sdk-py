@@ -10,6 +10,7 @@ from hashlib import blake2b
 from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
 import msgspec
+from resonate_base.ids import join_id
 
 from resonate.chain import Chain, Link
 from resonate.codec import decode_settled
@@ -26,7 +27,6 @@ from resonate.retry import Never, RetryPolicy
 from resonate.timing import Clock, Sleeper, now_ms, sleep
 from resonate.tree import Tree
 from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
-from resonate_base.ids import join_id
 
 if TYPE_CHECKING:
     from resonate.dependencies import DependencyMap

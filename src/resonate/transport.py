@@ -12,8 +12,9 @@ from resonate.types import PromiseRecord
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from resonate.observability import Observer
     from resonate_base.connections import Network, Source
+
+    from resonate.observability import Observer
 
 logger = logging.getLogger(__name__)
 

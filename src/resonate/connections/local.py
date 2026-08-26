@@ -5,11 +5,11 @@ import contextlib
 from typing import TYPE_CHECKING, Any, Literal
 
 import msgspec
+from resonate_base import PROTOCOL_VERSION, addresses
 
 from resonate.error import DecodingError, ServerError
 from resonate.timing import Clock, Sleeper, now_ms, sleep
 from resonate.types import PromiseState
-from resonate_base import PROTOCOL_VERSION, addresses
 
 if TYPE_CHECKING:
     from collections.abc import Callable

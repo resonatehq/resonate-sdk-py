@@ -4,11 +4,11 @@ import asyncio
 
 import msgspec
 import pytest
+from resonate_testing import StubNetwork, envelope
 
 from resonate.error import DecodingError, ServerError
 from resonate.transport import ExecuteMsg, Message, Transport, UnblockMsg
 from resonate.types import PromiseRecord, Value
-from resonate_testing import StubNetwork, envelope
 
 # -- send: envelope validation ------------------------------------------------
 
