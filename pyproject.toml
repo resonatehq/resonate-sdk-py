@@ -47,5 +47,12 @@ dev = [
     "aws-lambda-typing>=2.20.0",
 ]
 
+[tool.pytest.ini_options]
+# ``pythonpath`` makes the shared ``tests.support`` package importable from any
+# test module without an ``__init__.py`` shuffle.
+pythonpath = ["."]
+testpaths = ["tests", "packages"]
+asyncio_mode = "strict"
+
 [tool.coverage.run]
 source = ["resonate", "resonate_aws"]
