@@ -30,10 +30,10 @@ from resonate.context import Context
 from resonate.dependencies import DependencyMap
 from resonate.durable import DurableFunction
 from resonate.effects import ResonateEffects
+from resonate.error import ApplicationError, SerializationError
 from resonate.send import Sender
 from resonate.transport import Transport
 from resonate.types import Args
-from resonate_base.error import ApplicationError, SerializationError
 
 I64_MAX = 2**63 - 1
 

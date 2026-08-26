@@ -33,6 +33,12 @@ from resonate.connections import HttpConnection, LocalConnection, SSEConnection
 from resonate.context import Opts
 from resonate.core import Core
 from resonate.dependencies import DependencyMap
+from resonate.error import (
+    ApplicationError,
+    FunctionNotFoundError,
+    ResonateError,
+    ServerError,
+)
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.observability import BackgroundTaskFailed, logging_observer
@@ -45,12 +51,6 @@ from resonate.timing import now_ms, sleep
 from resonate.transport import ExecuteMsg, Transport, UnblockMsg
 from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
 from resonate_base.connections import Network, Source
-from resonate_base.error import (
-    ApplicationError,
-    FunctionNotFoundError,
-    ResonateError,
-    ServerError,
-)
 from resonate_base.ids import validate_root_id
 
 if TYPE_CHECKING:

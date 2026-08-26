@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
+from resonate.error import ConnectorError
 from resonate.retry import ExponentialBackoff
 from resonate.timing import sleep
-from resonate_base.error import HttpError
 
 if TYPE_CHECKING:
     from resonate.retry import Backoff
@@ -95,7 +95,7 @@ class HttpConnection:
         statuses (404, 409, 500, …) propagate to the caller unchanged.
 
         Once :meth:`stop` is called, any in-flight or new request raises
-        :class:`HttpError` instead of retrying, so shutdown is never blocked
+        :class:`~resonate_base.error.ConnectorError` instead of retrying, so shutdown is never blocked
         by the backoff loop.
         """
         logger.debug("http_connection http_req: %s", req)
@@ -104,7 +104,7 @@ class HttpConnection:
         while True:
             if self._stopped:
                 msg = "network has been stopped"
-                raise HttpError(RuntimeError(msg))
+                raise ConnectorError(RuntimeError(msg))
             session = self._ensure_session()
             try:
                 async with session.post(
@@ -114,11 +114,11 @@ class HttpConnection:
             except (aiohttp.ClientError, RuntimeError) as exc:
                 # :meth:`stop` closing the session mid-flight raises
                 # ``RuntimeError("Session is closed")``; surface it as
-                # :class:`HttpError` so the caller unwinds cleanly. A
+                # :class:`~resonate_base.error.ConnectorError` so the caller unwinds cleanly. A
                 # ``RuntimeError`` while still running is not retriable --
                 # re-raise so a real bug is not hidden by infinite backoff.
                 if not self._running:
-                    raise HttpError(exc) from exc
+                    raise ConnectorError(exc) from exc
                 if isinstance(exc, RuntimeError):
                     raise
                 delay = self._backoff.delay(attempt)
@@ -127,7 +127,7 @@ class HttpConnection:
                 )
                 await self._sleep_or_stop(delay)
                 if not self._running:
-                    raise HttpError(exc) from exc
+                    raise ConnectorError(exc) from exc
                 attempt += 1
                 continue
             logger.debug("http_connection http_res: %s", resp_str)

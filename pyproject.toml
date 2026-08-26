@@ -11,8 +11,12 @@ dependencies = [
     "resonate-base>=0.8.0,<0.9",
 ]
 
+# Connectors are NOT extras. An extra would put the connector in this
+# distribution's published dependency metadata, recreating the arrow
+# (resonate-sdk -> resonate-nats -> resonate-base) that the package split
+# exists to remove, and every future connector would want one. Install a
+# connector directly: `pip install resonate-nats`.
 [project.optional-dependencies]
-nats = ["resonate-nats>=0.8.0,<0.9"]
 pydantic = ["pydantic>=2.0.0,<3"]
 pydantic-ai = [
     "pydantic-ai-slim>=2.8,<3",
@@ -32,8 +36,6 @@ build-backend = "uv_build"
 module-name = "resonate"
 
 [tool.uv.workspace]
-# Only include publishable packages; resonate-testing is a test-only package
-# (available via path source below)
 members = ["packages/resonate-sdk-aws", "packages/resonate-base", "packages/resonate-nats"]
 
 [tool.uv.sources]
@@ -55,6 +57,9 @@ dev = [
     "pydantic-ai-slim[mcp]>=2.8",
     "aws-lambda-typing>=2.20.0",
     "resonate-testing",
+    # Dev-only so the workspace suite can exercise the connector; deliberately
+    # not an extra (see the note above [project.optional-dependencies]).
+    "resonate-nats",
 ]
 
 [tool.pytest.ini_options]

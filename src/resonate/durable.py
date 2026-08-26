@@ -34,8 +34,8 @@ from typing import TYPE_CHECKING, Any, Concatenate
 import msgspec
 
 from resonate.codec import dec_hook
+from resonate.error import ApplicationError, SerializationError
 from resonate.types import Args
-from resonate_base.error import ApplicationError, SerializationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -1,8 +1,12 @@
 """resonate-nats depends on resonate-base, never on resonate-sdk.
 
 This is the assertion that makes the base package worth having: a connector
-must be buildable and releasable without the SDK. If this test ever fails, the
-seam has leaked and the next connector will inherit the leak.
+must be buildable and releasable without the SDK. If it ever fails, the seam
+has leaked.
+
+It is a test *this* package chose to write, not a rule base imposes -- a
+connector is free to depend on whatever it likes, including the SDK, if that is
+the right trade for it.
 """
 
 from __future__ import annotations
@@ -36,8 +40,8 @@ def test_source_files_exist() -> None:
 
 def test_connector_does_not_import_the_sdk() -> None:
     offenders = {
-        path.name: sorted(imported_roots(path) & FORBIDDEN_ROOTS)
+        path.name: sorted(roots)
         for path in modules()
-        if imported_roots(path) & FORBIDDEN_ROOTS
+        if (roots := imported_roots(path) & FORBIDDEN_ROOTS)
     }
     assert not offenders, f"the connector reaches into the SDK: {offenders}"

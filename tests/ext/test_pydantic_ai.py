@@ -38,6 +38,7 @@ from resonate.connections.local import Task
 from resonate.context import Context
 from resonate.dependencies import DependencyMap
 from resonate.effects import ResonateEffects
+from resonate.error import ApplicationError, ServerError
 from resonate.ext.pydantic_ai import ResonateAgent, ResonateModel
 from resonate.ext.pydantic_ai.context import (
     reset_workflow_context,
@@ -49,7 +50,6 @@ from resonate.retry import Never
 from resonate.send import Sender
 from resonate.transport import Transport
 from resonate.types import PromiseRecord, Value
-from resonate_base.error import ApplicationError, ServerError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, AsyncIterator

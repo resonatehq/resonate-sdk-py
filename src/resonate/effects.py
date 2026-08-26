@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from resonate.error import PlatformError, ResonateError, StoppedError
 from resonate.observability import (
     Dropped,
     PromiseCreateRequested,
@@ -11,7 +12,6 @@ from resonate.observability import (
     logging_observer,
 )
 from resonate.types import PromiseCreateReq, PromiseSettleReq
-from resonate_base.error import PlatformError, ResonateError, StoppedError
 
 if TYPE_CHECKING:
     from resonate.codec import Codec

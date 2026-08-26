@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from resonate_base.error import PlatformError
+from resonate.error import PlatformError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

@@ -1522,9 +1522,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-nats = [
-    { name = "resonate-nats" },
-]
 pydantic = [
     { name = "pydantic" },
 ]
@@ -1542,6 +1539,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "resonate-nats" },
     { name = "resonate-testing" },
     { name = "ruff" },
     { name = "ty" },
@@ -1556,9 +1554,8 @@ requires-dist = [
     { name = "pydantic", marker = "extra == 'pydantic-ai'", specifier = ">=2.0.0,<3" },
     { name = "pydantic-ai-slim", marker = "extra == 'pydantic-ai'", specifier = ">=2.8,<3" },
     { name = "resonate-base", editable = "packages/resonate-base" },
-    { name = "resonate-nats", marker = "extra == 'nats'", editable = "packages/resonate-nats" },
 ]
-provides-extras = ["nats", "pydantic", "pydantic-ai"]
+provides-extras = ["pydantic", "pydantic-ai"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1569,6 +1566,7 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "resonate-nats", editable = "packages/resonate-nats" },
     { name = "resonate-testing", editable = "packages/resonate-testing" },
     { name = "ruff", specifier = ">=0.15.14" },
     { name = "ty", specifier = ">=0.0.39" },

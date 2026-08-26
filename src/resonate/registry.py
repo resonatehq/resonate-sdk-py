@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Concatenate
 
 from resonate.durable import DurableFunction
-from resonate_base.error import AlreadyRegisteredError
+from resonate.error import AlreadyRegisteredError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

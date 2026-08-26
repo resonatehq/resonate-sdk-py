@@ -12,7 +12,7 @@ from typing import Any, cast
 
 import pytest
 
-from resonate_base.error import NatsError
+from resonate_base.error import ConnectorError
 from resonate_nats import (
     NatsConnection,
     _id_to_origin,
@@ -231,7 +231,7 @@ async def test_send_before_start_raises_nats_error() -> None:
     client = _FakeNatsClient()
     conn = NatsConnection(client)
 
-    with pytest.raises(NatsError):
+    with pytest.raises(ConnectorError):
         await conn.send('{"kind":"task.acquire","data":{"id":"root"}}')
     assert client.published == []
 
@@ -243,7 +243,7 @@ async def test_send_after_stop_raises_nats_error_without_touching_the_client() -
     await conn.start()
     await conn.stop()
 
-    with pytest.raises(NatsError):
+    with pytest.raises(ConnectorError):
         await conn.send('{"kind":"task.acquire","data":{"id":"root"}}')
     assert client.published == []
 
@@ -256,7 +256,7 @@ async def test_send_wraps_a_publish_failure_in_nats_error() -> None:
     conn = NatsConnection(client)
     await conn.start()
 
-    with pytest.raises(NatsError) as excinfo:
+    with pytest.raises(ConnectorError) as excinfo:
         await conn.send('{"kind":"task.acquire","data":{"id":"root"}}')
     assert isinstance(excinfo.value.error, OSError)
 
@@ -268,7 +268,7 @@ async def test_send_wraps_a_reply_timeout_in_nats_error() -> None:
     conn = NatsConnection(client)
     await conn.start()
 
-    with pytest.raises(NatsError) as excinfo:
+    with pytest.raises(ConnectorError) as excinfo:
         await conn.send('{"kind":"task.acquire","data":{"id":"root"}}')
     assert isinstance(excinfo.value.error, TimeoutError)
 

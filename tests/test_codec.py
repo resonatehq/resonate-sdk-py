@@ -17,13 +17,13 @@ from resonate.codec import (
     _encode_error,
     decode_settled,
 )
-from resonate.types import PromiseRecord, PromiseState, Value
-from resonate_base.error import (
+from resonate.error import (
     ApplicationError,
     Base64DecodeError,
     ResonateError,
     SerializationError,
 )
+from resonate.types import PromiseRecord, PromiseState, Value
 
 
 def codec() -> Codec:

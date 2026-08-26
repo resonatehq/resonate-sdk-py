@@ -28,6 +28,13 @@ from resonate.context import Context, Opts, _hash_id
 from resonate.dependencies import DependencyMap
 from resonate.durable import DurableFunction
 from resonate.effects import ResonateEffects
+from resonate.error import (
+    ApplicationError,
+    FunctionNotFoundError,
+    PlatformError,
+    SerializationError,
+    Suspended,
+)
 from resonate.registry import Registry
 from resonate.retry import Constant, Never
 from resonate.send import Sender
@@ -35,13 +42,6 @@ from resonate.testing import cache_of
 from resonate.timing import now_ms
 from resonate.transport import Transport
 from resonate.types import PromiseRecord, TaskData, Value
-from resonate_base.error import (
-    ApplicationError,
-    FunctionNotFoundError,
-    PlatformError,
-    SerializationError,
-    Suspended,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

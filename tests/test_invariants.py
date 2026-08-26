@@ -67,10 +67,10 @@ from resonate.core import (
     _ExecOutcome,
     identity_target_resolver,
 )
+from resonate.error import ResonateError
 from resonate.registry import Registry
 from resonate.testing import RecordingTaskLifecycle, UnusedFencing
 from resonate.types import PromiseCreateReq, PromiseRecord, Value
-from resonate_base.error import ResonateError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

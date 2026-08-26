@@ -29,6 +29,7 @@ from resonate.connections.local import Task
 from resonate.context import Context
 from resonate.dependencies import DependencyMap
 from resonate.effects import ResonateEffects
+from resonate.error import ApplicationError, ResonateError
 from resonate.observability import Dropped, Event, noop_observer
 from resonate.registry import Registry
 from resonate.resonate import Resonate
@@ -37,7 +38,6 @@ from resonate.send import Sender, SuspendResult, TaskAcquireResult
 from resonate.timing import Clock, now_ms
 from resonate.transport import Transport
 from resonate.types import PromiseRecord, PromiseState, Value
-from resonate_base.error import ApplicationError, ResonateError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

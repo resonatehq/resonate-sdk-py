@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Any
 
 import msgspec
 
+from resonate.error import DecodingError, ServerError
 from resonate.observability import Dropped, logging_observer
 from resonate.types import PromiseRecord
-from resonate_base.error import DecodingError, ServerError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

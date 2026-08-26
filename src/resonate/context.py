@@ -14,18 +14,18 @@ import msgspec
 from resonate.chain import Chain, Link
 from resonate.codec import decode_settled
 from resonate.durable import DurableFunction
-from resonate.registry import Registry
-from resonate.retry import Never, RetryPolicy
-from resonate.timing import Clock, Sleeper, now_ms, sleep
-from resonate.tree import Tree
-from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
-from resonate_base.error import (
+from resonate.error import (
     FunctionNotFoundError,
     PlatformError,
     ResonateError,
     SerializationError,
     Suspended,
 )
+from resonate.registry import Registry
+from resonate.retry import Never, RetryPolicy
+from resonate.timing import Clock, Sleeper, now_ms, sleep
+from resonate.tree import Tree
+from resonate.types import Info, PromiseCreateReq, Status, TaskData, Value
 from resonate_base.ids import join_id
 
 if TYPE_CHECKING:

@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 import msgspec
 
+from resonate.error import ApplicationError, ResonateTimeoutError
 from resonate.types import PromiseState, Value
-from resonate_base.error import ApplicationError, ResonateTimeoutError
 
 if TYPE_CHECKING:
     from resonate.codec import Codec

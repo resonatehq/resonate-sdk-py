@@ -22,9 +22,9 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from resonate.connections import LocalConnection
+from resonate.error import InvalidIdError, ServerError
 from resonate.resonate import Resonate
 from resonate.retry import Never
-from resonate_base.error import InvalidIdError, ServerError
 from resonate_base.ids import join_id, origin_of, validate_root_id
 
 if TYPE_CHECKING:
@@ -241,4 +241,3 @@ async def test_run_and_rpc_reject_an_invalid_root_id() -> None:
             await r.get("wf:1.2")
     finally:
         await r.stop()
-

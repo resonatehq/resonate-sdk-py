@@ -11,11 +11,11 @@ import pytest
 
 from resonate.codec import Codec, NoopEncryptor
 from resonate.connections import LocalConnection
+from resonate.error import ServerError
 from resonate.promises import Promises
 from resonate.send import Sender
 from resonate.transport import Transport
 from resonate.types import Value
-from resonate_base.error import ServerError
 
 I64_MAX = 2**63 - 1
 

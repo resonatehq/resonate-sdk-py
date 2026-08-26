@@ -32,20 +32,20 @@ from resonate.context import Context
 from resonate.core import Core, identity_target_resolver
 from resonate.dependencies import DependencyMap
 from resonate.effects import ResonateEffects
+from resonate.error import (
+    ConnectorError,
+    FunctionNotFoundError,
+    PlatformError,
+    ResonateError,
+    SerializationError,
+    ServerError,
+)
 from resonate.registry import Registry
 from resonate.resonate import Resonate
 from resonate.retry import Constant
 from resonate.send import Sender
 from resonate.transport import Transport
 from resonate.types import PromiseCreateReq, PromiseSettleReq, TaskData
-from resonate_base.error import (
-    FunctionNotFoundError,
-    HttpError,
-    PlatformError,
-    ResonateError,
-    SerializationError,
-    ServerError,
-)
 
 if TYPE_CHECKING:
     from resonate.types import PromiseRecord
@@ -192,7 +192,10 @@ def leaf(ctx: Context) -> int:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error",
-    [ServerError(503, "server unavailable"), HttpError(ConnectionError("refused"))],
+    [
+        ServerError(503, "server unavailable"),
+        ConnectorError(ConnectionError("refused")),
+    ],
 )
 async def test_rpc_create_failure_releases_task(
     fix: PlatformFixture, error: ResonateError
@@ -643,7 +646,7 @@ async def test_chain_failure_rejects_created_so_successors_do_not_deadlock() -> 
 
 def test_platform_error_cause_is_first_of_many() -> None:
     first = ServerError(503, "first")
-    second = HttpError(ConnectionError("second"))
+    second = ConnectorError(ConnectionError("second"))
     err = PlatformError([first, second])
     assert err.cause is first
     assert err.causes == [first, second]

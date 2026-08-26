@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import msgspec
 
-from resonate import PROTOCOL_VERSION
 from resonate.codec import dec_hook
+from resonate.error import DecodingError, ServerError
 from resonate.observability import Dropped, logging_observer
 from resonate.types import PromiseRecord, ScheduleRecord, TaskRecord, Value
-from resonate_base.error import DecodingError, ServerError
+from resonate_base import PROTOCOL_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Callable

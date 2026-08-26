@@ -21,6 +21,14 @@ from resonate.codec import Codec
 from resonate.context import Context, TargetResolver
 from resonate.dependencies import DependencyMap
 from resonate.effects import Effects, ResonateEffects
+from resonate.error import (
+    DecodingError,
+    FunctionNotFoundError,
+    PlatformError,
+    ResonateError,
+    SerializationError,
+    Suspended,
+)
 from resonate.heartbeat import Heartbeat, NoopHeartbeat
 from resonate.observability import Observer, logging_observer
 from resonate.registry import Registry
@@ -33,14 +41,6 @@ from resonate.types import (
     PromiseSettleReq,
     TaskData,
     Value,
-)
-from resonate_base.error import (
-    DecodingError,
-    FunctionNotFoundError,
-    PlatformError,
-    ResonateError,
-    SerializationError,
-    Suspended,
 )
 from resonate_base.ids import origin_of
 

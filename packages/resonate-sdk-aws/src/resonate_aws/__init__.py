@@ -55,6 +55,7 @@ from resonate.codec import Codec, NoopEncryptor
 from resonate.connections import HttpConnection
 from resonate.core import Core
 from resonate.dependencies import DependencyMap
+from resonate.error import ApplicationError
 from resonate.heartbeat import NoopHeartbeat
 from resonate.observability import logging_observer
 from resonate.registry import Registry
@@ -62,7 +63,6 @@ from resonate.retry import Exponential
 from resonate.send import Sender
 from resonate.timing import now_ms, sleep
 from resonate.transport import ExecuteData, Transport
-from resonate_base.error import ApplicationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

@@ -32,17 +32,17 @@ from resonate.codec import Codec, NoopEncryptor
 from resonate.connections import LocalConnection
 from resonate.core import Core, _ExecFulfilled, identity_target_resolver
 from resonate.effects import ResonateEffects
-from resonate.registry import Registry
-from resonate.send import Sender
-from resonate.timing import now_ms
-from resonate.transport import Transport
-from resonate.types import PromiseCreateReq, PromiseSettleReq, TaskData
-from resonate_base.error import (
+from resonate.error import (
     ApplicationError,
     FunctionNotFoundError,
     ResonateError,
     Suspended,
 )
+from resonate.registry import Registry
+from resonate.send import Sender
+from resonate.timing import now_ms
+from resonate.transport import Transport
+from resonate.types import PromiseCreateReq, PromiseSettleReq, TaskData
 
 if TYPE_CHECKING:
     from resonate.context import Context

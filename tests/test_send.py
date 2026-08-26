@@ -7,6 +7,7 @@ import msgspec
 import pytest
 
 from resonate.connections import LocalConnection
+from resonate.error import ServerError
 from resonate.send import (
     Envelope,
     Head,
@@ -21,7 +22,6 @@ from resonate.types import (
     PromiseSettleReq,
     Value,
 )
-from resonate_base.error import ServerError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

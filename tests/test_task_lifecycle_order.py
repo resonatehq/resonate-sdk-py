@@ -17,6 +17,7 @@ import pytest
 
 from resonate.codec import Codec, NoopEncryptor
 from resonate.core import Core, identity_target_resolver
+from resonate.error import ServerError
 from resonate.registry import Registry
 from resonate.send import TaskAcquireResult
 from resonate.testing import (
@@ -27,7 +28,6 @@ from resonate.testing import (
     resolved_promise,
 )
 from resonate.types import PromiseRecord, TaskData, TaskRecord, Value
-from resonate_base.error import ServerError
 
 TTL = 10_000
 
