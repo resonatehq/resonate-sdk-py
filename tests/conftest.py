@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
-from resonate_testing import golden
 
 from resonate.codec import Codec, NoopEncryptor
 from resonate.registry import Registry
@@ -23,6 +22,7 @@ from resonate.testing import (
     RecordingSleeper,
     local_resonate,
 )
+from resonate_testing import golden
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

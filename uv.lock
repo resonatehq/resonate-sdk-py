@@ -10,6 +10,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "resonate-base",
     "resonate-sdk",
     "resonate-sdk-aws",
 ]
@@ -1490,12 +1491,24 @@ wheels = [
 ]
 
 [[package]]
+name = "resonate-base"
+version = "0.7.4"
+source = { editable = "packages/resonate-base" }
+dependencies = [
+    { name = "msgspec" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "msgspec", specifier = ">=0.21.1,<1" }]
+
+[[package]]
 name = "resonate-sdk"
 version = "0.7.4"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "msgspec" },
+    { name = "resonate-base" },
 ]
 
 [package.optional-dependencies]
@@ -1533,6 +1546,7 @@ requires-dist = [
     { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2.0.0,<3" },
     { name = "pydantic", marker = "extra == 'pydantic-ai'", specifier = ">=2.0.0,<3" },
     { name = "pydantic-ai-slim", marker = "extra == 'pydantic-ai'", specifier = ">=2.8,<3" },
+    { name = "resonate-base", editable = "packages/resonate-base" },
 ]
 provides-extras = ["nats", "pydantic", "pydantic-ai"]
 

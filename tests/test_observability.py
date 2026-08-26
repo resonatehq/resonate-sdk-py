@@ -18,7 +18,6 @@ from typing import Any
 
 import msgspec
 import pytest
-from resonate_testing import RecordingNetwork, StubNetwork, envelope
 
 from resonate.codec import Codec, NoopEncryptor
 from resonate.effects import ResonateEffects
@@ -44,6 +43,7 @@ from resonate.testing import (
 )
 from resonate.transport import Transport
 from resonate.types import PromiseCreateReq, PromiseRecord, Value
+from resonate_testing import RecordingNetwork, StubNetwork, envelope
 
 
 def _codec() -> Codec:

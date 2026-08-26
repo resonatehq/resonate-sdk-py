@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.13.5,<4",
     "msgspec>=0.21.1,<1",
+    "resonate-base>=0.7.4,<0.8",
 ]
 
 [project.optional-dependencies]
@@ -31,15 +32,14 @@ build-backend = "uv_build"
 module-name = "resonate"
 
 [tool.uv.workspace]
-members = ["packages/*"]
-# ``resonate-testing`` is test-only support shared across every suite in the
-# monorepo. It is excluded from the workspace proper so it never lands in
-# ``uv build --all-packages`` / the release publish step; it is still
-# installed for every ``uv sync`` via the explicit path source below.
-exclude = ["packages/resonate-testing"]
+# Only include publishable packages; resonate-testing is a test-only package
+# (available via path source below)
+members = ["packages/resonate-sdk-aws", "packages/resonate-base"]
 
 [tool.uv.sources]
+resonate-base = { workspace = true }
 resonate-testing = { path = "packages/resonate-testing", editable = true }
+resonate-sdk = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -60,4 +60,4 @@ dev = [
 asyncio_mode = "strict"
 
 [tool.coverage.run]
-source = ["resonate", "resonate_aws"]
+source = ["resonate", "resonate_aws", "resonate_base"]
