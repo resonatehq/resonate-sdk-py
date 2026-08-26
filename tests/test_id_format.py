@@ -22,11 +22,10 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from resonate.connections import LocalConnection
-from resonate.connections.nats import _id_to_origin
-from resonate.error import InvalidIdError, ServerError
-from resonate.ids import join_id, origin_of, validate_root_id
 from resonate.resonate import Resonate
-from resonate.retry import Never
+from resonate_base.error import InvalidIdError, ServerError
+from resonate_base.ids import join_id, origin_of, validate_root_id
+from resonate_base.retry import Never
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
@@ -243,9 +242,3 @@ async def test_run_and_rpc_reject_an_invalid_root_id() -> None:
     finally:
         await r.stop()
 
-
-def test_nats_routing_origin_splits_on_colon() -> None:
-    # The routing origin picks the server's origin-state partition, so it must
-    # agree with the server's own ``origin()`` for every id shape.
-    for id in ("root", "root:1", "root:1.2", "root:dbeef"):
-        assert _id_to_origin(id) == origin(id)

@@ -7,13 +7,15 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from resonate.error import NatsError
-from resonate.ids import origin_of
+from resonate_base.error import NatsError
+from resonate_base.ids import origin_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["NatsConnection"]
 
 # =============================================================================
 # CONSTANTS
@@ -39,7 +41,7 @@ DEFAULT_RECV_PREFIX = "resonate.recv"
 REPLY_HEADER = "Resonate-Reply-To"
 
 
-#: The lineage origin of an id -- see :mod:`resonate.ids`. Aliased here because
+#: The lineage origin of an id -- see :mod:`resonate_base.ids`. Aliased here because
 #: it is what selects the server's origin-state partition (below).
 _id_to_origin = origin_of
 
@@ -140,8 +142,8 @@ class NatsClient(Protocol):
 class NatsConnection:
     """NATS connection to resonate-on-nats.
 
-    Implements **both** protocols: :class:`~resonate.connections.Network` (the
-    request/response ``send`` path) and :class:`~resonate.connections.Source` (the
+    Implements **both** protocols: :class:`~resonate_base.connections.Network` (the
+    request/response ``send`` path) and :class:`~resonate_base.connections.Source` (the
     push-message ``recv`` path). It can therefore serve as the network, as a
     source, or as both at once. When used only as a source, :meth:`send` is
     simply never called; when used only as the network, no receiver is
@@ -210,7 +212,7 @@ class NatsConnection:
 
         Subscriptions are only opened when a receiver has been registered via
         :meth:`recv` -- i.e. when this connection is used as a
-        :class:`~resonate.connections.Source`. A network-only connection must not
+        :class:`~resonate_base.connections.Source`. A network-only connection must not
         subscribe: it would consume messages off the group's queue
         subscription and drop them, delaying the task until the server
         re-delivers it elsewhere. Register receivers **before** calling
