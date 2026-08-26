@@ -21,16 +21,6 @@ import pytest
 
 from resonate.codec import Codec, NoopEncryptor
 from resonate.effects import ResonateEffects
-from resonate.observability import (
-    BackgroundTaskFailed,
-    Dropped,
-    PromiseCreateRequested,
-    PromiseCreateReturned,
-    PromiseSettleRequested,
-    PromiseSettleReturned,
-    logging_observer,
-    noop_observer,
-)
 from resonate.send import Sender
 from resonate.testing import (
     FAR_FUTURE,
@@ -41,8 +31,18 @@ from resonate.testing import (
     pending_promise,
     resolved_promise,
 )
-from resonate.transport import Transport
-from resonate.types import PromiseCreateReq, PromiseRecord, Value
+from resonate_base.observability import (
+    BackgroundTaskFailed,
+    Dropped,
+    PromiseCreateRequested,
+    PromiseCreateReturned,
+    PromiseSettleRequested,
+    PromiseSettleReturned,
+    logging_observer,
+    noop_observer,
+)
+from resonate_base.transport import Transport
+from resonate_base.types import PromiseCreateReq, PromiseRecord, Value
 from resonate_testing import RecordingNetwork, StubNetwork, envelope
 
 

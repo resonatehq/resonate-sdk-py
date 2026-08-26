@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from resonate.error import AlreadyRegisteredError
 from resonate.registry import Registry
+from resonate_base.error import AlreadyRegisteredError
 
 if TYPE_CHECKING:
     from resonate.context import Context

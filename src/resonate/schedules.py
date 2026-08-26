@@ -7,7 +7,7 @@ from resonate.send import ScheduleCreateReq
 if TYPE_CHECKING:
     from resonate.codec import Codec
     from resonate.send import ScheduleSearchResult, Sender
-    from resonate.types import ScheduleRecord, Value
+    from resonate_base.types import ScheduleRecord, Value
 
 
 class Schedules:

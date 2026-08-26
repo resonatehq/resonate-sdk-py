@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from resonate.error import PlatformError, ResonateError, StoppedError
-from resonate.observability import (
+from resonate_base.error import PlatformError, ResonateError, StoppedError
+from resonate_base.observability import (
     Dropped,
     PromiseCreateRequested,
     PromiseCreateReturned,
@@ -11,13 +11,13 @@ from resonate.observability import (
     PromiseSettleReturned,
     logging_observer,
 )
-from resonate.types import PromiseCreateReq, PromiseSettleReq
+from resonate_base.types import PromiseCreateReq, PromiseSettleReq
 
 if TYPE_CHECKING:
     from resonate.codec import Codec
-    from resonate.observability import Observer
     from resonate.send import PromiseFencing
-    from resonate.types import PromiseRecord
+    from resonate_base.observability import Observer
+    from resonate_base.types import PromiseRecord
 
 
 class Effects(Protocol):

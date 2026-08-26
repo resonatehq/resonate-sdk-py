@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from resonate.chain import Chain
-from resonate.error import PlatformError, ResonateError
+from resonate_base.error import PlatformError, ResonateError
 
 
 @pytest.mark.asyncio

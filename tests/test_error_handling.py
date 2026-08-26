@@ -49,16 +49,16 @@ from typing import TYPE_CHECKING
 import pytest
 
 from resonate.codec import _deserialize_error, _encode_error
-from resonate.error import ApplicationError, ServerError
 from resonate.resonate import Resonate
-from resonate.retry import Never
-from resonate.types import Value
+from resonate_base.error import ApplicationError, ServerError
+from resonate_base.retry import Never
+from resonate_base.types import Value
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from resonate.context import Context
-    from resonate.types import PromiseRecord
+    from resonate_base.types import PromiseRecord
 
 
 # ── Harness ────────────────────────────────────────────────────────────────

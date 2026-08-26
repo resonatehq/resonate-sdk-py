@@ -30,12 +30,6 @@ import pytest
 
 from resonate.connections import LocalConnection
 from resonate.durable import DurableFunction
-from resonate.error import (
-    AlreadyRegisteredError,
-    ApplicationError,
-    FunctionNotFoundError,
-    ServerError,
-)
 from resonate.handle import ResonateHandle
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.resonate import (
@@ -46,7 +40,13 @@ from resonate.resonate import (
     Opts,
     Resonate,
 )
-from resonate.retry import Never
+from resonate_base.error import (
+    AlreadyRegisteredError,
+    ApplicationError,
+    FunctionNotFoundError,
+    ServerError,
+)
+from resonate_base.retry import Never
 from resonate_testing import FakeNetwork, FakeSource, SendOnlyNetwork
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 
     from resonate.codec import Encryptor
     from resonate.context import Context
-    from resonate.types import PromiseRecord
+    from resonate_base.types import PromiseRecord
 
 
 # ── Harness ──────────────────────────────────────────────────────────────

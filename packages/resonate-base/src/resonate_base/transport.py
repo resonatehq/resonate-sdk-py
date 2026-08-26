@@ -5,15 +5,15 @@ from typing import TYPE_CHECKING, Any
 
 import msgspec
 
-from resonate.error import DecodingError, ServerError
-from resonate.observability import Dropped, logging_observer
-from resonate.types import PromiseRecord
+from resonate_base.error import DecodingError, ServerError
+from resonate_base.observability import Dropped, logging_observer
+from resonate_base.types import PromiseRecord
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from resonate.connections import Network, Source
-    from resonate.observability import Observer
+    from resonate_base.connections import Network, Source
+    from resonate_base.observability import Observer
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class Response(msgspec.Struct, kw_only=True, frozen=True):
     """A parsed protocol response envelope: ``{ kind, head, data }``.
 
     The single parse boundary for everything arriving over the
-    :class:`~resonate.connections.Network`. Below this point the SDK works
+    :class:`~resonate_base.connections.Network`. Below this point the SDK works
     with a typed value and never asks "is this a dict?" again -- the shape
     questions are all answered here, once.
     """
@@ -112,7 +112,7 @@ class Transport:
     connections. Requests go out over the single ``network``; push messages
     come in over every ``source``.
 
-    ``observer`` receives a :class:`~resonate.observability.Dropped` event for
+    ``observer`` receives a :class:`~resonate_base.observability.Dropped` event for
     each incoming push message that cannot be parsed, so the drop is
     assertable rather than merely logged.
     """

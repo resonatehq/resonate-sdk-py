@@ -1,8 +1,9 @@
+"""Distributed Async Await by Resonate HQ, Inc.
+
+The protocol layer this SDK is built on -- errors, injectable time, retry and
+backoff policies, the observability event stream, the id format, the wire
+records, and the ``Network``/``Source``/``Transport`` seams -- lives in
+:mod:`resonate_base`, which connectors depend on without depending on the SDK.
+"""
+
 from __future__ import annotations
-
-from resonate.timing import Clock, Sleeper, now_ms, sleep
-
-#: Protocol version string sent in all requests to the Resonate server.
-PROTOCOL_VERSION = "2026-04-01"
-
-__all__ = ["PROTOCOL_VERSION", "Clock", "Sleeper", "now_ms", "sleep"]

@@ -77,8 +77,8 @@ if TYPE_CHECKING:
     )
 
     from resonate.context import Context
-    from resonate.retry import RetryPolicy
     from resonate.types import DurableRegistry
+    from resonate_base.retry import RetryPolicy
 
 # ``None`` isn't assignable to an arbitrary ``AgentDepsT``, so mirror Pydantic
 # AI's ``deps=None`` default through an ``Any`` singleton -- keeps the runtime

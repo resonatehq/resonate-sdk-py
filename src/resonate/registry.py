@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Concatenate
 
 from resonate.durable import DurableFunction
-from resonate.error import AlreadyRegisteredError
+from resonate_base.error import AlreadyRegisteredError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
     from resonate.context import Context
-    from resonate.retry import RetryPolicy
+    from resonate_base.retry import RetryPolicy
 
 
 class Registry:

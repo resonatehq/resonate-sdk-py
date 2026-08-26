@@ -29,21 +29,21 @@ from resonate.connections.local import Task
 from resonate.context import Context
 from resonate.dependencies import DependencyMap
 from resonate.effects import ResonateEffects
-from resonate.error import ApplicationError, ResonateError
-from resonate.observability import Dropped, Event, noop_observer
 from resonate.registry import Registry
 from resonate.resonate import Resonate
-from resonate.retry import Never, NoBackoff
 from resonate.send import Sender, SuspendResult, TaskAcquireResult
-from resonate.timing import Clock, now_ms
-from resonate.transport import Transport
-from resonate.types import PromiseRecord, PromiseState, Value
+from resonate_base.error import ApplicationError, ResonateError
+from resonate_base.observability import Dropped, Event, noop_observer
+from resonate_base.retry import Never, NoBackoff
+from resonate_base.timing import Clock, now_ms
+from resonate_base.transport import Transport
+from resonate_base.types import PromiseRecord, PromiseState, Value
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from resonate.retry import RetryPolicy
-    from resonate.types import PromiseRegisterCallbackData, PromiseSettleReq
+    from resonate_base.retry import RetryPolicy
+    from resonate_base.types import PromiseRegisterCallbackData, PromiseSettleReq
 
 #: A deadline far enough out that no test hits it, but still a valid i64.
 FAR_FUTURE = (1 << 62) - 1

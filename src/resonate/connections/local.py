@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import msgspec
 
-from resonate import PROTOCOL_VERSION
-from resonate.error import DecodingError, ServerError
-from resonate.timing import Clock, Sleeper, now_ms, sleep
-from resonate.types import PromiseState
+from resonate_base import PROTOCOL_VERSION
+from resonate_base.error import DecodingError, ServerError
+from resonate_base.timing import Clock, Sleeper, now_ms, sleep
+from resonate_base.types import PromiseState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1121,8 +1121,8 @@ class ServerState:
 class LocalConnection:
     """In-process connection backed by a :class:`ServerState` simulation.
 
-    Implements both :class:`~resonate.connections.Network` and
-    :class:`~resonate.connections.Source`, so a single instance serves as network
+    Implements both :class:`~resonate_base.connections.Network` and
+    :class:`~resonate_base.connections.Source`, so a single instance serves as network
     and source at once. Useful for running workflows without a Resonate
     server. A background tick loop advances time once per second; outgoing
     messages are dispatched to callbacks registered via :meth:`recv` as

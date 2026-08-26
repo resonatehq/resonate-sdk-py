@@ -1,6 +1,6 @@
 [project]
 name = "resonate-base"
-version = "0.7.4"
+version = "0.8.0"
 description = "Shared protocol definitions for the Resonate SDK and its connectors, by Resonate HQ, Inc"
 readme = "README.md"
 authors = [{ name = "Resonate HQ, Inc", email = "contact@resonatehq.io" }]

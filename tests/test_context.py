@@ -21,7 +21,6 @@ from unittest.mock import AsyncMock, patch
 import msgspec
 import pytest
 
-from resonate import now_ms
 from resonate.codec import Codec, NoopEncryptor, _encode_error
 from resonate.connections import LocalConnection
 from resonate.connections.local import Task
@@ -29,24 +28,26 @@ from resonate.context import Context, Opts, _hash_id
 from resonate.dependencies import DependencyMap
 from resonate.durable import DurableFunction
 from resonate.effects import ResonateEffects
-from resonate.error import (
+from resonate.registry import Registry
+from resonate.send import Sender
+from resonate.testing import cache_of
+from resonate.types import TaskData
+from resonate_base.error import (
     ApplicationError,
     FunctionNotFoundError,
     PlatformError,
     SerializationError,
     Suspended,
 )
-from resonate.registry import Registry
-from resonate.retry import Constant, Never
-from resonate.send import Sender
-from resonate.testing import cache_of
-from resonate.transport import Transport
-from resonate.types import PromiseRecord, TaskData, Value
+from resonate_base.retry import Constant, Never
+from resonate_base.timing import now_ms
+from resonate_base.transport import Transport
+from resonate_base.types import PromiseRecord, Value
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from resonate.retry import RetryPolicy
+    from resonate_base.retry import RetryPolicy
 
 I64_MAX = 2**63 - 1
 

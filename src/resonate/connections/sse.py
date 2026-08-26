@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
-from resonate.retry import ExponentialBackoff
-from resonate.timing import sleep
+from resonate_base.retry import ExponentialBackoff
+from resonate_base.timing import sleep
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from resonate.retry import Backoff
-    from resonate.timing import Sleeper
+    from resonate_base.retry import Backoff
+    from resonate_base.timing import Sleeper
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +68,14 @@ def _data_lines(block: str) -> Iterable[str]:
 
 
 class SSEConnection:
-    """:class:`~resonate.connections.Source` implementation over Server-Sent Events.
+    """:class:`~resonate_base.connections.Source` implementation over Server-Sent Events.
 
     Incoming messages (execute/unblock) are received via SSE on
     ``GET /poll/{group}/{pid}`` of a Resonate server. Addresses use the
     ``poll://`` scheme: ``poll://uni@group/id`` and ``poll://any@group/id``.
 
     This is the push-message half only; requests to the server are sent
-    through a separate :class:`~resonate.connections.Network` (typically
+    through a separate :class:`~resonate_base.connections.Network` (typically
     :class:`~resonate.connections.HttpConnection` against the same server).
 
     The SSE listener runs as a background asyncio task; callbacks registered

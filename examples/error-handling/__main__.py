@@ -28,9 +28,9 @@ import os
 import time
 from typing import TYPE_CHECKING, Literal
 
-from resonate.error import ApplicationError
 from resonate.resonate import Resonate
-from resonate.retry import Never
+from resonate_base.error import ApplicationError
+from resonate_base.retry import Never
 
 if TYPE_CHECKING:
     from resonate.context import Context

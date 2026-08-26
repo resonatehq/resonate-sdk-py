@@ -7,7 +7,6 @@ import msgspec
 import pytest
 
 from resonate.connections import LocalConnection
-from resonate.error import ServerError
 from resonate.send import (
     Envelope,
     Head,
@@ -15,8 +14,9 @@ from resonate.send import (
     SubEnvelope,
     TaskFenceResult,
 )
-from resonate.transport import Transport
-from resonate.types import (
+from resonate_base.error import ServerError
+from resonate_base.transport import Transport
+from resonate_base.types import (
     PromiseCreateReq,
     PromiseRegisterCallbackData,
     PromiseSettleReq,

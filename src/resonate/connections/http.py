@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
-from resonate.error import HttpError
-from resonate.retry import ExponentialBackoff
-from resonate.timing import sleep
+from resonate_base.error import HttpError
+from resonate_base.retry import ExponentialBackoff
+from resonate_base.timing import sleep
 
 if TYPE_CHECKING:
-    from resonate.retry import Backoff
-    from resonate.timing import Sleeper
+    from resonate_base.retry import Backoff
+    from resonate_base.timing import Sleeper
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +31,11 @@ DEFAULT_CONN_LIMIT = 256
 
 
 class HttpConnection:
-    """:class:`~resonate.connections.Network` implementation over HTTP.
+    """:class:`~resonate_base.connections.Network` implementation over HTTP.
 
     Requests are sent via ``POST /`` (JSON envelope format). This is the
     request/response half only; push messages from the server arrive through a
-    separate :class:`~resonate.connections.Source` (typically
+    separate :class:`~resonate_base.connections.Source` (typically
     :class:`~resonate.connections.SSEConnection`).
     """
 

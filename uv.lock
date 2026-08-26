@@ -11,6 +11,7 @@ resolution-markers = [
 [manifest]
 members = [
     "resonate-base",
+    "resonate-nats",
     "resonate-sdk",
     "resonate-sdk-aws",
 ]
@@ -1492,7 +1493,7 @@ wheels = [
 
 [[package]]
 name = "resonate-base"
-version = "0.7.4"
+version = "0.8.0"
 source = { editable = "packages/resonate-base" }
 dependencies = [
     { name = "msgspec" },
@@ -1502,8 +1503,23 @@ dependencies = [
 requires-dist = [{ name = "msgspec", specifier = ">=0.21.1,<1" }]
 
 [[package]]
+name = "resonate-nats"
+version = "0.8.0"
+source = { editable = "packages/resonate-nats" }
+dependencies = [
+    { name = "nats-py" },
+    { name = "resonate-base" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "nats-py", specifier = ">=2.6.0,<3" },
+    { name = "resonate-base", editable = "packages/resonate-base" },
+]
+
+[[package]]
 name = "resonate-sdk"
-version = "0.7.4"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1513,7 +1529,7 @@ dependencies = [
 
 [package.optional-dependencies]
 nats = [
-    { name = "nats-py" },
+    { name = "resonate-nats" },
 ]
 pydantic = [
     { name = "pydantic" },
@@ -1542,11 +1558,11 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.5,<4" },
     { name = "msgspec", specifier = ">=0.21.1,<1" },
-    { name = "nats-py", marker = "extra == 'nats'", specifier = ">=2.6.0,<3" },
     { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2.0.0,<3" },
     { name = "pydantic", marker = "extra == 'pydantic-ai'", specifier = ">=2.0.0,<3" },
     { name = "pydantic-ai-slim", marker = "extra == 'pydantic-ai'", specifier = ">=2.8,<3" },
     { name = "resonate-base", editable = "packages/resonate-base" },
+    { name = "resonate-nats", marker = "extra == 'nats'", editable = "packages/resonate-nats" },
 ]
 provides-extras = ["nats", "pydantic", "pydantic-ai"]
 
@@ -1567,7 +1583,7 @@ dev = [
 
 [[package]]
 name = "resonate-sdk-aws"
-version = "0.7.4"
+version = "0.8.0"
 source = { editable = "packages/resonate-sdk-aws" }
 dependencies = [
     { name = "msgspec" },

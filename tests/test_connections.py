@@ -9,11 +9,11 @@ import aiohttp
 import msgspec
 import pytest
 
-from resonate import now_ms
 from resonate.connections import HttpConnection, LocalConnection, SSEConnection
 from resonate.connections.http import DEFAULT_CONN_LIMIT
 from resonate.connections.local import I64_MAX
-from resonate.error import HttpError
+from resonate_base.error import HttpError
+from resonate_base.timing import now_ms
 
 # -- helpers ------------------------------------------------------------------
 

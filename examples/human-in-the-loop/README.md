@@ -59,7 +59,7 @@ a workflow paused on its approval promise, in another terminal:
 ```python
 import asyncio
 from resonate.resonate import Resonate
-from resonate.types import Value
+from resonate_base.types import Value
 
 async def main():
     r = Resonate(url="http://localhost:8001")

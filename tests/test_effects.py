@@ -17,8 +17,8 @@ import pytest
 from resonate.codec import Codec, NoopEncryptor, dec_hook
 from resonate.effects import ResonateEffects
 from resonate.send import Sender
-from resonate.transport import Transport
-from resonate.types import PromiseCreateReq, PromiseRecord, Value
+from resonate_base.transport import Transport
+from resonate_base.types import PromiseCreateReq, PromiseRecord, Value
 
 if TYPE_CHECKING:
     from collections.abc import Callable

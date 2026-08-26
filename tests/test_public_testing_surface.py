@@ -17,10 +17,7 @@ import pytest
 
 from resonate.connections import LocalConnection
 from resonate.context import Context
-from resonate.error import ApplicationError
-from resonate.observability import PromiseCreateRequested
 from resonate.resonate import Resonate
-from resonate.retry import Constant
 from resonate.testing import (
     FakeClock,
     ManualSleeper,
@@ -34,11 +31,14 @@ from resonate.testing import (
     resolved_promise,
     root_context,
 )
+from resonate_base.error import ApplicationError
+from resonate_base.observability import PromiseCreateRequested
+from resonate_base.retry import Constant
 
 if TYPE_CHECKING:
     from resonate.context import Context
     from resonate.resonate import Resonate
-    from resonate.types import PromiseCreateReq, PromiseRecord
+    from resonate_base.types import PromiseCreateReq, PromiseRecord
 
 # ═══════════════════════════════════════════════════════════════
 #  End-to-end, no server

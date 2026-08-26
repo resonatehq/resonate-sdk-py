@@ -21,7 +21,12 @@ from resonate.codec import Codec
 from resonate.context import Context, TargetResolver
 from resonate.dependencies import DependencyMap
 from resonate.effects import Effects, ResonateEffects
-from resonate.error import (
+from resonate.heartbeat import Heartbeat, NoopHeartbeat
+from resonate.registry import Registry
+from resonate.send import PromiseFencing, Redirect, TaskLifecycle
+from resonate.tree import Tree
+from resonate.types import TaskData
+from resonate_base.error import (
     DecodingError,
     FunctionNotFoundError,
     PlatformError,
@@ -29,28 +34,20 @@ from resonate.error import (
     SerializationError,
     Suspended,
 )
-from resonate.heartbeat import Heartbeat, NoopHeartbeat
-from resonate.ids import origin_of
-from resonate.observability import Observer, logging_observer
-from resonate.registry import Registry
-from resonate.retry import Never, RetryPolicy
-from resonate.send import PromiseFencing, Redirect, TaskLifecycle
-from resonate.timing import Clock, Sleeper, now_ms, sleep
-from resonate.tree import Tree
-from resonate.types import (
-    PromiseRegisterCallbackData,
-    PromiseSettleReq,
-    TaskData,
-    Value,
-)
+from resonate_base.ids import origin_of
+from resonate_base.observability import Observer, logging_observer
+from resonate_base.retry import Never, RetryPolicy
+from resonate_base.timing import Clock, Sleeper, now_ms, sleep
+from resonate_base.types import PromiseRegisterCallbackData, PromiseSettleReq, Value
 
 if TYPE_CHECKING:
-    from resonate.types import PromiseRecord, Status
+    from resonate.types import Status
+    from resonate_base.types import PromiseRecord
 
 logger = logging.getLogger(__name__)
 
 #: The target state for a ``promise.settle`` request; identical to
-#: :class:`~resonate.types.PromiseSettleReq`'s ``state``.
+#: :class:`~resonate_base.types.PromiseSettleReq`'s ``state``.
 SettleState = Literal["resolved", "rejected", "rejected_canceled"]
 
 

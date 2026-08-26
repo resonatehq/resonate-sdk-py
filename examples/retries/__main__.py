@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from resonate.resonate import Resonate
-from resonate.retry import Constant
+from resonate_base.retry import Constant
 
 if TYPE_CHECKING:
     from resonate.context import Context

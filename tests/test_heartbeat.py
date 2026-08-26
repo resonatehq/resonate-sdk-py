@@ -17,7 +17,7 @@ import pytest
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
 from resonate.send import Sender
 from resonate.testing import ManualSleeper
-from resonate.transport import Transport
+from resonate_base.transport import Transport
 from resonate_testing import RecordingNetwork
 
 # -- Test harness -------------------------------------------------------------

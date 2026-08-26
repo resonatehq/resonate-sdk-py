@@ -29,34 +29,30 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Concatenate, Self, overload
 
 from resonate.codec import Codec, NoopEncryptor
-from resonate.connections import (
-    HttpConnection,
-    LocalConnection,
-    Network,
-    Source,
-    SSEConnection,
-)
+from resonate.connections import HttpConnection, LocalConnection, SSEConnection
 from resonate.context import Opts
 from resonate.core import Core
 from resonate.dependencies import DependencyMap
-from resonate.error import (
+from resonate.handle import PromiseResult, ResonateHandle, Subscription
+from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
+from resonate.promises import Promises
+from resonate.registry import Registry
+from resonate.schedules import Schedules
+from resonate.send import Sender
+from resonate.types import Args, Status, TaskData
+from resonate_base.connections import Network, Source
+from resonate_base.error import (
     ApplicationError,
     FunctionNotFoundError,
     ResonateError,
     ServerError,
 )
-from resonate.handle import PromiseResult, ResonateHandle, Subscription
-from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
-from resonate.ids import validate_root_id
-from resonate.observability import BackgroundTaskFailed, logging_observer
-from resonate.promises import Promises
-from resonate.registry import Registry
-from resonate.retry import Exponential
-from resonate.schedules import Schedules
-from resonate.send import Sender
-from resonate.timing import now_ms, sleep
-from resonate.transport import ExecuteMsg, Transport, UnblockMsg
-from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
+from resonate_base.ids import validate_root_id
+from resonate_base.observability import BackgroundTaskFailed, logging_observer
+from resonate_base.retry import Exponential
+from resonate_base.timing import now_ms, sleep
+from resonate_base.transport import ExecuteMsg, Transport, UnblockMsg
+from resonate_base.types import PromiseCreateReq, PromiseState, Value
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
@@ -64,10 +60,10 @@ if TYPE_CHECKING:
     from resonate.codec import Encryptor
     from resonate.context import Context
     from resonate.heartbeat import Heartbeat
-    from resonate.observability import Observer
-    from resonate.retry import RetryPolicy
-    from resonate.timing import Clock, Sleeper
-    from resonate.transport import Message
+    from resonate_base.observability import Observer
+    from resonate_base.retry import RetryPolicy
+    from resonate_base.timing import Clock, Sleeper
+    from resonate_base.transport import Message
 
 logger = logging.getLogger(__name__)
 
@@ -170,13 +166,13 @@ class Resonate:
     :class:`_Runtime` and is visible across every handle.
 
     Server communication is split across two protocols: exactly one
-    :class:`~resonate.connections.Network` carries requests, and one or more
-    :class:`~resonate.connections.Source` channels deliver push messages
+    :class:`~resonate_base.connections.Network` carries requests, and one or more
+    :class:`~resonate_base.connections.Source` channels deliver push messages
     (``Resonate(network=network, sources=[source, ...])``). The first source
     is the *primary* source: its unicast address is advertised for listener
     registration and its resolver mints ``resonate:target`` addresses. A
     connection implementing both protocols (e.g.
-    :class:`~resonate.connections.NatsConnection`) passed as ``network`` without
+    :class:`~resonate_nats.NatsConnection`) passed as ``network`` without
     explicit ``sources`` doubles as the sole source.
 
     Connection selection precedence: ``url`` > ``network`` > ``RESONATE_URL``
@@ -857,7 +853,7 @@ class Resonate:
     ) -> PromiseCreateReq:
         """Build the root ``PromiseCreateReq`` for a top-level run or rpc.
 
-        The param is a **plaintext** :class:`~resonate.types.Value` wrapping
+        The param is a **plaintext** :class:`~resonate_base.types.Value` wrapping
         the :class:`~resonate.types.TaskData` -- symmetric with the requests
         :class:`~resonate.context.Context` builds for child promises.
         Encryption is deferred to a single boundary,
@@ -1113,8 +1109,8 @@ def _safe_ttl_ms(ttl: timedelta) -> int:
 
 #: The methods each protocol requires, for diagnostic messages only -- the
 #: authoritative definitions are the protocols themselves
-#: (:class:`~resonate.connections.Network`,
-#: :class:`~resonate.connections.Source`).
+#: (:class:`~resonate_base.connections.Network`,
+#: :class:`~resonate_base.connections.Source`).
 _PROTOCOL_METHODS: dict[type, tuple[str, ...]] = {
     Network: ("send", "start", "stop"),
     Source: (
@@ -1153,7 +1149,7 @@ def _select_connections(
     selects :class:`HttpConnection`, paired with an :class:`SSEConnection`
     against the same server unless explicit ``sources`` are given. An
     explicit ``network`` that also implements :class:`Source` (e.g.
-    :class:`~resonate.connections.NatsConnection`,
+    :class:`~resonate_nats.NatsConnection`,
     :class:`~resonate.connections.LocalConnection`) doubles as the sole source
     when none are given; a send-only network requires explicit ``sources``.
 

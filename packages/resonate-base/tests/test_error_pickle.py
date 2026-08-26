@@ -20,7 +20,7 @@ import pickle
 
 import pytest
 
-from resonate.error import (
+from resonate_base.error import (
     AlreadyRegisteredError,
     ApplicationError,
     Base64DecodeError,
