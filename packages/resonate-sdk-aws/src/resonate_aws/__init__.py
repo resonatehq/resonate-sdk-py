@@ -56,13 +56,13 @@ from resonate.connections import HttpConnection
 from resonate.core import Core
 from resonate.dependencies import DependencyMap
 from resonate.heartbeat import NoopHeartbeat
+from resonate.observability import logging_observer
 from resonate.registry import Registry
+from resonate.retry import Exponential
 from resonate.send import Sender
+from resonate.timing import now_ms, sleep
+from resonate.transport import ExecuteData, Transport
 from resonate_base.error import ApplicationError
-from resonate_base.observability import logging_observer
-from resonate_base.retry import Exponential
-from resonate_base.timing import now_ms, sleep
-from resonate_base.transport import ExecuteData, Transport
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -72,9 +72,9 @@ if TYPE_CHECKING:
 
     from resonate.codec import Encryptor
     from resonate.context import Context, TargetResolver
-    from resonate_base.observability import Observer
-    from resonate_base.retry import RetryPolicy
-    from resonate_base.timing import Clock, Sleeper
+    from resonate.observability import Observer
+    from resonate.retry import RetryPolicy
+    from resonate.timing import Clock, Sleeper
 
 logger = logging.getLogger(__name__)
 

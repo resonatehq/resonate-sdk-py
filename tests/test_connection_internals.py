@@ -23,8 +23,8 @@ import pytest
 
 from resonate.connections.http import HttpConnection
 from resonate.connections.sse import SSEConnection, SseFramer, _strip_data_prefix
+from resonate.retry import Backoff, ExponentialBackoff, NoBackoff
 from resonate.testing import RecordingSleeper
-from resonate_base.retry import Backoff, ExponentialBackoff, NoBackoff
 
 # ═══════════════════════════════════════════════════════════════
 #  SSE framing -- pure

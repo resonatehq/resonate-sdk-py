@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
+from resonate.retry import ExponentialBackoff
+from resonate.timing import sleep
 from resonate_base.error import HttpError
-from resonate_base.retry import ExponentialBackoff
-from resonate_base.timing import sleep
 
 if TYPE_CHECKING:
-    from resonate_base.retry import Backoff
-    from resonate_base.timing import Sleeper
+    from resonate.retry import Backoff
+    from resonate.timing import Sleeper
 
 logger = logging.getLogger(__name__)
 

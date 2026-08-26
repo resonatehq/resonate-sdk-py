@@ -34,20 +34,19 @@ from resonate.core import Core, _ExecFulfilled, identity_target_resolver
 from resonate.effects import ResonateEffects
 from resonate.registry import Registry
 from resonate.send import Sender
-from resonate.types import TaskData
+from resonate.timing import now_ms
+from resonate.transport import Transport
+from resonate.types import PromiseCreateReq, PromiseSettleReq, TaskData
 from resonate_base.error import (
     ApplicationError,
     FunctionNotFoundError,
     ResonateError,
     Suspended,
 )
-from resonate_base.timing import now_ms
-from resonate_base.transport import Transport
-from resonate_base.types import PromiseCreateReq, PromiseSettleReq
 
 if TYPE_CHECKING:
     from resonate.context import Context
-    from resonate_base.types import PromiseRecord
+    from resonate.types import PromiseRecord
 
 # Far-future deadline.
 FAR_FUTURE = 1 << 50

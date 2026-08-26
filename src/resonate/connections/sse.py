@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
-from resonate_base.retry import ExponentialBackoff
-from resonate_base.timing import sleep
+from resonate.retry import ExponentialBackoff
+from resonate.timing import sleep
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from resonate_base.retry import Backoff
-    from resonate_base.timing import Sleeper
+    from resonate.retry import Backoff
+    from resonate.timing import Sleeper
 
 logger = logging.getLogger(__name__)
 

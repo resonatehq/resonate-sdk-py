@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 import msgspec
 
 from resonate.resonate import Resonate
-from resonate_base.types import Value
+from resonate.types import Value
 
 if TYPE_CHECKING:
     from resonate.context import Context

@@ -21,6 +21,7 @@ import pytest
 from resonate.codec import Codec, NoopEncryptor
 from resonate.effects import ResonateEffects
 from resonate.testing import FAR_FUTURE
+from resonate.types import PromiseCreateReq, PromiseSettleReq, Value
 from resonate_base.error import (
     AlreadyRegisteredError,
     ApplicationError,
@@ -41,7 +42,6 @@ from resonate_base.error import (
     StoppedError,
     Suspended,
 )
-from resonate_base.types import PromiseCreateReq, PromiseSettleReq, Value
 
 if TYPE_CHECKING:
     from resonate.send import TaskFenceResult

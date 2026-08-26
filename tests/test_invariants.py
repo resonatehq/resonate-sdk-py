@@ -69,8 +69,8 @@ from resonate.core import (
 )
 from resonate.registry import Registry
 from resonate.testing import RecordingTaskLifecycle, UnusedFencing
+from resonate.types import PromiseCreateReq, PromiseRecord, Value
 from resonate_base.error import ResonateError
-from resonate_base.types import PromiseCreateReq, PromiseRecord, Value
 
 if TYPE_CHECKING:
     from collections.abc import Callable

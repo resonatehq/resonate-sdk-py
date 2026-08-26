@@ -6,11 +6,11 @@ import logging
 from typing import TYPE_CHECKING, Protocol
 
 from resonate.send import TaskRef
-from resonate_base.timing import sleep
+from resonate.timing import sleep
 
 if TYPE_CHECKING:
     from resonate.send import TaskHeartbeating
-    from resonate_base.timing import Sleeper
+    from resonate.timing import Sleeper
 
 logger = logging.getLogger(__name__)
 

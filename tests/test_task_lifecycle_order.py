@@ -26,9 +26,8 @@ from resonate.testing import (
     pending_promise,
     resolved_promise,
 )
-from resonate.types import TaskData
+from resonate.types import PromiseRecord, TaskData, TaskRecord, Value
 from resonate_base.error import ServerError
-from resonate_base.types import PromiseRecord, TaskRecord, Value
 
 TTL = 10_000
 

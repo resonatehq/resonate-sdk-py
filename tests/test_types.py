@@ -3,12 +3,14 @@ from __future__ import annotations
 import msgspec
 import pytest
 
-from resonate.types import Args, Info, TaskData
-from resonate_base.types import (
+from resonate.types import (
+    Args,
+    Info,
     PromiseCreateReq,
     PromiseRecord,
     PromiseRegisterCallbackData,
     PromiseSettleReq,
+    TaskData,
     TaskRecord,
     Value,
 )

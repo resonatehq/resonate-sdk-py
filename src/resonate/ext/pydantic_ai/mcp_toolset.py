@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from pydantic_ai.tools import RunContext
 
     from resonate.context import Context
-    from resonate_base.retry import RetryPolicy
+    from resonate.retry import RetryPolicy
 
 
 class ToolDefsEnvelope(BaseModel):

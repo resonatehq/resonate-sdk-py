@@ -1495,12 +1495,6 @@ wheels = [
 name = "resonate-base"
 version = "0.8.0"
 source = { editable = "packages/resonate-base" }
-dependencies = [
-    { name = "msgspec" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "msgspec", specifier = ">=0.21.1,<1" }]
 
 [[package]]
 name = "resonate-nats"

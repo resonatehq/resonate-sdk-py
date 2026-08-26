@@ -14,14 +14,14 @@ from resonate.send import (
     SubEnvelope,
     TaskFenceResult,
 )
-from resonate_base.error import ServerError
-from resonate_base.transport import Transport
-from resonate_base.types import (
+from resonate.transport import Transport
+from resonate.types import (
     PromiseCreateReq,
     PromiseRegisterCallbackData,
     PromiseSettleReq,
     Value,
 )
+from resonate_base.error import ServerError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

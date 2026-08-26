@@ -40,13 +40,13 @@ from resonate.resonate import (
     Opts,
     Resonate,
 )
+from resonate.retry import Never
 from resonate_base.error import (
     AlreadyRegisteredError,
     ApplicationError,
     FunctionNotFoundError,
     ServerError,
 )
-from resonate_base.retry import Never
 from resonate_testing import FakeNetwork, FakeSource, SendOnlyNetwork
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 
     from resonate.codec import Encryptor
     from resonate.context import Context
-    from resonate_base.types import PromiseRecord
+    from resonate.types import PromiseRecord
 
 
 # ── Harness ──────────────────────────────────────────────────────────────

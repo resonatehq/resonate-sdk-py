@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import msgspec
 
-from resonate_base import PROTOCOL_VERSION
+from resonate import PROTOCOL_VERSION
+from resonate.timing import Clock, Sleeper, now_ms, sleep
+from resonate.types import PromiseState
 from resonate_base.error import DecodingError, ServerError
-from resonate_base.timing import Clock, Sleeper, now_ms, sleep
-from resonate_base.types import PromiseState
 
 if TYPE_CHECKING:
     from collections.abc import Callable

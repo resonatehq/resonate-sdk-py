@@ -14,8 +14,8 @@ import pytest
 
 from resonate.codec import Codec, NoopEncryptor
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
+from resonate.types import Value
 from resonate_base.error import ApplicationError, ResonateTimeoutError
-from resonate_base.types import Value
 
 
 def _codec() -> Codec:

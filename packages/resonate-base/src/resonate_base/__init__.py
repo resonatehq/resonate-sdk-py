@@ -1,8 +1,10 @@
-"""Shared protocol definitions for the Resonate SDK and its connectors."""
+"""The connector seam shared by the Resonate SDK and its connectors.
+
+A connector implements :class:`~resonate_base.connections.Network` and/or
+:class:`~resonate_base.connections.Source`, raises the errors in
+:mod:`resonate_base.error`, and routes by the promise id format in
+:mod:`resonate_base.ids`. Everything that describes *executing durable
+functions* lives in :mod:`resonate` (the ``resonate-sdk`` distribution).
+"""
 
 from __future__ import annotations
-
-#: Protocol version string sent in all requests to the Resonate server.
-PROTOCOL_VERSION = "2026-04-01"
-
-__all__ = ["PROTOCOL_VERSION"]

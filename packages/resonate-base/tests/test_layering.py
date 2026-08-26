@@ -16,7 +16,8 @@ import sys
 SRC = pathlib.Path(__file__).parent.parent / "src" / "resonate_base"
 
 #: Everything base is allowed to import at module scope, beyond the stdlib.
-ALLOWED_THIRD_PARTY = {"msgspec"}
+#: Base is the connector seam -- it has no third-party dependencies at all.
+ALLOWED_THIRD_PARTY: set[str] = set()
 
 #: Packages that sit above base in the dependency graph.
 FORBIDDEN_ROOTS = {"resonate", "resonate_aws", "resonate_nats", "resonate_testing"}

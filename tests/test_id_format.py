@@ -23,9 +23,9 @@ import pytest
 
 from resonate.connections import LocalConnection
 from resonate.resonate import Resonate
+from resonate.retry import Never
 from resonate_base.error import InvalidIdError, ServerError
 from resonate_base.ids import join_id, origin_of, validate_root_id
-from resonate_base.retry import Never
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping

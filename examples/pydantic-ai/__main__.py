@@ -56,8 +56,8 @@ from pydantic_ai.models.function import FunctionModel
 from resonate.ext.pydantic_ai import ResonateAgent
 from resonate.ext.pydantic_ai.context import workflow_context
 from resonate.resonate import Resonate
-from resonate_base.retry import Exponential
-from resonate_base.types import Value
+from resonate.retry import Exponential
+from resonate.types import Value
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage

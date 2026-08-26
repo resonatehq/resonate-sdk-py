@@ -34,8 +34,10 @@ from resonate.dependencies import DependencyMap
 from resonate.effects import ResonateEffects
 from resonate.registry import Registry
 from resonate.resonate import Resonate
+from resonate.retry import Constant
 from resonate.send import Sender
-from resonate.types import TaskData
+from resonate.transport import Transport
+from resonate.types import PromiseCreateReq, PromiseSettleReq, TaskData
 from resonate_base.error import (
     FunctionNotFoundError,
     HttpError,
@@ -44,12 +46,9 @@ from resonate_base.error import (
     SerializationError,
     ServerError,
 )
-from resonate_base.retry import Constant
-from resonate_base.transport import Transport
-from resonate_base.types import PromiseCreateReq, PromiseSettleReq
 
 if TYPE_CHECKING:
-    from resonate_base.types import PromiseRecord
+    from resonate.types import PromiseRecord
 
 # Far-future deadline, matching tests.test_core.
 FAR_FUTURE = 1 << 50

@@ -23,9 +23,9 @@ import pytest
 from resonate.context import Context
 from resonate.send import Sender
 from resonate.testing import FAR_FUTURE, FakeClock, local_effects
+from resonate.transport import Transport
 from resonate.tree import NodeType, Tree
-from resonate_base.transport import Transport
-from resonate_base.types import (
+from resonate.types import (
     PromiseCreateReq,
     PromiseRegisterCallbackData,
     PromiseSettleReq,

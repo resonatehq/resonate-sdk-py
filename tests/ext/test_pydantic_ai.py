@@ -45,11 +45,11 @@ from resonate.ext.pydantic_ai.context import (
 )
 from resonate.ext.pydantic_ai.types import ModelResponseEnvelope
 from resonate.resonate import Resonate
+from resonate.retry import Never
 from resonate.send import Sender
+from resonate.transport import Transport
+from resonate.types import PromiseRecord, Value
 from resonate_base.error import ApplicationError, ServerError
-from resonate_base.retry import Never
-from resonate_base.transport import Transport
-from resonate_base.types import PromiseRecord, Value
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, AsyncIterator

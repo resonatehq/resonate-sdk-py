@@ -19,9 +19,9 @@ import pytest
 
 from resonate.send import Sender, default_corr_id
 from resonate.testing import RecordingObserver
+from resonate.transport import Response, ResponseHead, Transport
+from resonate.types import PromiseCreateReq, Value
 from resonate_base.error import DecodingError, ServerError
-from resonate_base.transport import Response, ResponseHead, Transport
-from resonate_base.types import PromiseCreateReq, Value
 from resonate_testing import StubNetwork, envelope
 
 FAR = (1 << 62) - 1

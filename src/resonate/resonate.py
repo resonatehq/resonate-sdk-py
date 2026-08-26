@@ -35,11 +35,15 @@ from resonate.core import Core
 from resonate.dependencies import DependencyMap
 from resonate.handle import PromiseResult, ResonateHandle, Subscription
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
+from resonate.observability import BackgroundTaskFailed, logging_observer
 from resonate.promises import Promises
 from resonate.registry import Registry
+from resonate.retry import Exponential
 from resonate.schedules import Schedules
 from resonate.send import Sender
-from resonate.types import Args, Status, TaskData
+from resonate.timing import now_ms, sleep
+from resonate.transport import ExecuteMsg, Transport, UnblockMsg
+from resonate.types import Args, PromiseCreateReq, PromiseState, Status, TaskData, Value
 from resonate_base.connections import Network, Source
 from resonate_base.error import (
     ApplicationError,
@@ -48,11 +52,6 @@ from resonate_base.error import (
     ServerError,
 )
 from resonate_base.ids import validate_root_id
-from resonate_base.observability import BackgroundTaskFailed, logging_observer
-from resonate_base.retry import Exponential
-from resonate_base.timing import now_ms, sleep
-from resonate_base.transport import ExecuteMsg, Transport, UnblockMsg
-from resonate_base.types import PromiseCreateReq, PromiseState, Value
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
@@ -60,10 +59,10 @@ if TYPE_CHECKING:
     from resonate.codec import Encryptor
     from resonate.context import Context
     from resonate.heartbeat import Heartbeat
-    from resonate_base.observability import Observer
-    from resonate_base.retry import RetryPolicy
-    from resonate_base.timing import Clock, Sleeper
-    from resonate_base.transport import Message
+    from resonate.observability import Observer
+    from resonate.retry import RetryPolicy
+    from resonate.timing import Clock, Sleeper
+    from resonate.transport import Message
 
 logger = logging.getLogger(__name__)
 
@@ -853,7 +852,7 @@ class Resonate:
     ) -> PromiseCreateReq:
         """Build the root ``PromiseCreateReq`` for a top-level run or rpc.
 
-        The param is a **plaintext** :class:`~resonate_base.types.Value` wrapping
+        The param is a **plaintext** :class:`~resonate.types.Value` wrapping
         the :class:`~resonate.types.TaskData` -- symmetric with the requests
         :class:`~resonate.context.Context` builds for child promises.
         Encryption is deferred to a single boundary,

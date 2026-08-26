@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from resonate.context import Context
-    from resonate_base.retry import RetryPolicy
+    from resonate.retry import RetryPolicy
 
 
 class Registry:

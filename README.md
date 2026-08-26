@@ -25,7 +25,7 @@ The Resonate Python SDK enables developers to build reliable and scalable cloud 
 | Package | Module | What it is |
 |---|---|---|
 | `resonate-sdk` | `resonate` | The SDK: durable functions, context, the HTTP/SSE/local transports. |
-| `resonate-base` | `resonate_base` | Shared protocol layer: errors, timing, retry, wire records, `Network`/`Source`/`Transport`. Depends only on `msgspec`. |
+| `resonate-base` | `resonate_base` | Connector seam: the `Network`/`Source` protocols, the error vocabulary, and the promise id format. No third-party dependencies. |
 | `resonate-nats` | `resonate_nats` | NATS connector. Install via `resonate-sdk[nats]`. |
 | `resonate-sdk-aws` | `resonate_aws` | AWS Lambda worker shim. |
 

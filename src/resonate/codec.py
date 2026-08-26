@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import msgspec
 
+from resonate.types import PromiseRecord, Value
 from resonate_base.error import ApplicationError, Base64DecodeError, SerializationError
-from resonate_base.types import PromiseRecord, Value
 
 if TYPE_CHECKING:
     from pydantic import BaseModel

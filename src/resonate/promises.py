@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from resonate.send import PromiseSearchResult
-from resonate_base.types import PromiseCreateReq, PromiseSettleReq, Value
+from resonate.types import PromiseCreateReq, PromiseSettleReq, Value
 
 if TYPE_CHECKING:
     from resonate.codec import Codec
     from resonate.core import SettleState
     from resonate.send import Sender
-    from resonate_base.types import PromiseRecord
+    from resonate.types import PromiseRecord
 
 
 class Promises:

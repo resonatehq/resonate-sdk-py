@@ -37,7 +37,7 @@ For the run-as-root-task paths (`resonate.run`, `resonate.rpc`, `ctx.rpc`), a
 remote dispatch carries no policy on the wire — the executing worker resolves it
 from the registry, which is why registering `charge` with a policy is what makes
 those paths retry. Built-in policies live in
-[`resonate_base.retry`](../../packages/resonate-base/src/resonate_base/retry.py): `Exponential`, `Linear`,
+[`resonate.retry`](../../packages/resonate-base/src/resonate_base/retry.py): `Exponential`, `Linear`,
 `Constant`, `Never`.
 
 ## Run it
