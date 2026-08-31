@@ -49,12 +49,12 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
-from resonate.network.turso.cron import CronError, next_cron
+from resonate_turso.cron import CronError, next_cron
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from resonate.network.turso.driver import TursoExecutor, TursoRow
+    from resonate_turso.driver import TursoExecutor, TursoRow
 
 # =============================================================================
 # CONSTANTS
@@ -108,15 +108,35 @@ class OutgoingMessage(NamedTuple):
 # =============================================================================
 
 
+#: Separates an id's origin from its lineage; reserved, never inside an origin.
+ORIGIN_SEP = ":"
+#: Separates lineage segments *below* the origin (``root:1`` -> ``root:1.2``).
+LINEAGE_SEP = "."
+
+
 def origin_of(promise_id: str) -> str:
     """Return the origin a promise id belongs to.
 
-    Everything before the first ``.``, or the whole id when it has none. This is
-    the server's own rule (see ``origin()`` in ``resonate/src/types.rs``) and it
-    is what partitions the tenant into databases -- one per workflow root.
+    Everything before the first ``:``, or the whole id when it has none -- the
+    server's own rule, and what partitions the tenant into databases, one per
+    workflow root.
+
+    The separator is ``:`` and not ``.``: ``.`` divides lineage segments
+    *below* the origin, so a dotted root id (``my.app.workflow``) is one
+    workflow, not three. Splitting on ``.`` would shatter it across databases
+    and break the single-database-transaction invariant this design rests on.
     """
-    head, _, _ = promise_id.partition(".")
+    head, _, _ = promise_id.partition(ORIGIN_SEP)
     return head
+
+
+def _lineage_sep(ancestor: str) -> str:
+    """Return the separator joining a child segment to ``ancestor``.
+
+    Mirrors the SDK's ``join_id``: the first segment below a root is attached
+    with ``:`` (making it the origin), every one after that with ``.``.
+    """
+    return LINEAGE_SEP if ORIGIN_SEP in ancestor else ORIGIN_SEP
 
 
 def hash_origin(origin: str) -> int:
@@ -1547,9 +1567,12 @@ def validate_create(
 
     origin = tags.get("resonate:origin")
     if origin is not None:
-        if "." in origin:
-            return "resonate:origin must not contain '.'"
-        if promise_id != origin and not promise_id.startswith(f"{origin}."):
+        # Only ``:`` is reserved. An origin holding one could never be split
+        # back out of any id, since the origin is everything before the *first*
+        # ``:``. A ``.`` is fine -- ``my.app.workflow`` is a legal root.
+        if ORIGIN_SEP in origin:
+            return f"resonate:origin must not contain '{ORIGIN_SEP}'"
+        if promise_id != origin and not promise_id.startswith(f"{origin}{ORIGIN_SEP}"):
             return "Promise ID must be prefixed by resonate:origin"
 
     for tag, label in (
@@ -1560,12 +1583,9 @@ def validate_create(
         if (
             prefix is not None
             and promise_id != prefix
-            and not promise_id.startswith(f"{prefix}.")
+            and not promise_id.startswith(f"{prefix}{_lineage_sep(prefix)}")
         ):
             return f"Promise ID must be prefixed by {label}"
-
-    if "." in (tags.get("resonate:prefix") or ""):
-        return "resonate:prefix must not contain '.'"
 
     raw_delay = tags.get("resonate:delay")
     if raw_delay is not None:

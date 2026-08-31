@@ -9,15 +9,16 @@ import aiohttp
 import msgspec
 import pytest
 
-from resonate.error import HttpError
-from resonate.network import HttpNetwork, LocalNetwork
-from resonate.network.http import DEFAULT_CONN_LIMIT
-from resonate.network.local import I64_MAX
+from resonate.connections import HttpConnection, LocalConnection, SSEConnection
+from resonate.connections.http import DEFAULT_CONN_LIMIT
+from resonate.connections.local import I64_MAX
+from resonate.error import ConnectorError
+from resonate.timing import now_ms
 
 # -- helpers ------------------------------------------------------------------
 
 
-async def send(net: LocalNetwork, req: Any) -> Any:
+async def send(net: LocalConnection, req: Any) -> Any:
     """Encode ``req``, send it through ``net``, and decode the response."""
     resp = await net.send(msgspec.json.encode(req).decode("utf-8"))
     return msgspec.json.decode(resp)
@@ -43,7 +44,7 @@ def data(resp: Any) -> Any:
 
 def test_local_network_creates_and_gets_promise() -> None:
     async def run() -> None:
-        net = LocalNetwork(pid="test-pid", group="default")
+        net = LocalConnection(pid="test-pid", group="default")
         req = {
             "kind": "promise.create",
             "head": {"corrId": "c1", "version": "2025-01-15"},
@@ -73,7 +74,7 @@ def test_local_network_creates_and_gets_promise() -> None:
 
 def test_local_network_idempotent_promise_create() -> None:
     async def run() -> None:
-        net = LocalNetwork()
+        net = LocalConnection()
         req = {
             "kind": "promise.create",
             "head": {"corrId": "c1", "version": "2025-01-15"},
@@ -91,7 +92,7 @@ def test_local_network_idempotent_promise_create() -> None:
 
 def test_local_network_task_create_and_fulfill() -> None:
     async def run() -> None:
-        net = LocalNetwork(pid="pid1")
+        net = LocalConnection(pid="pid1")
         req = {
             "kind": "task.create",
             "head": {"corrId": "c1", "version": "2025-01-15"},
@@ -143,7 +144,7 @@ def test_task_fence_rejects_wrong_version() -> None:
     """task.fence is gated on the task lease: a stale version is a 409 no-op."""
 
     async def run() -> None:
-        net = LocalNetwork(pid="pid1")
+        net = LocalConnection(pid="pid1")
         # Create + acquire a task at version 0.
         create = {
             "kind": "task.create",
@@ -210,18 +211,15 @@ def test_task_fence_rejects_wrong_version() -> None:
     asyncio.run(run())
 
 
-def test_local_network_identity() -> None:
-    net = LocalNetwork(pid="mypid", group="mygroup")
-    assert net.pid() == "mypid"
-    assert net.group() == "mygroup"
+def test_local_network_addresses() -> None:
+    net = LocalConnection(pid="mypid", group="mygroup")
     assert net.unicast() == "local://uni@mygroup/mypid"
-    assert net.anycast() == "local://any@mygroup/mypid"
-    assert net.target_resolver("target") == "local://any@target"
+    assert net.resolve_target("target") == "local://any@target"
 
 
 def test_promise_create_with_target_creates_task_and_dispatches_execute() -> None:
     async def run() -> None:
-        net = LocalNetwork(pid="pid1")
+        net = LocalConnection(pid="pid1")
         req = {
             "kind": "promise.create",
             "head": {"corrId": "c1", "version": "2025-01-15"},
@@ -248,7 +246,7 @@ def test_promise_create_with_target_creates_task_and_dispatches_execute() -> Non
 
 def test_task_suspend_registers_awaiters_and_suspends() -> None:
     async def run() -> None:
-        net = LocalNetwork(pid="pid1")
+        net = LocalConnection(pid="pid1")
 
         # Create a task (acquired).
         create_req = {
@@ -309,7 +307,7 @@ def test_task_suspend_registers_awaiters_and_suspends() -> None:
 
 def test_settling_child_resumes_suspended_parent() -> None:
     async def run() -> None:
-        net = LocalNetwork(pid="pid1")
+        net = LocalConnection(pid="pid1")
 
         # Create parent task.
         create_req = {
@@ -398,7 +396,7 @@ def test_settling_child_resumes_suspended_parent() -> None:
 
 def test_task_suspend_redirect_when_dependency_already_settled() -> None:
     async def run() -> None:
-        net = LocalNetwork(pid="pid1")
+        net = LocalConnection(pid="pid1")
 
         # Create parent task.
         create_req = {
@@ -457,32 +455,12 @@ def test_task_suspend_redirect_when_dependency_already_settled() -> None:
     asyncio.run(run())
 
 
-def test_http_network_identity() -> None:
-    net = HttpNetwork(
-        "http://localhost:8001",
-        pid="mypid",
-        group="mygroup",
-    )
-    assert net.pid() == "mypid"
-    assert net.group() == "mygroup"
-    assert net.unicast() == "poll://uni@mygroup/mypid"
-    assert net.anycast() == "poll://any@mygroup/mypid"
+# -- HttpConnection (request/response network) ---------------------------------
 
 
-def test_http_network_match_returns_poll_anycast() -> None:
-    net = HttpNetwork("http://localhost:8001")
-    assert net.target_resolver("my-target") == "poll://any@my-target"
-
-
-def test_http_network_strips_trailing_slash() -> None:
-    net = HttpNetwork("http://localhost:8001/", pid="pid")
+def test_http_connection_strips_trailing_slash() -> None:
+    net = HttpConnection("http://localhost:8001/")
     assert net._url == "http://localhost:8001"
-
-
-def test_http_network_default_group() -> None:
-    net = HttpNetwork("http://localhost:8001", pid="pid1")
-    assert net.group() == "default"
-    assert net.unicast() == "poll://uni@default/pid1"
 
 
 @pytest.mark.asyncio
@@ -493,7 +471,7 @@ async def test_http_session_connector_limit_above_aiohttp_default() -> None:
     behind execution traffic until leases lapse; the higher cap (paired with a
     bounded execution concurrency) keeps a connection free for the heartbeat.
     """
-    net = HttpNetwork("http://localhost:8001", pid="pid")
+    net = HttpConnection("http://localhost:8001")
     await net.start()
     try:
         session = net._ensure_session()
@@ -507,7 +485,7 @@ async def test_http_session_connector_limit_above_aiohttp_default() -> None:
 
 @pytest.mark.asyncio
 async def test_http_session_connector_limit_override() -> None:
-    net = HttpNetwork("http://localhost:8001", pid="pid", conn_limit=7)
+    net = HttpConnection("http://localhost:8001", conn_limit=7)
     await net.start()
     try:
         conn = net._ensure_session().connector
@@ -517,12 +495,47 @@ async def test_http_session_connector_limit_override() -> None:
         await net.stop()
 
 
+# -- SSEConnection (push-message source) ----------------------------------------
+
+
+def test_sse_connection_addresses() -> None:
+    src = SSEConnection("http://localhost:8001", pid="mypid", group="mygroup")
+    assert src.unicast() == "poll://uni@mygroup/mypid"
+
+
+def test_sse_connection_resolves_a_target_to_a_poll_anycast_address() -> None:
+    src = SSEConnection("http://localhost:8001")
+    assert src.resolve_target("my-target") == "poll://any@my-target"
+
+
+def test_sse_connection_default_group() -> None:
+    src = SSEConnection("http://localhost:8001", pid="pid1")
+    assert src.unicast() == "poll://uni@default/pid1"
+
+
+def test_sse_connection_strips_trailing_slash() -> None:
+    src = SSEConnection("http://localhost:8001/")
+    assert src._url == "http://localhost:8001"
+
+
+@pytest.mark.asyncio
+async def test_sse_connection_start_opens_listener_and_stop_tears_down() -> None:
+    src = SSEConnection("http://localhost:8001", pid="pid", group="g")
+    await src.start()
+    try:
+        assert src._sse_handle is not None
+    finally:
+        await src.stop()
+    assert src._sse_handle is None
+    assert src._session is None
+
+
 # ---------------------------------------------------------------------------
-# Resilience: HttpNetwork.send must survive a server outage and recover.
-# Mirrors the existing _sse_loop retry-with-backoff -- the request half had
-# none, so any task.create / promise.create / task.fulfill / promise.settle
-# in flight when the server died (or before it came up) would propagate
-# HttpError and strand the awaiting handle. See resonate.network._http.send.
+# Resilience: HttpConnection.send must survive a server outage and recover.
+# Mirrors the SSE listener's retry-with-backoff -- without it, any
+# task.create / promise.create / task.fulfill / promise.settle in flight when
+# the server died (or before it came up) would propagate ConnectorError and strand
+# the awaiting handle. See resonate.connections.http.HttpConnection.send.
 # ---------------------------------------------------------------------------
 
 
@@ -576,10 +589,10 @@ async def test_http_send_retries_through_connection_outage(
     """``send`` must retry on ``aiohttp.ClientError`` and recover.
 
     Reproduces ``resonate dev`` not yet running when the client makes a
-    request: without retry, the first ``task.create`` raises ``HttpError``,
+    request: without retry, the first ``task.create`` raises ``ConnectorError``,
     the bg task aborts, and ``handle.result()`` hangs forever.
     """
-    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    net = HttpConnection("http://localhost:8001")
     flaky = _FlakySession(fail_times=3, body='{"head":{"status":200},"data":{}}')
     monkeypatch.setattr(net, "_ensure_session", lambda: flaky)
     # Mark as ``started`` so the retry loop does not exit on ``not _running``.
@@ -602,7 +615,7 @@ async def test_http_send_stops_retrying_after_stop(
     the bounded join inside ``Resonate.stop`` (which only awaits bg tasks; it
     does not cancel them).
     """
-    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    net = HttpConnection("http://localhost:8001")
     # Permanently failing session: only stop can break the loop.
     flaky = _FlakySession(fail_times=10_000)
     monkeypatch.setattr(net, "_ensure_session", lambda: flaky)
@@ -615,7 +628,7 @@ async def test_http_send_stops_retrying_after_stop(
 
     await net.stop()  # signals _stop_event and flips _running
 
-    with pytest.raises(HttpError):
+    with pytest.raises(ConnectorError):
         await asyncio.wait_for(send_task, timeout=2.0)
 
 
@@ -623,16 +636,16 @@ async def test_http_send_stops_retrying_after_stop(
 async def test_http_send_after_stop_raises_http_error_not_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A ``send`` racing with ``stop`` must surface :class:`HttpError`.
+    """A ``send`` racing with ``stop`` must surface :class:`ConnectorError`.
 
     Reproduces the Ctrl+C shutdown race: ``Resonate.stop`` closes the
     aiohttp session by design *before* joining bg tasks, so an in-flight
     ``session.post`` raises a bare ``RuntimeError("Session is closed")``.
-    Without the catch in :meth:`HttpNetwork.send`, that ``RuntimeError``
+    Without the catch in :meth:`HttpConnection.send`, that ``RuntimeError``
     propagates out of every untracked ``ctx.run`` ``bg()`` task and asyncio
     prints a ``Task exception was never retrieved`` traceback for each.
     """
-    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    net = HttpConnection("http://localhost:8001")
 
     class _ClosedSession:
         def post(self, *_args: object, **_kwargs: object) -> _ClosedSession._Ctx:
@@ -654,7 +667,7 @@ async def test_http_send_after_stop_raises_http_error_not_runtime_error(
     # raises -- that is exactly the shutdown race we want to model.
     net._running = False
 
-    with pytest.raises(HttpError):
+    with pytest.raises(ConnectorError):
         await net.send("{}")
 
 
@@ -666,13 +679,13 @@ async def test_http_send_does_not_open_a_session_after_stop() -> None:
     will close (aiohttp's ``Unclosed client session`` warning at process
     exit).
     """
-    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    net = HttpConnection("http://localhost:8001")
     await net.start()
     await net.stop()  # closes the session, sets _running=False
 
     assert net._session is None
 
-    with pytest.raises(HttpError):
+    with pytest.raises(ConnectorError):
         await net.send("{}")
 
     # No session was created during the failed ``send``.
@@ -689,7 +702,7 @@ async def test_http_send_does_not_retry_server_errors(
     retried. A 404/500 body is a deliberate response: ``ServerError`` must
     propagate unchanged so callers see it on the first attempt.
     """
-    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    net = HttpConnection("http://localhost:8001")
     not_found = _FlakySession(
         fail_times=0,
         body='{"head":{"status":404},"data":{"error":"nope"}}',
@@ -713,7 +726,7 @@ async def test_http_send_before_start_does_not_raise_stopped_error(
     scheduled via ``asyncio.create_task`` but the event loop has not yielded
     yet when user code calls an API (e.g. ``resonate.schedule()``). Before
     this fix, ``send``'s ``if not self._running`` guard fired immediately,
-    raising a misleading ``HttpError("network has been stopped")`` even though
+    raising a misleading ``ConnectorError("network has been stopped")`` even though
     ``stop()`` was never called. The fix adds a ``_stopped`` flag that is only
     set by ``stop()``, so "not yet started" and "explicitly stopped" are
     distinct states.
@@ -721,7 +734,7 @@ async def test_http_send_before_start_does_not_raise_stopped_error(
     This test patches ``_ensure_session`` to return a fake session that
     succeeds immediately, so the request goes through without a real server.
     """
-    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    net = HttpConnection("http://localhost:8001")
     ok_session = _FlakySession(fail_times=0, body='{"head":{"status":200},"data":{}}')
     monkeypatch.setattr(net, "_ensure_session", lambda: ok_session)
 
@@ -744,13 +757,13 @@ async def test_http_send_before_start_does_not_raise_stopped_error(
 async def test_http_send_after_stop_raises_even_if_never_started(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``send`` must raise ``HttpError`` after ``stop()``, even without a prior ``start()``.
+    """``send`` must raise ``ConnectorError`` after ``stop()``, even without a prior ``start()``.
 
     ``stop()`` sets ``_stopped = True``; the guard in ``send()`` keys on
     ``_stopped``, so an explicitly stopped network is always refused regardless
     of whether ``start()`` was ever called.
     """
-    net = HttpNetwork("http://localhost:8001", pid="pid", group="g")
+    net = HttpConnection("http://localhost:8001")
     ok_session = _FlakySession(fail_times=0, body='{"head":{"status":200},"data":{}}')
     monkeypatch.setattr(net, "_ensure_session", lambda: ok_session)
 
@@ -758,5 +771,72 @@ async def test_http_send_after_stop_raises_even_if_never_started(
     await net.stop()
     assert net._stopped
 
-    with pytest.raises(HttpError):
+    with pytest.raises(ConnectorError):
         await net.send("{}")
+
+
+# -- scheduler invariant: only target promises are timed out --------------------
+#
+# Mirrors the server's ``promise.pendingHasTimeout`` invariant: a pending
+# promise carrying ``resonate:target`` always has a timeout scheduled, and one
+# without a target must NOT. Divergence here is invisible in ordinary tests --
+# a simulation that schedules timeouts for *every* promise simply lets more
+# things succeed than the real server does -- so it is asserted directly.
+
+
+def _create(
+    net: LocalConnection, id: str, timeout_at: int, tags: dict[str, str]
+) -> Any:
+    return send(
+        net,
+        {
+            "kind": "promise.create",
+            "head": {"corrId": id, "version": "2025-01-15"},
+            "data": {"id": id, "timeoutAt": timeout_at, "param": {}, "tags": tags},
+        },
+    )
+
+
+def test_only_promises_with_a_target_are_scheduled_for_timeout() -> None:
+    async def run() -> None:
+        net = LocalConnection()
+        deadline = now_ms() + 60_000
+        await _create(net, "no-target", deadline, {"resonate:scope": "global"})
+        await _create(
+            net,
+            "with-target",
+            deadline,
+            {"resonate:scope": "global", "resonate:target": "poll://any@default"},
+        )
+
+        scheduled = {pt.id for pt in net.state.p_timeouts}
+        assert "with-target" in scheduled
+        assert "no-target" not in scheduled
+
+    asyncio.run(run())
+
+
+def test_tick_expires_only_the_targeted_promise() -> None:
+    async def run() -> None:
+        net = LocalConnection()
+        deadline = now_ms() + 60_000
+        await _create(net, "bare", deadline, {"resonate:scope": "global"})
+        await _create(
+            net,
+            "timer",
+            deadline,
+            {
+                "resonate:scope": "global",
+                "resonate:target": "poll://any@default",
+                "resonate:timer": "true",
+            },
+        )
+
+        net.state.tick(deadline + 1)
+
+        # The timer fires -- and ``resonate:timer`` settles it RESOLVED, which
+        # is what wakes a sleeping workflow. The bare promise is left alone.
+        assert net.state.promises["timer"].state == "resolved"
+        assert net.state.promises["bare"].state == "pending"
+
+    asyncio.run(run())

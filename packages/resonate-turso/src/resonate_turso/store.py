@@ -21,11 +21,11 @@ import logging
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
-from resonate.network.turso.schema import ORIGIN_SCHEMA, SCHEMA_VERSION, TENANT_SCHEMA
-from resonate.network.turso.server import hash_origin
+from resonate_turso.schema import ORIGIN_SCHEMA, SCHEMA_VERSION, TENANT_SCHEMA
+from resonate_turso.server import hash_origin
 
 if TYPE_CHECKING:
-    from resonate.network.turso.driver import (
+    from resonate_turso.driver import (
         TursoConnection,
         TursoDriver,
         TursoExecutor,

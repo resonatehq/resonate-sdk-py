@@ -10,8 +10,11 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "resonate-base",
+    "resonate-nats",
     "resonate-sdk",
     "resonate-sdk-aws",
+    "resonate-turso",
 ]
 
 [[package]]
@@ -1505,27 +1508,42 @@ wheels = [
 ]
 
 [[package]]
+name = "resonate-base"
+version = "0.8.0"
+source = { editable = "packages/resonate-base" }
+
+[[package]]
+name = "resonate-nats"
+version = "0.8.0"
+source = { editable = "packages/resonate-nats" }
+dependencies = [
+    { name = "nats-py" },
+    { name = "resonate-base" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "nats-py", specifier = ">=2.6.0,<3" },
+    { name = "resonate-base", editable = "packages/resonate-base" },
+]
+
+[[package]]
 name = "resonate-sdk"
-version = "0.7.4"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "msgspec" },
+    { name = "resonate-base" },
 ]
 
 [package.optional-dependencies]
-nats = [
-    { name = "nats-py" },
-]
 pydantic = [
     { name = "pydantic" },
 ]
 pydantic-ai = [
     { name = "pydantic" },
     { name = "pydantic-ai-slim" },
-]
-turso = [
-    { name = "pyturso" },
 ]
 
 [package.dev-dependencies]
@@ -1537,6 +1555,9 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "resonate-nats" },
+    { name = "resonate-testing" },
+    { name = "resonate-turso" },
     { name = "ruff" },
     { name = "ty" },
     { name = "vulture" },
@@ -1546,13 +1567,12 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.5,<4" },
     { name = "msgspec", specifier = ">=0.21.1,<1" },
-    { name = "nats-py", marker = "extra == 'nats'", specifier = ">=2.6.0,<3" },
     { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2.0.0,<3" },
     { name = "pydantic", marker = "extra == 'pydantic-ai'", specifier = ">=2.0.0,<3" },
     { name = "pydantic-ai-slim", marker = "extra == 'pydantic-ai'", specifier = ">=2.8,<3" },
-    { name = "pyturso", marker = "extra == 'turso'", specifier = ">=0.7.2,<1" },
+    { name = "resonate-base", editable = "packages/resonate-base" },
 ]
-provides-extras = ["nats", "turso", "pydantic", "pydantic-ai"]
+provides-extras = ["pydantic", "pydantic-ai"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1563,6 +1583,9 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "resonate-nats", editable = "packages/resonate-nats" },
+    { name = "resonate-testing", editable = "packages/resonate-testing" },
+    { name = "resonate-turso", editable = "packages/resonate-turso" },
     { name = "ruff", specifier = ">=0.15.14" },
     { name = "ty", specifier = ">=0.0.39" },
     { name = "vulture", specifier = ">=2.16" },
@@ -1570,7 +1593,7 @@ dev = [
 
 [[package]]
 name = "resonate-sdk-aws"
-version = "0.7.4"
+version = "0.8.0"
 source = { editable = "packages/resonate-sdk-aws" }
 dependencies = [
     { name = "msgspec" },
@@ -1581,6 +1604,36 @@ dependencies = [
 requires-dist = [
     { name = "msgspec", specifier = ">=0.21.1,<1" },
     { name = "resonate-sdk", editable = "." },
+]
+
+[[package]]
+name = "resonate-testing"
+version = "0.1.0"
+source = { editable = "packages/resonate-testing" }
+dependencies = [
+    { name = "msgspec" },
+    { name = "resonate-base" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "msgspec", specifier = ">=0.21.1,<1" },
+    { name = "resonate-base", specifier = ">=0.8.0,<0.9" },
+]
+
+[[package]]
+name = "resonate-turso"
+version = "0.8.0"
+source = { editable = "packages/resonate-turso" }
+dependencies = [
+    { name = "pyturso" },
+    { name = "resonate-base" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pyturso", specifier = ">=0.7.2,<1" },
+    { name = "resonate-base", editable = "packages/resonate-base" },
 ]
 
 [[package]]

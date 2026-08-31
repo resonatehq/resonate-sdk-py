@@ -1,68 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
 
 import msgspec
 import pytest
+from resonate_testing import StubNetwork, envelope
 
 from resonate.error import DecodingError, ServerError
-from resonate.transport import (
-    ExecuteMsg,
-    Message,
-    Transport,
-    UnblockMsg,
-)
+from resonate.transport import ExecuteMsg, Message, Transport, UnblockMsg
 from resonate.types import PromiseRecord, Value
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-
-class StubNetwork:
-    """A minimal in-process ``Network`` standing in for ``LocalNetwork``.
-
-    The stub plays the server: ``send`` returns a canned response and ``recv``
-    captures the registered callback so tests can feed it raw messages.
-    """
-
-    def __init__(self, response: str = "") -> None:
-        self.response = response
-        self.sent: list[str] = []
-        self.callbacks: list[Callable[[str], None]] = []
-
-    def pid(self) -> str:
-        return "test"
-
-    def group(self) -> str:
-        return "default"
-
-    def unicast(self) -> str:
-        return "local://uni@default/test"
-
-    def anycast(self) -> str:
-        return "local://any@default/test"
-
-    async def start(self) -> None: ...
-
-    async def stop(self) -> None: ...
-
-    async def send(self, req: str) -> str:
-        self.sent.append(req)
-        return self.response
-
-    def recv(self, callback: Callable[[str], None]) -> None:
-        self.callbacks.append(callback)
-
-    def target_resolver(self, target: str) -> str:
-        return f"local://any@{target}"
-
-
-def envelope(kind: str, corr_id: str, data: object) -> str:
-    return msgspec.json.encode(
-        {"kind": kind, "head": {"corrId": corr_id}, "data": data}
-    ).decode("utf-8")
-
 
 # -- send: envelope validation ------------------------------------------------
 
@@ -80,9 +26,10 @@ def test_send_and_validate_envelope_format() -> None:
     ).decode("utf-8")
 
     resp = asyncio.run(transport.send("promise.create", "env123", body))
-    assert resp["kind"] == "promise.create"
-    assert resp["head"]["corrId"] == "env123"
-    assert resp["data"]["promise"]["id"] == "p2"
+    assert resp.kind == "promise.create"
+    assert resp.head.corr_id == "env123"
+    assert resp.head.status == 200  # defaulted: the server omitted it
+    assert resp.data["promise"]["id"] == "p2"
 
 
 def test_send_passes_body_to_network() -> None:
@@ -125,16 +72,17 @@ def test_send_missing_fields_treated_as_empty() -> None:
 
 
 def feed(transport: Transport, net: StubNetwork, raw: str) -> list[Message]:
+    """Register a recv callback (fanned out to ``net`` as a source) and inject ``raw``."""
     received: list[Message] = []
     transport.recv(received.append)
-    net.callbacks[0](raw)
+    net.push(raw)
     return received
 
 
 def test_recv_parses_execute_message() -> None:
     net = StubNetwork()
     raw = '{"kind":"execute","data":{"task":{"id":"t1","version":3}}}'
-    received = feed(Transport(net), net, raw)
+    received = feed(Transport(net, [net]), net, raw)
     assert len(received) == 1
     msg = received[0]
     assert isinstance(msg, ExecuteMsg)
@@ -145,7 +93,7 @@ def test_recv_parses_execute_message() -> None:
 def test_recv_execute_message_default_version() -> None:
     net = StubNetwork()
     raw = '{"kind":"execute","data":{"task":{"id":"t1"}}}'
-    received = feed(Transport(net), net, raw)
+    received = feed(Transport(net, [net]), net, raw)
     assert isinstance(received[0], ExecuteMsg)
     assert received[0].version == 0
 
@@ -156,7 +104,7 @@ def test_recv_parses_unblock_message() -> None:
         '{"kind":"unblock","data":{"promise":'
         '{"id":"p1","state":"resolved","value":{"data":"dmFs"},"timeoutAt":123}}}'
     )
-    received = feed(Transport(net), net, raw)
+    received = feed(Transport(net, [net]), net, raw)
     assert len(received) == 1
     msg = received[0]
     assert isinstance(msg, UnblockMsg)
@@ -170,14 +118,36 @@ def test_recv_parses_unblock_message() -> None:
 
 def test_recv_discards_invalid_json() -> None:
     net = StubNetwork()
-    received = feed(Transport(net), net, "not json")
+    received = feed(Transport(net, [net]), net, "not json")
     assert received == []
 
 
 def test_recv_discards_unknown_kind() -> None:
     net = StubNetwork()
-    received = feed(Transport(net), net, '{"kind":"mystery","data":{}}')
+    received = feed(Transport(net, [net]), net, '{"kind":"mystery","data":{}}')
     assert received == []
+
+
+def test_recv_registers_on_every_source() -> None:
+    """A message arriving on *any* source reaches the callback."""
+    net = StubNetwork()
+    extra = StubNetwork()
+    transport = Transport(net, [net, extra])
+
+    received: list[Message] = []
+    transport.recv(received.append)
+    assert len(net.callbacks) == 1
+    assert len(extra.callbacks) == 1
+
+    net.callbacks[0]('{"kind":"execute","data":{"task":{"id":"t1"}}}')
+    extra.callbacks[0]('{"kind":"execute","data":{"task":{"id":"t2"}}}')
+    assert [m.task_id for m in received if isinstance(m, ExecuteMsg)] == ["t1", "t2"]
+
+
+def test_recv_without_sources_is_a_no_op() -> None:
+    net = StubNetwork()
+    Transport(net).recv(lambda _msg: None)  # nothing to register on
+    assert net.callbacks == []
 
 
 # -- network accessor ---------------------------------------------------------

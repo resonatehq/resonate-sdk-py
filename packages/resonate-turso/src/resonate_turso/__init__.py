@@ -1,13 +1,22 @@
-"""A :class:`~resonate.network.Network` with no server behind it.
+"""Decentralized Resonate on Turso: both connector seams, with no server.
 
-Every other network in this SDK is a transport: it carries a request to a
-Resonate Server and carries the response back. This one is not. There is no
-server; the SDK *is* the server, and the durable state lives in Turso databases
-the SDK reads, writes, and syncs directly.
+Implements :class:`~resonate_base.connections.Network` and
+:class:`~resonate_base.connections.Source`.
+
+Every other connector is a transport: it carries a request to a Resonate Server
+and carries the response back. This one is not. There is no server; the
+connector *is* the server, and the durable state lives in Turso databases it
+reads, writes, and syncs directly.
+
+That makes this the one connector that cannot treat a request as opaque -- it
+has to open the envelope to run the transition. It still takes the routing
+origin from the ``resonate:origin`` header rather than parsing it out of an id,
+so the id format stays the SDK's business and there is no second copy of it
+here to drift.
 
 The partition is by workflow. Every promise id is prefixed by its origin -- the
-root workflow's id, everything before the first ``.`` -- and each origin gets its
-own database, ``<prefix><origin>``. That is not an arbitrary sharding key: the
+root workflow's id, everything before the first ``:`` -- and each origin gets
+its own database, ``<prefix><origin>``. That is not an arbitrary sharding key: the
 protocol already guarantees a callback never crosses an origin
 (``promise.register_callback`` refuses), so every request touches exactly one
 workflow's state and is therefore a single-database transaction. A workflow is a
@@ -81,13 +90,14 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from resonate import PROTOCOL_VERSION, now_ms
-from resonate.error import DecodingError
-from resonate.network.turso.cron import CronError, cron_occurrences, next_cron
-from resonate.network.turso.driver import (
+from resonate_base import ORIGIN_HEADER, PROTOCOL_VERSION, ConnectorError
+
+from resonate_turso.cron import CronError, cron_occurrences, next_cron
+from resonate_turso.driver import (
     TursoConnection,
     TursoDriver,
     TursoExecutor,
@@ -96,7 +106,7 @@ from resonate.network.turso.driver import (
     TursoSyncDriver,
     database_path,
 )
-from resonate.network.turso.server import (
+from resonate_turso.server import (
     DEFAULT_RETRY_TIMEOUT,
     OriginServer,
     Outcome,
@@ -108,7 +118,7 @@ from resonate.network.turso.server import (
     owner_of,
     to_schedule_record,
 )
-from resonate.network.turso.store import (
+from resonate_turso.store import (
     TIMEOUT_PROMISE,
     TIMEOUT_TASK_LEASE,
     TIMEOUT_TASK_RETRY,
@@ -124,6 +134,7 @@ __all__ = [
     "TIMEOUT_TASK_RETRY",
     "TursoConnection",
     "TursoDriver",
+    "TursoError",
     "TursoExecutor",
     "TursoLocalDriver",
     "TursoNetwork",
@@ -136,6 +147,25 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class TursoError(ConnectorError):
+    """Raised when this connector's substrate fails.
+
+    Named so callers can catch Turso failures specifically without importing
+    the driver, while still being caught by anyone handling ``ConnectorError``.
+    """
+
+
+def _now_ms() -> int:
+    """Return the current time in milliseconds since the epoch.
+
+    Local rather than imported: this package depends on ``resonate-base``, not
+    on the SDK, so it cannot reach ``resonate.timing``. The definition is one
+    line and matches the SDK's exactly.
+    """
+    return time.time_ns() // 1_000_000
+
 
 _SCHEDULE_KINDS = frozenset(
     {"schedule.get", "schedule.create", "schedule.delete", "schedule.search"}
@@ -247,7 +277,7 @@ class TursoNetwork:
     def anycast(self) -> str:
         return self._anycast
 
-    def target_resolver(self, target: str) -> str:
+    def resolve_target(self, target: str) -> str:
         return f"poll://any@{target}"
 
     async def start(self) -> None:
@@ -270,16 +300,24 @@ class TursoNetwork:
     def recv(self, callback: Callable[[str], None]) -> None:
         self._subscribers.append(callback)
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
+        """Apply a request to the origin database it routes to, and answer it.
+
+        The routing origin arrives in ``headers`` under ``resonate:origin``,
+        already resolved by the SDK. Unlike a pure transport this connector
+        cannot treat ``req`` as opaque -- it *is* the server, so it has to open
+        the envelope to run the transition either way -- but taking the origin
+        from the header means the id format is the SDK's business alone, and
+        there is no second copy of it here to drift out of step.
+        """
         try:
             envelope = json.loads(req)
         except ValueError as exc:
-            msg = f"invalid JSON request: {exc}"
-            raise DecodingError(msg) from exc
+            raise TursoError(exc) from exc
 
         head = envelope.get("head") or {}
-        now = head.get("resonate:debug_time") or now_ms()
-        outcome = await self._apply(envelope, now)
+        now = head.get("resonate:debug_time") or _now_ms()
+        outcome = await self._apply(envelope, now, (headers or {}).get(ORIGIN_HEADER))
 
         return json.dumps(
             {
@@ -297,10 +335,16 @@ class TursoNetwork:
     # ROUTING
     # -------------------------------------------------------------------------
 
-    async def _apply(self, req: dict[str, Any], now: int) -> Outcome:
+    async def _apply(
+        self, req: dict[str, Any], now: int, routed: str | None = None
+    ) -> Outcome:
         kind = req["kind"]
         data = req.get("data") or {}
-        declared = (req.get("head") or {}).get("resonate:origin")
+        # The header the SDK routes by wins; the head form serves direct callers
+        # (tests, debug tooling) that build an envelope without going through a
+        # client. Deriving from the id is the last resort, and the only path
+        # that has to know the id format at all.
+        declared = routed or (req.get("head") or {}).get("resonate:origin")
 
         if kind.startswith("debug."):
             return await self._debug(kind, data, declared, now)
@@ -452,7 +496,7 @@ class TursoNetwork:
     async def _tick_loop(self) -> None:
         with contextlib.suppress(asyncio.CancelledError):
             while not self._stopped:
-                await self._tick(now_ms())
+                await self._tick(_now_ms())
                 await asyncio.sleep(self._tick_seconds)
 
     async def _tick(self, now: int) -> None:

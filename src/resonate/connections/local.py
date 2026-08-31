@@ -5,9 +5,10 @@ import contextlib
 from typing import TYPE_CHECKING, Any, Literal
 
 import msgspec
+from resonate_base import PROTOCOL_VERSION
 
-from resonate import PROTOCOL_VERSION, now_ms
 from resonate.error import DecodingError, ServerError
+from resonate.timing import Clock, Sleeper, now_ms, sleep
 from resonate.types import PromiseState
 
 if TYPE_CHECKING:
@@ -17,6 +18,14 @@ if TYPE_CHECKING:
 # =============================================================================
 # CONSTANTS
 # =============================================================================
+
+#: URL scheme of the delivery addresses this in-process server advertises.
+#: They are only ever read back by this module -- :meth:`_dispatch_messages`
+#: hands every message to every registered receiver, because in one process
+#: there is nothing to route *between*. So the addresses below are minted for
+#: recognisability in a test or a log, and mirror the ``poll://`` connector's
+#: shape for exactly that reason; nothing parses them.
+SCHEME = "local"
 
 PENDING_RETRY_TTL = 30_000
 I64_MAX = (1 << 63) - 1
@@ -223,7 +232,7 @@ def _parse_promise_state(value: Any) -> PromiseState:
 
 
 class ServerState:
-    """The in-process server state machine driving :class:`LocalNetwork`.
+    """The in-process server state machine driving :class:`LocalConnection`.
 
     It owns promises, tasks, schedules, pending timeouts, and the queue of
     outgoing messages produced while applying a request or ticking.
@@ -449,11 +458,17 @@ class ServerState:
         )
         record = promise.to_record()
         self.promises[promise_id] = promise
-        self.set_p_timeout(promise_id, timeout_at)
 
         # Auto-create task and dispatch execute when target tag is present.
         address = tags.get("resonate:target")
         if address is not None:
+            # Only a promise carrying an address is expired by the tick loop.
+            # A target-less promise (a bare ``ctx.promise``) is never timed out
+            # by the scheduler, so a durable timer has to carry a target to fire
+            # at all -- see ``Context.sleep``. Scheduling one here regardless
+            # would make this simulation *more* permissive than the server,
+            # which is invisible to every test that only asserts success.
+            self.set_p_timeout(promise_id, timeout_at)
             delay = _parse_int(tags.get("resonate:delay"))
             deferred = delay is not None and now < delay
             self.tasks[promise_id] = Task(
@@ -1107,41 +1122,54 @@ class ServerState:
 
 
 # =============================================================================
-# LOCAL NETWORK
+# LOCAL CONNECTION
 # =============================================================================
 
 
-class LocalNetwork:
-    """In-process :class:`Network` backed by a :class:`ServerState` simulation.
+class LocalConnection:
+    """In-process connection backed by a :class:`ServerState` simulation.
 
-    Useful for running workflows without a Resonate server. A background tick
-    loop advances time once per second; outgoing messages are dispatched to
-    callbacks registered via :meth:`recv` as asyncio tasks.
+    Implements both :class:`~resonate_base.connections.Network` and
+    :class:`~resonate_base.connections.Source`, so a single instance serves as network
+    and source at once. Useful for running workflows without a Resonate
+    server. A background tick loop advances time once per second; outgoing
+    messages are dispatched to callbacks registered via :meth:`recv` as
+    asyncio tasks.
     """
 
-    def __init__(self, pid: str | None = None, group: str | None = None) -> None:
+    def __init__(
+        self,
+        pid: str | None = None,
+        group: str | None = None,
+        clock: Clock = now_ms,
+        sleeper: Sleeper = sleep,
+        tick_interval: float = 1.0,
+    ) -> None:
+        """Build an in-process server simulation.
+
+        ``clock``, ``sleeper`` and ``tick_interval`` are the test seams: the
+        deadline sweep reads ``clock`` rather than the wall clock and waits
+        ``tick_interval`` through ``sleeper``, so a test can drive promise
+        timeouts deterministically instead of waiting out real seconds.
+        """
         self.state = ServerState()
+        self._clock = clock
+        self._sleeper = sleeper
+        self._tick_interval = tick_interval
 
         self._pid = pid if pid is not None else "default"
         self._group = group if group is not None else "default"
-        self._unicast = f"local://uni@{self._group}/{self._pid}"
-        self._anycast = f"local://any@{self._group}/{self._pid}"
+        self._unicast = f"{SCHEME}://uni@{self._group}/{self._pid}"
         self._lock = asyncio.Lock()
         self._subscribers: list[Callable[[str], None]] = []
         self._tick_handle: asyncio.Task[None] | None = None
         self._dispatch_tasks: set[asyncio.Task[None]] = set()
 
-    def pid(self) -> str:
-        return self._pid
-
-    def group(self) -> str:
-        return self._group
-
     def unicast(self) -> str:
         return self._unicast
 
-    def anycast(self) -> str:
-        return self._anycast
+    def resolve_target(self, target: str) -> str:
+        return f"{SCHEME}://any@{target}"
 
     async def start(self) -> None:
         self._tick_handle = asyncio.create_task(self._tick_loop())
@@ -1151,14 +1179,14 @@ class LocalNetwork:
         # thereafter.
         with contextlib.suppress(asyncio.CancelledError):
             while True:
-                now = now_ms()
+                now = self._clock()
                 async with self._lock:
                     self.state.outgoing.clear()
                     self.state.tick(now)
                     outgoing = self.state.outgoing
                     self.state.outgoing = []
                 self._dispatch_messages(outgoing)
-                await asyncio.sleep(1)
+                await self._sleeper(self._tick_interval)
 
     async def stop(self) -> None:
         handle = self._tick_handle
@@ -1169,7 +1197,16 @@ class LocalNetwork:
                 await handle
         self._subscribers.clear()
 
-    async def send(self, req: str) -> str:
+    async def send(self, req: str, headers: dict[str, str] | None = None) -> str:
+        """Apply a request to the in-process server state.
+
+        The lineage origin rides in ``headers`` under ``resonate:origin`` but is
+        unused: this simulation holds one undivided state, so there is no
+        partition to select.
+
+        ``headers`` are unused in the local simulation but accepted for protocol
+        compatibility.
+        """
         try:
             req_json = msgspec.json.decode(req)
         except msgspec.DecodeError as exc:
@@ -1179,7 +1216,7 @@ class LocalNetwork:
         # Unwrap envelope if present: extract flat request for internal processing.
         flat_req = unwrap_request_envelope(req_json)
 
-        now = now_ms()
+        now = self._clock()
         async with self._lock:
             flat_response = self.state.apply(now, flat_req)
             outgoing = self.state.outgoing
@@ -1196,9 +1233,6 @@ class LocalNetwork:
 
     def recv(self, callback: Callable[[str], None]) -> None:
         self._subscribers.append(callback)
-
-    def target_resolver(self, target: str) -> str:
-        return f"local://any@{target}"
 
     def _dispatch_messages(self, messages: list[OutgoingMessage]) -> None:
         """Dispatch outgoing messages to all subscribers, off the critical path."""

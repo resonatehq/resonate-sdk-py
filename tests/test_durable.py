@@ -24,13 +24,13 @@ import pydantic
 import pytest
 
 from resonate.codec import Codec, NoopEncryptor
+from resonate.connections import LocalConnection
+from resonate.connections.local import Task
 from resonate.context import Context
 from resonate.dependencies import DependencyMap
 from resonate.durable import DurableFunction
 from resonate.effects import ResonateEffects
 from resonate.error import ApplicationError, SerializationError
-from resonate.network import LocalNetwork
-from resonate.network.local import Task
 from resonate.send import Sender
 from resonate.transport import Transport
 from resonate.types import Args
@@ -44,7 +44,7 @@ I64_MAX = 2**63 - 1
 
 
 def _context() -> Context:
-    net = LocalNetwork()
+    net = LocalConnection()
     net.state.tasks["root"] = Task(
         id="root",
         state="acquired",
@@ -58,7 +58,6 @@ def _context() -> Context:
     return Context.root(
         id="root",
         origin_id="root",
-        prefix_id="root",
         timeout_at=I64_MAX,
         func_name="root",
         effects=effects,
@@ -250,6 +249,30 @@ async def test_coercion_failure_raises_serialization_error() -> None:
     payload = Args(args=({"x": "not-an-int", "y": 4},), kwargs={})
     with pytest.raises(SerializationError):
         await df.invoke(_context(), payload)
+
+
+@pytest.mark.asyncio
+async def test_object_annotation_passes_value_through() -> None:
+    # ``object`` is the most general nameable type; like ``Any`` it means "any
+    # value", so the raw builtin must reach the handler untouched rather than be
+    # handed to msgspec (which, given the SDK dec_hook, fails on ``object``).
+    # Regression test for issue #466.
+    async def echo(ctx: Context, data: object) -> object:
+        return data
+
+    df = DurableFunction(echo)
+    sentinel = {"name": "world"}
+    payload = Args(args=(sentinel,), kwargs={})
+    assert await df.invoke(_context(), payload) == sentinel
+
+
+def test_coerce_result_passthrough_when_object() -> None:
+    async def obj_ret(ctx: Context, x: int) -> object:
+        return x
+
+    df = DurableFunction(obj_ret)
+    sentinel = {"raw": "dict"}
+    assert df.coerce_result(sentinel) is sentinel
 
 
 # =============================================================================

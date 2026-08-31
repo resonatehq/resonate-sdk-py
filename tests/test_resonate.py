@@ -11,7 +11,7 @@ Key API properties exercised here:
 * ``get`` stays ``async`` (a lookup whose listener registration surfaces a 404).
 
 Like the rest of the suite these run against the real in-process
-:class:`~resonate.network.LocalNetwork` driven through the real
+:class:`~resonate.connections.LocalConnection` driven through the real
 :class:`~resonate.send.Sender` / :class:`~resonate.transport.Transport` -- "real
 server, real wire", no mocks.
 """
@@ -21,13 +21,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import uuid
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest import mock
 
 import msgspec
 import pytest
+from resonate_testing import FakeNetwork, FakeSource, SendOnlyNetwork
 
+from resonate.connections import LocalConnection
 from resonate.durable import DurableFunction
 from resonate.error import (
     AlreadyRegisteredError,
@@ -37,15 +40,16 @@ from resonate.error import (
 )
 from resonate.handle import ResonateHandle
 from resonate.heartbeat import AsyncHeartbeat, NoopHeartbeat
-from resonate.network import LocalNetwork
 from resonate.resonate import (
     DEFAULT_MAX_CONCURRENT_TASKS,
+    DEFAULT_SUBSCRIPTION_REFRESH_SECS,
     DEFAULT_TTL,
     HEARTBEAT_INTERVAL_DIVISOR,
     Opts,
     Resonate,
 )
 from resonate.retry import Never
+from resonate.types import Value
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -65,8 +69,8 @@ async def local(
     pid: str | None = None,
     ttl: timedelta | None = None,
     encryptor: Encryptor | None = None,
-    prefix: str | None = None,
     max_concurrent_tasks: int | None = None,
+    subscription_refresh_secs: float = DEFAULT_SUBSCRIPTION_REFRESH_SECS,
 ) -> AsyncIterator[Resonate]:
     """Yield a local-mode Resonate, stopping it (and its refresh task) on exit."""
     # Pin ``Never`` so a failing pure leaf settles immediately: the SDK default
@@ -78,9 +82,12 @@ async def local(
         pid=pid,
         ttl=ttl,
         encryptor=encryptor,
-        prefix=prefix,
         max_concurrent_tasks=max_concurrent_tasks,
         retry_policy=Never(),
+        # ``env={}``: a ``RESONATE_URL`` in the developer's shell must not be
+        # able to redirect a local-mode test at a real server.
+        env={},
+        subscription_refresh_secs=subscription_refresh_secs,
     )
     try:
         yield r
@@ -152,6 +159,24 @@ async def add_via_child(ctx: Context, x: int, y: int) -> int:
     return await ctx.run(add, x, y)
 
 
+class _SchemeSource(FakeSource):
+    """A :class:`FakeSource` that mints addresses in a scheme of its own.
+
+    Two sources with distinguishable schemes are what make "which one resolved
+    this target?" an assertable question.
+    """
+
+    def __init__(self, scheme: str) -> None:
+        super().__init__()
+        self._scheme = scheme
+
+    def unicast(self) -> str:
+        return f"{self._scheme}://uni@{self._group}/{self._pid}"
+
+    def resolve_target(self, target: str) -> str:
+        return f"{self._scheme}://any@{target}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Constructor / configuration
 # ═══════════════════════════════════════════════════════════════════════════
@@ -160,31 +185,26 @@ async def add_via_child(ctx: Context, x: int, y: int) -> int:
 @pytest.mark.asyncio
 async def test_local_constructor_sets_defaults() -> None:
     async with local() as r:
-        assert r._pid == "default"
-        assert r._id_prefix == ""
+        # The pid is minted by the SDK (it is what leases tasks), not read back
+        # off a connection.
+        assert len(r._pid) == len(uuid.uuid4().hex)
+        assert r._group == "default"
         assert r._ttl == DEFAULT_TTL
-        assert isinstance(r._network, LocalNetwork)
+        assert isinstance(r._network, LocalConnection)
 
 
 @pytest.mark.asyncio
 async def test_config_with_custom_pid_and_group() -> None:
+    """The SDK's identity is passed down into the connections it builds itself.
+
+    Otherwise the address the server pushes to and the pid the task is leased
+    under would name two different processes.
+    """
     async with local(pid="worker-1", group="workers") as r:
         assert r._pid == "worker-1"
-        assert "worker-1" in r._network.unicast()
-        assert "workers" in r._network.unicast()
-
-
-@pytest.mark.asyncio
-async def test_config_with_prefix() -> None:
-    async with local(prefix="myapp", ttl=timedelta(seconds=30)) as r:
-        assert r._id_prefix == "myapp:"
-        assert r._ttl == timedelta(seconds=30)
-
-
-@pytest.mark.asyncio
-async def test_config_with_empty_prefix() -> None:
-    async with local(prefix="") as r:
-        assert r._id_prefix == ""
+        assert r._group == "workers"
+        assert r._source is not None
+        assert r._source.unicast() == "local://uni@workers/worker-1"
 
 
 @pytest.mark.asyncio
@@ -194,18 +214,17 @@ async def test_default_ttl_is_one_minute() -> None:
 
 
 @pytest.mark.asyncio
-async def test_network_identity_local_mode() -> None:
+async def test_source_addresses_local_mode() -> None:
     async with local() as r:
-        assert r._network.unicast().startswith("local://uni@")
-        assert r._network.anycast().startswith("local://any@")
-        assert r._network.group() == "default"
-        assert r._network.pid() == "default"
+        assert r._source is not None
+        assert r._source.unicast() == f"local://uni@default/{r._pid}"
 
 
 @pytest.mark.asyncio
 async def test_target_resolver_returns_local_anycast() -> None:
     async with local() as r:
-        assert r._network.target_resolver("my-target") == "local://any@my-target"
+        assert r._source is not None
+        assert r._source.resolve_target("my-target") == "local://any@my-target"
 
 
 @pytest.mark.asyncio
@@ -217,7 +236,7 @@ async def test_local_mode_uses_noop_heartbeat() -> None:
 @pytest.mark.asyncio
 async def test_remote_network_uses_async_heartbeat() -> None:
     # A non-Local network selects the AsyncHeartbeat branch without any HTTP.
-    r = Resonate(network=_FakeNetwork())
+    r = Resonate(network=FakeNetwork())
     try:
         assert isinstance(r._heartbeat, AsyncHeartbeat)
     finally:
@@ -227,7 +246,7 @@ async def test_remote_network_uses_async_heartbeat() -> None:
 @pytest.mark.asyncio
 async def test_explicit_heartbeat_override_wins() -> None:
     hb = NoopHeartbeat()
-    r = Resonate(network=_FakeNetwork(), heartbeat=hb)
+    r = Resonate(network=FakeNetwork(), heartbeat=hb)
     try:
         assert r._heartbeat is hb
     finally:
@@ -241,7 +260,7 @@ async def test_heartbeat_interval_is_a_third_of_the_ttl() -> None:
     Three beats per lease tolerate two slow/missed round-trips before a lapse,
     which (with start-anchored pacing) is what keeps leases alive under load.
     """
-    r = Resonate(network=_FakeNetwork(), ttl=timedelta(seconds=60))
+    r = Resonate(network=FakeNetwork(), ttl=timedelta(seconds=60))
     try:
         assert isinstance(r._heartbeat, AsyncHeartbeat)
         assert r._heartbeat.interval_ms == 60_000 // HEARTBEAT_INTERVAL_DIVISOR
@@ -249,29 +268,331 @@ async def test_heartbeat_interval_is_a_third_of_the_ttl() -> None:
         await r.stop()
 
 
-class _FakeNetwork:
-    """Minimal non-Local :class:`~resonate.network.Network` for heartbeat tests."""
+@pytest.mark.asyncio
+async def test_explicit_network_and_sources() -> None:
+    """``Resonate(network=..., sources=[...])`` wires both halves explicitly."""
+    net = SendOnlyNetwork()
+    src = FakeSource(pid="worker-9", group="workers")
+    r = Resonate(network=net, sources=[src], group="workers", env={})
+    try:
+        assert r._network is net
+        assert r._source is src
+        # A bare target names this handle's own group, rendered in the
+        # source's scheme.
+        assert r._resolve_target(None) == "fake://any@workers"
+    finally:
+        await r.stop()
 
-    def pid(self) -> str:
-        return "fake"
 
-    def group(self) -> str:
-        return "g"
+@pytest.mark.asyncio
+async def test_dual_role_network_doubles_as_source() -> None:
+    """A network that is also a source (NATS/local style) needs no ``sources=``."""
+    net = FakeNetwork()
+    r = Resonate(network=net, env={})
+    try:
+        assert r._network is net
+        assert r._source is net
+        # Deduplicated: the one connection is started/stopped exactly once.
+        assert r._connections == [net]
+    finally:
+        await r.stop()
 
-    def unicast(self) -> str:
-        return "fake://uni@g/fake"
 
-    def anycast(self) -> str:
-        return "fake://any@g/fake"
+@pytest.mark.asyncio
+async def test_first_source_is_primary() -> None:
+    a = FakeSource(pid="a")
+    b = FakeSource(pid="b")
+    r = Resonate(network=SendOnlyNetwork(), sources=[a, b], env={})
+    try:
+        assert r._source is a
+    finally:
+        await r.stop()
 
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-    async def send(self, req: str) -> str:
-        return "{}"
 
-    def recv(self, callback: Callable[[str], None]) -> None: ...
-    def target_resolver(self, target: str) -> str:
-        return f"fake://any@{target}"
+@pytest.mark.asyncio
+async def test_send_only_network_yields_a_source_less_client() -> None:
+    """No source is not an error: a client that only *sends* is a real shape.
+
+    An HTTP handler or a serverless function creates promises and never
+    listens; inventing a source for it would advertise an address nothing is
+    reading.
+    """
+    net = SendOnlyNetwork()
+    r = Resonate(network=net, env={})
+    try:
+        assert r._source is None
+        assert r._connections == [net]
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_empty_sources_opts_out_of_a_dual_role_networks_source_half() -> None:
+    """``sources=[]`` says *listen for nothing*, and is not ``sources=None``.
+
+    The network here could serve as its own source; passing an empty list is
+    how a caller declines that.
+    """
+    net = FakeNetwork()
+    r = Resonate(network=net, sources=[], env={})
+    try:
+        assert r._source is None
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_sources_without_network_raises() -> None:
+    with pytest.raises(ValueError, match="network"):
+        Resonate(sources=[FakeSource()])
+
+
+# ════════════════════════════════════════════════════════════════════
+#  Target resolution
+# ════════════════════════════════════════════════════════════════════
+#
+# Where should the work this process dispatches be delivered? Three rules, in
+# order: an address passes through, a source renders a group name, and failing
+# both there is a fallback -- because a process with nothing to listen on still
+# has to name where *other* processes should pick the work up.
+
+
+@pytest.mark.asyncio
+async def test_an_address_passes_through_untouched() -> None:
+    """A target that already names a scheme is not a group name to render."""
+    async with local() as r:
+        assert r._resolve_target("nats://somewhere.else") == "nats://somewhere.else"
+
+
+@pytest.mark.asyncio
+async def test_a_dual_role_network_resolves_before_an_explicit_source() -> None:
+    """The network comes first when it is itself a source.
+
+    It is the one channel known to carry both halves of the conversation, so
+    its scheme is the safest guess for where dispatched work should land.
+    """
+    net = FakeNetwork(pid="n", group="g")
+    r = Resonate(network=net, sources=[_SchemeSource("other")], env={})
+    try:
+        # The explicit source is still the *primary* one -- that is what
+        # listeners are registered at -- but the network resolves targets.
+        assert isinstance(r._source, _SchemeSource)
+        assert r._resolve_target("workers") == "fake://any@workers"
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_send_only_network_resolves_targets_through_poll() -> None:
+    """With no source, targets fall back to the server's own delivery scheme.
+
+    Nothing is listening here, so the address cannot describe this process --
+    it describes whichever worker polls that group.
+    """
+    r = Resonate(network=SendOnlyNetwork(), group="workers", env={})
+    try:
+        assert r._resolve_target(None) == "poll://any@workers"
+        assert r._resolve_target("elsewhere") == "poll://any@elsewhere"
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_custom_fallback_replaces_the_poll_default() -> None:
+    """``resolve_target=`` is how a source-less deployment names itself.
+
+    A Lambda, say, routes every child back to its own function URL so a
+    recursive workflow re-invokes it.
+    """
+    r = Resonate(
+        network=SendOnlyNetwork(),
+        resolve_target=lambda target: f"https://fn.example/{target}",
+        env={},
+    )
+    try:
+        assert r._resolve_target("workers") == "https://fn.example/workers"
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_without_a_source_a_handle_settles_by_polling() -> None:
+    """No push channel means no listener to register -- so the SDK asks instead.
+
+    ``promise.register_listener`` hands the server an address to push the
+    settled value to; with no source there is no such address, and registering
+    one would be a lie. The refresh loop re-reads the promise instead, which is
+    the same code path degraded to polling, so a handle still settles.
+    """
+    net = LocalConnection(pid="solo")
+    r = Resonate(
+        network=net,
+        sources=[],
+        retry_policy=Never(),
+        subscription_refresh_secs=1.0,
+        # Collapse the refresh interval: the loop's cadence is not what is
+        # under test, the fact that it settles the handle at all is.
+        sleeper=lambda _: asyncio.sleep(0),
+        env={},
+    )
+    try:
+        handle = r.rpc("solo-poll", "never-runs")
+        record = await wait_for_promise(r, "solo-poll")
+
+        # Nothing was advertised on this process's behalf.
+        assert net.state.promises[record.id].subscribers == set()
+
+        # Something else settles the promise, as a worker elsewhere would.
+        await r.promises.resolve("solo-poll", Value(data=42))
+
+        assert await handle.result() == 42
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_source_outranks_the_custom_fallback() -> None:
+    """The fallback is a *fallback*: a source that can resolve still wins."""
+    r = Resonate(
+        network=SendOnlyNetwork(),
+        sources=[FakeSource()],
+        resolve_target=lambda target: f"https://fn.example/{target}",
+        env={},
+    )
+    try:
+        assert r._resolve_target("workers") == "fake://any@workers"
+    finally:
+        await r.stop()
+
+
+@pytest.mark.asyncio
+async def test_source_passed_as_network_raises_type_error() -> None:
+    """A source-only object as ``network`` fails fast, naming what's missing.
+
+    Without the guard the mistake surfaces only as an ``AttributeError`` in a
+    fire-and-forget background task -- logged, not raised -- and the first
+    handle hangs forever.
+    """
+    with pytest.raises(TypeError, match=r"FakeSource.*missing: send"):
+        Resonate(network=cast("Any", FakeSource()))
+
+
+@pytest.mark.asyncio
+async def test_network_passed_as_source_raises_type_error() -> None:
+    """A send-only object inside ``sources`` is rejected by index."""
+    with pytest.raises(TypeError, match=r"sources\[1\].*SendOnlyNetwork.*recv"):
+        Resonate(
+            network=FakeNetwork(),
+            sources=[FakeSource(), cast("Any", SendOnlyNetwork())],
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Multiple sources
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# One Resonate instance listening on several sources at once. The network is a
+# real LocalConnection (real server state, real wire) passed as network *only*
+# -- with explicit ``sources`` it never delivers push messages itself -- so
+# every push in these tests provably arrives through an injected source.
+
+
+@contextlib.asynccontextmanager
+async def multi_source(
+    pid: str = "pid1", group: str = "default"
+) -> AsyncIterator[tuple[Resonate, LocalConnection, FakeSource, FakeSource]]:
+    """Yield a Resonate over a real LocalConnection with two injectable sources."""
+    net = LocalConnection(pid=pid, group=group)
+    primary = FakeSource(pid=pid, group=group)
+    # A distinct pid: a second source is its own delivery channel, and the
+    # listener test relies on the two unicast addresses being distinguishable.
+    secondary = FakeSource(pid=f"{pid}-b", group=group)
+    r = Resonate(network=net, sources=[primary, secondary], retry_policy=Never())
+    try:
+        yield r, net, primary, secondary
+    finally:
+        await r.stop()
+
+
+async def _wait_until(condition: Callable[[], bool], tries: int = 500) -> None:
+    for _ in range(tries):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    msg = "condition never became true"
+    raise AssertionError(msg)
+
+
+@pytest.mark.asyncio
+async def test_execute_arriving_on_secondary_source_drives_execution() -> None:
+    """An ``execute`` delivered on a *secondary* source runs the task end-to-end."""
+    async with multi_source() as (r, net, _primary, secondary):
+        r.register(add)
+        r.rpc("multi-src-exec", add, 1, 2)
+        await wait_for_promise(r, "multi-src-exec")
+        # The promise's target resolves through the primary source's fake
+        # scheme, which nothing listens on -- the task sits pending until a
+        # source hands us an execute message.
+        assert net.state.tasks["multi-src-exec"].state == "pending"
+
+        secondary.push(
+            '{"kind":"execute","data":{"task":{"id":"multi-src-exec","version":0}}}'
+        )
+
+        await _wait_until(
+            lambda: net.state.promises["multi-src-exec"].state == "resolved"
+        )
+        assert net.state.tasks["multi-src-exec"].state == "fulfilled"
+
+
+@pytest.mark.asyncio
+async def test_unblock_arriving_on_secondary_source_settles_handle() -> None:
+    """An ``unblock`` delivered on a *secondary* source settles a waiting handle."""
+    async with multi_source() as (r, _net, _primary, secondary):
+        r.register(add)
+        handle = r.rpc("multi-src-unblock", add, 20, 22)
+        await wait_for_promise(r, "multi-src-unblock")
+
+        # "NDI=" is base64("42") -- a resolved value in wire form.
+        secondary.push(
+            '{"kind":"unblock","data":{"promise":{"id":"multi-src-unblock",'
+            '"state":"resolved","value":{"data":"NDI="},"timeoutAt":123}}}'
+        )
+
+        assert await handle.result() == 42
+
+
+@pytest.mark.asyncio
+async def test_listener_registers_the_primary_source_unicast() -> None:
+    """``promise.register_listener`` advertises the primary source's address."""
+    async with multi_source(group="workers") as (r, net, primary, secondary):
+        r.register(add)
+        r.rpc("multi-src-listener", add, 1, 2)
+        await wait_for_promise(r, "multi-src-listener")
+
+        await _wait_until(
+            lambda: bool(net.state.promises["multi-src-listener"].subscribers)
+        )
+        subscribers = net.state.promises["multi-src-listener"].subscribers
+        assert subscribers == {primary.unicast()}
+        assert secondary.unicast() not in subscribers
+
+
+@pytest.mark.asyncio
+async def test_every_source_is_started_wired_and_stopped() -> None:
+    """All sources participate in recv wiring and the start/stop lifecycle."""
+    async with multi_source() as (_r, _net, primary, secondary):
+        # recv was wired on both sources (before start).
+        assert len(primary.callbacks) == 1
+        assert len(secondary.callbacks) == 1
+        # Both were started by the constructor's fire-and-forget spawn.
+        await _wait_until(lambda: primary.started and secondary.started)
+        assert not primary.stopped
+        assert not secondary.stopped
+
+    # Leaving the context stops the instance -- and with it every source.
+    assert primary.stopped
+    assert secondary.stopped
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -375,14 +696,6 @@ async def test_run_rejected_workflow_raises() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_with_prefix_prepends_id() -> None:
-    async with local(prefix="app") as r:
-        r.register(noop)
-        h = r.run("my-id", noop)
-        assert await h.id() == "app:my-id"
-
-
-@pytest.mark.asyncio
 async def test_run_unregistered_raises_synchronously() -> None:
     async with local() as r:
 
@@ -436,7 +749,7 @@ async def test_run_unannotated_function_resolves() -> None:
 @pytest.mark.asyncio
 async def test_run_handle_id_resolves_to_created_id() -> None:
     # ``id()`` is gated on the background promise creation; once that confirms it
-    # yields the (prefixed) id. Awaiting the result guarantees creation happened.
+    # yields the id. Awaiting the result guarantees creation happened.
     async with local() as r:
         r.register(add)
         h = r.run("rid", add, 1, 1)
@@ -554,14 +867,6 @@ async def test_rpc_does_not_require_registration() -> None:
         # The promise is created even though no function is registered locally.
         record = await wait_for_promise(r, "rpc-1")
         assert record.state == "pending"
-
-
-@pytest.mark.asyncio
-async def test_rpc_with_prefix() -> None:
-    async with local(prefix="svc") as r:
-        h = r.rpc("rpc-2", "remote", ())
-        assert await h.id() == "svc:rpc-2"
-        await wait_for_promise(r, "svc:rpc-2")
 
 
 @pytest.mark.asyncio
@@ -859,15 +1164,6 @@ async def test_get_existing_returns_handle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_with_prefix_prepends() -> None:
-    async with local(prefix="ns") as r:
-        r.rpc("p1", "remote")
-        await wait_for_promise(r, "ns:p1")
-        handle = await r.get("p1")
-        assert await handle.id() == "ns:p1"
-
-
-@pytest.mark.asyncio
 async def test_get_pending_promise_returns_unsettled_handle() -> None:
     # get on a still-pending promise returns a handle that is not yet done.
     async with local() as r:
@@ -923,24 +1219,6 @@ async def test_multiple_handles_same_id_all_resolve() -> None:
         h2 = await r.get("multi")
         assert await h1.result() == 5
         assert await h2.result() == 5
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  id prefix consistency
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-@pytest.mark.asyncio
-async def test_prefix_applied_consistently_to_run_rpc_get() -> None:
-    async with local(prefix="p") as r:
-        r.register(add)
-        h1 = r.run("id1", add, 1, 1)
-        assert await h1.id() == "p:id1"
-        h2 = r.rpc("id2", "remote")
-        assert await h2.id() == "p:id2"
-        await wait_for_promise(r, "p:id2")
-        h3 = await r.get("id2")
-        assert await h3.id() == "p:id2"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1033,18 +1311,16 @@ async def test_handle_settles_with_error_when_listener_register_returns_404() ->
 
 
 @pytest.mark.asyncio
-async def test_subscription_refresh_settles_handle_on_404(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_subscription_refresh_settles_handle_on_404() -> None:
     """The 60s refresh must also settle on 404, not just the initial register.
 
     Without this, a workflow that started healthy and *later* loses its
     promise (server purge, retention expiry) would hang once the SSE-pushed
     ``unblock`` is no longer possible.
     """
-    # Collapse the refresh interval so the test does not actually wait 60s.
-    monkeypatch.setattr("resonate.resonate._SUBSCRIPTION_REFRESH_SECS", 0.01)
-    async with local() as r:
+    # The refresh interval is a constructor option, so the test configures its
+    # own instance instead of mutating a module global other tests share.
+    async with local(subscription_refresh_secs=0.01) as r:
         # Start with a pending rpc whose listener registers successfully.
         handle = r.rpc("vanish", "remote")
         await wait_for_promise(r, "vanish")

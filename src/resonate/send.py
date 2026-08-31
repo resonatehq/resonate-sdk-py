@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+import uuid
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import msgspec
+from resonate_base import ORIGIN_HEADER, PROTOCOL_VERSION
 
-from resonate import PROTOCOL_VERSION, now_ms
 from resonate.codec import dec_hook
 from resonate.error import DecodingError, ServerError
-from resonate.types import (
-    PromiseRecord,
-    ScheduleRecord,
-    TaskRecord,
-    Value,
-)
+from resonate.ids import origin_of
+from resonate.observability import Dropped, logging_observer
+from resonate.types import PromiseRecord, ScheduleRecord, TaskRecord, Value
 
 if TYPE_CHECKING:
-    from resonate.transport import Transport
+    from collections.abc import Callable
+
+    from resonate.observability import Observer
+    from resonate.transport import Response, Transport
     from resonate.types import (
         PromiseCreateReq,
         PromiseRegisterCallbackData,
@@ -90,14 +91,104 @@ class ScheduleCreateReq(msgspec.Struct, frozen=True, kw_only=True, rename="camel
 
 
 # =============================================================================
+# Ports -- the narrow interfaces the SDK's internals actually depend on
+# =============================================================================
+
+
+class TaskLifecycle(Protocol):
+    """Acquire, fulfill, suspend, release: one task's server-side lifecycle.
+
+    :class:`~resonate.core.Core` needs exactly these four operations, not the
+    whole :class:`Sender`. Depending on the narrow port is what lets a test
+    hand ``Core`` a four-method recorder and assert the *order* of lifecycle
+    calls (that a failed fulfill is followed by a release, say) -- and what
+    removes the ``Sender | None`` field that previously existed only so tests
+    could pass ``None``.
+
+    :class:`Sender` satisfies this structurally; no registration needed.
+    """
+
+    async def task_acquire(
+        self, id: str, version: int, pid: str, ttl: int
+    ) -> TaskAcquireResult: ...
+    async def task_fulfill(
+        self, id: str, version: int, action: PromiseSettleReq
+    ) -> PromiseRecord: ...
+    async def task_suspend(
+        self, id: str, version: int, actions: list[PromiseRegisterCallbackData]
+    ) -> SuspendResult: ...
+    async def task_release(self, id: str, version: int) -> None: ...
+
+
+class PromiseFencing(Protocol):
+    """The two lease-gated durable promise mutations.
+
+    The port :class:`~resonate.effects.ResonateEffects` depends on --
+    everything a durable operation needs and nothing else.
+    :class:`Sender` satisfies it structurally.
+    """
+
+    async def task_fence_create(
+        self, id: str, version: int, req: PromiseCreateReq
+    ) -> TaskFenceResult: ...
+    async def task_fence_settle(
+        self, id: str, version: int, req: PromiseSettleReq
+    ) -> TaskFenceResult: ...
+
+
+class TaskHeartbeating(Protocol):
+    """Lease extension -- the port :class:`~resonate.heartbeat.AsyncHeartbeat` needs."""
+
+    async def task_heartbeat(self, pid: str, tasks: list[TaskRef]) -> None: ...
+
+
+#: ``ORIGIN_HEADER`` and ``DEFAULT_ORIGIN`` are imported from
+#: :mod:`resonate_base` -- the wire owns both. ``ORIGIN_HEADER`` is the envelope
+#: head field the server reads to pick the origin-state partition and the
+#: ``headers`` key the origin rides under into
+#: :meth:`~resonate_base.connections.Network.send`, for a sharding connector's
+#: own routing. ``DEFAULT_ORIGIN`` is where a request that acts on no
+#: particular lineage (a search, a schedule) routes.
+
+
+def default_corr_id() -> str:
+    """Mint a fresh correlation id.
+
+    A UUID, not a timestamp: two envelopes built within the same millisecond
+    must not collide, or the correlation check in
+    :meth:`~resonate.transport.Transport.send` silently validates nothing.
+    Injectable via :class:`Sender`'s ``corr_id`` so a golden-file test can pin
+    the wire bytes.
+    """
+    return f"sr-{uuid.uuid4().hex}"
+
+
+# =============================================================================
 # Sender -- typed interface over Transport
 # =============================================================================
 
 
 class Sender:
-    def __init__(self, transport: Transport, auth: str | None) -> None:
+    """Typed protocol operations over a :class:`~resonate.transport.Transport`.
+
+    ``corr_id`` mints the per-request correlation id (defaults to
+    :func:`default_corr_id`); ``observer`` receives a
+    :class:`~resonate.observability.Dropped` event for every record in a
+    multi-record response that fails to parse, so the SDK's documented
+    "skip the bad record" behaviour is assertable instead of invisible.
+    """
+
+    def __init__(
+        self,
+        transport: Transport,
+        auth: str | None,
+        corr_id: Callable[[], str] = default_corr_id,
+        observer: Observer = logging_observer,
+    ) -> None:
         self.transport = transport
         self.auth = auth
+        self._corr_id = corr_id
+        self._observer = observer
 
     # -- task operations ------------------------------------------------------
 
@@ -105,8 +196,10 @@ class Sender:
         self, id: str, version: int, pid: str, ttl: int
     ) -> TaskAcquireResult:
         data = {"id": id, "version": version, "pid": pid, "ttl": ttl}
-        _, resp = await self._send_envelope("task.acquire", data, allow_409=False)
-        return parse_task_acquire(resp)
+        _, resp = await self._send_envelope(
+            "task.acquire", data, allow_409=False, routes_by=id
+        )
+        return self._parse_task_acquire(resp)
 
     async def task_fulfill(
         self, id: str, version: int, action: PromiseSettleReq
@@ -118,7 +211,9 @@ class Sender:
                 kind="promise.settle", head=self._make_head(), data=action
             ),
         }
-        _, resp = await self._send_envelope("task.fulfill", data, allow_409=False)
+        _, resp = await self._send_envelope(
+            "task.fulfill", data, allow_409=False, routes_by=id
+        )
         return parse_promise(resp)
 
     async def task_suspend(
@@ -135,13 +230,20 @@ class Sender:
             for action in actions
         ]
         data = {"id": id, "version": version, "actions": wrapped}
-        status, resp = await self._send_envelope("task.suspend", data, allow_409=False)
-        return parse_suspend_result(status, resp)
+        status, resp = await self._send_envelope(
+            "task.suspend", data, allow_409=False, routes_by=id
+        )
+        if status == _REDIRECT_STATUS:
+            return Redirect(preload=self._parse_preloaded(resp))
+        return "suspended"
 
     async def task_release(self, id: str, version: int) -> None:
         """Release a task (give up the lock without fulfilling)."""
         await self._send_envelope(
-            "task.release", {"id": id, "version": version}, allow_409=False
+            "task.release",
+            {"id": id, "version": version},
+            allow_409=False,
+            routes_by=id,
         )
 
     async def task_create(
@@ -149,7 +251,7 @@ class Sender:
     ) -> TaskCreateResult:
         """Create a task and its associated promise."""
         _, resp = await self._send_task_create(pid, ttl, action, allow_409=False)
-        return parse_task_acquire(resp)
+        return self._parse_task_acquire(resp)
 
     async def task_create_or_conflict(
         self, pid: str, ttl: int, action: PromiseCreateReq
@@ -162,9 +264,9 @@ class Sender:
         :meth:`promise_register_listener`.
         """
         status, resp = await self._send_task_create(pid, ttl, action, allow_409=True)
-        if status == 409:
+        if status == _CONFLICT_STATUS:
             return "conflict"
-        return parse_task_acquire(resp)
+        return self._parse_task_acquire(resp)
 
     async def task_fence_create(
         self, id: str, version: int, req: PromiseCreateReq
@@ -191,30 +293,45 @@ class Sender:
             "version": version,
             "action": SubEnvelope(kind=sub_kind, head=self._make_head(), data=action),
         }
-        _, resp = await self._send_envelope("task.fence", data, allow_409=False)
-        return parse_task_fence(resp)
+        _, resp = await self._send_envelope(
+            "task.fence", data, allow_409=False, routes_by=id
+        )
+        return self._parse_task_fence(resp)
 
     async def task_heartbeat(self, pid: str, tasks: list[TaskRef]) -> None:
-        """Extend the lease for one or more tasks."""
+        """Extend the lease for one or more tasks.
+
+        A heartbeat can span lineages, so it routes by the first task's origin
+        -- the same choice the server's own client makes.
+        """
         await self._send_envelope(
-            "task.heartbeat", {"pid": pid, "tasks": tasks}, allow_409=False
+            "task.heartbeat",
+            {"pid": pid, "tasks": tasks},
+            allow_409=False,
+            routes_by=tasks[0].id if tasks else None,
         )
 
     # -- promise operations ---------------------------------------------------
 
     async def promise_get(self, id: str) -> PromiseRecord:
         """Get a promise by ID."""
-        _, resp = await self._send_envelope("promise.get", {"id": id}, allow_409=False)
+        _, resp = await self._send_envelope(
+            "promise.get", {"id": id}, allow_409=False, routes_by=id
+        )
         return parse_promise(resp)
 
     async def promise_create(self, req: PromiseCreateReq) -> PromiseRecord:
         """Create a durable promise."""
-        _, resp = await self._send_envelope("promise.create", req, allow_409=False)
+        _, resp = await self._send_envelope(
+            "promise.create", req, allow_409=False, routes_by=req.id
+        )
         return parse_promise(resp)
 
     async def promise_settle(self, req: PromiseSettleReq) -> PromiseRecord:
         """Settle (resolve/reject) a durable promise."""
-        _, resp = await self._send_envelope("promise.settle", req, allow_409=False)
+        _, resp = await self._send_envelope(
+            "promise.settle", req, allow_409=False, routes_by=req.id
+        )
         return parse_promise(resp)
 
     async def promise_register_listener(
@@ -223,7 +340,7 @@ class Sender:
         """Register a listener for a promise."""
         data = {"awaited": awaited, "address": address}
         _, resp = await self._send_envelope(
-            "promise.register_listener", data, allow_409=False
+            "promise.register_listener", data, allow_409=False, routes_by=awaited
         )
         return parse_promise(resp)
 
@@ -245,8 +362,13 @@ class Sender:
         if cursor is not None:
             data["cursor"] = cursor
         _, resp = await self._send_envelope("promise.search", data, allow_409=False)
-        promises = _decode_list(resp, "promises", PromiseRecord)
-        return PromiseSearchResult(promises=promises, cursor=_cursor(resp))
+        page = _decode_or_raise(resp, _PromiseSearchPage, "promise.search response")
+        return PromiseSearchResult(
+            promises=self._decode_lenient(
+                page.promises, PromiseRecord, "search-record"
+            ),
+            cursor=page.cursor,
+        )
 
     # -- schedule operations --------------------------------------------------
 
@@ -276,13 +398,70 @@ class Sender:
         if cursor is not None:
             data["cursor"] = cursor
         _, resp = await self._send_envelope("schedule.search", data, allow_409=False)
-        schedules = _decode_list(resp, "schedules", ScheduleRecord)
-        return ScheduleSearchResult(schedules=schedules, cursor=_cursor(resp))
+        page = _decode_or_raise(resp, _ScheduleSearchPage, "schedule.search response")
+        return ScheduleSearchResult(
+            schedules=self._decode_lenient(
+                page.schedules, ScheduleRecord, "search-record"
+            ),
+            cursor=page.cursor,
+        )
 
     # -- internal helpers -----------------------------------------------------
 
     def _make_head(self) -> Head:
-        return Head(corr_id=f"sr-{now_ms()}", version=PROTOCOL_VERSION, auth=self.auth)
+        """Build an envelope head; ``origin`` is set on top-level requests only.
+
+        A nested action envelope is routed by the head of the request carrying
+        it, so it leaves ``origin`` unset (and off the wire).
+        """
+        return Head(
+            corr_id=self._corr_id(),
+            version=PROTOCOL_VERSION,
+            auth=self.auth,
+        )
+
+    def _decode_lenient[T](self, raw: list[Any], type_: type[T], what: str) -> list[T]:
+        """Decode each record, reporting -- not raising on -- the ones that fail.
+
+        One malformed record in a multi-record response must not sink the whole
+        page: the server may know about a promise shape this SDK version does
+        not. Each skip emits a :class:`~resonate.observability.Dropped` event so
+        the behaviour is assertable.
+        """
+        out: list[T] = []
+        for item in raw:
+            try:
+                out.append(
+                    msgspec.convert(
+                        _normalize_record(item), type=type_, dec_hook=dec_hook
+                    )
+                )
+            except (TypeError, ValueError, msgspec.MsgspecError) as exc:
+                self._observer(Dropped(what=what, id=_id_of(item), cause=str(exc)))
+        return out
+
+    def _parse_preloaded(self, data: Any) -> list[PromiseRecord]:
+        page = _decode_or_raise(data, _PreloadPage, "preload")
+        return self._decode_lenient(page.preload, PromiseRecord, "preload-record")
+
+    def _parse_task_acquire(self, data: Any) -> TaskAcquireResult:
+        parsed = _decode_or_raise(data, _TaskAcquirePage, "task.acquire response")
+        return TaskAcquireResult(
+            task=parsed.task,
+            promise=parsed.promise,
+            preload=self._decode_lenient(
+                parsed.preload, PromiseRecord, "preload-record"
+            ),
+        )
+
+    def _parse_task_fence(self, data: Any) -> TaskFenceResult:
+        parsed = _decode_or_raise(data, _TaskFencePage, "task.fence response")
+        return TaskFenceResult(
+            promise=parsed.action.data.promise,
+            preload=self._decode_lenient(
+                parsed.preload, PromiseRecord, "preload-record"
+            ),
+        )
 
     async def _send_task_create(
         self, pid: str, ttl: int, action: PromiseCreateReq, *, allow_409: bool
@@ -295,38 +474,58 @@ class Sender:
                 kind="promise.create", head=self._make_head(), data=action
             ),
         }
-        return await self._send_envelope("task.create", data, allow_409=allow_409)
+        return await self._send_envelope(
+            "task.create", data, allow_409=allow_409, routes_by=action.id
+        )
 
     async def _send_envelope(
-        self, kind: str, data: Any, *, allow_409: bool
+        self, kind: str, data: Any, *, allow_409: bool, routes_by: str | None = None
     ) -> tuple[int, Any]:
         """Serialize an envelope, send it, and return ``(status, data)``.
 
-        ``status`` defaults to 200 and ``data`` to an empty object when absent.
-        A status >= 400 (other than an allowed 409) raises a
-        :class:`ServerError`.
+        The response arrives already parsed as a
+        :class:`~resonate.transport.Response`, so ``status`` and ``data`` are
+        read straight off typed fields. A status >= 400 (other than an allowed
+        409) raises a :class:`ServerError`.
+
+        ``routes_by`` is the id whose *origin* selects the server's
+        origin-state partition -- the promise the request acts on, or the
+        promise being awaited. It is resolved to an origin here, once, and then
+        travels two ways: on the head, which is where the server reads it, and
+        in the ``headers`` under :data:`ORIGIN_HEADER`, which is where a
+        sharding connector reads it. Neither the server nor the connector has
+        to know how a promise id is built. A request that acts on no particular
+        lineage (a search, a schedule) routes by :data:`DEFAULT_ORIGIN`.
         """
+        origin = origin_of(routes_by) if routes_by else "default"
         head = self._make_head()
         corr_id = head.corr_id
         envelope = Envelope(kind=kind, head=head, data=data)
         body = msgspec.json.encode(envelope).decode("utf-8")
-        resp = await self.transport.send(kind, corr_id, body)
+        resp = await self.transport.send(kind, corr_id, body, {ORIGIN_HEADER: origin})
 
-        status = _resp_status(resp)
-        resp_data = _resp_data(resp)
+        status = resp.head.status
+        if status >= _ERROR_STATUS and not (allow_409 and status == _CONFLICT_STATUS):
+            raise ServerError(status, _error_message(status, resp))
 
-        if status >= 400 and not (allow_409 and status == 409):
-            if isinstance(resp_data, str):
-                message = resp_data
-            elif isinstance(resp_data, dict) and isinstance(
-                resp_data.get("error"), str
-            ):
-                message = resp_data["error"]
-            else:
-                message = f"server error (status {status})"
-            raise ServerError(status, message)
+        return status, resp.data
 
-        return status, resp_data
+
+#: HTTP-ish status boundaries used by :meth:`Sender._send_envelope` and
+#: :meth:`Sender.task_suspend`.
+_ERROR_STATUS = 400
+_CONFLICT_STATUS = 409
+_REDIRECT_STATUS = 300
+
+
+def _error_message(status: int, resp: Response) -> str:
+    """Extract the server's error text, falling back to a generic message."""
+    data = resp.data
+    if isinstance(data, str):
+        return data
+    if isinstance(data, dict) and isinstance(data.get("error"), str):
+        return data["error"]
+    return f"server error (status {status})"
 
 
 # =============================================================================
@@ -339,7 +538,10 @@ class Head(
 ):
     """The ``head`` of a protocol envelope.
 
-    ``auth`` is left out of the wire format when ``None``.
+    ``auth`` is left out of the wire format when ``None``. ``origin`` is the
+    lineage origin the request routes by -- see :meth:`Sender._send_envelope`;
+    it is omitted from nested action envelopes, which are routed by the head of
+    the request that carries them.
     """
 
     corr_id: str
@@ -364,6 +566,54 @@ class SubEnvelope(msgspec.Struct, frozen=True, kw_only=True):
 
 
 # =============================================================================
+# Response-data shapes -- parsed once, per operation
+# =============================================================================
+#
+# The ``data`` portion of each response is converted straight into one of these
+# before anything reads it, so the operation-specific parsers below never ask
+# "is this a dict?" -- the shape question is settled in one ``msgspec.convert``.
+# Multi-record fields stay ``list[Any]`` on purpose: they are decoded leniently
+# (see :meth:`Sender._decode_lenient`) so one bad record does not sink the page.
+
+
+class _PromisePage(msgspec.Struct, kw_only=True):
+    promise: PromiseRecord
+
+
+class _SchedulePage(msgspec.Struct, kw_only=True):
+    schedule: ScheduleRecord
+
+
+class _PreloadPage(msgspec.Struct, kw_only=True):
+    preload: list[Any] = msgspec.field(default_factory=list)
+
+
+class _TaskAcquirePage(msgspec.Struct, kw_only=True):
+    task: TaskRecord
+    promise: PromiseRecord
+    preload: list[Any] = msgspec.field(default_factory=list)
+
+
+class _FenceAction(msgspec.Struct, kw_only=True):
+    data: _PromisePage
+
+
+class _TaskFencePage(msgspec.Struct, kw_only=True):
+    action: _FenceAction
+    preload: list[Any] = msgspec.field(default_factory=list)
+
+
+class _PromiseSearchPage(msgspec.Struct, kw_only=True):
+    promises: list[Any] = msgspec.field(default_factory=list)
+    cursor: str | None = None
+
+
+class _ScheduleSearchPage(msgspec.Struct, kw_only=True):
+    schedules: list[Any] = msgspec.field(default_factory=list)
+    cursor: str | None = None
+
+
+# =============================================================================
 # Response parsing helpers (internal)
 # =============================================================================
 
@@ -374,13 +624,31 @@ _VALUE_FIELDS = ("param", "value", "promiseParam")
 
 
 def _normalize_record(raw: Any) -> Any:
+    """Drop explicit-``null`` Value fields, recursively.
+
+    Applied once at the ``data`` boundary rather than per record, so a
+    ``PromiseRecord`` nested inside a typed page struct is normalized too.
+    Recursion is safe: user payloads are opaque base64 strings at this point,
+    so no application data can be reached by this walk.
+    """
+    if isinstance(raw, list):
+        return [_normalize_record(item) for item in raw]
     if not isinstance(raw, dict):
         return raw
     return {
-        key: val
+        key: _normalize_record(val)
         for key, val in raw.items()
         if not (key in _VALUE_FIELDS and val is None)
     }
+
+
+def _id_of(raw: Any) -> str:
+    """Best-effort id of a record that failed to parse, for the drop event."""
+    if isinstance(raw, dict):
+        id = raw.get("id")
+        if isinstance(id, str):
+            return id
+    return ""
 
 
 def _decode_or_raise[T](raw: Any, type_: type[T], what: str) -> T:
@@ -392,103 +660,10 @@ def _decode_or_raise[T](raw: Any, type_: type[T], what: str) -> T:
         raise DecodingError(msg) from exc
 
 
-def _decode_list[T](data: Any, key: str, type_: type[T]) -> list[T]:
-    """Decode the array at ``data[key]``, silently dropping records that fail to parse."""
-    arr = data.get(key) if isinstance(data, dict) else None
-    if not isinstance(arr, list):
-        return []
-    out: list[T] = []
-    for v in arr:
-        try:
-            out.append(
-                msgspec.convert(_normalize_record(v), type=type_, dec_hook=dec_hook)
-            )
-        except (TypeError, ValueError, msgspec.MsgspecError):
-            continue
-    return out
-
-
-def _cursor(data: Any) -> str | None:
-    """Extract a string ``cursor`` field, defaulting to ``None``."""
-    cursor = data.get("cursor") if isinstance(data, dict) else None
-    return cursor if isinstance(cursor, str) else None
-
-
-def _resp_status(resp: Any) -> int:
-    """Extract ``head.status``, defaulting to 200."""
-    if isinstance(resp, dict):
-        head = resp.get("head")
-        if isinstance(head, dict):
-            status = head.get("status")
-            if isinstance(status, int) and not isinstance(status, bool) and status >= 0:
-                return status
-    return 200
-
-
-def _resp_data(resp: Any) -> Any:
-    """Extract the ``data`` portion, defaulting to ``{}``."""
-    if isinstance(resp, dict) and "data" in resp:
-        return resp["data"]
-    return {}
-
-
 def parse_promise(data: Any) -> PromiseRecord:
     """Parse a promise record from a server response's data portion."""
-    promise = data.get("promise") if isinstance(data, dict) else None
-    if promise is None:
-        msg = "missing 'promise' in response"
-        raise DecodingError(msg)
-    return _decode_or_raise(promise, PromiseRecord, "promise record")
-
-
-def parse_task_acquire(data: Any) -> TaskAcquireResult:
-    """Parse a ``task.acquire`` response."""
-    task_val = data.get("task") if isinstance(data, dict) else None
-    if task_val is None:
-        msg = "missing 'task' in task.acquire response"
-        raise DecodingError(msg)
-    task = _decode_or_raise(task_val, TaskRecord, "task in task.acquire")
-
-    promise_val = data.get("promise") if isinstance(data, dict) else None
-    if promise_val is None:
-        msg = "missing 'promise' in task.acquire response"
-        raise DecodingError(msg)
-    promise = _decode_or_raise(promise_val, PromiseRecord, "promise in task.acquire")
-
-    return TaskAcquireResult(task=task, promise=promise, preload=parse_preloaded(data))
-
-
-def parse_task_fence(data: Any) -> TaskFenceResult:
-    """Parse a ``task.fence`` response.
-
-    The created/settled promise lives at ``data.action.data.promise``; preloaded
-    siblings (if any) live at ``data.preload``.
-    """
-    action = data.get("action") if isinstance(data, dict) else None
-    inner = action.get("data") if isinstance(action, dict) else None
-    promise_val = inner.get("promise") if isinstance(inner, dict) else None
-    if promise_val is None:
-        msg = "missing promise in fence action response"
-        raise DecodingError(msg)
-    promise = _decode_or_raise(promise_val, PromiseRecord, "promise in fence response")
-    return TaskFenceResult(promise=promise, preload=parse_preloaded(data))
-
-
-def parse_suspend_result(status: int, data: Any) -> SuspendResult:
-    """Parse a ``task.suspend`` response -- ``"suspended"`` (200) or ``Redirect`` (300)."""
-    if status == 300:
-        return Redirect(preload=parse_preloaded(data))
-    return "suspended"
-
-
-def parse_preloaded(data: Any) -> list[PromiseRecord]:
-    """Extract preloaded promises from a response, dropping any that fail to parse."""
-    return _decode_list(data, "preload", PromiseRecord)
+    return _decode_or_raise(data, _PromisePage, "promise record").promise
 
 
 def _parse_schedule(data: Any) -> ScheduleRecord:
-    schedule = data.get("schedule") if isinstance(data, dict) else None
-    if schedule is None:
-        msg = "missing 'schedule' in response"
-        raise DecodingError(msg)
-    return _decode_or_raise(schedule, ScheduleRecord, "schedule record")
+    return _decode_or_raise(data, _SchedulePage, "schedule record").schedule

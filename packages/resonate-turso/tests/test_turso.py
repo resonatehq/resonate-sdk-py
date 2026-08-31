@@ -8,17 +8,18 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
-
-from resonate import PROTOCOL_VERSION, now_ms
-from resonate.network.turso import (
+from resonate_base import ORIGIN_HEADER, PROTOCOL_VERSION
+from resonate_turso import (
     TursoLocalDriver,
     TursoNetwork,
     hash_origin,
     origin_of,
     owner_of,
 )
-from resonate.network.turso.cron import CronError, cron_occurrences, next_cron
+from resonate_turso.cron import CronError, cron_occurrences, next_cron
+
 from resonate.resonate import Resonate
+from resonate.timing import now_ms
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -119,11 +120,51 @@ async def quiet() -> AsyncIterator[TursoNetwork]:
 # =============================================================================
 
 
-async def test_origin_of_is_the_id_up_to_the_first_dot() -> None:
+async def test_origin_of_is_the_id_up_to_the_first_colon() -> None:
     assert origin_of("foo") == "foo"
-    assert origin_of("foo.1") == "foo"
-    assert origin_of("foo.1.2") == "foo"
+    assert origin_of("foo:1") == "foo"
+    assert origin_of("foo:1.2") == "foo"
     assert origin_of("") == ""
+
+
+async def test_a_dotted_root_id_is_one_origin_not_several() -> None:
+    # '.' separates lineage segments *below* the origin, so a dotted root is a
+    # single workflow. Splitting on it would scatter one workflow's state
+    # across databases and break the single-database-transaction invariant.
+    assert origin_of("my.app.workflow") == "my.app.workflow"
+    assert origin_of("my.app.workflow:1.2") == "my.app.workflow"
+
+
+async def test_the_origin_header_routes_the_request(net: TursoNetwork) -> None:
+    """The header the SDK resolves wins over anything derivable from the id.
+
+    This is the seam ``resonate-base`` defines: the connector is handed the
+    origin rather than working it out, so the id format stays the SDK's
+    business alone.
+    """
+    timeout_at = now_ms() + 60_000
+    ok(
+        await send(
+            net,
+            "promise.create",
+            {"id": "wf", "timeoutAt": timeout_at, "param": {}, "tags": {}},
+        )
+    )
+
+    # Routed to a different origin's database, so the promise is not there --
+    # proving the header, not the id, selected the database.
+    elsewhere = json.loads(
+        await net.send(
+            request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "somewhere-else"}
+        )
+    )
+    assert elsewhere["head"]["status"] == 404
+
+    # Routed correctly, it is.
+    found = json.loads(
+        await net.send(request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "wf"})
+    )
+    assert found["head"]["status"] == 200
 
 
 async def test_hash_origin_matches_the_vector_shared_with_the_typescript_sdk() -> None:
@@ -333,7 +374,7 @@ async def test_create_validation_rejects_an_id_that_escapes_its_origin(
         net,
         "promise.create",
         {
-            "id": "other.1",
+            "id": "other:1",
             "timeoutAt": now_ms() + 60_000,
             "param": {},
             "tags": {"resonate:origin": "wf"},
@@ -364,18 +405,18 @@ async def test_a_callback_needs_an_external_awaited(net: TursoNetwork) -> None:
     await send(
         net,
         "promise.create",
-        {"id": "wf.internal", "timeoutAt": timeout_at, "param": {}, "tags": {}},
+        {"id": "wf:internal", "timeoutAt": timeout_at, "param": {}, "tags": {}},
     )
 
     res = await send(
-        net, "promise.register_callback", {"awaited": "wf.internal", "awaiter": "wf"}
+        net, "promise.register_callback", {"awaited": "wf:internal", "awaiter": "wf"}
     )
     assert res["head"]["status"] == 422
 
 
 async def test_a_callback_may_not_cross_origins(net: TursoNetwork) -> None:
     res = await send(
-        net, "promise.register_callback", {"awaited": "other.1", "awaiter": "wf"}
+        net, "promise.register_callback", {"awaited": "other:1", "awaiter": "wf"}
     )
     assert res["head"]["status"] == 400
 
@@ -562,7 +603,7 @@ async def test_suspend_registers_callbacks_and_settling_resumes(
         net,
         "promise.create",
         {
-            "id": "wf.child",
+            "id": "wf:child",
             "timeoutAt": timeout_at,
             "param": {},
             "tags": {"resonate:external": "true"},
@@ -580,7 +621,7 @@ async def test_suspend_registers_callbacks_and_settling_resumes(
                     {
                         "kind": "promise.register_callback",
                         "head": head(),
-                        "data": {"awaited": "wf.child", "awaiter": "wf"},
+                        "data": {"awaited": "wf:child", "awaiter": "wf"},
                     }
                 ],
             },
@@ -591,7 +632,7 @@ async def test_suspend_registers_callbacks_and_settling_resumes(
     await send(
         net,
         "promise.settle",
-        {"id": "wf.child", "state": "resolved", "value": {"data": "child"}},
+        {"id": "wf:child", "state": "resolved", "value": {"data": "child"}},
     )
 
     # Match the resumed version rather than "any execute": the create-time
@@ -626,14 +667,14 @@ async def test_suspending_on_a_settled_promise_returns_300(net: TursoNetwork) ->
         net,
         "promise.create",
         {
-            "id": "wf.child",
+            "id": "wf:child",
             "timeoutAt": timeout_at,
             "param": {},
             "tags": {"resonate:external": "true"},
         },
     )
     await send(
-        net, "promise.settle", {"id": "wf.child", "state": "resolved", "value": {}}
+        net, "promise.settle", {"id": "wf:child", "state": "resolved", "value": {}}
     )
 
     res = await send(
@@ -646,7 +687,7 @@ async def test_suspending_on_a_settled_promise_returns_300(net: TursoNetwork) ->
                 {
                     "kind": "promise.register_callback",
                     "head": head(),
-                    "data": {"awaited": "wf.child", "awaiter": "wf"},
+                    "data": {"awaited": "wf:child", "awaiter": "wf"},
                 }
             ],
         },
@@ -719,7 +760,7 @@ async def test_fence_creates_a_child_and_refuses_a_stale_version(
                     "kind": "promise.create",
                     "head": head(),
                     "data": {
-                        "id": "wf.child",
+                        "id": "wf:child",
                         "timeoutAt": timeout_at,
                         "param": {"data": "arg"},
                         "tags": {},
@@ -730,7 +771,7 @@ async def test_fence_creates_a_child_and_refuses_a_stale_version(
     )
     assert fenced["action"]["head"]["status"] == 200
     assert (
-        ok(await send(net, "promise.get", {"id": "wf.child"}))["promise"]["param"][
+        ok(await send(net, "promise.get", {"id": "wf:child"}))["promise"]["param"][
             "data"
         ]
         == "arg"
@@ -746,7 +787,7 @@ async def test_fence_creates_a_child_and_refuses_a_stale_version(
                 "kind": "promise.create",
                 "head": head(),
                 "data": {
-                    "id": "wf.other",
+                    "id": "wf:other",
                     "timeoutAt": timeout_at,
                     "param": {},
                     "tags": {},
@@ -983,7 +1024,7 @@ async def test_each_origin_gets_its_own_database_file(tmp_path: Path) -> None:
     await network.start()
     try:
         timeout_at = now_ms() + 60_000
-        for promise_id in ("alpha", "beta.1"):
+        for promise_id in ("alpha", "beta:1"):
             ok(
                 await send(
                     network,
@@ -1038,7 +1079,7 @@ async def test_a_second_process_picks_up_work_it_never_created(tmp_path: Path) -
                     "id": "handoff",
                     "timeoutAt": now_ms() + 60_000,
                     "param": {"data": "payload"},
-                    "tags": {"resonate:target": creator.target_resolver("default")},
+                    "tags": {"resonate:target": creator.resolve_target("default")},
                 },
             )
         )
@@ -1112,7 +1153,7 @@ async def test_a_sharded_node_sweeps_only_the_origins_it_owns(
                         "id": promise_id,
                         "timeoutAt": now_ms() + 60_000,
                         "param": {},
-                        "tags": {"resonate:target": creator.target_resolver("default")},
+                        "tags": {"resonate:target": creator.resolve_target("default")},
                     },
                 )
             )
@@ -1197,7 +1238,7 @@ async def test_promises_in_different_origins_do_not_see_each_other(
         net,
         "promise.create",
         {
-            "id": "alpha.1",
+            "id": "alpha:1",
             "timeoutAt": timeout_at,
             "param": {"data": "a"},
             "tags": {"resonate:origin": "alpha"},
@@ -1207,7 +1248,7 @@ async def test_promises_in_different_origins_do_not_see_each_other(
         net,
         "promise.create",
         {
-            "id": "beta.1",
+            "id": "beta:1",
             "timeoutAt": timeout_at,
             "param": {"data": "b"},
             "tags": {"resonate:origin": "beta"},
@@ -1218,7 +1259,7 @@ async def test_promises_in_different_origins_do_not_see_each_other(
     alpha = ok(
         await send(net, "promise.search", {"tags": {"resonate:origin": "alpha"}})
     )
-    assert [p["id"] for p in alpha["promises"]] == ["alpha.1"]
+    assert [p["id"] for p in alpha["promises"]] == ["alpha:1"]
 
 
 async def test_a_tenant_wide_search_is_refused(net: TursoNetwork) -> None:
@@ -1403,8 +1444,17 @@ async def test_a_workflow_runs_to_completion_and_can_be_reattached_to(
         assert await handle.result() == "acme:CH-100"
 
         # A second client over the same databases sees the settled result.
-        again = await b.get("order-1")
-        assert await again.result() == "acme:CH-100"
+        #
+        # Read it rather than awaiting a handle. ``result()`` registers a
+        # listener and waits to be told, and this network does not push across
+        # processes -- so on the orderings where B's push never arrives the
+        # assertion only passes when the SDK's 60s subscription refresh comes
+        # round. That is the documented limitation, not something to measure
+        # here; what this test is for is that B, which never ran the workflow,
+        # reads the same settled state out of the same databases.
+        record = await b.promises.get("order-1")
+        assert record.state == "resolved"
+        assert record.value.data == "acme:CH-100"
     finally:
         await b.stop()
         await a.stop()

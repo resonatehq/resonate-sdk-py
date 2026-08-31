@@ -1,37 +1,55 @@
-# Decentralized Resonate on Turso
+# resonate-turso
 
-`TursoNetwork` is a `Network` with no server behind it.
+Decentralized Resonate on Turso: a connector that is both a `Network` and a
+`Source`, with no server behind either.
 
-Every other network in this SDK is a transport: it carries a request to a
-Resonate Server and carries the response back. This one is not. There is no
-server; the SDK *is* the server, and the durable state lives in Turso databases
-the SDK reads, writes, and syncs directly.
+Every other connector is a transport — it carries a request to a Resonate
+Server and carries the response back. This one is not. There is no server; the
+connector *is* the server, and the durable state lives in Turso databases it
+reads, writes, and syncs directly.
 
-```python
-from resonate import Resonate
-from resonate.network.turso import TursoNetwork, TursoSyncDriver
-
-resonate = Resonate.remote(
-    network=TursoNetwork(
-        TursoSyncDriver(
-            "/var/lib/resonate",
-            "libsql://acme-",              # remote database is `acme-<origin>`
-            auth_token=os.environ["TURSO_AUTH_TOKEN"],
-        ),
-        prefix="acme-",                    # local database is `acme-<origin>`
-        timeout_database="timeouts",       # tenant-global: `acme-timeouts`
-        group="default",
-    ),
-)
+```shell
+pip install resonate-turso
 ```
 
-Install the optional client with `pip install resonate-sdk[turso]`.
+```python
+import os
+from resonate import Resonate
+from resonate_turso import TursoNetwork, TursoSyncDriver
+
+network = TursoNetwork(
+    TursoSyncDriver(
+        "/var/lib/resonate",
+        "libsql://acme-",              # remote database is `acme-<origin>`
+        auth_token=os.environ["TURSO_AUTH_TOKEN"],
+    ),
+    prefix="acme-",                    # local database is `acme-<origin>`
+    timeout_database="timeouts",       # tenant-global: `acme-timeouts`
+    group="default",
+)
+
+# It implements both seams, so it doubles as its own source.
+resonate = Resonate(network=network)
+```
+
+This package depends on `resonate-base`, not on `resonate-sdk` — a connector
+names the seam it implements, not the SDK that calls it.
 
 ## One database per workflow
 
 Every promise id is prefixed by its **origin** — the root workflow's id,
-everything before the first `.`. `TursoNetwork` gives each origin its own
+everything before the first `:`. `TursoNetwork` gives each origin its own
 database, named `<prefix><origin>`.
+
+The separator is `:`, not `.`. Ids are `<origin>:<lineage>`, and `.` divides
+lineage segments *below* the origin (`root` → `root:0` → `root:0.0`), so a
+dotted root id like `my.app.workflow` is one workflow rather than three.
+Splitting on `.` would scatter a single workflow's state across databases and
+break the single-database-transaction invariant this whole design rests on.
+
+The routing origin is not derived here anyway: it arrives in the
+`resonate:origin` header that `resonate-base` defines, already resolved by the
+SDK, so the id format stays in one place.
 
 That is not an arbitrary sharding key. The protocol already guarantees a
 callback never crosses an origin (`promise.register_callback` refuses one, and
@@ -254,7 +272,7 @@ Resonate Server's SQLite schema and the two are not interchangeable.
 
 ## Schedules and cron
 
-Cron expressions are evaluated in **UTC** (`resonate/network/turso/cron.py`), a
+Cron expressions are evaluated in **UTC** (`resonate_turso/cron.py`), a
 self-contained five-field evaluator supporting `*`, lists, ranges, and steps.
 A schedule is fired by whichever process sweeps it first and those processes
 need not share a timezone, so a local-time interpretation would make the same
@@ -289,5 +307,5 @@ enable the client's remote-writes mode.
 ## Tests
 
 ```shell
-uv run pytest tests/test_turso.py
+uv run pytest packages/resonate-turso/tests/test_turso.py
 ```
