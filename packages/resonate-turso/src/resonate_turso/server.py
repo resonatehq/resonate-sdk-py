@@ -130,15 +130,6 @@ def origin_of(promise_id: str) -> str:
     return head
 
 
-def _lineage_sep(ancestor: str) -> str:
-    """Return the separator joining a child segment to ``ancestor``.
-
-    Mirrors the SDK's ``join_id``: the first segment below a root is attached
-    with ``:`` (making it the origin), every one after that with ``.``.
-    """
-    return LINEAGE_SEP if ORIGIN_SEP in ancestor else ORIGIN_SEP
-
-
 def hash_origin(origin: str) -> int:
     """Hash an origin to a stable 32-bit value (FNV-1a).
 
@@ -286,12 +277,6 @@ def to_task_record(row: TursoRow, resumes: int) -> dict[str, Any]:
     if row.get("ttl") is not None:
         record["ttl"] = row["ttl"]
     return record
-
-
-def _message_key(address: str, msg: dict[str, Any]) -> str:
-    if msg["kind"] == "execute":
-        return str(msg["data"]["task"]["id"])
-    return f"{msg['data']['promise']['id']}:notify:{address}"
 
 
 def _tag_filter(
@@ -1428,7 +1413,15 @@ class OriginServer:
         handed to the client once it commits -- they are not state, so nothing
         writes them to a table.
         """
-        self._outgoing[_message_key(address, msg)] = OutgoingMessage(address, msg)
+        # An execute collapses on its task, so a newer version replaces the
+        # older; an unblock collapses per waiting address, so two waiters on one
+        # promise each still get told.
+        key = (
+            str(msg["data"]["task"]["id"])
+            if msg["kind"] == "execute"
+            else f"{msg['data']['promise']['id']}:notify:{address}"
+        )
+        self._outgoing[key] = OutgoingMessage(address, msg)
 
     def take_messages(self) -> list[OutgoingMessage]:
         """Take the messages this transaction produced, in emission order.
@@ -1501,11 +1494,12 @@ def validate_create(
         ("resonate:parent", "resonate:parent"),
     ):
         prefix = tags.get(tag)
-        if (
-            prefix is not None
-            and promise_id != prefix
-            and not promise_id.startswith(f"{prefix}{_lineage_sep(prefix)}")
-        ):
+        if prefix is None:
+            continue
+        # The SDK's join_id rule: the first segment below a root is attached
+        # with ':' (making it the origin), every one after that with '.'.
+        sep = LINEAGE_SEP if ORIGIN_SEP in prefix else ORIGIN_SEP
+        if promise_id != prefix and not promise_id.startswith(f"{prefix}{sep}"):
             return f"Promise ID must be prefixed by {label}"
 
     raw_delay = tags.get("resonate:delay")
