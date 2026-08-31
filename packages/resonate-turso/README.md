@@ -114,9 +114,29 @@ transaction. A workflow is a unit of consistency, and here it becomes a unit of
 storage too. That is what makes each database small enough for a process to
 hold as an embedded replica.
 
-An origin database holds everything about one workflow: its promises, the
-callbacks and listeners registered against them, its tasks, and the armed
-timeouts.
+An origin database holds everything about one workflow in four tables:
+`promises`, `callbacks`, `listeners`, and `resumes`.
+
+Tasks and timeout queues are not among them. A table that only ever recorded
+"this row is also in that set" is a predicate, not a table:
+
+| Was | Is |
+|-----|----|
+| `tasks` | `task_state` (NULL = no task), `task_version`, `pid`, `ttl` on `promises` — a task is 1:1 with its promise and shares its id |
+| `task_timeouts` (a `kind` column discriminating two queues) | `retry_timeout_at` and `lease_timeout_at`, each with a partial index |
+| `promise_timeouts` | a partial index `WHERE state = 'pending' AND external = 1` — the pending external promises *are* the queue |
+
+`resumes` stays. The Resonate Server folds its equivalent into a `ready` flag
+on `callbacks`, but settlement here deletes the callbacks of the settled
+promise before the resume is buffered, so there is no surviving row to carry
+the flag. That is a difference in the transition, not in the layout.
+
+An origin database from an older schema version is **refused**, not upgraded:
+it holds workflow state rather than mirroring it, and re-running the DDL adds
+no column to a table that already exists. This network is unreleased, so
+delete the directory and let it be recreated. (The tenant index *is* upgraded
+in place, because it is a mirror and losing it would strand quiescent
+workflows.)
 
 ## One tenant-global timeout database
 

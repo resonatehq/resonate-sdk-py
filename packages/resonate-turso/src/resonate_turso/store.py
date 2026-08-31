@@ -177,7 +177,7 @@ class TursoStore:
 
             conn = await self._driver.open(f"{self._prefix}{origin}")
             try:
-                await _migrate(conn, ORIGIN_SCHEMA)
+                await _migrate(conn, ORIGIN_SCHEMA, authoritative=True)
             except BaseException:
                 with contextlib.suppress(Exception):
                     await conn.close()
@@ -336,32 +336,47 @@ class TursoStore:
 
 async def _read_timeouts(tx: TursoExecutor) -> list[tuple[str, int, int]]:
     """Read the origin's armed timers, translated into the tenant index's kind encoding."""
-    promises: list[TursoRow] = await tx.execute(
-        "SELECT id, timeout_at FROM promise_timeouts"
+    # One scan of one table. The timers were three tables and are now three
+    # predicates over `promises`: a pending external promise is a promise
+    # timeout, and each non-NULL timer column is its own queue.
+    rows: list[TursoRow] = await tx.execute(
+        """
+        SELECT id, timeout_at, retry_timeout_at, lease_timeout_at,
+               (state = 'pending' AND external = 1) AS promise_armed
+        FROM promises
+        WHERE (state = 'pending' AND external = 1)
+           OR retry_timeout_at IS NOT NULL
+           OR lease_timeout_at IS NOT NULL
+        """
     )
-    tasks: list[TursoRow] = await tx.execute(
-        "SELECT id, kind, timeout_at FROM task_timeouts"
-    )
-    out: list[tuple[str, int, int]] = [
-        (row["id"], TIMEOUT_PROMISE, int(row["timeout_at"])) for row in promises
-    ]
-    out.extend(
-        (
-            row["id"],
-            TIMEOUT_TASK_LEASE if int(row["kind"]) == 1 else TIMEOUT_TASK_RETRY,
-            int(row["timeout_at"]),
-        )
-        for row in tasks
-    )
+    out: list[tuple[str, int, int]] = []
+    for row in rows:
+        if row["promise_armed"]:
+            out.append((row["id"], TIMEOUT_PROMISE, int(row["timeout_at"])))
+        if row["retry_timeout_at"] is not None:
+            out.append((row["id"], TIMEOUT_TASK_RETRY, int(row["retry_timeout_at"])))
+        if row["lease_timeout_at"] is not None:
+            out.append((row["id"], TIMEOUT_TASK_LEASE, int(row["lease_timeout_at"])))
     return out
 
 
-async def _migrate(conn: TursoConnection, statements: tuple[str, ...]) -> None:
+async def _migrate(
+    conn: TursoConnection, statements: tuple[str, ...], *, authoritative: bool = False
+) -> None:
     """Create the schema if absent and record its version.
 
     Every statement is ``IF NOT EXISTS``, so this is safe to run on every open --
     which it must be, since a database is created the first time a workflow
     touches it and no separate migration step ever runs against it.
+
+    ``authoritative`` marks a database that *is* the state rather than a mirror
+    of it -- an origin database. An older one cannot be caught up by re-running
+    the DDL, because ``CREATE TABLE IF NOT EXISTS`` adds no column to a table
+    that already exists, so the promise row would silently lack the columns the
+    v4 collapse moved into it. Rather than guess, it is refused: this network is
+    unreleased, so the only databases at an older version are development ones,
+    and deleting them is both safe and what the Resonate Server tells you to do
+    in the same situation.
     """
     for sql in statements:
         await conn.execute(sql)
@@ -383,6 +398,15 @@ async def _migrate(conn: TursoConnection, statements: tuple[str, ...]) -> None:
         msg = (
             f"Turso database is at schema version {found}, "
             f"newer than this SDK understands ({SCHEMA_VERSION})"
+        )
+        raise SchemaVersionError(msg)
+    if found < SCHEMA_VERSION and authoritative:
+        msg = (
+            f"Turso origin database is at schema version {found}, and this SDK "
+            f"needs {SCHEMA_VERSION}. An origin database holds workflow state "
+            "rather than mirroring it, so it is not upgraded in place. This "
+            "network is unreleased: delete the database directory and let it be "
+            "recreated."
         )
         raise SchemaVersionError(msg)
     if found < SCHEMA_VERSION:

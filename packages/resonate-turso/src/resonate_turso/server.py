@@ -65,9 +65,19 @@ DEFAULT_RETRY_TIMEOUT = 30_000
 #: The states a client is allowed to settle a promise into.
 SETTABLE = frozenset({"resolved", "rejected", "rejected_canceled"})
 
-#: Timeout kinds as stored in an origin database's ``task_timeouts`` table.
+#: The two task timers, kept as the spec's ``(id, kind)`` keys because
+#: ``setTaskTimeout``/``delTaskTimeout`` are written that way. What was a
+#: discriminator column on a ``task_timeouts`` row now selects between two
+#: nullable columns on the promise.
 TASK_TIMEOUT_RETRY = 0
 TASK_TIMEOUT_LEASE = 1
+
+#: Never interpolate anything but these into SQL -- the kind is an internal
+#: constant, and this mapping is what keeps it that way.
+_TASK_TIMEOUT_COLUMN = {
+    TASK_TIMEOUT_RETRY: "retry_timeout_at",
+    TASK_TIMEOUT_LEASE: "lease_timeout_at",
+}
 
 
 class Outcome(NamedTuple):
@@ -421,7 +431,10 @@ class OriginServer:
                 kind, 200, {"promise": to_promise_record(project(existing, self._now))}
             )
 
-        target, _branch, timer, external = _tag_columns(tags)
+        # `external` is read off the row, not carried here: it decides
+        # membership in the promise-timeout queue, and `_insert_promise`
+        # already wrote it.
+        target, _branch, timer, _external = _tag_columns(tags)
 
         if timeout_at > self._now:
             row = await self._insert_promise(
@@ -434,10 +447,10 @@ class OriginServer:
                 None,
             )
 
-            # Only external promises arm a durable timeout -- an internal
-            # promise's deadline is projection-only, and nothing may await it.
-            if external:
-                await self._set_promise_timeout(promise_id, timeout_at)
+            # Nothing arms a promise timeout any more: `state = 'pending' AND
+            # external = 1` is the queue, and the insert above already put the
+            # row in it or left it out. An internal promise's deadline stays
+            # projection-only, which is what the old `if external` said.
 
             if target is not None:
                 await self._set_task(promise_id, "pending", 0, None, None)
@@ -639,7 +652,6 @@ class OriginServer:
                     self._now,
                     None,
                 )
-                await self._set_promise_timeout(promise_id, timeout_at)
                 task = await self._set_task(promise_id, "acquired", 1, pid, ttl)
                 await self._set_task_timeout(
                     promise_id, TASK_TIMEOUT_LEASE, self._now + ttl
@@ -956,7 +968,10 @@ class OriginServer:
         self, state: str | None, limit: int | None, cursor: str | None
     ) -> Outcome:
         size = min(max(limit or 100, 1), 1000)
-        clauses: list[str] = []
+        # The join is gone with the `tasks` table: a task and its promise are
+        # one row, and `task_state IS NOT NULL` is the membership the join used
+        # to express.
+        clauses: list[str] = ["task_state IS NOT NULL"]
         args: list[Any] = []
         if state is not None:
             # A task bound to a logically dead promise is ``fulfilled`` by
@@ -964,17 +979,19 @@ class OriginServer:
             # has to say the same thing, or a search and a get disagree about
             # one task.
             clauses.append(
-                "(CASE WHEN p.state = 'pending' AND ? < p.timeout_at "
-                "THEN t.state ELSE 'fulfilled' END) = ?"
+                "(CASE WHEN state = 'pending' AND ? < timeout_at "
+                "THEN task_state ELSE 'fulfilled' END) = ?"
             )
             args.extend([self._now, state])
         if cursor is not None:
-            clauses.append("t.id > ?")
+            clauses.append("id > ?")
             args.append(cursor)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        where = f"WHERE {' AND '.join(clauses)}"
         rows = await self._tx.execute(
-            f"SELECT t.* FROM tasks t JOIN promises p ON p.id = t.id {where} "  # noqa: S608
-            "ORDER BY t.id ASC LIMIT ?",
+            # S608: `where` is built from literals above; every value is bound.
+            "SELECT id, task_state AS state, task_version AS version, pid, ttl "  # noqa: S608
+            f"FROM promises {where} "
+            "ORDER BY id ASC LIMIT ?",
             [*args, size],
         )
 
@@ -1025,8 +1042,8 @@ class OriginServer:
         await self._tx.execute(
             "DELETE FROM listeners WHERE promise_id = ?", [promise_id]
         )
-        await self._del_promise_timeout(promise_id)
-
+        # No promise timeout to drop: the UPDATE above moved this row out of
+        # `state = 'pending'`, which is the queue.
         task = await self._get_task(promise_id)
         if task is not None:
             await self._set_task(promise_id, "fulfilled", task["version"], None, None)
@@ -1199,8 +1216,7 @@ class OriginServer:
         await self._tx.execute(
             "DELETE FROM listeners WHERE promise_id = ?", [row["id"]]
         )
-        await self._del_promise_timeout(row["id"])
-
+        # Settling moved the row out of `state = 'pending'`, which is the queue.
         task = await self._get_task(row["id"])
         if task is not None:
             await self._set_task(row["id"], "fulfilled", task["version"], None, None)
@@ -1289,7 +1305,20 @@ class OriginServer:
         return row
 
     async def _get_task(self, task_id: str) -> TursoRow | None:
-        rows = await self._tx.execute("SELECT * FROM tasks WHERE id = ?", [task_id])
+        """Return the task bound to this promise, or None when it has none.
+
+        ``task_state IS NOT NULL`` is the row's membership in what was the
+        ``tasks`` table -- a task shares its promise's id, so the join it
+        replaces was always on equality of the primary keys. The columns are
+        aliased back to the task's own names so callers read unchanged.
+        """
+        rows = await self._tx.execute(
+            """
+            SELECT id, task_state AS state, task_version AS version, pid, ttl
+            FROM promises WHERE id = ? AND task_state IS NOT NULL
+            """,
+            [task_id],
+        )
         return rows[0] if rows else None
 
     async def _set_task(
@@ -1300,13 +1329,15 @@ class OriginServer:
         pid: str | None,
         ttl: int | None,
     ) -> TursoRow:
+        # An UPDATE, not an upsert: the promise row always exists before its
+        # task does -- installing a task is what the old INSERT expressed, and
+        # the promise it belongs to was inserted in the same transaction.
         await self._tx.execute(
             """
-            INSERT INTO tasks (id, state, version, pid, ttl) VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT (id) DO UPDATE SET state = excluded.state, version = excluded.version,
-              pid = excluded.pid, ttl = excluded.ttl
+            UPDATE promises SET task_state = ?, task_version = ?, pid = ?, ttl = ?
+            WHERE id = ?
             """,
-            [task_id, state, version, pid, ttl],
+            [state, version, pid, ttl, task_id],
         )
         return {
             "id": task_id,
@@ -1369,39 +1400,30 @@ class OriginServer:
     async def _clear_resumes(self, task_id: str) -> None:
         await self._tx.execute("DELETE FROM resumes WHERE task_id = ?", [task_id])
 
-    async def _set_promise_timeout(self, promise_id: str, timeout_at: int) -> None:
-        await self._tx.execute(
-            """
-            INSERT INTO promise_timeouts (id, timeout_at) VALUES (?, ?)
-            ON CONFLICT (id) DO UPDATE SET timeout_at = excluded.timeout_at
-            """,
-            [promise_id, timeout_at],
-        )
-
-    async def _del_promise_timeout(self, promise_id: str) -> None:
-        await self._tx.execute(
-            "DELETE FROM promise_timeouts WHERE id = ?", [promise_id]
-        )
-
     async def _get_task_timeout(self, task_id: str, kind: int) -> int | None:
+        column = _TASK_TIMEOUT_COLUMN[kind]
         rows = await self._tx.execute(
-            "SELECT timeout_at FROM task_timeouts WHERE id = ? AND kind = ?",
-            [task_id, kind],
+            f"SELECT {column} AS timeout_at FROM promises WHERE id = ?",  # noqa: S608
+            [task_id],
         )
-        return int(rows[0]["timeout_at"]) if rows else None
+        if not rows or rows[0]["timeout_at"] is None:
+            return None
+        return int(rows[0]["timeout_at"])
 
     async def _set_task_timeout(self, task_id: str, kind: int, timeout_at: int) -> None:
+        column = _TASK_TIMEOUT_COLUMN[kind]
         await self._tx.execute(
-            """
-            INSERT INTO task_timeouts (id, kind, timeout_at) VALUES (?, ?, ?)
-            ON CONFLICT (id, kind) DO UPDATE SET timeout_at = excluded.timeout_at
-            """,
-            [task_id, kind, timeout_at],
+            f"UPDATE promises SET {column} = ? WHERE id = ?",  # noqa: S608
+            [timeout_at, task_id],
         )
 
     async def _del_task_timeout(self, task_id: str) -> None:
         """Disarm every timer on a task, matching the spec's ``delTaskTimeout``."""
-        await self._tx.execute("DELETE FROM task_timeouts WHERE id = ?", [task_id])
+        await self._tx.execute(
+            "UPDATE promises SET retry_timeout_at = NULL, lease_timeout_at = NULL "
+            "WHERE id = ?",
+            [task_id],
+        )
 
     def _set_message(self, address: str, msg: dict[str, Any]) -> None:
         """Record a message the transition emitted, collapsing on the message key.

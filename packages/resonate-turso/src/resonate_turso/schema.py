@@ -3,10 +3,26 @@
 Two shapes of database back the network.
 
 **Origin database** -- one per workflow. Everything the protocol reads or writes
-while advancing a single workflow lives here: its promises, the callbacks and
-listeners registered against them, its tasks, and the armed timeouts. Every
-request is served by exactly one origin database, which is what makes a request
-a single-database transaction.
+while advancing a single workflow lives here, in four tables: its promises, the
+callbacks and listeners registered against them, and each task's buffered
+resumes. Every request is served by exactly one origin database, which is what
+makes a request a single-database transaction.
+
+A task is not among them, and neither is a timeout queue. **A table that only
+ever recorded "this row is also in that set" is a predicate, not a table.** A
+task is 1:1 with the promise it drives and shares its id, so ``tasks`` was five
+columns behind a join; ``task_timeouts`` discriminated two queues with a
+``kind`` column, which two nullable columns say without the row; and
+``promise_timeouts`` held exactly the pending external promises, which a
+partial index expresses with the same index that table carried. The Resonate
+Server collapsed its SQLite schema the same way and for the same reason.
+
+The one that stays is ``resumes``, and it is worth saying why, because the
+server folded its equivalent into a ``ready`` flag on ``callbacks``. Settlement
+here *deletes* the callbacks of the settled promise before the resume is
+buffered, so there is no surviving row to carry the flag. That is a difference
+in the transition, not in the schema, and changing it to match would change
+behaviour rather than layout.
 
 **Tenant database** -- one per tenant, shared by every origin. It holds the
 things no single workflow owns: the timeout index (so a sweeper can find due
@@ -37,7 +53,7 @@ by the caller rather than computed by the engine. ``external`` is the spec's
 from __future__ import annotations
 
 #: Bumped when the physical layout changes in a way old rows cannot satisfy.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 ORIGIN_SCHEMA: tuple[str, ...] = (
     """
@@ -62,11 +78,39 @@ ORIGIN_SCHEMA: tuple[str, ...] = (
       external INTEGER NOT NULL DEFAULT 0,
       timeout_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
-      settled_at INTEGER
+      settled_at INTEGER,
+
+      -- was the ``tasks`` table. A task is 1:1 with the promise it drives and
+      -- shares its id, so it was never a relation -- it was five columns
+      -- behind a join. NULL ``task_state`` means this promise has no task,
+      -- which is what the join's absence used to say.
+      task_state TEXT
+        CHECK (task_state IS NULL OR
+               task_state IN ('pending', 'acquired', 'suspended', 'halted', 'fulfilled')),
+      task_version INTEGER NOT NULL DEFAULT 0,
+      pid TEXT,
+      ttl INTEGER,
+
+      -- was ``task_timeouts``, whose ``kind`` column discriminated two queues.
+      -- Two nullable columns say the same thing without the row, and a task
+      -- carries at most one of each.
+      retry_timeout_at INTEGER,
+      lease_timeout_at INTEGER
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_promises_branch ON promises (branch) WHERE branch IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_promises_state ON promises (state, id)",
+    # ``promise_timeouts`` is gone. A pending external promise past its
+    # ``timeout_at`` *is* the queue -- membership was never independent of the
+    # promise row, because only an external promise arms a durable timeout and
+    # settling one is exactly what used to delete its row. This partial index
+    # is the index that table carried.
+    "CREATE INDEX IF NOT EXISTS idx_promises_due ON promises (timeout_at, id) "
+    "WHERE state = 'pending' AND external = 1",
+    "CREATE INDEX IF NOT EXISTS idx_promises_retry_due ON promises (retry_timeout_at, id) "
+    "WHERE retry_timeout_at IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_promises_lease_due ON promises (lease_timeout_at, id) "
+    "WHERE lease_timeout_at IS NOT NULL",
     # The awaiter ids registered against an awaited promise. ``seq`` preserves
     # the spec's append order, which fixes the order resumes are deferred in.
     """
@@ -86,16 +130,6 @@ ORIGIN_SCHEMA: tuple[str, ...] = (
       PRIMARY KEY (promise_id, address)
     )
     """,
-    """
-    CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      state TEXT NOT NULL DEFAULT 'pending'
-        CHECK (state IN ('pending', 'acquired', 'suspended', 'halted', 'fulfilled')),
-      version INTEGER NOT NULL DEFAULT 0,
-      pid TEXT,
-      ttl INTEGER
-    )
-    """,
     # A task's ``resumes`` list: awaited ids that settled while the task was not
     # suspended, buffered until it next suspends or continues.
     """
@@ -106,25 +140,6 @@ ORIGIN_SCHEMA: tuple[str, ...] = (
       PRIMARY KEY (task_id, awaited_id)
     )
     """,
-    """
-    CREATE TABLE IF NOT EXISTS promise_timeouts (
-      id TEXT PRIMARY KEY,
-      timeout_at INTEGER NOT NULL
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_promise_timeouts_due ON promise_timeouts (timeout_at, id)",
-    # kind 0 = pending retry, kind 1 = lease expiration. A task carries at most
-    # one armed timer, but the spec keys ``setTaskTimeout`` on (id, kind), so the
-    # primary key does too; ``delTaskTimeout`` deletes every kind for the id.
-    """
-    CREATE TABLE IF NOT EXISTS task_timeouts (
-      id TEXT NOT NULL,
-      kind INTEGER NOT NULL,
-      timeout_at INTEGER NOT NULL,
-      PRIMARY KEY (id, kind)
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_task_timeouts_due ON task_timeouts (timeout_at, id)",
 )
 
 TENANT_SCHEMA: tuple[str, ...] = (

@@ -17,6 +17,7 @@ from resonate_turso import (
     owner_of,
 )
 from resonate_turso.server import _parse_delay
+from resonate_turso.store import SchemaVersionError
 
 from resonate.resonate import Resonate
 from resonate.timing import now_ms
@@ -964,6 +965,75 @@ async def test_heartbeating_keeps_a_lease_alive(quiet: TursoNetwork) -> None:
 # =============================================================================
 # PARTITIONING
 # =============================================================================
+
+
+async def test_an_origin_database_holds_four_tables(net: TursoNetwork) -> None:
+    """A task is not a relation, and a timeout queue is not a table.
+
+    Pinned because the collapse is easy to undo by reflex: the next person who
+    needs a per-task field will reach for a `tasks` table unless the schema
+    says, in one place, that there isn't one.
+    """
+    ok(
+        await send(
+            net,
+            "promise.create",
+            {
+                "id": "wf",
+                "timeoutAt": now_ms() + 60_000,
+                "param": {},
+                "tags": {"resonate:target": TARGET},
+            },
+        )
+    )
+    conn = await net._store.origin("wf")
+    rows = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+    )
+    assert [r["name"] for r in rows] == [
+        "callbacks",
+        "listeners",
+        "meta",
+        "promises",
+        "resumes",
+    ]
+
+    # The task lives on its promise's row, and its timers are columns there.
+    row = (await conn.execute("SELECT * FROM promises WHERE id = 'wf'"))[0]
+    assert row["task_state"] == "pending"
+    assert row["retry_timeout_at"] is not None
+    assert row["lease_timeout_at"] is None
+
+
+async def test_an_origin_database_from_an_older_schema_is_refused(
+    tmp_path: Path,
+) -> None:
+    # An origin database is the state, not a mirror of it, so re-running the
+    # DDL cannot catch it up: CREATE TABLE IF NOT EXISTS adds no column. It is
+    # refused with a message that says what to do rather than failing later on
+    # a missing column.
+    first = TursoNetwork(TursoLocalDriver(str(tmp_path)), prefix="old-")
+    await first.start()
+    try:
+        ok(
+            await send(
+                first,
+                "promise.create",
+                {"id": "wf", "timeoutAt": now_ms() + 60_000, "param": {}, "tags": {}},
+            )
+        )
+        conn = await first._store.origin("wf")
+        await conn.execute("UPDATE meta SET value = '3' WHERE key = 'schema_version'")
+    finally:
+        await first.stop()
+
+    second = TursoNetwork(TursoLocalDriver(str(tmp_path)), prefix="old-")
+    await second.start()
+    try:
+        with pytest.raises(SchemaVersionError, match="delete the database"):
+            await second._store.origin("wf")
+    finally:
+        await second.stop()
 
 
 async def test_each_origin_gets_its_own_database_file(tmp_path: Path) -> None:

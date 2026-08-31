@@ -100,6 +100,8 @@ from resonate_turso.driver import (
 )
 from resonate_turso.server import (
     DEFAULT_RETRY_TIMEOUT,
+    TASK_TIMEOUT_LEASE,
+    TASK_TIMEOUT_RETRY,
     OriginServer,
     Outcome,
     OutgoingMessage,
@@ -666,12 +668,27 @@ class TursoNetwork:
             async with conn.transaction() as tx:
                 server = OriginServer(tx, now, self._retry_timeout)
                 snapshot = await collect(server)
+                # The three timeout tables are three predicates over
+                # `promises` now; the snapshot keeps the old shape so a reader
+                # (and the differential) sees the same thing it always did.
                 promise_timeouts = await tx.execute(
-                    "SELECT id, timeout_at FROM promise_timeouts ORDER BY id"
+                    "SELECT id, timeout_at FROM promises "
+                    "WHERE state = 'pending' AND external = 1 ORDER BY id"
                 )
-                task_timeouts = await tx.execute(
-                    "SELECT id, kind, timeout_at FROM task_timeouts ORDER BY id"
+                armed = await tx.execute(
+                    "SELECT id, retry_timeout_at, lease_timeout_at FROM promises "
+                    "WHERE retry_timeout_at IS NOT NULL OR lease_timeout_at IS NOT NULL "
+                    "ORDER BY id"
                 )
+                task_timeouts = [
+                    {"id": r["id"], "kind": kind, "timeout_at": r[column]}
+                    for r in armed
+                    for kind, column in (
+                        (TASK_TIMEOUT_RETRY, "retry_timeout_at"),
+                        (TASK_TIMEOUT_LEASE, "lease_timeout_at"),
+                    )
+                    if r[column] is not None
+                ]
                 callbacks = await tx.execute(
                     "SELECT awaited_id, awaiter_id FROM callbacks ORDER BY awaiter_id, awaited_id"
                 )
