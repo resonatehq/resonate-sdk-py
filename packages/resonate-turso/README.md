@@ -39,23 +39,28 @@ server; the SDK *is* the server, and the durable state lives in Turso databases
 the SDK reads, writes, and syncs directly.
 
 ```python
+import os
+
 from resonate import Resonate
 from resonate_turso import TursoNetwork, TursoSyncDriver
 
-resonate = Resonate.remote(
-    network=TursoNetwork(
-        TursoSyncDriver(
-            "/var/lib/resonate",
-            # A Turso Cloud database lives at `<name>-<org>.<region>.turso.io`,
-            # so the flat prefix form cannot address it -- pass a callable.
-            lambda name: f"libsql://{name}-acme.aws-us-west-2.turso.io",
-            auth_token=os.environ["TURSO_AUTH_TOKEN"],
-        ),
-        prefix="acme-",                    # local database is `acme-<origin>`
-        timeout_database="timeouts",       # tenant-global: `acme-timeouts`
-        group="default",
+network = TursoNetwork(
+    TursoSyncDriver(
+        "/var/lib/resonate",               # local replica directory
+        # A Turso Cloud database lives at `<name>-<org>.<region>.turso.io`,
+        # so the flat prefix form cannot address it -- pass a callable.
+        lambda name: f"libsql://{name}-acme.aws-us-west-2.turso.io",
+        auth_token=os.environ["TURSO_AUTH_TOKEN"],
     ),
+    prefix="acme-",                        # local database is `acme-<origin>`
+    timeout_database="timeouts",           # tenant-global: `acme-timeouts`
+    group="default",
+    shard=(0, 2),                          # one owner per workflow; see below
 )
+
+# TursoNetwork implements both connector seams, so it doubles as its own
+# source -- there is no separate `sources=[...]` to pass.
+resonate = Resonate(network=network)
 ```
 
 ```shell
