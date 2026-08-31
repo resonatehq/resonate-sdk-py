@@ -16,7 +16,7 @@ from resonate_turso import (
     origin_of,
     owner_of,
 )
-from resonate_turso.cron import CronError, cron_occurrences, next_cron
+from resonate_turso.server import _parse_delay
 
 from resonate.resonate import Resonate
 from resonate.timing import now_ms
@@ -136,11 +136,11 @@ async def test_a_dotted_root_id_is_one_origin_not_several() -> None:
 
 
 async def test_the_origin_header_routes_the_request(net: TursoNetwork) -> None:
-    """The header the SDK resolves wins over anything derivable from the id.
+    """The connector is handed the origin rather than working it out.
 
-    This is the seam ``resonate-base`` defines: the connector is handed the
-    origin rather than working it out, so the id format stays the SDK's
-    business alone.
+    A header naming a different workflow than the id is refused, not honored:
+    writing one workflow's state into another's database is the one mistake
+    this partition cannot survive.
     """
     timeout_at = now_ms() + 60_000
     ok(
@@ -151,20 +151,23 @@ async def test_the_origin_header_routes_the_request(net: TursoNetwork) -> None:
         )
     )
 
-    # Routed to a different origin's database, so the promise is not there --
-    # proving the header, not the id, selected the database.
-    elsewhere = json.loads(
+    routed = json.loads(
+        await net.send(request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "wf"})
+    )
+    assert routed["head"]["status"] == 200
+
+    # The header may carry a full id; it is normalized to its origin.
+    lineage = json.loads(
+        await net.send(request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "wf:1.2"})
+    )
+    assert lineage["head"]["status"] == 200
+
+    mismatched = json.loads(
         await net.send(
             request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "somewhere-else"}
         )
     )
-    assert elsewhere["head"]["status"] == 404
-
-    # Routed correctly, it is.
-    found = json.loads(
-        await net.send(request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "wf"})
-    )
-    assert found["head"]["status"] == 200
+    assert mismatched["head"]["status"] == 400
 
 
 async def test_hash_origin_matches_the_vector_shared_with_the_typescript_sdk() -> None:
@@ -195,54 +198,6 @@ async def test_a_shard_that_cannot_index_the_fleet_is_rejected() -> None:
 
 # =============================================================================
 # CRON
-# =============================================================================
-
-
-async def test_cron_next_is_strictly_after_and_in_utc() -> None:
-    # 2024-01-01T00:00:00Z
-    base = 1_704_067_200_000
-    assert next_cron("* * * * *", base) == base + 60_000
-    assert next_cron("0 0 * * *", base) == base + 86_400_000
-    # Sunday 2024-01-07T00:00:00Z is the first Sunday after the base.
-    assert next_cron("0 0 * * 0", base) == base + 6 * 86_400_000
-
-
-async def test_cron_supports_ranges_lists_and_steps() -> None:
-    base = 1_704_067_200_000
-    assert next_cron("*/15 * * * *", base) == base + 15 * 60_000
-    assert next_cron("5,10 0 * * *", base) == base + 5 * 60_000
-    assert next_cron("0 2-4 * * *", base) == base + 2 * 3_600_000
-    # Sunday is both 0 and 7.
-    assert next_cron("0 0 * * 7", base) == next_cron("0 0 * * 0", base)
-
-
-async def test_cron_finds_a_sparse_occurrence() -> None:
-    # 2023-01-01T00:00:00Z; the next 29 February is in 2024.
-    base = 1_672_531_200_000
-    assert next_cron("0 0 29 2 *", base) == 1_709_164_800_000  # 2024-02-29T00:00:00Z
-
-
-async def test_cron_rejects_malformed_expressions() -> None:
-    for expression in (
-        "* * * *",
-        "60 * * * *",
-        "* * * * 9",
-        "*/0 * * * *",
-        "5-1 * * * *",
-    ):
-        with pytest.raises(CronError):
-            next_cron(expression, 0)
-
-
-async def test_cron_occurrences_are_bounded_and_ordered() -> None:
-    base = 1_704_067_200_000
-    got = cron_occurrences("* * * * *", base, base + 5 * 60_000)
-    assert got == [base + i * 60_000 for i in range(1, 6)]
-    assert len(cron_occurrences("* * * * *", base, base + 10_000_000, cap=7)) == 7
-
-
-# =============================================================================
-# PROMISES
 # =============================================================================
 
 
@@ -1320,74 +1275,25 @@ async def test_a_heartbeat_spanning_origins_refreshes_every_one(
 # =============================================================================
 
 
-async def test_schedule_create_get_delete(quiet: TursoNetwork) -> None:
-    created = ok(
-        await send(
-            quiet,
+async def test_every_schedule_request_answers_501(quiet: TursoNetwork) -> None:
+    # Schedules are the one tenant-scoped part of the protocol and are not
+    # implemented here; they answer 501 rather than half-working.
+    requests = [
+        (
             "schedule.create",
             {
-                "id": "nightly",
-                "cron": "0 0 * * *",
-                "promiseId": "job.{{.timestamp}}",
-                "promiseTimeout": 60_000,
-                "promiseParam": {},
-                "promiseTags": {"resonate:target": TARGET},
-            },
-        )
-    )
-    assert created["schedule"]["id"] == "nightly"
-    assert created["schedule"]["nextRunAt"] > now_ms()
-
-    got = ok(await send(quiet, "schedule.get", {"id": "nightly"}))
-    assert got["schedule"]["cron"] == "0 0 * * *"
-
-    ok(await send(quiet, "schedule.delete", {"id": "nightly"}))
-    gone = await send(quiet, "schedule.get", {"id": "nightly"})
-    assert gone["head"]["status"] == 404
-
-
-async def test_a_schedule_without_a_target_is_refused(quiet: TursoNetwork) -> None:
-    res = await send(
-        quiet,
-        "schedule.create",
-        {
-            "id": "bad",
-            "cron": "* * * * *",
-            "promiseId": "job.{{.timestamp}}",
-            "promiseTimeout": 60_000,
-            "promiseParam": {},
-            "promiseTags": {},
-        },
-    )
-    assert res["head"]["status"] == 400
-
-
-async def test_a_due_schedule_fires_into_the_origin_its_id_names(
-    quiet: TursoNetwork,
-) -> None:
-    ok(
-        await send(
-            quiet,
-            "schedule.create",
-            {
-                "id": "every-minute",
+                "id": "s",
                 "cron": "* * * * *",
-                "promiseId": "job.{{.id}}",
-                "promiseTimeout": 3_600_000,
-                "promiseParam": {"data": "tick"},
-                "promiseTags": {"resonate:target": TARGET},
+                "promiseId": "wf.{{.timestamp}}",
+                "promiseTimeout": 1000,
             },
-        )
-    )
-
-    # Two minutes on, the schedule is due.
-    await send(quiet, "debug.tick", {"time": now_ms() + 120_000})
-
-    promise = ok(await send(quiet, "promise.get", {"id": "job.every-minute"}))[
-        "promise"
+        ),
+        ("schedule.get", {"id": "s"}),
+        ("schedule.search", {}),
+        ("schedule.delete", {"id": "s"}),
     ]
-    assert promise["param"]["data"] == "tick"
-    assert promise["tags"]["resonate:schedule"] == "every-minute"
+    for kind, data in requests:
+        assert (await send(quiet, kind, data))["head"]["status"] == 501
 
 
 # =============================================================================
@@ -1444,17 +1350,8 @@ async def test_a_workflow_runs_to_completion_and_can_be_reattached_to(
         assert await handle.result() == "acme:CH-100"
 
         # A second client over the same databases sees the settled result.
-        #
-        # Read it rather than awaiting a handle. ``result()`` registers a
-        # listener and waits to be told, and this network does not push across
-        # processes -- so on the orderings where B's push never arrives the
-        # assertion only passes when the SDK's 60s subscription refresh comes
-        # round. That is the documented limitation, not something to measure
-        # here; what this test is for is that B, which never ran the workflow,
-        # reads the same settled state out of the same databases.
-        record = await b.promises.get("order-1")
-        assert record.state == "resolved"
-        assert record.value.data == "acme:CH-100"
+        again = await b.get("order-1")
+        assert await again.result() == "acme:CH-100"
     finally:
         await b.stop()
         await a.stop()
@@ -1479,3 +1376,90 @@ async def test_a_workflow_abandoned_mid_flight_is_finished_by_another_process(
     finally:
         if b is not None:
             await b.stop()
+
+
+# =============================================================================
+# REVIEW REGRESSIONS
+# =============================================================================
+
+
+async def test_eviction_under_concurrency_neither_deadlocks_nor_drops_requests() -> (
+    None
+):
+    # Regression: eviction used to acquire the evicted origin's per-origin
+    # lock while holding the global open lock -- the reverse of every
+    # request's lock order -- an AB-BA deadlock that wedged the whole network
+    # once more than max_open_databases distinct origins were in play.
+    net = await _network(max_open_databases=1, tick_seconds=3600)
+    try:
+
+        async def create(i: int) -> dict[str, Any]:
+            return await send(
+                net,
+                "promise.create",
+                {
+                    "id": f"evict{i}",
+                    "timeoutAt": now_ms() + 60_000,
+                    "param": {},
+                    "tags": {},
+                },
+            )
+
+        results = await asyncio.wait_for(
+            asyncio.gather(*(create(i) for i in range(12))), timeout=10
+        )
+        assert [r["head"]["status"] for r in results] == [200] * 12
+    finally:
+        await net.stop()
+
+
+async def test_a_declared_origin_that_is_a_full_id_is_normalized(
+    quiet: TursoNetwork,
+) -> None:
+    # The engine cores stamp the resonate:origin header with the full task id,
+    # not its origin; routing must normalize it, or a lineage id becomes the
+    # name of a phantom database.
+    ok(
+        await send(
+            quiet,
+            "promise.create",
+            {
+                "id": "wf",
+                "timeoutAt": now_ms() + 60_000,
+                "param": {},
+                "tags": {"resonate:target": TARGET},
+            },
+        )
+    )
+    acquired = await send(
+        quiet,
+        "task.acquire",
+        {"id": "wf", "version": 0, "pid": "p1", "ttl": 30_000},
+        **{"resonate:origin": "wf:some.deep.task"},
+    )
+    assert acquired["head"]["status"] == 200
+
+
+async def test_a_declared_origin_that_contradicts_the_id_is_refused(
+    quiet: TursoNetwork,
+) -> None:
+    # Honoring a header that disagrees with the id's origin would write one
+    # workflow's state into another workflow's database.
+    response = await send(
+        quiet,
+        "promise.get",
+        {"id": "wf"},
+        **{"resonate:origin": "other"},
+    )
+    assert response["head"]["status"] == 400
+
+
+async def test_a_malformed_delay_tag_is_rejected_rather_than_raising() -> None:
+    # str.isdigit() accepts superscripts that int() rejects, and non-ASCII
+    # digits the TypeScript SDK's /^\d+$/ does not -- a mixed fleet has to
+    # agree, and a bad tag must not raise out of a request.
+    assert _parse_delay("30") == 30
+    assert _parse_delay("²") is None  # superscript two
+    assert _parse_delay("٣٠") is None  # Arabic-Indic 30
+    assert _parse_delay("abc") is None
+    assert _parse_delay(None) is None

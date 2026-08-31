@@ -47,9 +47,8 @@ registered in one transaction.
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
-
-from resonate_turso.cron import CronError, next_cron
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -121,10 +120,11 @@ def origin_of(promise_id: str) -> str:
     server's own rule, and what partitions the tenant into databases, one per
     workflow root.
 
-    The separator is ``:`` and not ``.``: ``.`` divides lineage segments
-    *below* the origin, so a dotted root id (``my.app.workflow``) is one
-    workflow, not three. Splitting on ``.`` would shatter it across databases
-    and break the single-database-transaction invariant this design rests on.
+    The separator is ``:`` and not ``.``: ids are ``<origin>:<lineage>``, and
+    ``.`` divides lineage segments *below* the origin, so a dotted root id
+    (``my.app.workflow``) is one workflow rather than three. Splitting on ``.``
+    would scatter one workflow's state across databases and break the
+    single-database-transaction invariant this design rests on.
     """
     head, _, _ = promise_id.partition(ORIGIN_SEP)
     return head
@@ -171,9 +171,16 @@ def address_valid(address: str) -> bool:
     )
 
 
+#: ASCII digits only. ``str.isdigit`` is true for superscripts (``int`` then
+#: raises) and for non-ASCII decimal digits like ``٣٠`` (``int`` accepts them,
+#: while the TypeScript SDK's ``/^\d+$/`` does not) -- a mixed fleet must agree
+#: on what a tag means, and a malformed tag must never raise out of a request.
+_DECIMAL = re.compile(r"^[0-9]+$")
+
+
 def _parse_delay(raw: str | None) -> int | None:
     """Total decimal parse; a malformed tag yields ``None`` rather than raising."""
-    if raw is None or not raw.isdigit():
+    if raw is None or not _DECIMAL.match(raw):
         return None
     return int(raw)
 
@@ -222,6 +229,13 @@ def _tag_columns(tags: dict[str, str]) -> tuple[str | None, str | None, int, int
         else 0
     )
     return target, tags.get("resonate:branch"), timer, external
+
+
+#: :func:`project` expressed in SQL, so a search can filter on the state it
+#: will actually report. Binds one parameter, ``now``. Keep the two in step.
+_PROJECTED_PROMISE_STATE = """(CASE WHEN state = 'pending' AND ? >= timeout_at
+     THEN (CASE WHEN timer = 1 THEN 'resolved' ELSE 'rejected_timedout' END)
+     ELSE state END)"""
 
 
 def project(row: TursoRow, now: int) -> TursoRow:
@@ -313,6 +327,12 @@ class OriginServer:
         self._deferred: list[_Resume] = []
         #: Messages this transaction emitted, keyed for collapse-on-set.
         self._outgoing: dict[str, OutgoingMessage] = {}
+        #: True when this transaction changed state a *different* process may
+        #: need before the current tenure's next boundary: settling an external
+        #: promise (the public resolve/reject API -- the caller holds no lease)
+        #: or waking a suspended task. Under ``push_on="boundary"`` the network
+        #: pushes when this is set, regardless of the request kind.
+        self._sync_needed = False
 
     async def apply(self, req: dict[str, Any]) -> Outcome:
         """Apply one request, then drain the resume obligations it scheduled.
@@ -551,8 +571,15 @@ class OriginServer:
         clauses: list[str] = []
         args: list[Any] = []
         if state is not None:
-            clauses.append("state = ?")
-            args.append(state)
+            # Filter on the PROJECTED state, the same function the returned
+            # records are mapped through below. Filtering the stored column
+            # would make the result contradict the query -- a pending row past
+            # its deadline comes back reporting rejected_timedout -- and for an
+            # internal promise, permanently: no durable timeout is armed for
+            # one, so its stored row never converges. In SQL rather than after
+            # the fact so LIMIT and the cursor still paginate correctly.
+            clauses.append(f"{_PROJECTED_PROMISE_STATE} = ?")
+            args.extend([self._now, state])
         if cursor is not None:
             clauses.append("id > ?")
             args.append(cursor)
@@ -947,20 +974,38 @@ class OriginServer:
         clauses: list[str] = []
         args: list[Any] = []
         if state is not None:
-            clauses.append("state = ?")
-            args.append(state)
+            # A task bound to a logically dead promise is ``fulfilled`` by
+            # projection -- which is what ``task.get`` reports -- so the filter
+            # has to say the same thing, or a search and a get disagree about
+            # one task.
+            clauses.append(
+                "(CASE WHEN p.state = 'pending' AND ? < p.timeout_at "
+                "THEN t.state ELSE 'fulfilled' END) = ?"
+            )
+            args.extend([self._now, state])
         if cursor is not None:
-            clauses.append("id > ?")
+            clauses.append("t.id > ?")
             args.append(cursor)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = await self._tx.execute(
-            f"SELECT * FROM tasks {where} ORDER BY id ASC LIMIT ?",  # noqa: S608
+            f"SELECT t.* FROM tasks t JOIN promises p ON p.id = t.id {where} "  # noqa: S608
+            "ORDER BY t.id ASC LIMIT ?",
             [*args, size],
         )
 
-        tasks = [
-            to_task_record(row, await self._count_resumes(row["id"])) for row in rows
-        ]
+        # Project each row too, so the payload matches the filter.
+        tasks = []
+        for row in rows:
+            promise = await self._get_promise(row["id"])
+            if promise is None:
+                continue
+            if live(promise, self._now):
+                tasks.append(to_task_record(row, await self._count_resumes(row["id"])))
+            else:
+                # Same projection ``task.get`` applies: a task whose promise is
+                # logically dead is fulfilled, with no resumes outstanding.
+                fulfilled = {**row, "state": "fulfilled", "pid": None, "ttl": None}
+                tasks.append(to_task_record(fulfilled, 0))
         data: dict[str, Any] = {"tasks": tasks}
         if len(rows) == size:
             data["cursor"] = rows[-1]["id"]
@@ -1094,6 +1139,9 @@ class OriginServer:
                 resume.awaiter, TASK_TIMEOUT_RETRY, self._now + self._retry_timeout
             )
             await self._dispatch_task(promise, task)
+            # A suspended task re-entered circulation: any node may claim it,
+            # so the state it resumes from must be servable from the remote.
+            self._sync_needed = True
             return
 
         if task["state"] in {"pending", "acquired", "halted"}:
@@ -1150,6 +1198,11 @@ class OriginServer:
         listeners = await self._get_listeners(row["id"])
         callbacks = await self._get_callbacks(row["id"])
         headers, data = _encode_value(value)
+
+        # An external promise may be settled by a process holding no lease (the
+        # public resolve/reject API); nothing in that caller's future pushes.
+        if row.get("external"):
+            self._sync_needed = True
 
         await self._tx.execute(
             "UPDATE promises SET state = ?, value_headers = ?, value_data = ?, settled_at = ? WHERE id = ?",
@@ -1388,6 +1441,12 @@ class OriginServer:
         self._outgoing.clear()
         return messages
 
+    def take_sync_needed(self) -> bool:
+        """Whether this transaction requires a boundary push -- see ``_sync_needed``."""
+        value = self._sync_needed
+        self._sync_needed = False
+        return value
+
 
 def _execute(task_id: str, version: int) -> dict[str, Any]:
     return {
@@ -1399,145 +1458,6 @@ def _execute(task_id: str, version: int) -> dict[str, Any]:
 
 def _unblock(promise: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "unblock", "head": {}, "data": {"promise": promise}}
-
-
-# =============================================================================
-# SCHEDULES
-# =============================================================================
-#
-# Schedules live in the tenant database: a schedule's promise id is a template,
-# so the promises it fires may land in any number of origins, and the schedule
-# itself belongs to none of them.
-
-
-def to_schedule_record(row: TursoRow) -> dict[str, Any]:
-    record: dict[str, Any] = {
-        "id": row["id"],
-        "cron": row["cron"],
-        "promiseId": row["promise_id"],
-        "promiseTimeout": row["promise_timeout"],
-        "promiseParam": _decode_value(
-            row["promise_param_headers"], row["promise_param_data"]
-        ),
-        "promiseTags": _parse_tags(row["promise_tags"]),
-        "createdAt": row["created_at"],
-        "nextRunAt": row["next_run_at"],
-    }
-    if row["last_run_at"] is not None:
-        record["lastRunAt"] = row["last_run_at"]
-    return record
-
-
-def expand_promise_id(template: str, schedule_id: str, timestamp: int) -> str:
-    """Expand a schedule's promise-id template against one occurrence."""
-    return template.replace("{{.id}}", schedule_id).replace(
-        "{{.timestamp}}", str(timestamp)
-    )
-
-
-class ScheduleStore:
-    """Schedule storage, backed by the tenant database."""
-
-    def __init__(self, tx: TursoExecutor, now: int) -> None:
-        self._tx = tx
-        self._now = now
-
-    async def get(self, schedule_id: str) -> Outcome:
-        row = await self._row(schedule_id)
-        if row is None:
-            return Outcome("schedule.get", 404, "Schedule not found")
-        return Outcome("schedule.get", 200, {"schedule": to_schedule_record(row)})
-
-    async def create(self, data: dict[str, Any]) -> Outcome:
-        kind = "schedule.create"
-        tags: dict[str, str] = data.get("promiseTags") or {}
-        # Every fired promise needs a routing target, so a schedule without one
-        # is rejected up front rather than firing promises nobody will ever run.
-        if not tags.get("resonate:target"):
-            return Outcome(kind, 400, "promiseTags must include a resonate:target tag")
-
-        existing = await self._row(data["id"])
-        if existing is not None:
-            return Outcome(kind, 200, {"schedule": to_schedule_record(existing)})
-
-        try:
-            next_run_at = next_cron(data["cron"], self._now)
-        except CronError:
-            return Outcome(kind, 400, "Invalid cron expression")
-
-        headers, blob = _encode_value(data.get("promiseParam"))
-        row: TursoRow = {
-            "id": data["id"],
-            "cron": data["cron"],
-            "promise_id": data["promiseId"],
-            "promise_timeout": data["promiseTimeout"],
-            "promise_param_headers": headers,
-            "promise_param_data": blob,
-            "promise_tags": json.dumps(tags),
-            "created_at": self._now,
-            "next_run_at": next_run_at,
-            "last_run_at": None,
-        }
-        await self._tx.execute(
-            """
-            INSERT INTO schedules (id, cron, promise_id, promise_timeout, promise_param_headers,
-              promise_param_data, promise_tags, created_at, next_run_at, last_run_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            list(row.values()),
-        )
-        return Outcome(kind, 200, {"schedule": to_schedule_record(row)})
-
-    async def delete(self, schedule_id: str) -> Outcome:
-        row = await self._row(schedule_id)
-        if row is None:
-            return Outcome("schedule.delete", 404, "Schedule not found")
-        await self._tx.execute("DELETE FROM schedules WHERE id = ?", [schedule_id])
-        return Outcome("schedule.delete", 200, {})
-
-    async def search(
-        self, tags: dict[str, str] | None, limit: int | None, cursor: str | None
-    ) -> Outcome:
-        size = min(max(limit or 100, 1), 1000)
-        clauses: list[str] = []
-        args: list[Any] = []
-        if cursor is not None:
-            clauses.append("id > ?")
-            args.append(cursor)
-        tag_clauses, tag_args = _tag_filter(tags, "promise_tags")
-        clauses.extend(tag_clauses)
-        args.extend(tag_args)
-
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = await self._tx.execute(
-            f"SELECT * FROM schedules {where} ORDER BY id ASC LIMIT ?",  # noqa: S608
-            [*args, size],
-        )
-        data: dict[str, Any] = {"schedules": [to_schedule_record(row) for row in rows]}
-        if len(rows) == size:
-            data["cursor"] = rows[-1]["id"]
-        return Outcome("schedule.search", 200, data)
-
-    async def due(self) -> list[TursoRow]:
-        """Schedules whose next run is due at or before ``now``."""
-        return await self._tx.execute(
-            "SELECT * FROM schedules WHERE next_run_at <= ? ORDER BY id ASC",
-            [self._now],
-        )
-
-    async def advance(
-        self, schedule_id: str, last_run_at: int, next_run_at: int
-    ) -> None:
-        await self._tx.execute(
-            "UPDATE schedules SET last_run_at = ?, next_run_at = ? WHERE id = ?",
-            [last_run_at, next_run_at, schedule_id],
-        )
-
-    async def _row(self, schedule_id: str) -> TursoRow | None:
-        rows = await self._tx.execute(
-            "SELECT * FROM schedules WHERE id = ?", [schedule_id]
-        )
-        return rows[0] if rows else None
 
 
 # =============================================================================
@@ -1567,11 +1487,12 @@ def validate_create(
 
     origin = tags.get("resonate:origin")
     if origin is not None:
-        # Only ``:`` is reserved. An origin holding one could never be split
-        # back out of any id, since the origin is everything before the *first*
-        # ``:``. A ``.`` is fine -- ``my.app.workflow`` is a legal root.
         if ORIGIN_SEP in origin:
-            return f"resonate:origin must not contain '{ORIGIN_SEP}'"
+            return (
+                f"resonate:origin must not contain '{ORIGIN_SEP}': re-rooted "
+                "(detached) lineages are not supported by TursoNetwork -- the "
+                "origin partition cannot represent them"
+            )
         if promise_id != origin and not promise_id.startswith(f"{origin}{ORIGIN_SEP}"):
             return "Promise ID must be prefixed by resonate:origin"
 

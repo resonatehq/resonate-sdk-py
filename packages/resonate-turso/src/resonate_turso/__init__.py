@@ -1,22 +1,13 @@
-"""Decentralized Resonate on Turso: both connector seams, with no server.
+"""A :class:`~resonate.network.Network` with no server behind it.
 
-Implements :class:`~resonate_base.connections.Network` and
-:class:`~resonate_base.connections.Source`.
-
-Every other connector is a transport: it carries a request to a Resonate Server
-and carries the response back. This one is not. There is no server; the
-connector *is* the server, and the durable state lives in Turso databases it
-reads, writes, and syncs directly.
-
-That makes this the one connector that cannot treat a request as opaque -- it
-has to open the envelope to run the transition. It still takes the routing
-origin from the ``resonate:origin`` header rather than parsing it out of an id,
-so the id format stays the SDK's business and there is no second copy of it
-here to drift.
+Every other network in this SDK is a transport: it carries a request to a
+Resonate Server and carries the response back. This one is not. There is no
+server; the SDK *is* the server, and the durable state lives in Turso databases
+the SDK reads, writes, and syncs directly.
 
 The partition is by workflow. Every promise id is prefixed by its origin -- the
-root workflow's id, everything before the first ``:`` -- and each origin gets
-its own database, ``<prefix><origin>``. That is not an arbitrary sharding key: the
+root workflow's id, everything before the first ``.`` -- and each origin gets its
+own database, ``<prefix><origin>``. That is not an arbitrary sharding key: the
 protocol already guarantees a callback never crosses an origin
 (``promise.register_callback`` refuses), so every request touches exactly one
 workflow's state and is therefore a single-database transaction. A workflow is a
@@ -26,7 +17,7 @@ process to hold as a local replica.
 
 One database is shared: ``<prefix><timeout_database>``, the tenant database. It
 holds what no single workflow owns -- the index of armed timers across all
-origins, and schedules. The timer index is a mirror, republished from the origin
+origins. The timer index is a mirror, republished from the origin
 databases after every commit and re-validated against them before use. It is how
 a process finds work in a workflow it has never seen.
 
@@ -61,22 +52,25 @@ than waiting to be told.
 
 **Compare-and-swap.** Every fenced action is a read-compare-write inside one
 ``BEGIN IMMEDIATE`` transaction -- a genuine CAS, atomic against whichever
-database applies it. What decides soundness across nodes is where the write
-lands: the default embedded-replica mode applies it to each node's own copy and
-merges later, so two nodes can both win the same acquire. ``pyturso`` does not
-yet expose a remote-writes option, so a fleet on this SDK must keep one writer
-per workflow.
+database applies it, and no CAS at all across nodes: embedded-replica mode
+applies it to each node's own copy and merges later, and two nodes racing the
+same acquire through a real Turso Cloud remote both won 50 times out of 50
+(measured with the TypeScript SDK; its ``remoteWrites`` flag was measured
+broken too). A fleet must keep one writer per workflow -- static sharding.
 
-**Concurrency -- read this before deploying a fleet.** Only the single-node
-arrangement is verified. Within one process this works: requests against an
-origin are serialized, workflows run, and a workflow abandoned mid-flight is
-recovered off the timeout index.
+**Concurrency -- read this before deploying a fleet.** Within one process this
+works: requests against an origin are serialized, workflows run, and a workflow
+abandoned mid-flight is recovered off the timeout index.
 
-Running several nodes has not been made to work. :class:`TursoLocalDriver`
-cannot do it at all -- Turso takes an exclusive file lock, so the second process
-cannot even open the database. :class:`TursoSyncDriver`, where each node holds
-its own replica and they converge through Turso Cloud, is the arrangement this
-design is actually for and has never been run against a real remote.
+Across processes, shard. :class:`TursoLocalDriver` cannot be shared at all --
+Turso takes an exclusive file lock, so the second process cannot even open the
+database. :class:`TursoSyncDriver`, where each node holds its own replica and
+they converge through Turso Cloud, is the arrangement this design is for, and
+convergence itself is measured (a committed write reaches another replica in
+~200ms median; a workflow abandoned by one node is recovered and completed by
+another). What is *not* sound is two nodes writing one workflow -- see the
+compare-and-swap note above -- so every workflow must have exactly one owner:
+set ``shard`` and route with :func:`owner_of`.
 
 The design also concentrates fleet-wide write traffic on the tenant database,
 since every origin publishes its timers there. :meth:`TursoStore.flush` skips
@@ -90,13 +84,11 @@ import asyncio
 import contextlib
 import json
 import logging
-import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from resonate_base import ORIGIN_HEADER, PROTOCOL_VERSION, ConnectorError
 
-from resonate_turso.cron import CronError, cron_occurrences, next_cron
 from resonate_turso.driver import (
     TursoConnection,
     TursoDriver,
@@ -111,12 +103,9 @@ from resonate_turso.server import (
     OriginServer,
     Outcome,
     OutgoingMessage,
-    ScheduleStore,
-    expand_promise_id,
     hash_origin,
     origin_of,
     owner_of,
-    to_schedule_record,
 )
 from resonate_turso.store import (
     TIMEOUT_PROMISE,
@@ -124,6 +113,7 @@ from resonate_turso.store import (
     TIMEOUT_TASK_RETRY,
     TursoStore,
 )
+from resonate_turso.timing import now_ms
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -155,16 +145,6 @@ class TursoError(ConnectorError):
     Named so callers can catch Turso failures specifically without importing
     the driver, while still being caught by anyone handling ``ConnectorError``.
     """
-
-
-def _now_ms() -> int:
-    """Return the current time in milliseconds since the epoch.
-
-    Local rather than imported: this package depends on ``resonate-base``, not
-    on the SDK, so it cannot reach ``resonate.timing``. The definition is one
-    line and matches the SDK's exactly.
-    """
-    return time.time_ns() // 1_000_000
 
 
 _SCHEDULE_KINDS = frozenset(
@@ -209,6 +189,7 @@ class TursoNetwork:
         batch_size: int = 100,
         timeout_driver: TursoDriver | None = None,
         shard: tuple[int, int] | None = None,
+        push_on: Literal["boundary", "request"] = "boundary",
     ) -> None:
         """Run the protocol against Turso databases.
 
@@ -232,6 +213,18 @@ class TursoNetwork:
         wants. Routing requests to the owning node is the caller's job; use
         :func:`owner_of` for it, so routing and sweeping agree. Unset (the
         default) means this node owns everything.
+
+        ``push_on`` decides when an origin database is uploaded to the remote,
+        on drivers that replicate. ``"boundary"`` (the default) pushes at the
+        points another process could ever need to read from: a task ends its
+        tenure (fulfill, suspend, release, halt), work becomes visible to the
+        fleet (``task.create``, a root or targeted ``promise.create``), or the
+        root promise settles. The intermediate durable steps a task records
+        while it holds the lease stay on the local replica -- the lease already
+        guarantees one writer, so nobody else can need them before the
+        boundary. The trade: a crash mid-tenure recovers from the last
+        boundary, not the last step. ``"request"`` pushes after every committed
+        write, the most conservative cadence.
         """
         if shard is not None:
             index, count = shard
@@ -256,6 +249,7 @@ class TursoNetwork:
         self._tick_seconds = tick_seconds
         self._retry_timeout = retry_timeout
         self._batch_size = batch_size
+        self._push_on = push_on
 
         self._subscribers: list[Callable[[str], None]] = []
         self._tick_handle: asyncio.Task[None] | None = None
@@ -282,9 +276,27 @@ class TursoNetwork:
 
     async def start(self) -> None:
         self._stopped = False
-        await self._store.tenant()
+        tenant = await self._store.tenant()
+        self._warn_if_unsharded_replica(tenant)
         if self._tick_handle is None:
             self._tick_handle = asyncio.create_task(self._tick_loop())
+
+    def _warn_if_unsharded_replica(self, tenant: TursoConnection) -> None:
+        """Warn when this node replicates but claims every origin.
+
+        One node owning everything is a perfectly good single-node deployment
+        -- hence a warning and not an error. But a *second* node deployed the
+        same way is the arrangement measured to let two nodes both win one
+        ``task.acquire``, and the config gives no hint of it: ``shard`` reads
+        like an optimization.
+        """
+        if self._shard is not None or not getattr(tenant, "replicates", False):
+            return
+        logger.warning(
+            "turso network is replicating but unsharded: safe for a single node, but a "
+            "second node sharing this tenant will double-execute fenced actions "
+            "(measured). Set shard= and route with owner_of -- see turso.md."
+        )
 
     async def stop(self) -> None:
         self._stopped = True
@@ -306,9 +318,10 @@ class TursoNetwork:
         The routing origin arrives in ``headers`` under ``resonate:origin``,
         already resolved by the SDK. Unlike a pure transport this connector
         cannot treat ``req`` as opaque -- it *is* the server, so it has to open
-        the envelope to run the transition either way -- but taking the origin
-        from the header means the id format is the SDK's business alone, and
-        there is no second copy of it here to drift out of step.
+        the envelope to run the transition either way. The header is still what
+        the SDK routes by, and a header that disagrees with the id it names is
+        refused rather than honored: writing one workflow's state into another
+        workflow's database is the one mistake this partition cannot survive.
         """
         try:
             envelope = json.loads(req)
@@ -316,7 +329,7 @@ class TursoNetwork:
             raise TursoError(exc) from exc
 
         head = envelope.get("head") or {}
-        now = head.get("resonate:debug_time") or _now_ms()
+        now = head.get("resonate:debug_time") or now_ms()
         outcome = await self._apply(envelope, now, (headers or {}).get(ORIGIN_HEADER))
 
         return json.dumps(
@@ -336,55 +349,75 @@ class TursoNetwork:
     # -------------------------------------------------------------------------
 
     async def _apply(
-        self, req: dict[str, Any], now: int, routed: str | None = None
+        self, req: dict[str, Any], now: int, origin_header: str | None = None
     ) -> Outcome:
         kind = req["kind"]
         data = req.get("data") or {}
-        # The header the SDK routes by wins; the head form serves direct callers
-        # (tests, debug tooling) that build an envelope without going through a
-        # client. Deriving from the id is the last resort, and the only path
-        # that has to know the id format at all.
-        declared = routed or (req.get("head") or {}).get("resonate:origin")
+        # The origin reaches us two ways: the ``resonate:origin`` header the
+        # SDK resolves and hands to every connector, and -- for a caller that
+        # builds an envelope directly, as the tests do -- the same key on the
+        # request head. Either is cross-checked against the id below rather
+        # than trusted outright.
+        declared = origin_header or (req.get("head") or {}).get("resonate:origin")
 
         if kind.startswith("debug."):
             return await self._debug(kind, data, declared, now)
 
         if kind in _SCHEDULE_KINDS:
-            return await self._in_tenant_schedules(kind, data, now)
+            return Outcome(kind, 501, "Schedules are not implemented by TursoNetwork.")
+
+        # The resonate:origin header may carry a full promise or task id rather
+        # than a bare origin -- the engine cores stamp it with the task's id --
+        # so it is normalized through origin_of before use. For a request that
+        # also names an id, a header disagreeing with that id's origin is
+        # refused outright: honoring it would write one workflow's state into
+        # another workflow's database.
+        def routed(id_: str) -> str | Outcome:
+            origin = origin_of(id_)
+            if declared is not None and origin_of(declared) != origin:
+                return Outcome(
+                    kind,
+                    400,
+                    f"resonate:origin {declared!r} does not match the origin of id {id_!r}",
+                )
+            return origin
 
         if kind in _BY_ID_KINDS:
-            return await self._in_origin_apply(
-                declared or origin_of(data["id"]), now, req
-            )
+            route = routed(data["id"])
+            if isinstance(route, Outcome):
+                return route
+            return await self._in_origin_apply(route, now, req)
 
         if kind in {"promise.register_callback", "promise.register_listener"}:
-            return await self._in_origin_apply(
-                declared or origin_of(data["awaited"]), now, req
-            )
+            route = routed(data["awaited"])
+            if isinstance(route, Outcome):
+                return route
+            return await self._in_origin_apply(route, now, req)
 
         if kind == "task.create":
-            return await self._in_origin_apply(
-                declared or origin_of(data["action"]["data"]["id"]), now, req
-            )
+            route = routed(data["action"]["data"]["id"])
+            if isinstance(route, Outcome):
+                return route
+            return await self._in_origin_apply(route, now, req)
 
         if kind == "promise.search":
             origin = declared or (data.get("tags") or {}).get("resonate:origin")
             if origin is None:
                 return Outcome(kind, 501, _SEARCH_UNSUPPORTED.format(what="promise"))
-            return await self._in_origin_apply(origin, now, req)
+            return await self._in_origin_apply(origin_of(origin), now, req)
 
         if kind == "task.search":
             if declared is None:
                 return Outcome(kind, 501, _SEARCH_UNSUPPORTED.format(what="task"))
-            return await self._in_origin_apply(declared, now, req)
+            return await self._in_origin_apply(origin_of(declared), now, req)
 
         if kind == "task.heartbeat":
             # The only request that fans out: its task list may span workflows,
-            # so it is split into one transaction per origin. Each is
-            # independent -- a heartbeat refreshes leases and can partially
-            # apply without breaking any invariant.
-            if declared is not None:
-                return await self._in_origin_apply(declared, now, req)
+            # so it is split into one transaction per origin, always by each
+            # task's own origin -- a declared header cannot be trusted to cover
+            # a list that may span workflows. Each transaction is independent:
+            # a heartbeat refreshes leases and can partially apply without
+            # breaking any invariant.
             tasks = data.get("tasks") or []
             for origin in dict.fromkeys(origin_of(t["id"]) for t in tasks):
                 scoped = {
@@ -409,13 +442,48 @@ class TursoNetwork:
         async def run(server: OriginServer) -> Outcome:
             return await server.apply(req)
 
-        return await self._in_origin(origin, now, run)
+        return await self._in_origin(origin, now, run, push_origin=self._push_now(req))
+
+    def _push_now(self, req: dict[str, Any]) -> bool:
+        """Decide whether this request's flush uploads the origin database.
+
+        Under ``push_on="boundary"``, only at the points another process could
+        ever need to read from -- see ``push_on`` in :class:`TursoNetwork`. The
+        child creates and settles that record a task's intermediate durable
+        steps stay local until the task's next boundary; the lease guarantees
+        nobody else is writing this workflow in the meantime, and the sweep
+        transitions (which do not come through here) always push.
+        """
+        if self._push_on == "request":
+            return True
+        kind = req["kind"]
+        data = req.get("data") or {}
+        # task.continue is release's mirror -- a halted task re-enters
+        # circulation with a fresh retry timer, outside any lease tenure -- so
+        # it is a boundary for exactly the reason release is.
+        if kind in {
+            "task.create",
+            "task.fulfill",
+            "task.suspend",
+            "task.release",
+            "task.halt",
+            "task.continue",
+        }:
+            return True
+        if kind == "promise.create":
+            tags = data.get("tags") or {}
+            return data["id"] == origin_of(data["id"]) or "resonate:target" in tags
+        if kind == "promise.settle":
+            return data["id"] == origin_of(data["id"])
+        return False
 
     async def _in_origin(
         self,
         origin: str,
         now: int,
         fn: Callable[[OriginServer], Awaitable[Any]],
+        *,
+        push_origin: bool = True,
     ) -> Any:
         """Run one transaction against an origin, publish its timers, deliver its messages.
 
@@ -428,6 +496,7 @@ class TursoNetwork:
         delivered under.
         """
         outgoing: list[OutgoingMessage] = []
+        sync_needed = False
         async with self._store.lock(origin):
             conn = await self._store.origin(origin)
             async with conn.transaction() as tx:
@@ -438,7 +507,21 @@ class TursoNetwork:
                 # below, so no message is ever delivered for a state change that
                 # did not land.
                 outgoing = server.take_messages()
-            await self._store.flush(origin, conn)
+                sync_needed = server.take_sync_needed()
+            # The transaction has committed. Its messages describe durable
+            # state and are owed to the client whether or not the mirror write
+            # lands -- the index is eventual by construction and the next flush
+            # republishes it, whereas a dropped ``unblock`` has nothing to
+            # re-emit it (settlement already deleted the listener rows). So
+            # dispatch first, then let the flush failure reach the caller.
+            try:
+                await self._store.flush(
+                    origin, conn, push_origin=push_origin or sync_needed
+                )
+            except BaseException:
+                self._dispatch(outgoing)
+                outgoing = []
+                raise
         self._dispatch(outgoing)
         return result
 
@@ -464,27 +547,8 @@ class TursoNetwork:
 
         asyncio.get_running_loop().call_soon(deliver)
 
-    async def _in_tenant_schedules(
-        self, kind: str, data: dict[str, Any], now: int
-    ) -> Outcome:
-        tenant = await self._store.tenant()
-        async with tenant.transaction() as tx:
-            schedules = ScheduleStore(tx, now)
-            if kind == "schedule.get":
-                outcome = await schedules.get(data["id"])
-            elif kind == "schedule.create":
-                outcome = await schedules.create(data)
-            elif kind == "schedule.delete":
-                outcome = await schedules.delete(data["id"])
-            else:
-                outcome = await schedules.search(
-                    data.get("tags"), data.get("limit"), data.get("cursor")
-                )
-        await tenant.push()
-        return outcome
-
     # -------------------------------------------------------------------------
-    # TICK: timer sweep and schedule firing
+    # TICK: timer sweep
     # -------------------------------------------------------------------------
     #
     # Messages are not ticked -- they go straight to the client when the
@@ -496,13 +560,12 @@ class TursoNetwork:
     async def _tick_loop(self) -> None:
         with contextlib.suppress(asyncio.CancelledError):
             while not self._stopped:
-                await self._tick(_now_ms())
+                await self._tick(now_ms())
                 await asyncio.sleep(self._tick_seconds)
 
     async def _tick(self, now: int) -> None:
         try:
             await self._sweep_timeouts(now)
-            await self._fire_schedules(now)
         except Exception:
             if not self._stopped:
                 logger.warning("turso tick failed", exc_info=True)
@@ -561,65 +624,6 @@ class TursoNetwork:
                     "turso timeout sweep failed for origin %s", origin, exc_info=True
                 )
 
-    async def _fire_schedules(self, now: int) -> None:
-        """Create the promises due schedules should have fired.
-
-        A schedule lives in the tenant database but the promises it fires belong
-        to whichever origin their expanded id names, so this cannot be one
-        transaction. It does not need to be: the expanded id is per-occurrence,
-        so re-firing after a crash finds the promise already there and writes
-        nothing, and the schedule is advanced only once every occurrence is in.
-        """
-        tenant = await self._store.tenant()
-        due = await ScheduleStore(tenant, now).due()
-
-        for row in due:
-            record = to_schedule_record(row)
-            since = (
-                row["last_run_at"]
-                if row["last_run_at"] is not None
-                else row["next_run_at"] - 1
-            )
-            try:
-                occurrences = cron_occurrences(record["cron"], since, now)
-            except CronError:
-                logger.warning(
-                    "turso skipped schedule %s: unparseable cron expression", row["id"]
-                )
-                continue
-            if not occurrences:
-                continue
-
-            for at in occurrences:
-                promise_id = expand_promise_id(record["promiseId"], record["id"], at)
-                await self._in_origin_apply(
-                    origin_of(promise_id),
-                    at,
-                    {
-                        "kind": "promise.create",
-                        "head": {
-                            "corrId": f"sched-{record['id']}-{at}",
-                            "version": PROTOCOL_VERSION,
-                        },
-                        "data": {
-                            "id": promise_id,
-                            "timeoutAt": at + record["promiseTimeout"],
-                            "param": record["promiseParam"],
-                            "tags": {
-                                **record["promiseTags"],
-                                "resonate:schedule": record["id"],
-                            },
-                        },
-                    },
-                )
-
-            last = occurrences[-1]
-            async with tenant.transaction() as tx:
-                await ScheduleStore(tx, now).advance(
-                    row["id"], last, next_cron(record["cron"], last)
-                )
-            await tenant.push()
-
     # -------------------------------------------------------------------------
     # DEBUG
     # -------------------------------------------------------------------------
@@ -656,8 +660,7 @@ class TursoNetwork:
         """Empty every database this network has open. Test support only."""
         tenant = await self._store.tenant()
         async with tenant.transaction() as tx:
-            for table in ("timeouts", "schedules"):
-                await tx.execute(f"DELETE FROM {table}")  # noqa: S608
+            await tx.execute("DELETE FROM timeouts")
         # Origin databases are created on demand and never enumerated, so only
         # the ones this process has open can be cleared. A caller wanting a clean
         # slate across processes should point the driver at a fresh directory or

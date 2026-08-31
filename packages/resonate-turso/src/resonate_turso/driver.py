@@ -131,9 +131,27 @@ class _Connection:
         self._replicates = replicates
         self._lock = asyncio.Lock()
 
-    async def execute(self, sql: str, args: Sequence[Any] = ()) -> list[TursoRow]:
+    @property
+    def replicates(self) -> bool:
+        """Whether this connection syncs with a remote.
+
+        Read by the network to warn about arrangements that are only sound for
+        a single node. A custom driver that does not expose it simply is not
+        warned about.
+        """
+        return self._replicates
+
+    async def _execute_unlocked(
+        self, sql: str, args: Sequence[Any] = ()
+    ) -> list[TursoRow]:
         cursor = await self._conn.execute(sql, tuple(args))
         return await _rows(cursor)
+
+    async def execute(self, sql: str, args: Sequence[Any] = ()) -> list[TursoRow]:
+        # Serialized with transactions: a bare statement must never interleave
+        # into another task's open BEGIN IMMEDIATE window on this connection.
+        async with self._lock:
+            return await self._execute_unlocked(sql, args)
 
     def transaction(self) -> _Transaction:
         return _Transaction(self)
@@ -141,14 +159,30 @@ class _Connection:
     async def pull(self) -> bool:
         if not self._replicates:
             return False
-        return bool(await self._conn.pull())
+        async with self._lock:
+            return bool(await self._conn.pull())
 
     async def push(self) -> None:
         if self._replicates:
-            await self._conn.push()
+            async with self._lock:
+                await self._conn.push()
 
     async def close(self) -> None:
         await self._conn.close()
+
+
+class _TxExecutor:
+    """The statement surface handed out inside an open transaction.
+
+    Bypasses the connection lock -- the transaction already holds it -- so a
+    statement in the transaction body cannot deadlock against itself.
+    """
+
+    def __init__(self, conn: _Connection) -> None:
+        self._conn = conn
+
+    async def execute(self, sql: str, args: Sequence[Any] = ()) -> list[TursoRow]:
+        return await self._conn._execute_unlocked(sql, args)  # noqa: SLF001
 
 
 class _Transaction:
@@ -158,11 +192,11 @@ class _Transaction:
     async def __aenter__(self) -> TursoExecutor:
         await self._conn._lock.acquire()  # noqa: SLF001
         try:
-            await self._conn.execute("BEGIN IMMEDIATE")
+            await self._conn._execute_unlocked("BEGIN IMMEDIATE")  # noqa: SLF001
         except BaseException:
             self._conn._lock.release()  # noqa: SLF001
             raise
-        return self._conn
+        return _TxExecutor(self._conn)
 
     async def __aexit__(
         self,
@@ -172,12 +206,20 @@ class _Transaction:
     ) -> None:
         try:
             if exc_type is None:
-                await self._conn.execute("COMMIT")
+                try:
+                    await self._conn._execute_unlocked("COMMIT")  # noqa: SLF001
+                except BaseException:
+                    # A commit that fails leaves the transaction open on a
+                    # connection that stays cached; roll it back or every
+                    # later BEGIN on this origin fails forever.
+                    with contextlib.suppress(BaseException):
+                        await self._conn._execute_unlocked("ROLLBACK")  # noqa: SLF001
+                    raise
             else:
                 # A failed rollback would mask the original error; the
                 # connection is discarded by the caller either way.
                 with contextlib.suppress(Exception):
-                    await self._conn.execute("ROLLBACK")
+                    await self._conn._execute_unlocked("ROLLBACK")  # noqa: SLF001
         finally:
             self._conn._lock.release()  # noqa: SLF001
 
@@ -243,8 +285,11 @@ class TursoSyncDriver:
     and converges with everyone else through the remote.
 
     ``url`` is either a prefix (the remote database is ``f"{url}{name}"``) or a
-    callable for full control. A Turso Cloud deployment typically names one
-    remote database per workflow, so the prefix form is usually enough.
+    callable for full control. A Turso Cloud database lives at
+    ``<name>-<org>.<region>.turso.io`` -- a shape no flat prefix can produce --
+    so a Turso Cloud deployment needs the callable:
+    ``lambda name: f"libsql://{name}-{org}.{region}.turso.io"``. The database
+    must already exist; Turso Cloud does not create one on first connect.
     """
 
     def __init__(
