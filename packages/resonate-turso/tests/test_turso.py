@@ -135,12 +135,14 @@ async def test_a_dotted_root_id_is_one_origin_not_several() -> None:
     assert origin_of("my.app.workflow:1.2") == "my.app.workflow"
 
 
-async def test_the_origin_header_routes_the_request(net: TursoNetwork) -> None:
-    """The connector is handed the origin rather than working it out.
+async def test_the_origin_is_computed_from_the_id_not_the_header(
+    net: TursoNetwork,
+) -> None:
+    """A request that names an id partitions on that id and nothing else.
 
-    A header naming a different workflow than the id is refused, not honored:
-    writing one workflow's state into another's database is the one mistake
-    this partition cannot survive.
+    The ``resonate:origin`` header is advisory: it is not consulted, so it can
+    neither redirect a request to the wrong workflow's database nor fail one
+    that names its id perfectly well.
     """
     timeout_at = now_ms() + 60_000
     ok(
@@ -151,23 +153,18 @@ async def test_the_origin_header_routes_the_request(net: TursoNetwork) -> None:
         )
     )
 
-    routed = json.loads(
-        await net.send(request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "wf"})
-    )
-    assert routed["head"]["status"] == 200
-
-    # The header may carry a full id; it is normalized to its origin.
-    lineage = json.loads(
-        await net.send(request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "wf:1.2"})
-    )
-    assert lineage["head"]["status"] == 200
-
-    mismatched = json.loads(
-        await net.send(
-            request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: "somewhere-else"}
+    for header in ("wf", "wf:1.2", "somewhere-else", ""):
+        found = json.loads(
+            await net.send(
+                request("promise.get", {"id": "wf"}), {ORIGIN_HEADER: header}
+            )
         )
-    )
-    assert mismatched["head"]["status"] == 400
+        assert found["head"]["status"] == 200, header
+        assert found["data"]["promise"]["id"] == "wf"
+
+    # And with no header at all, which is how a direct caller sends.
+    bare = json.loads(await net.send(request("promise.get", {"id": "wf"})))
+    assert bare["head"]["status"] == 200
 
 
 async def test_hash_origin_matches_the_vector_shared_with_the_typescript_sdk() -> None:
@@ -197,7 +194,7 @@ async def test_a_shard_that_cannot_index_the_fleet_is_rejected() -> None:
 
 
 # =============================================================================
-# CRON
+# PROMISES
 # =============================================================================
 
 
@@ -1416,9 +1413,10 @@ async def test_eviction_under_concurrency_neither_deadlocks_nor_drops_requests()
 async def test_a_declared_origin_that_is_a_full_id_is_normalized(
     quiet: TursoNetwork,
 ) -> None:
-    # The engine cores stamp the resonate:origin header with the full task id,
-    # not its origin; routing must normalize it, or a lineage id becomes the
-    # name of a phantom database.
+    # Only the requests that name no id read the header at all, and the engine
+    # cores stamp it with a full task id rather than its origin -- so those
+    # paths must normalize it, or a lineage id becomes the name of a phantom
+    # database holding nothing.
     ok(
         await send(
             quiet,
@@ -1431,27 +1429,12 @@ async def test_a_declared_origin_that_is_a_full_id_is_normalized(
             },
         )
     )
-    acquired = await send(
-        quiet,
-        "task.acquire",
-        {"id": "wf", "version": 0, "pid": "p1", "ttl": 30_000},
-        **{"resonate:origin": "wf:some.deep.task"},
-    )
-    assert acquired["head"]["status"] == 200
 
+    snap = ok(await send(quiet, "debug.snap", {}, **{"resonate:origin": "wf:1.2"}))
+    assert [p["id"] for p in snap["promises"]] == ["wf"]
 
-async def test_a_declared_origin_that_contradicts_the_id_is_refused(
-    quiet: TursoNetwork,
-) -> None:
-    # Honoring a header that disagrees with the id's origin would write one
-    # workflow's state into another workflow's database.
-    response = await send(
-        quiet,
-        "promise.get",
-        {"id": "wf"},
-        **{"resonate:origin": "other"},
-    )
-    assert response["head"]["status"] == 400
+    found = ok(await send(quiet, "task.search", {}, **{"resonate:origin": "wf:1.2"}))
+    assert [t["id"] for t in found["tasks"]] == ["wf"]
 
 
 async def test_a_malformed_delay_tag_is_rejected_rather_than_raising() -> None:

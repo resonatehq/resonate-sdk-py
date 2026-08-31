@@ -353,11 +353,19 @@ class TursoNetwork:
     ) -> Outcome:
         kind = req["kind"]
         data = req.get("data") or {}
-        # The origin reaches us two ways: the ``resonate:origin`` header the
-        # SDK resolves and hands to every connector, and -- for a caller that
-        # builds an envelope directly, as the tests do -- the same key on the
-        # request head. Either is cross-checked against the id below rather
-        # than trusted outright.
+        # THE ORIGIN IS ALWAYS COMPUTED FROM THE ID. Every request that names an
+        # id partitions on ``origin_of`` of that id and nothing else -- not the
+        # ``resonate:origin`` header, not the tag of the same name. Both are
+        # advisory; the id is the only thing that cannot disagree with itself,
+        # and choosing a database from anything else risks writing one
+        # workflow's state into another workflow's file. The Resonate Server
+        # settled the same way: its ``origin_id`` is a generated column over the
+        # id, never over the tag, because the tag gives a different answer
+        # whenever it is absent.
+        #
+        # ``declared`` therefore serves only the requests that name no id at
+        # all -- the searches and the debug snapshot -- where there is no id to
+        # compute from and a caller must say which workflow it means.
         declared = origin_header or (req.get("head") or {}).get("resonate:origin")
 
         if kind.startswith("debug."):
@@ -366,39 +374,16 @@ class TursoNetwork:
         if kind in _SCHEDULE_KINDS:
             return Outcome(kind, 501, "Schedules are not implemented by TursoNetwork.")
 
-        # The resonate:origin header may carry a full promise or task id rather
-        # than a bare origin -- the engine cores stamp it with the task's id --
-        # so it is normalized through origin_of before use. For a request that
-        # also names an id, a header disagreeing with that id's origin is
-        # refused outright: honoring it would write one workflow's state into
-        # another workflow's database.
-        def routed(id_: str) -> str | Outcome:
-            origin = origin_of(id_)
-            if declared is not None and origin_of(declared) != origin:
-                return Outcome(
-                    kind,
-                    400,
-                    f"resonate:origin {declared!r} does not match the origin of id {id_!r}",
-                )
-            return origin
-
         if kind in _BY_ID_KINDS:
-            route = routed(data["id"])
-            if isinstance(route, Outcome):
-                return route
-            return await self._in_origin_apply(route, now, req)
+            return await self._in_origin_apply(origin_of(data["id"]), now, req)
 
         if kind in {"promise.register_callback", "promise.register_listener"}:
-            route = routed(data["awaited"])
-            if isinstance(route, Outcome):
-                return route
-            return await self._in_origin_apply(route, now, req)
+            return await self._in_origin_apply(origin_of(data["awaited"]), now, req)
 
         if kind == "task.create":
-            route = routed(data["action"]["data"]["id"])
-            if isinstance(route, Outcome):
-                return route
-            return await self._in_origin_apply(route, now, req)
+            return await self._in_origin_apply(
+                origin_of(data["action"]["data"]["id"]), now, req
+            )
 
         if kind == "promise.search":
             origin = declared or (data.get("tags") or {}).get("resonate:origin")
@@ -652,7 +637,10 @@ class TursoNetwork:
                     "Tenant-wide snapshots are not supported: state is partitioned by origin. "
                     "Set the resonate:origin request header.",
                 )
-            return await self._snap(origin, now)
+            # Normalized like the searches: a caller with an id in hand should
+            # not have to split it, and an unsplit one would name a database
+            # that has never existed.
+            return await self._snap(origin_of(origin), now)
 
         return Outcome(kind, 501, "Not implemented")
 
