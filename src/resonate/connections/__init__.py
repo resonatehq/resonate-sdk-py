@@ -11,9 +11,11 @@ from __future__ import annotations
 from resonate.connections.http import HttpConnection
 from resonate.connections.local import LocalConnection
 from resonate.connections.sse import SSEConnection
+from resonate.connections.stdio import StdioConnection
 
 __all__ = [
     "HttpConnection",
     "LocalConnection",
     "SSEConnection",
+    "StdioConnection",
 ]
