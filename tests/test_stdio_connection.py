@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
+import sys
+import textwrap
 import threading
 from typing import IO, TYPE_CHECKING, Any
 
@@ -46,10 +49,12 @@ class Pipes:
     def __init__(self) -> None:
         in_r, in_w = os.pipe()
         out_r, out_w = os.pipe()
-        #: What the connection reads as its stdin, and writes as its stdout.
-        self.stdin: IO[bytes] = os.fdopen(in_r, "rb")
-        self.stdout: IO[bytes] = os.fdopen(out_w, "wb")
-        #: The peer's ends.
+        #: The descriptors the connection reads as its stdin and writes as its
+        #: stdout -- raw, because that is the seam it takes.
+        self.stdin: int = in_r
+        self.stdout: int = out_w
+        #: The peer's ends, as files: nothing here is under test, so the
+        #: convenience of buffered IO costs nothing.
         self._to_conn: IO[bytes] = os.fdopen(in_w, "wb")
         self._from_conn: IO[bytes] = os.fdopen(out_r, "rb")
 
@@ -489,3 +494,43 @@ class _Relay:
         task = asyncio.ensure_future(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+
+def test_a_process_exits_cleanly_with_its_reader_still_blocked() -> None:
+    """The shape a per-task worker ends in, which used to abort the process.
+
+    A worker started for one task finishes it and exits while its peer still
+    has the tunnel open -- so the reader thread is parked in a read that will
+    never return. A daemon thread parked in a *buffered* read holds that
+    buffer's lock, and an interpreter finalizing while it does dies with
+    ``Fatal Python error: _enter_buffered_busy`` and a non-zero status. The
+    promise is settled by then, so the only symptom is a worker that reports
+    every task as a process failure.
+
+    Run as a subprocess because interpreter shutdown is the thing under test:
+    there is no way to observe it from inside the interpreter it ends.
+    """
+    program = textwrap.dedent(
+        """
+        import asyncio, os, sys
+        from resonate.connections import StdioConnection
+
+        async def main() -> None:
+            # A pipe nobody ever writes to: the reader blocks forever.
+            r, _w = os.pipe()
+            conn = StdioConnection(stdin=r, stdout=sys.stderr.fileno())
+            await conn.start()
+            # Exit with the read still outstanding, as a finished task does.
+
+        asyncio.run(main())
+        """
+    )
+    done = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", program],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert "Fatal Python error" not in done.stderr, done.stderr
+    assert done.returncode == 0, f"exited {done.returncode}: {done.stderr}"

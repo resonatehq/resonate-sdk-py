@@ -58,10 +58,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import IO, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Any
 
 import msgspec
 
@@ -91,6 +92,10 @@ ANYCAST = "any"
 #: short, unambiguous at the head of a line, and vanishingly unlikely to open a
 #: line anyone prints on purpose.
 MARKER = "RN8:"
+
+#: How much to ask for per read. Only a buffer size -- a frame may span any
+#: number of reads and several may arrive in one.
+READ_SIZE = 65536
 
 
 # =============================================================================
@@ -207,6 +212,41 @@ def correlation_id(payload: str) -> str:
 
 
 # =============================================================================
+# Descriptors
+# =============================================================================
+
+
+def _fd(given: int | None, fallback: IO[Any], which: str) -> int:
+    """Resolve one end of the tunnel to a file descriptor.
+
+    ``fallback`` is the stream to take one from when none was given -- normally
+    :data:`sys.stdin` or :data:`sys.stdout`. A stream with no descriptor is the
+    one case worth naming outright: it is what a test runner capturing output
+    leaves behind, and the failure it would otherwise cause is an
+    ``UnsupportedOperation`` from somewhere far less obvious.
+    """
+    if given is not None:
+        return given
+    try:
+        return fallback.fileno()
+    except (OSError, ValueError) as exc:
+        msg = f"{which} has no file descriptor to tunnel over: {exc}"
+        raise ConnectorError(RuntimeError(msg)) from exc
+
+
+def _same_file(stream: IO[Any], fd: int) -> bool:
+    """Report whether ``stream`` is a buffered layer over ``fd``.
+
+    Total: a stream with no descriptor of its own is not this one, which is the
+    answer that matters -- it means nothing needs flushing before a write.
+    """
+    try:
+        return bool(stream.fileno() == fd)
+    except (OSError, ValueError):
+        return False
+
+
+# =============================================================================
 # Connection
 # =============================================================================
 
@@ -224,12 +264,21 @@ class StdioConnection:
 
     -- a dual-role connection passed as ``network`` doubles as the sole source.
 
-    Reads and writes happen on threads, not on the event loop: ``readline`` on
-    a pipe blocks, and so does a write to a pipe whose reader has fallen
-    behind. The reader thread is a daemon and hands every line back through
+    Reads and writes happen on threads, not on the event loop: a read on a
+    pipe blocks, and so does a write to a pipe whose reader has fallen behind.
+    The reader thread is a daemon and hands every line back through
     :meth:`asyncio.loop.call_soon_threadsafe`, so callbacks still run on the
     loop; writes go through a single-threaded executor, which is what makes a
     frame atomic against another frame and keeps them in order.
+
+    **It owns two file descriptors, not two file objects**, and reads them with
+    :func:`os.read` rather than through :data:`sys.stdin`. A daemon thread
+    parked in a buffered ``readline`` holds that buffer's lock, and an
+    interpreter shutting down while it does aborts the process --
+    ``_enter_buffered_busy`` -- which is precisely the shape of a per-task
+    worker: it finishes its task and exits with its reader still waiting on a
+    peer that has nothing more to say. A thread parked in :func:`os.read` holds
+    no such lock and shutdown is clean.
 
     **End of input ends the conversation.** When the peer closes this process's
     stdin no further response can arrive, so every request still in flight
@@ -240,8 +289,8 @@ class StdioConnection:
 
     def __init__(
         self,
-        stdin: IO[bytes] | None = None,
-        stdout: IO[bytes] | None = None,
+        stdin: int | None = None,
+        stdout: int | None = None,
         pid: str | None = None,
         group: str | None = None,
         unicast_address: str | None = None,
@@ -251,12 +300,12 @@ class StdioConnection:
     ) -> None:
         """Wire a connection over ``stdin``/``stdout``.
 
-        ``stdin`` and ``stdout`` are the test seam and the embedding seam at
-        once: pass a pair of pipes and this speaks the protocol over them
-        instead of over the real stdio, which is how the suite exercises it
-        without a subprocess. They default to :data:`sys.stdin` and
-        :data:`sys.stdout`'s binary buffers, resolved at :meth:`start` so a
-        program is free to rebind either beforehand.
+        ``stdin`` and ``stdout`` are **file descriptors** -- the test seam and
+        the embedding seam at once: hand it a pair from :func:`os.pipe` and it
+        speaks the protocol over those instead of over the real stdio, which is
+        how the suite exercises it without a subprocess. They default to
+        :data:`sys.stdin`'s and :data:`sys.stdout`'s, resolved at :meth:`start`
+        so a program is free to rebind either beforehand.
 
         ``pid`` and ``group`` name this process in the addresses it advertises.
         :class:`~resonate.resonate.Resonate` passes its own.
@@ -289,8 +338,8 @@ class StdioConnection:
         self._request_timeout = request_timeout
         self._on_output = on_output
 
-        self._stdin: IO[bytes] | None = None
-        self._stdout: IO[bytes] | None = None
+        self._stdin: int | None = None
+        self._stdout: int | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._reader: threading.Thread | None = None
         self._writer: ThreadPoolExecutor | None = None
@@ -330,12 +379,8 @@ class StdioConnection:
             return
 
         self._loop = asyncio.get_running_loop()
-        self._stdin = (
-            self._stdin_arg if self._stdin_arg is not None else sys.stdin.buffer
-        )
-        self._stdout = (
-            self._stdout_arg if self._stdout_arg is not None else sys.stdout.buffer
-        )
+        self._stdin = _fd(self._stdin_arg, sys.stdin, "stdin")
+        self._stdout = _fd(self._stdout_arg, sys.stdout, "stdout")
         self._writer = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="resonate-stdio-write"
         )
@@ -350,13 +395,14 @@ class StdioConnection:
     async def stop(self) -> None:
         """Stop writing and fail everything still in flight.
 
-        The streams themselves are left open. They belong to the process, not
-        to this object, and closing stdout would take the program's own output
-        down with the protocol.
+        The descriptors themselves are left open. They belong to the process,
+        not to this object, and closing stdout would take the program's own
+        output down with the protocol.
 
-        The reader thread is not joined -- it is parked in a blocking
-        ``readline`` that only the peer can end, which is why it is a daemon.
-        It observes ``_stopped`` on its next line and drops it.
+        The reader thread is not joined -- it is parked in a read that only
+        the peer can end, which is why it is a daemon reading a raw descriptor
+        (see the class docstring). It observes ``_stopped`` on its next line
+        and drops it.
         """
         self._stopped = True
         self._fail_pending(RuntimeError("connection has been stopped"))
@@ -449,37 +495,52 @@ class StdioConnection:
             raise ConnectorError(exc) from exc
 
     @staticmethod
-    def _write_blocking(out: IO[bytes], text: str) -> None:
+    def _write_blocking(out: int, text: str) -> None:
         """Write one frame, whole, on the writer thread.
 
-        :data:`sys.stdout` is flushed first when it is the text layer over
-        ``out``: a ``print`` with no newline yet is still sitting in that
-        buffer, and writing past it would put the marker in the middle of the
-        program's line rather than at the head of its own.
-        """
-        text_layer = sys.stdout
-        if getattr(text_layer, "buffer", None) is out:
-            text_layer.flush()
-        out.write(text.encode("utf-8"))
-        out.flush()
+        :data:`sys.stdout` is flushed first when it is the buffered layer over
+        this descriptor: a ``print`` with no newline yet is still sitting in
+        that buffer, and writing past it would put the marker in the middle of
+        the program's line rather than at the head of its own.
 
-    def _read_loop(self, stdin: IO[bytes]) -> None:
+        :func:`os.write` may write short, so it loops. A frame is one write to
+        the peer only in the sense that matters -- nothing else is writing
+        these descriptors between the pieces, because every frame goes through
+        the one writer thread.
+        """
+        if _same_file(sys.stdout, out):
+            sys.stdout.flush()
+        data = text.encode("utf-8")
+        while data:
+            data = data[os.write(out, data) :]
+
+    def _read_loop(self, stdin: int) -> None:
         """Read lines until EOF, on the reader thread.
 
-        Every decision about a line is left to the event loop; this does the
-        blocking read, the decode, and nothing else. A line that is not valid
-        UTF-8 is not dropped but replaced through -- a mangled log line is
-        still worth seeing, and a mangled frame fails its own JSON parse, which
-        is the more precise complaint.
+        Line splitting is done here rather than by a buffered reader, which is
+        what keeps the thread out of the shutdown hazard described on the
+        class. Every *decision* about a line is still left to the event loop;
+        this does the blocking read, the split, the decode, and nothing else.
+
+        A line that is not valid UTF-8 is not dropped but replaced through -- a
+        mangled log line is still worth seeing, and a mangled frame fails its
+        own JSON parse, which is the more precise complaint. A trailing
+        fragment with no newline is discarded at EOF: it is by definition an
+        unterminated frame, and half a request is not one.
         """
+        buffer = b""
         try:
-            for raw in iter(stdin.readline, b""):
-                if self._stopped:
-                    return
-                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-                if not self._on_loop(self._on_line, line):
-                    return
-        except (OSError, ValueError) as exc:
+            while not self._stopped:
+                chunk = os.read(stdin, READ_SIZE)
+                if not chunk:
+                    break
+                buffer += chunk
+                while b"\n" in buffer:
+                    raw, buffer = buffer.split(b"\n", 1)
+                    line = raw.decode("utf-8", errors="replace").rstrip("\r")
+                    if not self._on_loop(self._on_line, line):
+                        return
+        except OSError as exc:
             # stdin closed under us. Indistinguishable from EOF as far as
             # anything waiting on a response is concerned.
             logger.debug("stdio_connection read failed: %s", exc)

@@ -832,6 +832,52 @@ class Resonate:
         )
         return ResonateSchedule(id, self.schedules)
 
+    async def process_task(self, task_id: str, version: int = 0) -> Status:
+        """Run one named task to completion, and say how it ended.
+
+        The same work an ``execute`` push message triggers -- acquire the task,
+        run the function, settle or suspend -- but named outright instead of
+        pushed, and **awaited** instead of spawned. It returns ``"done"`` when
+        the promise settled and ``"suspended"`` when the function unwound to
+        await a child.
+
+        This is what a process that was *started for one task* needs. A worker
+        launched per task learns which one from its environment rather than
+        from a message -- the sandbox workers do exactly this, passing
+        ``RESONATE_TASK_ID`` and ``RESONATE_TASK_VERSION`` -- and has nothing
+        to listen on and no reason to stay up once the task is finished with::
+
+            resonate = Resonate(network=StdioConnection(), sources=[])
+            resonate.register(greet)
+            await resonate.process_task(
+                os.environ["RESONATE_TASK_ID"],
+                int(os.environ["RESONATE_TASK_VERSION"]),
+            )
+            await resonate.stop()
+
+        Knowing *when* to exit is the half that cannot be done from outside:
+        a suspended function has settled nothing, so nothing observable on the
+        promise distinguishes "waiting on a child" from "still working", and a
+        process that lingers past its task holds a slot its own next task will
+        be refused for.
+
+        Runs under the same concurrency ceiling as a pushed ``execute``, so a
+        process that mixes the two -- one task from its environment, more from
+        a source -- holds no more leases than ``max_concurrent_tasks`` allows.
+
+        Failures propagate rather than being reported to the observer, which is
+        the difference from the pushed path: there is a caller here to catch
+        them, and for a one-task process the exit code is the only channel it
+        has left. :class:`~resonate.core.Core` has already released the task by
+        then, so the server redelivers it.
+        """
+        # The permit is taken here rather than through
+        # :meth:`_bounded_execute` because that one discards the status, and
+        # the status is the whole answer. See its docstring for why the
+        # semaphore wraps the acquire rather than only the execution.
+        async with self._runtime.execute_sema:
+            return await self._core.on_message(task_id, version)
+
     async def stop(self) -> None:
         """Tear down background jobs and every connection. Idempotent.
 
