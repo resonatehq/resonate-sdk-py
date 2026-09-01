@@ -23,9 +23,16 @@ Which one you deploy depends on how the host tells the process what to run.
 | | `worker.py` (push) | `sandbox.py` (per task) |
 |---|---|---|
 | Told what to run by | an `execute` message on stdin | `RESONATE_TASK_ID` in its environment |
-| Wiring | `Resonate(network=StdioConnection())` | `Resonate(network=StdioConnection(), sources=[])` |
+| Class | `Resonate` — listens | `Handler` — is told |
+| Wiring | `Resonate(network=StdioConnection())` | `Handler(network=StdioConnection())` |
 | Runs | until stdin closes | one task, then exits |
-| Entry point | `await stdio.wait_closed()` | `await resonate.process_task(task_id, version)` |
+| Entry point | `await stdio.wait_closed()` | `await handler.run_from_env()` |
+
+`Resonate` is a worker: it opens sources, advertises an address, registers
+listeners and refreshes them on a timer. A per-task process does none of that —
+it was told which task it exists for before it started — so `Handler` is that
+job as its own class: a registry, a codec, a dependency map and one network, no
+loop and no `run`/`rpc`. See `resonate/handler.py`.
 
 The Tensorlake worker uses the second shape. **`--mode sandbox` is that
 contract in miniature** — the host below is a stand-in, but what it holds the
@@ -44,35 +51,37 @@ code does, through the tunnel.
 `sandbox.py` is the template. The parts that matter:
 
 ```python
-resonate = Resonate(network=StdioConnection(), sources=[], group="sandbox")
-resonate.register(greet)
-status = await resonate.process_task(
-    os.environ["RESONATE_TASK_ID"],
-    int(os.environ["RESONATE_TASK_VERSION"]),
-)
-await resonate.stop()
+handler = Handler(network=StdioConnection(), group="sandbox")
+
+@handler.register
+async def greet(ctx, name: str) -> str:
+    return f"hello, {name}!"
+
+async def main() -> None:
+    status = await handler.run_from_env()   # RESONATE_TASK_ID, RESONATE_TASK_VERSION
 ```
 
 Four rules, each of which the worker will otherwise hold you to:
 
-* **Exit when `process_task` returns.** It returns `"done"` when the promise
+* **Exit when `run_from_env` returns.** It returns `"done"` when the promise
   settled and `"suspended"` when the function unwound to await a child. Both
-  mean *this* process is finished. A process that lingers is still holding the
-  tunnel when the resumption arrives, and the worker refuses to start a second
-  process for a promise already running — so the promise stalls until the lease
-  lapses.
+  mean *this* process is finished, and the difference is not recoverable from
+  outside — a suspended function has settled nothing, so the promise reads
+  `pending` either way. A process that lingers is still holding the tunnel when
+  the resumption arrives, and the worker refuses to start a second process for a
+  promise already running, so the promise stalls until the lease lapses.
 * **Application output goes to stderr.** stdout is the protocol channel. The
   marker means a stray `print` cannot be mistaken for a frame — the worker logs
   unframed lines as sandbox output — but keeping the channel clean keeps the
   logs readable.
-* **`sources=[]`.** Nothing pushes work here, so this process advertises no
-  address. Children dispatched with `ctx.rpc` resolve through
-  `resolve_target` instead — by default the server's own `poll://` groups, so an
-  ordinary worker picks them up. Pass `Resonate(resolve_target=...)` to send
-  them elsewhere, a sandbox of their own included.
+* **`group` is not something you listen on.** Nothing is listening. It is the
+  target a child inherits when `ctx.rpc` names none, resolved through
+  `resolve_target` — by default the server's own `poll://` groups, so an
+  ordinary worker picks it up. Pass `Handler(resolve_target=...)` to send
+  children elsewhere, a sandbox of their own included.
 * **No credentials.** Deliberately: the whole point is that the sandbox cannot
-  reach anything. Leave `RESONATE_URL` unset — it would select an
-  `HttpConnection` if you passed neither `url` nor `network`.
+  reach anything. `Handler` takes a `network` and has no `url` shorthand, so
+  there is no ambient configuration for it to pick a connection out of.
 
 ### 2. The image
 
