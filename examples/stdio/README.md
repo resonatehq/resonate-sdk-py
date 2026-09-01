@@ -34,6 +34,34 @@ it was told which task it exists for before it started — so `Handler` is that
 job as its own class: a registry, a codec, a dependency map and one network, no
 loop and no `run`/`rpc`. See `resonate/handler.py`.
 
+A handler takes work either way round:
+
+| The task is | Entry point | Who holds the lease |
+|---|---|---|
+| unclaimed | `await handler.run(task_id, version)` | the handler — it acquires under its own pid |
+| already claimed | `await handler.run_acquired(acquired)` | whoever acquired it |
+
+`run_acquired` is for a worker that claims a task *before* deciding what will
+run it — it saves the round trip, and closes the window in which a task is
+dispatched but not yet held. A claim that arrives as JSON becomes one with
+`parse_task_acquire`:
+
+```python
+from resonate.send import parse_task_acquire
+
+await handler.run_acquired(parse_task_acquire(json.loads(blob)))
+```
+
+Whichever process runs it must be the one beating its lease: `task.heartbeat`
+renews only the tasks held by the pid that sends it. So either build the
+handler with the claimer's pid (`Handler(pid=...)`), or leave the beating to
+the claimer (`Handler(heartbeat=NoopHeartbeat())`). A mismatch is warned about,
+not refused — from inside the handler the two arrangements look the same.
+
+The Tensorlake worker deliberately does *not* pre-claim: it never calls
+`task.acquire` and never settles anything, so `sandbox.py` uses `run_from_env`
+and acquires for itself.
+
 The Tensorlake worker uses the second shape. **`--mode sandbox` is that
 contract in miniature** — the host below is a stand-in, but what it holds the
 process to is the real thing, so the deployed shape is exercised rather than

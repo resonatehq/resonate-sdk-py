@@ -421,38 +421,15 @@ class Sender:
         )
 
     def _decode_lenient[T](self, raw: list[Any], type_: type[T], what: str) -> list[T]:
-        """Decode each record, reporting -- not raising on -- the ones that fail.
-
-        One malformed record in a multi-record response must not sink the whole
-        page: the server may know about a promise shape this SDK version does
-        not. Each skip emits a :class:`~resonate.observability.Dropped` event so
-        the behaviour is assertable.
-        """
-        out: list[T] = []
-        for item in raw:
-            try:
-                out.append(
-                    msgspec.convert(
-                        _normalize_record(item), type=type_, dec_hook=dec_hook
-                    )
-                )
-            except (TypeError, ValueError, msgspec.MsgspecError) as exc:
-                self._observer(Dropped(what=what, id=_id_of(item), cause=str(exc)))
-        return out
+        """Decode each record, reporting -- not raising on -- the ones that fail."""
+        return _decode_lenient_records(raw, type_, what, self._observer)
 
     def _parse_preloaded(self, data: Any) -> list[PromiseRecord]:
         page = _decode_or_raise(data, _PreloadPage, "preload")
         return self._decode_lenient(page.preload, PromiseRecord, "preload-record")
 
     def _parse_task_acquire(self, data: Any) -> TaskAcquireResult:
-        parsed = _decode_or_raise(data, _TaskAcquirePage, "task.acquire response")
-        return TaskAcquireResult(
-            task=parsed.task,
-            promise=parsed.promise,
-            preload=self._decode_lenient(
-                parsed.preload, PromiseRecord, "preload-record"
-            ),
-        )
+        return parse_task_acquire(data, self._observer)
 
     def _parse_task_fence(self, data: Any) -> TaskFenceResult:
         parsed = _decode_or_raise(data, _TaskFencePage, "task.fence response")
@@ -663,6 +640,56 @@ def _decode_or_raise[T](raw: Any, type_: type[T], what: str) -> T:
 def parse_promise(data: Any) -> PromiseRecord:
     """Parse a promise record from a server response's data portion."""
     return _decode_or_raise(data, _PromisePage, "promise record").promise
+
+
+def parse_task_acquire(
+    data: Any, observer: Observer = logging_observer
+) -> TaskAcquireResult:
+    """Parse a ``task.acquire`` response's data portion into a claim.
+
+    Public, and for one reason: a task can be acquired by something that is not
+    the process that will run it. A worker that claims a task and hands it to a
+    sandbox, a thread or another service passes on what the server said, which
+    arrives at the far end as JSON and has to become a
+    :class:`TaskAcquireResult` before
+    :meth:`~resonate.core.Core.on_acquired` will take it.
+
+    ``data`` is the ``data`` object of the response envelope -- ``task``,
+    ``promise`` and ``preload`` -- already parsed from JSON. A malformed
+    response raises :class:`~resonate.error.DecodingError`; a malformed
+    *preload record* does not, and is reported to ``observer`` instead, on the
+    same reasoning as everywhere else: the server may know a promise shape this
+    SDK version does not, and one such record must not sink the page.
+    """
+    parsed = _decode_or_raise(data, _TaskAcquirePage, "task.acquire response")
+    return TaskAcquireResult(
+        task=parsed.task,
+        promise=parsed.promise,
+        preload=_decode_lenient_records(
+            parsed.preload, PromiseRecord, "preload-record", observer
+        ),
+    )
+
+
+def _decode_lenient_records[T](
+    raw: list[Any], type_: type[T], what: str, observer: Observer
+) -> list[T]:
+    """Decode each record, reporting -- not raising on -- the ones that fail.
+
+    One malformed record in a multi-record response must not sink the whole
+    page: the server may know about a promise shape this SDK version does not.
+    Each skip emits a :class:`~resonate.observability.Dropped` event so the
+    behaviour is assertable.
+    """
+    out: list[T] = []
+    for item in raw:
+        try:
+            out.append(
+                msgspec.convert(_normalize_record(item), type=type_, dec_hook=dec_hook)
+            )
+        except (TypeError, ValueError, msgspec.MsgspecError) as exc:
+            observer(Dropped(what=what, id=_id_of(item), cause=str(exc)))
+    return out
 
 
 def _parse_schedule(data: Any) -> ScheduleRecord:

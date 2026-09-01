@@ -64,12 +64,12 @@ from resonate.resonate import (
     default_resolve_target,
 )
 from resonate.retry import Exponential
-from resonate.send import Sender
+from resonate.send import Sender, TaskAcquireResult
 from resonate.timing import now_ms, sleep
 from resonate.transport import Transport
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Coroutine, Mapping
     from datetime import timedelta
 
     from resonate_base.connections import Network
@@ -265,33 +265,46 @@ class Handler:
         return fn
 
     async def run(self, task_id: str, version: int = 0) -> Status:
-        """Acquire, run and settle one task, then tear the network down.
+        """Claim one task by name, run it, then tear the network down.
+
+        For a task nobody holds yet: this acquires it under the handler's own
+        ``pid`` first. Hand in a task someone else already claimed with
+        :meth:`run_acquired` instead -- acquiring a second time is not a no-op,
+        it is a second claim on a lease that is already out.
 
         Returns ``"done"`` (the promise settled) or ``"suspended"`` (the
         function unwound to await a child). Either way this process is
         finished: exit.
-
-        The network's whole lifetime is this call -- started before the
-        ``task.acquire`` and stopped in a ``finally``, so a handler that raises
-        still leaves nothing open. That also makes it one-shot against a
-        connection that cannot be restarted, which
-        :class:`~resonate.connections.StdioConnection` deliberately is: the
-        process's stdio is opened once.
-
-        Failures propagate. :class:`~resonate.core.Core` has already released
-        the task by then, so the server redelivers it; what is left for the
-        caller is the exit code, which for a per-task process is the only
-        channel it has to say the run went badly.
         """
-        await self._network.start()
-        try:
-            return await self._core.on_message(task_id, version)
-        finally:
-            self._heartbeat.shutdown()
-            # The task is over either way; a network that will not close
-            # cleanly must not turn a settled promise into a raised handler.
-            with contextlib.suppress(ResonateError):
-                await self._network.stop()
+        return await self._drive(self._core.on_message(task_id, version))
+
+    async def run_acquired(self, acquired: TaskAcquireResult) -> Status:
+        """Run a task whose lease someone else already took.
+
+        The claim carries everything the acquire would have returned -- the
+        task record, the root promise, the preloaded siblings -- so this skips
+        straight to executing it. Use it when the thing that decided this
+        process should run the task also claimed it: a worker handing work to a
+        sandbox it starts, a dispatcher farming claims to a pool. It saves a
+        round trip, and more importantly it closes the window in which a task
+        is dispatched but not yet held.
+
+        A claim that arrives as JSON -- over a tunnel, in an environment
+        variable, in a request body -- becomes one of these through
+        :func:`~resonate.send.parse_task_acquire`::
+
+            await handler.run_acquired(parse_task_acquire(json.loads(blob)))
+
+        **Run under the claimer's pid, or do not beat the lease at all.**
+        ``task.heartbeat`` renews only the tasks held by the pid that sends it,
+        so a handler with a pid of its own renews nothing here and the task is
+        redelivered mid-run. Either ``Handler(pid=<the claimer's pid>)``, or
+        ``Handler(heartbeat=NoopHeartbeat())`` and let the claimer keep beating
+        it. A mismatch is warned about rather than refused -- it is only wrong
+        when nothing else is beating, which this cannot see.
+        """
+        self._warn_if_the_lease_is_not_ours(acquired)
+        return await self._drive(self._core.on_acquired(acquired))
 
     async def run_from_env(self) -> Status:
         """Run the task this process was started for, named by its environment.
@@ -318,6 +331,61 @@ class Handler:
         return await self.run(task_id, version)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    async def _drive(self, coro: Coroutine[Any, Any, Status]) -> Status:
+        """Run one task with the network open around exactly that.
+
+        The network's whole lifetime is this call -- started before anything is
+        sent and stopped in a ``finally``, so a handler that raises still
+        leaves nothing open. That also makes it one-shot against a connection
+        that cannot be restarted, which
+        :class:`~resonate.connections.StdioConnection` deliberately is: the
+        process's stdio is opened once.
+
+        Failures propagate. :class:`~resonate.core.Core` has already released
+        the task by then, so the server redelivers it; what is left for the
+        caller is the exit code, which for a per-task process is the only
+        channel it has to say the run went badly.
+        """
+        try:
+            await self._network.start()
+        except BaseException:
+            # Nothing will await it now, and an un-awaited coroutine is a
+            # warning on a path that already has a real error to report.
+            coro.close()
+            raise
+        try:
+            return await coro
+        finally:
+            self._heartbeat.shutdown()
+            # The task is over either way; a network that will not close
+            # cleanly must not turn a settled promise into a raised handler.
+            with contextlib.suppress(ResonateError):
+                await self._network.stop()
+
+    def _warn_if_the_lease_is_not_ours(self, acquired: TaskAcquireResult) -> None:
+        """Warn when this handler's heartbeat cannot renew the claim it was handed.
+
+        Not an error: the claimer beating its own lease is a legitimate
+        arrangement, and from here the two are indistinguishable. What is worth
+        refusing to do silently is beating under a pid the server will ignore.
+        """
+        pid = acquired.task.pid
+        if (
+            pid is None
+            or pid == self._pid
+            or isinstance(self._heartbeat, NoopHeartbeat)
+        ):
+            return
+        logger.warning(
+            "handler: task %s is leased to pid %s but this handler beats under "
+            "%s, which renews nothing -- construct it with pid=%s, or with "
+            "heartbeat=NoopHeartbeat() if the claimer is beating the lease",
+            acquired.task.id,
+            pid,
+            self._pid,
+            pid,
+        )
 
     def _resolve_target(self, target: str | None) -> str:
         """Resolve a child's routing target to a delivery address.

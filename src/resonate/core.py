@@ -34,7 +34,12 @@ from resonate.ids import origin_of
 from resonate.observability import Observer, logging_observer
 from resonate.registry import Registry
 from resonate.retry import Never, RetryPolicy
-from resonate.send import PromiseFencing, Redirect, TaskLifecycle
+from resonate.send import (
+    PromiseFencing,
+    Redirect,
+    TaskAcquireResult,
+    TaskLifecycle,
+)
 from resonate.timing import Clock, Sleeper, now_ms, sleep
 from resonate.tree import Tree
 from resonate.types import (
@@ -137,26 +142,47 @@ class Core(msgspec.Struct, kw_only=True):
     async def on_message(self, task_id: str, version: int) -> Status:
         """Handle an execute push message.
 
-        Acquires the task, decodes the root promise, and runs
-        :meth:`execute_until_blocked_outer`.
+        Acquires the task under this core's ``pid``, then hands the claim to
+        :meth:`on_acquired`. The acquire is the *only* thing this adds -- and
+        the only place ``pid`` is used -- which is what lets a task acquired
+        somewhere else enter at :meth:`on_acquired` instead.
         """
         res = await self.sender.task_acquire(task_id, version, self.pid, self.ttl)
         logger.debug("core: task acquired task_id=%s", task_id)
+        return await self.on_acquired(res)
 
-        # The lease is now held, but the root-promise decode happens before
+    async def on_acquired(self, acquired: TaskAcquireResult) -> Status:
+        """Run a task whose lease is already held, to completion or suspension.
+
+        The entry point for work this process did not claim: a worker that
+        acquires a task and hands it to whatever will execute it -- another
+        process, a sandbox, a thread -- passes the acquire result here rather
+        than making the executor acquire a task it has already been given.
+        :meth:`on_message` is this method with the acquire in front.
+
+        **The lease belongs to whoever took it.** ``task.acquire`` records the
+        acquiring ``pid``, and ``task.heartbeat`` renews only what matches it,
+        so a claim taken under one pid is not renewed by a heartbeat sent under
+        another. Either run under the claimer's pid or let the claimer keep
+        beating; a heartbeat under a third pid renews nothing and the task is
+        redelivered mid-run.
+        """
+        task_id = acquired.task.id
+
+        # The lease is held by now, but the root-promise decode happens before
         # execute_until_blocked_outer's release boundary -- a corrupt promise
         # (Base64DecodeError / SerializationError) would otherwise leak the
         # lease until TTL expiry. Release immediately so re-delivery retries at
         # once, mirroring the symmetric TaskData decode inside the inner loop.
         try:
-            promise = self.codec.decode_promise(res.promise)
+            promise = self.codec.decode_promise(acquired.promise)
         except ResonateError:
             logger.exception(
                 "core: failed to decode root promise, releasing task task_id=%s",
                 task_id,
             )
             try:
-                await self.sender.task_release(task_id, res.task.version)
+                await self.sender.task_release(task_id, acquired.task.version)
             except ResonateError:
                 logger.exception(
                     "core: failed to release task after decode error task_id=%s",
@@ -165,7 +191,7 @@ class Core(msgspec.Struct, kw_only=True):
             raise
 
         return await self.execute_until_blocked_outer(
-            task_id, res.task.version, promise, res.preload
+            task_id, acquired.task.version, promise, acquired.preload
         )
 
     # ═══════════════════════════════════════════════════════════════
